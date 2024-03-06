@@ -1,0 +1,572 @@
+# Copyright 2024 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Definitions of built-in functions and utilities for tool use.
+
+A tool can be an arbitrary function that we want to expose to the LLM so that
+it can call it.
+"""
+
+import ast
+from collections.abc import Callable, Mapping
+import dataclasses
+import enum
+import itertools
+import json
+from typing import Any, Generic, TypeAlias, TypeVar
+
+from onetwo.builtins import tool_use
+from onetwo.core import constants
+from onetwo.core import routing
+from onetwo.core import tracing
+import yaml
+
+
+@enum.unique
+class ArgumentFormat(enum.Enum):
+  """Format for specifying the arguments of a tool invocation."""
+  # Single line python format.
+  # E.g.
+  # `FlightSearch(origin="ZRH", destination="NRT")`
+  # or
+  # FlightSearch(origin="ZRH", destination="NRT")
+  PYTHON = 'python_args_syntax'
+
+  # YAML format.
+  # E.g.
+  # ```yaml
+  # FlightSearch:
+  #   origin: ZRH
+  #   destination: NRT
+  # ```
+  YAML = 'yaml_args_syntax'
+
+  # YAML format suitable for code values.
+  # E.g.
+  # ```yaml
+  # Python:
+  #   code: |
+  #     def fn():
+  #       return 0
+  # ```
+  YAML_CODE = 'yaml_code_args_syntax'
+
+  # JSON format.
+  # E.g.
+  # ```json
+  # {
+  #   "FlightSearch": {
+  #   "origin": "ZRH",
+  #   "destination": "NRT"
+  #   }
+  # }
+  # ```
+  JSON = 'json_args_syntax'
+
+  # Single-line JSON format.
+  # E.g.
+  # `{ "FlightSearch": { "origin": "ZRH", "destination": "NRT" } }`
+  # or
+  # { "FlightSearch": { "origin": "ZRH", "destination": "NRT" } }
+  JSON_SINGLE = 'json_single_args_syntax'
+
+# Special field name for arguments to a function that are not named but
+# provided positionally.
+VAR_POS = '_VAR_POS'
+
+
+def _render_call_content(
+    fmt: ArgumentFormat | None, function_name: str, *args, **kwargs
+) -> str:
+  """Renders the call of a function in the desired format."""
+  if fmt == ArgumentFormat.YAML:
+    if args:
+      kwargs[VAR_POS] = list(args)
+    return yaml.dump({function_name: kwargs})
+  elif fmt == ArgumentFormat.YAML_CODE:
+    if args:
+      kwargs[VAR_POS] = list(args)
+    # We override the default representer for strings so that strings
+    # that span multiple lines are rendered over multiple lines.
+    # This means the LLM sees the newlines as actual newline tokens instead
+    # of \n or such.
+    def default_representer(dumper, data):
+      return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+    def multiline_representer(dumper, data):
+      if '\n' in data:
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+      else:
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+    yaml.add_representer(str, multiline_representer)
+    result = yaml.dump({function_name: kwargs})
+    yaml.add_representer(str, default_representer)
+    return result
+  elif fmt in [ArgumentFormat.JSON, ArgumentFormat.JSON_SINGLE]:
+    if args:
+      kwargs[VAR_POS] = list(args)
+    if fmt == ArgumentFormat.JSON_SINGLE:
+      return json.dumps({function_name: kwargs})
+    else:
+      return json.dumps({function_name: kwargs}, indent=2)
+  else:
+    # By default we use the Python format.
+    rendered_args = ', '.join(
+        itertools.chain(
+            (repr(v) for v in args),
+            (f'{k}={repr(v)}' for k, v in kwargs.items()),
+        )
+    )
+    return f'{function_name}({rendered_args})'
+
+
+def _render_response_content(
+    fmt: ArgumentFormat | None, value: Any
+) -> str:
+  """Renders the call of a function in the desired format."""
+  if fmt == ArgumentFormat.YAML:
+    return yaml.dump(value)
+  elif fmt == ArgumentFormat.YAML_CODE:
+    return yaml.dump(value, default_style='|')
+  elif fmt in [ArgumentFormat.JSON, ArgumentFormat.JSON_SINGLE]:
+    if fmt == ArgumentFormat.JSON_SINGLE:
+      return json.dumps(value)
+    else:
+      return json.dumps(value, indent=2)
+  else:
+    # By default we use the raw repr of the value.
+    return repr(value)
+
+
+def _parse_assign_targets(targets: list[ast.Expr], text: str) -> None:
+  """Returns assign variables (targets) of python expression."""
+  assign_targets = []
+  if len(targets) != 1:
+    raise ValueError(
+        f'Assign targets in {text} should be a single object (Name or'
+        f' Tuple). Is: {targets}'
+    )
+  if isinstance(targets[0], ast.Name):
+    assign_targets.append(targets[0].id)
+  elif isinstance(targets[0], ast.Tuple):
+    for target in targets[0].elts:
+      if not isinstance(target, ast.Name):
+        raise ValueError(
+            f'Assign target Tuple of {text} should consist of Name objects.'
+            f' Does not hold for {ast.dump(target)}'
+        )
+      assign_targets.append(target.id)
+  else:
+    raise ValueError(
+        f'Assign targets in {text} should be either a Name or Tuple.'
+        f' Is: {targets[0]}'
+    )
+  return assign_targets
+
+
+def _parse_call_content(
+    fmt: ArgumentFormat, text: str, context_vars: Mapping[str, Any]
+) -> tuple[list[str], str, tuple[Any, ...], dict[str, Any]]:
+  """Parses a function call in the desired format."""
+  if fmt == ArgumentFormat.PYTHON:
+    try:
+      parse_tree = ast.parse(text)
+    except SyntaxError as e:
+      raise ValueError(f'Invalid syntax for call: {text}') from e
+    if len(parse_tree.body) != 1:
+      raise ValueError(
+          'Python function call should be parsed into a single object (expected'
+          f' length 1, but was {len(parse_tree.body)}): {text}'
+      )
+
+    # Extract assign_targets.
+    if isinstance(parse_tree.body[0], ast.Assign):
+      assign_targets = _parse_assign_targets(parse_tree.body[0].targets, text)
+    elif isinstance(parse_tree.body[0], ast.Expr):
+      assign_targets = []
+    else:
+      raise ValueError(
+          'Expected Python function call to be parsed as type `ast.Expr`, or '
+          f'as `ast.Assign`, instead was {type(parse_tree.body[0])}: {text}'
+      )
+
+    # Process the call_node from here.
+    call_node = parse_tree.body[0].value
+    if not isinstance(call_node, ast.Call):
+      raise ValueError(
+          'Expected Python function call to be parsed as type `ast.Call`, but'
+          f' instead was {type(call_node)}: {text}'
+      )
+    args = tuple()
+    for arg in call_node.args:
+      # If arg is a Name this represents a variable in
+      # context.context_variables.
+      if isinstance(arg, ast.Name):
+        if arg.id not in context_vars:
+          raise ValueError(
+              f'Positional argument {arg.id} of {text} references a variable'
+              ' which does not exist in context variables of the prompt'
+              ' template.')
+        args += (context_vars[arg.id],)
+        continue
+      # Otherwise the arg should be a constant.
+      try:
+        args += (ast.literal_eval(arg),)
+      except ValueError as e:
+        raise ValueError(
+            f'Invalid syntax for positional arguments of {text}, they should be'
+            f' constants, not expressions. Argument: {ast.dump(arg)}'
+        ) from e
+    kwargs = {
+        arg.arg: ast.literal_eval(arg.value) for arg in call_node.keywords
+    }
+    return assign_targets, call_node.func.id, args, kwargs
+  elif fmt in [ArgumentFormat.YAML, ArgumentFormat.YAML_CODE]:
+    # TODO: Figure out how to extend assign statements to YAML.
+    contents = yaml.safe_load(text)
+    fn = list(contents.keys())[0]
+    args = contents[fn].get(VAR_POS, [])
+    contents[fn].pop(VAR_POS, None)
+    return ([], fn, tuple(args), contents[fn])
+  elif fmt in [ArgumentFormat.JSON, ArgumentFormat.JSON_SINGLE]:
+    # TODO: Figure out how to extend assign statements to JSON.
+    contents = json.loads(text)
+    fn = list(contents.keys())[0]
+    args = contents[fn].get(VAR_POS, [])
+    contents[fn].pop(VAR_POS, None)
+    return ([], fn, tuple(args), contents[fn])
+  else:
+    raise ValueError(f'Unknown format {fmt.value}')
+
+
+def _parse_response_content(
+    fmt: ArgumentFormat, text: str
+) -> Any:
+  """Parses a response in the desired format."""
+  if fmt == ArgumentFormat.PYTHON:
+    try:
+      parse_tree = ast.parse(text)
+    except SyntaxError as e:
+      raise ValueError(f'Invalid syntax for Python args: {text}') from e
+    if len(parse_tree.body) != 1:
+      raise ValueError(
+          'Python function call should be parsed into a single object (expected'
+          f' length 1, but was {len(parse_tree.body)}):'
+          f' {text}'
+      )
+    expr_node = parse_tree.body[0]
+    if not isinstance(expr_node, ast.Expr):
+      raise ValueError(
+          'Expected Python function call to be parsed as type `ast.Expr`, but'
+          f' instead was {type(expr_node)}: {text}'
+      )
+    return ast.literal_eval(expr_node.value)
+  elif fmt in [ArgumentFormat.YAML, ArgumentFormat.YAML_CODE]:
+    return yaml.safe_load(text)
+  elif fmt in [ArgumentFormat.JSON, ArgumentFormat.JSON_SINGLE]:
+    return json.loads(text)
+  else:
+    raise ValueError(f'Unknown format {fmt.value}')
+
+
+def _parse_and_consume(
+    text: str,
+    parsing_function: Callable[..., Any],
+    context_vars: Mapping[str, Any],
+) -> tuple[Any, ArgumentFormat, int]:
+  """Determines the format and parses a function call or response.
+
+  Args:
+    text: The string to be parsed, which is assumed to start with a function
+      call in one of the supported formats.
+    parsing_function: Function that will do the parsing.
+    context_vars: Mutable dictionary inside prompt template context.
+
+  Returns:
+    A tuple (parsed_value, format, index).
+    The format is determined based on the presence of backticks.
+    The index indicates where in the input string did the parsing stop.
+  """
+  # We assume first that we consumed the whole text, but will update the index
+  # if we end up consuming less that than.
+  index = len(text)
+  stripped = text.lstrip()
+  if stripped.startswith('```'):
+    if stripped.startswith('```yaml'):
+      stripped = stripped[7:].lstrip()
+      fmt = ArgumentFormat.YAML
+    elif stripped.startswith('```json'):
+      stripped = stripped[7:].lstrip()
+      fmt = ArgumentFormat.JSON
+    else:
+      stripped = stripped[3:].lstrip()
+      fmt = ArgumentFormat.JSON
+    expected_end = '```'
+  elif stripped.startswith('`'):
+    # Move past the backtick.
+    stripped = stripped[1:]
+    if stripped.startswith('{'):
+      fmt = ArgumentFormat.JSON_SINGLE
+    else:
+      fmt = ArgumentFormat.PYTHON
+    expected_end = '`'
+  else:
+    # By default, we try and use the PYTHON format, assuming the end point is
+    # a newline.
+    fmt = ArgumentFormat.PYTHON
+    expected_end = '\n'
+
+  # We check whether there is an end triple backtick.
+  end = stripped.find(expected_end)
+  if end > 0:
+    inside = stripped.split(expected_end)[0]
+    # We update the index (shifting it by what has potentially been removed
+    # from the original text).
+    index = end + index - len(stripped)
+    # Shifting the index past the expected end string.
+    index += len(expected_end)
+  else:
+    inside = stripped
+
+  return parsing_function(fmt, inside, context_vars), fmt, index
+
+
+def parse_and_consume_call(
+    text: str,
+    context_vars: Mapping[str, Any],
+) -> tuple[list[str], str, tuple[Any, ...], dict[str, Any], ArgumentFormat, int]:  # pylint: disable=line-too-long
+  """Determines the format and parses a function call.
+
+  Args:
+    text: Text to be parsed.
+    context_vars: Mutable dictionary inside prompt template context.
+
+  Returns:
+    A tuple consisting of:
+      - the assignment targets of the function call
+      - the name of the function being called
+      - the list of positional arguments
+      - a dict of keyword arguments
+      - the format that has been inferred
+      - an index of where in the text the call ends
+  """
+  (targets, fn, args, kwargs), fmt, index = _parse_and_consume(
+      text, _parse_call_content, context_vars
+  )
+  return targets, fn, args, kwargs, fmt, index
+
+
+def _render(fmt: ArgumentFormat | None, contents: str) -> str:
+  """Renders a string in the desired format with backticks delimiters.
+
+  Args:
+    fmt: Format to use.
+    contents: The contents to be wrapped in appropriate delimiters.
+
+  Returns:
+    The wrapped text.
+  """
+  if fmt in [ArgumentFormat.PYTHON, ArgumentFormat.JSON_SINGLE]:
+    return f'`{contents}`'
+  elif fmt in [ArgumentFormat.YAML, ArgumentFormat.YAML_CODE]:
+    return f'```yaml\n{contents}\n```'
+  elif fmt == ArgumentFormat.JSON:
+    return f'```json\n{contents}\n```'
+  else:
+    # By default we use the Python format without backticks.
+    return f'{contents}'
+
+
+def render_call(
+    fmt: ArgumentFormat | None, function_name: str, *args, **kwargs
+) -> str:
+  """Renders a function call in the desired format with backticks delimiters."""
+  contents = _render_call_content(fmt, function_name, *args, **kwargs)
+  return _render(fmt, contents)
+
+
+def render_response(
+    fmt: ArgumentFormat | None, value: Any
+) -> str:
+  """Renders a response in the desired format with backticks delimiters."""
+  contents = _render_response_content(fmt, value)
+  return _render(fmt, contents)
+
+
+def render_assignment_response(
+    targets: list[str], value: Any, name: str  # pylint: disable=unused-argument
+) -> str:
+  """Renders response when output is assigned to variables in context."""
+  return (
+      f'I stored the output of {name} in the following variables:'
+      f' {", ".join(targets)}.'
+  )
+
+
+@dataclasses.dataclass
+class FunctionCall:
+  """A single function call (e.g., as may appear in one step of tool usage).
+
+  Attributes:
+    function_name: The name of the function to be called. Should match the name
+      of a function that is registered in `onetwo.function_registry` (or when
+      using a `ToolHandler`, the name of a tool as per its `ToolSpec`).
+    args: The arguments of the function.
+    kwargs: The keyword arguments of the function.
+  """
+  function_name: str = ''
+  args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
+  kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+  def render(self, fmt: ArgumentFormat) -> str:
+    return render_call(fmt, self.function_name, *self.args, **self.kwargs)
+
+
+@dataclasses.dataclass(frozen=True)
+class ToolExample:
+  """Data structure to represent an example call to a tool.
+
+  Attributes:
+    function_call: The tool call.
+    response: Expected response from the tool.
+    rendering_format: Format to use to render the example.
+  """
+  function_call: FunctionCall = dataclasses.field(default_factory=FunctionCall)
+  response: Any = None
+  rendering_format: ArgumentFormat | None = None
+
+  def render(self) -> str:
+    rendered_call = self.function_call.render(self.rendering_format)
+    rendered_response = render_response(self.rendering_format, self.response)
+    return f'{rendered_call}\nwill return: {rendered_response}'
+
+
+@dataclasses.dataclass
+class ToolSpec:
+  """Information about a tool.
+
+  Attributes:
+    name: Name used by the LLM to call the tool.
+    name_in_registry: The name of the function in the function_registry that
+      will be called upon executing this tool.
+    description: String containing a human-readable description of the tool.
+    example: String containing a human-readable example of the tool usage.
+    color: Optional color name for printing the output from this tool.
+  """
+
+  name: str
+  name_in_registry: str = ''
+  description: str | None = None
+  example: str | ToolExample | None = None
+  color: str | None = None
+
+  @property
+  def example_str(self) -> str:
+    """Returns the example formatted appropriately for insertion in a prompt."""
+    if isinstance(self.example, str):
+      return self.example
+    elif isinstance(self.example, ToolExample):
+      return self.example.render()
+    else:
+      return repr(self.example)
+
+
+_ToolSpec = TypeVar('_ToolSpec', bound=ToolSpec)
+
+
+# TODO: Extend `caching.CacheEnabled` and configure caching behavior
+# in the `ToolSpec`. Make sure that caching works robustly with stateful tools.
+@dataclasses.dataclass
+class GenericToolHandler(Generic[_ToolSpec]):
+  """Registry of tools that can be invoked by an LLM in a tool use strategy.
+
+  Attributes:
+    tools: Names (aliases) of the registered tools and their parameters.
+  """
+
+  # TODO: Store tool objects here, in addition to the tool functions.
+  # (This will be needed for maintaing the state of stateful tools, particularly
+  # in the case where the same tool object has multiple different tool methods.)
+  _tools: dict[str, _ToolSpec] = dataclasses.field(default_factory=dict)
+
+  @property
+  def tools(self) -> Mapping[str, _ToolSpec]:
+    return self._tools
+
+  def register(self) -> None:
+    """Add the relevant methods to the registry."""
+    tool_use.run_tool.configure(self.run_tool)
+
+  def register_tool(self, tool: _ToolSpec):
+    """Registers a tool and makes it available for invocation by the LLM.
+
+    Args:
+      tool: Spec of the tool to be registered. Its `name_in_registry` should
+        match the name of an actual entry in `routing.function_registry`.
+        Ownership of the spec object is transferred to the `ToolHandler`.
+    """
+    if not tool.name_in_registry:
+      tool.name_in_registry = tool.name
+    if tool.name_in_registry not in routing.function_registry:
+      raise ValueError(
+          f'Function {tool.name_in_registry} is not registered in the'
+          f' function_registry ({routing.function_registry=}).'
+      )
+    self._tools[tool.name] = tool
+
+  @tracing.trace(name='run_tool')
+  async def run_tool(
+      self,
+      tool_name: str,
+      tool_args: tuple[Any, ...],
+      tool_kwargs: dict[str, Any],
+  ) -> Any:
+    """Runs the specified tool and returns the result.
+
+    Can be configured as an implementation of the `run_tool` builtin.
+
+    Args:
+      tool_name: The name of the tool to run. Should map the `name` of one of
+        the `ToolSpecs` managed by this tool handler.
+      tool_args: Position args to pass to the tool function.
+      tool_kwargs: Keyword args to pass to the tool function.
+
+    Returns:
+      The return value of the tool function.
+    """
+    if tool_name == constants.ERROR_STRING:
+      # ERROR_STRING as the tool_name is a special case, where we are expected
+      # to simply echo the error message stored in the tool argument.
+      return await tool_use.default_run_tool(tool_name, tool_args, tool_kwargs)
+
+    try:
+      tool_name_in_registry = tool_name
+      if tool_name in self.tools:
+        tool_name_in_registry = self.tools[tool_name].name_in_registry
+
+      # TODO: When using stateful tools, this is where we would need
+      # to fetch the appropriate instance of the tool based on the current world
+      # state. After the tool call, we would then need to update both the world
+      # state and the state of the given tool instance.
+
+      # By default, we simply call the corresponding function in the function
+      # registry.
+      return await tool_use.default_run_tool(
+          tool_name=tool_name_in_registry,
+          tool_args=tool_args,
+          tool_kwargs=tool_kwargs,
+      )
+    except ValueError as e:
+      return f'{constants.ERROR_STRING}: {e}'
+
+ToolHandler: TypeAlias = GenericToolHandler[ToolSpec]

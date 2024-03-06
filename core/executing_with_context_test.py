@@ -1,0 +1,230 @@
+# Copyright 2024 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+import dataclasses
+
+from absl.testing import absltest
+from absl.testing import parameterized
+from onetwo.core import executing
+from onetwo.core import executing_with_context
+from onetwo.core import updating
+from typing_extensions import override
+
+
+def _collect_stream(
+    executable: executing.Executable,
+    depth: int = 1,
+) -> list[str]:
+  res = []
+  with executing.safe_stream(executable, iteration_depth=depth) as stream:
+    updates = updating.Update[str]()
+    for update in stream:
+      updates += update
+      result = updates.to_result()
+      assert isinstance(result, str) or isinstance(result, list)
+      res.append(result)
+  return res
+
+
+@dataclasses.dataclass
+class TestContext:
+  content: str = dataclasses.field(default_factory=str)
+
+
+@dataclasses.dataclass
+class TestExecutableWithContext(
+    executing_with_context.ExecutableWithContext[TestContext, str]
+):
+  content: str = dataclasses.field(default_factory=str)
+
+  @override
+  def initialize_context(self, *args, **kwargs) -> TestContext:
+    return TestContext(*args)
+
+  @classmethod
+  @override
+  def wrap(cls, other: str) -> TestExecutableWithContext:
+    return TestExecutableWithContext(content=other)
+
+  @classmethod
+  @override
+  def get_result(cls, context: TestContext) -> str:
+    return context.content
+
+  @override
+  @executing.make_executable
+  async def execute(
+      self,
+      context: TestContext,
+  ) -> str:
+    # Add the content of this node to the context.
+    context.content += self.content
+    # Return the content between quotes.
+    return f'"{self.content}"'
+
+
+@dataclasses.dataclass
+class TestSerialContext:
+  content: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class TestSerialExecutableWithContext(
+    executing_with_context.SerialExecutableWithContext[
+        TestSerialContext, list[str]
+    ]
+):
+
+  @override
+  @classmethod
+  def empty_result(cls) -> list[str]:
+    return []
+
+  @override
+  def initialize_context(self, *args, **kwargs) -> TestSerialContext:
+    return TestSerialContext(list(*args))
+
+  @classmethod
+  @override
+  def wrap(cls, other: str) -> TestSingleStepSerialExecutableWithContext:
+    return TestSingleStepSerialExecutableWithContext(content=other)
+
+  @classmethod
+  @override
+  def get_result(cls, context: TestSerialContext) -> str:
+    return ''.join(context.content)
+
+
+@dataclasses.dataclass
+class TestSingleStepSerialExecutableWithContext(
+    TestSerialExecutableWithContext
+):
+  content: str = dataclasses.field(default_factory=str)
+
+  @override
+  @executing.make_executable
+  def execute(self, context: TestContext) -> list[str]:
+    # Add the content of this node to the context.
+    context.content += self.content
+    # Return the content between quotes.
+    return [f'"{self.content}"']
+
+  @override
+  @executing.make_executable
+  def iterate(
+      self, context: TestContext, iteration_depth: int = 1
+  ) -> list[str]:
+    del iteration_depth
+    # Add the content of this node to the context.
+    context.content += self.content
+    # Return the content between quotes.
+    return [f'"{self.content}"']
+
+
+class ExecutingWithContextTest(parameterized.TestCase):
+
+  def test_execute_simple(self):
+    e = TestExecutableWithContext(content='hello')
+    with self.subTest('run_directly'):
+      res = executing.run(e)
+      self.assertEqual(res, 'hello')
+
+    with self.subTest('result_has_quotes'):
+      res = executing.run(e.execute(TestContext()))
+      self.assertEqual(res, '"hello"')
+
+    with self.subTest('run_with_arguments'):
+      res = executing.run(e('prefix '))
+      self.assertEqual(res, 'prefix hello')
+
+    with self.subTest('run_with_resetting'):
+      res = executing.run(e())
+      self.assertEqual(res, 'hello')
+
+    with self.subTest('stream'):
+      res = _collect_stream(e())
+      self.assertListEqual(res, ['hello'])
+
+    with self.subTest('stream_iterate'):
+      res = _collect_stream(e.iterate(TestContext()))
+      self.assertListEqual(res, ['"hello"'])
+
+  def test_execute_serial(self):
+    e = TestSerialExecutableWithContext()
+    e += 'hello '
+    e += 'world'
+
+    with self.subTest('run_directly'):
+      res = executing.run(e)
+      self.assertEqual(res, 'hello world')
+
+    with self.subTest('result_is_a_list_with_quotes'):
+      res = executing.run(e.execute(TestSerialContext()))
+      self.assertListEqual(res, ['"hello "', '"world"'])
+
+    with self.subTest('stored_result_is_correct_after_run'):
+      _ = executing.run(e)
+      result_field = e._result
+      assert isinstance(result_field, list)
+      self.assertListEqual(result_field, ['"hello "', '"world"'])
+
+    with self.subTest('stored_result_is_correct_after_stream'):
+      _ = _collect_stream(e())
+      self.assertListEqual(e._result, ['"hello "', '"world"'])
+
+    with self.subTest('run_with_arguments'):
+      res = executing.run(e(['prefix ']))
+      self.assertEqual(res, 'prefix hello world')
+
+    with self.subTest('result_with_arguments'):
+      res = executing.run(e.execute(TestSerialContext(['prefix '])))
+      self.assertEqual(res, ['"hello "', '"world"'])
+
+    with self.subTest('run_with_resetting'):
+      res = executing.run(e())
+      self.assertEqual(res, 'hello world')
+
+    with self.subTest('stream_iterate_returns_lists'):
+      res = _collect_stream(e.iterate(TestSerialContext()))
+      self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
+
+  def test_right_addition(self):
+    e = 'hello '
+    e += TestSerialExecutableWithContext()
+    e += 'world'
+
+    with self.subTest('run_directly'):
+      res = executing.run(e)
+      self.assertEqual(res, 'hello world')
+
+    with self.subTest('result_is_a_list_with_quotes'):
+      res = executing.run(e.execute(TestSerialContext()))
+      self.assertListEqual(res, ['"hello "', '"world"'])
+
+    with self.subTest('run_with_arguments'):
+      res = executing.run(e(['prefix ']))
+      self.assertEqual(res, 'prefix hello world')
+
+    with self.subTest('run_with_resetting'):
+      res = executing.run(e())
+      self.assertEqual(res, 'hello world')
+
+    with self.subTest('stream_iterate'):
+      res = _collect_stream(e.iterate(TestSerialContext()))
+      self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
+
+
+if __name__ == '__main__':
+  absltest.main()
