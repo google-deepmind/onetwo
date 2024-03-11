@@ -12,90 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Core interfaces and shared libraries for Python code execution."""
+"""Core interfaces for Python code execution.
+
+For library code prefer `python_execution_utils` instead.
+"""
 
 import abc
-import ast
 from collections.abc import AsyncIterator, Mapping, Sequence
 import contextlib
 import dataclasses
 import datetime
 import enum
-import logging
-import textwrap
 from typing import Any, Callable, Self
 
 from onetwo.core import executing
-
-
-def adjust_code_to_set_final_expression_value(
-    code: str, variable_name: str = 'result', default_value: Any = None,
-) -> str:
-  r"""Returns adjusted code that store the final expression value in a variable.
-
-  Ignores trailing comment lines when determining the "final expression value".
-
-  If the provided code is not valid Python code, then will return the original
-  code unchanged. (Ideally, the caller should perform validation of the code
-  prior to calling this function.)
-
-  Examples (assuming variable_name = 'result'):
-  * 'x = 2\nx + 3' => 'x = 2\nresult = x + 3'.
-  * 'x = 2\ndel x' => 'x = 2\ndel x\nresult = None'.
-  * 'x = 2\n# Comment' => 'result = x = 2\n# Comment'.
-
-  Args:
-    code: String containing the original unadjusted Python code.
-    variable_name: The variable name into which to store the final expression
-      value.
-    default_value: Default value to assign to `variable_name` in the case where
-      the actual final expression value was undefined.
-  """
-  dedented_code = textwrap.dedent(code.rstrip())
-  lines = dedented_code.split('\n')
-
-  # Special case when `code` is empty or consists of only whitespace.
-  if len(lines) == 1 and not lines[0].strip():
-    lines = []
-
-  try:
-    parse_tree = ast.parse(dedented_code)
-  except Exception:  # pylint: disable=broad-exception-caught
-    logging.warning(
-        'Failed to parse Python code:\n```\n%s\n```',
-        dedented_code,
-        exc_info=True,
-    )
-    return code
-
-  result_idx = None
-  if parse_tree and parse_tree.body:
-    # ast.AST.lineno is 1-indexed. We subtract 1 to make it 0-based.
-    last_statement = parse_tree.body[-1]
-    # The only Python statements that are compatible with variable assignment
-    # (as far as we are aware...) are expressions and assignments, e.g.:
-    # * Expression: `2 + 3` ==> `result = 2 + 3`
-    # * Assignment: `y = x + 2` ==> `result = y = x + 2`
-    # Other Python statements that are incompatible with variable assignment
-    # include compound statements (`if`, `while`, `for`, etc.) and various
-    # simple non-expression / non-assignment statements (e.g., `assert`, `del`,
-    # `import`, `raise`, etc.).
-    # For background, see: https://docs.python.org/3/reference/index.html
-    if isinstance(last_statement, ast.Assign) or isinstance(
-        last_statement, ast.Expr
-    ):
-      result_idx = last_statement.lineno - 1
-
-  if result_idx is None:
-    # In this case, since the last statement does not return a value that can be
-    # assigned to the result variable, we just set the result equal to None.
-    lines.append(f'{variable_name} = {default_value}')
-  else:
-    # If the last statement does return a value, then we can simply set the
-    # result variable equal to that.
-    lines[result_idx] = f'{variable_name} = ' + lines[result_idx]
-
-  return '\n'.join(lines)
 
 
 @enum.unique
@@ -143,6 +73,7 @@ class SandboxStatus(enum.Enum):
       determine whether the effect of the attempted call to `run` was reflected
       in the value of the variables in the sandbox.
   """
+
   AFTER_RUNNING_CODE = 'AFTER_RUNNING_CODE'
   BEFORE_RUNNING_CODE = 'BEFORE_RUNNING_CODE'
   CLEAN = 'CLEAN'
@@ -164,6 +95,7 @@ class SandboxResultTiming:
       case where a callback to a hook function was made, the time of the "last
       interaction" will be the time of the last such call.
   """
+
   since_start: datetime.timedelta = datetime.timedelta()
   since_last_interaction: datetime.timedelta = datetime.timedelta()
 
@@ -251,9 +183,10 @@ class PythonSandbox(metaclass=abc.ABCMeta):
     with the sandbox.
     """
 
-  @abc.abstractmethod
   def stop(self, e: Exception | None = None) -> None:
     """Stops the sandbox and any associated threads, queues, etc.
+
+    Override this method if your implementation needs to do any cleanup.
 
     When using the `start` context manager, the `stop` function will be called
     automatically when exiting the context. When starting the sandbox with
@@ -342,7 +275,7 @@ class PythonSandboxFactory(metaclass=abc.ABCMeta):
           hooks={'my_hook': context['my_object'].set_value},
       ).start() as sb:
         sb.run('my_hook(42)')
-        print(context['my_object'].value). # This should print '42'.
+        print(context['my_object'].value)  # This should print '42'.
     ```
 
     Args:
