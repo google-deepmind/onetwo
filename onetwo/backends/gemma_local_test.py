@@ -23,7 +23,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from gemma import sampler as sampler_lib
-from onetwo.backends import gemma
+from onetwo.backends import gemma_local
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import test_utils
@@ -33,10 +33,10 @@ _BATCH_SIZE: Final[int] = 1
 
 
 @contextlib.contextmanager
-def mock_backend(reply: str, **kwargs) -> Iterator[gemma.Gemma]:
+def mock_backend(reply: str, **kwargs) -> Iterator[gemma_local.Gemma]:
   with mock.patch('gemma.sampler.Sampler') as mock_sampler:
     with mock.patch(
-        'onetwo.backends.gemma.Gemma._load_model'
+        'onetwo.backends.gemma_local.Gemma._load_model'
     ) as mock_load_model:
 
       mock_load_model.return_value = (None, None, {'transformer': None})
@@ -50,7 +50,7 @@ def mock_backend(reply: str, **kwargs) -> Iterator[gemma.Gemma]:
         )
 
       mock_sampler.return_value.side_effect = sampler_call
-      backend = gemma.Gemma(batch_size=_BATCH_SIZE, **kwargs)
+      backend = gemma_local.Gemma(batch_size=_BATCH_SIZE, **kwargs)
       backend.register()
       yield backend
 
@@ -83,8 +83,8 @@ class GemmaTest(parameterized.TestCase, test_utils.CounterAssertions):
       reply, details = result
       with self.subTest('returns_correct_reply_and_details'):
         self.assertEqual(reply, 'a')
-        self.assertEqual(details[gemma.REPLY_TEXT], 'a b')
-        self.assertLess(abs(details[gemma.REPLY_SCORE] - 0.5), 1e-5)
+        self.assertEqual(details[gemma_local.REPLY_TEXT], 'a b')
+        self.assertLess(abs(details[gemma_local.REPLY_SCORE] - 0.5), 1e-5)
 
       expected_backend_counters = collections.Counter({
           'generate_text': 1,

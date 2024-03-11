@@ -27,11 +27,52 @@ as well.
 
 ### Installation
 
-...
+You may want to install the package in a virtual environment, in which case you
+will need to start a virtual environment with the following command:
 
-### Running the unit tests
+```shell
+python3 -m venv PATH_TO_DIRECTORY_FOR_VIRTUAL_ENV
+# Activate it.
+. PATH_TO_DIRECTORY_FOR_VIRTUAL_ENV/bin/activate
+```
 
-...
+Once you no longer need it, this virtual environment can be deleted with the
+following command:
+
+```shell
+deactivate
+```
+
+Install the package:
+
+```shell
+pip install git+https://github.com/deepmind-opensource/onetwo
+```
+
+To start using it, import it with:
+
+```python
+from onetwo import ot
+```
+
+### Running unit tests
+
+In order to run the test, first clone the repository:
+
+```shell
+git clone https://github.com/deepmind-opensource/onetwo
+```
+
+Then from the cloned directory you can invoke `pytest`:
+
+```shell
+pytest onetwo/core
+```
+
+However, doing `pytest onetwo` will not work as pytest collects all the tests
+names without keeping their directory of origin so there may be name clashe, so
+you have to loop through the subdirectories.
+
 
 ## Tutorial
 

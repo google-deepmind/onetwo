@@ -175,13 +175,16 @@ class PythonSandbox(metaclass=abc.ABCMeta):
     else:
       self.stop()
 
-  @abc.abstractmethod
   async def start_unsafe(self) -> Self:
     """Starts the sandbox (but does not automatically clean it up).
 
     It is the responsibility of the caller to call `stop` when they are done
     with the sandbox.
+
+    Returns:
+      The current sandbox (in a started state).
     """
+    return self
 
   def stop(self, e: Exception | None = None) -> None:
     """Stops the sandbox and any associated threads, queues, etc.

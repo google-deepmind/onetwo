@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backend wrapper for Gemma models."""
+"""Backend wrapper for a locally-loaded Gemma model.
+
+This will load and run the Gemma model in process. It can use a GPU/TPU if
+one is available.
+"""
 
 import collections
 from collections.abc import Sequence
@@ -23,8 +27,6 @@ from absl import logging
 from gemma import params as params_lib
 from gemma import sampler as sampler_lib
 from gemma import transformer as transformer_lib
-import jax
-import jax.numpy as jnp
 from onetwo.backends import base as backend_base
 from onetwo.builtins import llm
 from onetwo.core import batching
@@ -97,7 +99,14 @@ class Gemma(
   def register(self, name: str | None = None) -> None:
     """See parent class."""
     del name
-    llm.generate_text.configure(self.generate_text)
+    # Configure the generate_text method with the default parameters set in
+    # the constructor (or __post_init__).
+    llm.generate_text.configure(
+        self.generate_text,
+        max_tokens=self.max_tokens,
+        temperature=self.temperature,
+        stop=self.stop,
+    )
 
   @property
   def cache_handler(self) -> caching.SimpleFunctionCache[str]:
@@ -117,18 +126,15 @@ class Gemma(
   ]:
     """Load the model parameters."""
     logging.info('Loading parameters from %s', self.checkpoint_path)
-    params = params_lib.load_params(self.checkpoint_path)
-    param_state = jax.tree_util.tree_map(jnp.array, params)
-    remapped_params = params_lib.param_remapper(param_state)
-    nested_params = params_lib.nest_params(remapped_params)
+    params = params_lib.load_and_format_params(self.checkpoint_path)
     vocab = spm.SentencePieceProcessor()
     logging.info('Loading vocab from %s', self.vocab_path)
     vocab.Load(self.vocab_path)
     logging.info('Creating transformer config')
     transformer_config = transformer_lib.TransformerConfig.from_params(
-        params=nested_params, cache_size=_CACHE_SIZE
+        params=params, cache_size=_CACHE_SIZE
     )
-    return transformer_config, vocab, nested_params
+    return transformer_config, vocab, params
 
   def __post_init__(self) -> None:
     if self.batch_size > 1:
@@ -192,7 +198,8 @@ class Gemma(
     )
     logging.info('Done sampling')
     response_text = response.text[0]
-    truncated_reply = backend_base.truncate_reply(response_text, list(stop))
+    stop_sequences = [] if stop is None else list(stop)
+    truncated_reply = backend_base.truncate_reply(response_text, stop_sequences)
     if include_details:
       return truncated_reply, {
           REPLY_TEXT: response_text,

@@ -1,0 +1,71 @@
+[project]
+name = "onetwo"
+description = "LLM Orchestration Library by Google DeepMind."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "OneTwo Authors", email="no-reply@google.com"}]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Science/Research",
+]
+keywords = []
+
+# pip dependencies of the project.
+dependencies = [
+    "absl-py",
+    "dataclasses-json",
+    "gemma@git+https://github.com/google-deepmind/gemma.git",
+    "google-generativeai",
+    "immutabledict",
+    "jinja2",
+    "pillow",
+    "tensorflow",
+    "tqdm",
+    "typing_extensions",
+]
+
+# This is set automatically by flit using `onetwo.__version__`.
+dynamic = ["version"]
+
+[project.urls]
+homepage = "https://github.com/google-deepmind/onetwo"
+repository = "https://github.com/google-deepmind/onetwo"
+
+[project.optional-dependencies]
+# Installed through `pip install .[dev]`.
+dev = [
+    "pytest",
+    "pytest-xdist",
+    "pylint>=2.6.0",
+    "pyink",
+]
+# Installed through `pip install .[docs]`.
+docs = [
+    # Install `apitree` with all extensions (sphinx, theme,...)
+    "sphinx-apitree[ext]",
+]
+
+[tool.pyink]
+# Formatting configuration to follow Google style-guide.
+line-length = 80
+preview = true
+pyink-indentation = 2
+pyink-use-majority-quotes = true
+
+[build-system]
+# Build system specify which backend is used to build/install the project (flit,
+# poetry, setuptools, ...). All backends are supported by `pip install`.
+requires = ["flit_core >=3.8,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.sdist]
+# Flit specific options (files to exclude from the PyPI package).
+# If using another build backend (setuptools, poetry), you can remove this
+# section.
+exclude = [
+  # Do not release tests files on PyPI.
+  "**/*_test.py",
+]

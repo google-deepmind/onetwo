@@ -32,7 +32,7 @@ class SandboxResultAssertions(unittest.TestCase):
     # Remove timing-related content.
     expected_without_timing = dataclasses.replace(expected_result, timing=None)
     actual_without_timing = dataclasses.replace(actual_result, timing=None)
-    return self.assertEqual(
+    self.assertEqual(
         expected_without_timing,
         actual_without_timing,
         'SandboxResult differed by more than just'
