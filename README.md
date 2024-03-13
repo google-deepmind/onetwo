@@ -2,7 +2,8 @@
 
 The OneTwo library provides tools to support research in *prompting*.
 This includes making a *single call* to external large foundational models
-as well as implementing arbitrarily complex scenarios with *multiple such calls* (some of the calls possibly depending on the outcomes of the others).
+as well as implementing arbitrarily complex scenarios with *multiple such calls*
+(some of the calls possibly depending on the outcomes of the others).
 The OneTwo library focuses on experiments that **don't change weights** of the
 models.
 
@@ -20,7 +21,8 @@ failed in the middle. Or you modified a little step in the scenario. In both
 cases you will be able to quickly replay the experiment and reuse all the cached
 replies.
 * Scenarios can be easily executed against various models with various
-parameters. OneTwo supports several public and open-sourced large foundational models out of the box. It can be easily extended to support other custom models
+parameters. OneTwo supports several public and open-sourced large foundational
+models out of the box. It can be easily extended to support other custom models
 as well.
 
 ## Quick start
@@ -76,7 +78,10 @@ you have to loop through the subdirectories.
 
 ## Tutorial
 
-This [Colab](https://colab.research.google.com/github/deepmind/onetwo/blob/master/colabs/tutorial.ipynb) is a good starting point and demonstrates most of the features available in onetwo.
+This
+[Colab](https://colab.research.google.com/github/deepmind/onetwo/blob/master/colabs/tutorial.ipynb)
+is a good starting point and demonstrates most of the features available in
+onetwo.
 
 ## License
 

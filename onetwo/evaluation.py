@@ -353,9 +353,9 @@ def compare_with_critic(
       (and provide) its exact length. This value is used only for logging the
       progress of evaluation.
     update_extra_info_fn: Function that aggregates additional metric
-      information, returned by `???`. We aggregate additional information
-      in-place with `update_extra_info_fn(aggr_info, new_info)`. By default we
-      use dict's `update` method.
+      information, returned by _ComparisonCritic. We aggregate additional
+      information in-place with `update_extra_info_fn(aggr_info, new_info)`.
+      By default we use dict's `update` method.
     print_debug: Print per example debug information.
 
   Returns:

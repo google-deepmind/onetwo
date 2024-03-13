@@ -34,7 +34,7 @@ from onetwo.core import routing
 from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
-import tensorflow as tf
+
 import termcolor
 
 
@@ -816,7 +816,7 @@ class JinjaTemplate:
   def __post_init__(self):
     """See parent class."""
     if self.filename is not None:
-      with tf.io.gfile.GFile(self.filename, 'r') as f:
+      with open(self.filename, 'r') as f:
         self.text = f.read().strip()
     if self.text is None:
       raise ValueError('No prompt template or file provided')

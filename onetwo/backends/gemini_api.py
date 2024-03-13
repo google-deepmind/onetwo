@@ -35,10 +35,10 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import utils
-import tensorflow as tf
 
 
-gfile = tf.io.gfile
+
+
 
 # Available models are listed at https://ai.google.dev/models/gemini.
 # input_token_limit=30720, output_token_limit=2048.
@@ -211,9 +211,9 @@ class GeminiAPI(
     if self.api_key is not None:
       return self.api_key
     if self.api_key_file is not None:
-      if not gfile.exists(self.api_key_file):
+      if not os.path.exists(self.api_key_file):
         raise ValueError(f'File {self.api_key_file} does not exist.')
-      with gfile.GFile(self.api_key_file, 'r') as f:
+      with open(self.api_key_file, 'r') as f:
         return f.readline().strip()
     return None
 

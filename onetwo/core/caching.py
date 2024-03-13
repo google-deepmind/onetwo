@@ -35,10 +35,10 @@ import dataclasses_json
 from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.core import utils
-import tensorflow as tf
 
 
-gfile = tf.io.gfile
+
+
 
 _DEFAULT_SAMPLING_KEY: Final[str] = ''
 
@@ -957,12 +957,12 @@ class SimpleFunctionCache(
     """
     if not self.cache_filename:
       raise ValueError('Cache filename must be provided when storing on disk.')
-    gfile.makedirs(output_dir)  # Create all dirs and subdirs.
+    os.path.makedirs(output_dir)  # Create all dirs and subdirs.
     filename = add_json_extension(self.cache_filename)
     cache_file_path = os.path.join(output_dir, filename)
-    if gfile.exists(cache_file_path) and not overwrite:
+    if os.path.exists(cache_file_path) and not overwrite:
       raise FileExistsError(f'File {cache_file_path} already exists.')
-    with gfile.GFile(cache_file_path, 'w') as f:
+    with open(cache_file_path, 'w') as f:
       logging.info('Writing cache to file: %s', cache_file_path)
       f.write(self.to_json())
 
@@ -990,7 +990,7 @@ class SimpleFunctionCache(
     if cached_value_decoder is None:
       cached_value_decoder = lambda x: x
 
-    with gfile.GFile(cache_file_path) as f:
+    with open(cache_file_path) as f:
       file_contents = f.read()
     try:
       cache = cls.from_json(file_contents, infer_missing=True)
