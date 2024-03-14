@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Utility functions for adding caching capabilities to methods."""
+from __future__ import annotations
 
 import abc
 import asyncio
@@ -178,23 +179,73 @@ class SimpleCache(Generic[CachedType], metaclass=abc.ABCMeta):
     """Retrieves a value from the cache if it exists."""
 
 
-class CacheEnabled(Generic[CachedType], metaclass=abc.ABCMeta):
+@dataclasses.dataclass
+class SimpleFileCache(
+    Generic[CachedType], SimpleCache[CachedType], metaclass=abc.ABCMeta
+):
+  """Interface for a generic file cache."""
+
+  cache_filename: str | None = None
+
+  @abc.abstractmethod
+  def load(self, restore_mapping: bool = False):
+    """Loads the cache from file."""
+
+  @abc.abstractmethod
+  def save(self, overwrite: bool = False):
+    """Saves the cache to file."""
+
+
+@dataclasses.dataclass
+class CacheEnabled(Generic[CachedType]):
   """Interface for a class that has a cache attached to it.
 
   Methods of (any implementation of) this class can be decorated with
   `cache_method` to enable caching. There can be multiple decorated methods, in
   which case a single cache will handle all of them.
+
+  Attributes:
+    disable_caching: Whether caching is enabled for this object.
+  """
+  disable_caching: bool = False
+  _cache_handler: SimpleCache[CachedType] | None = dataclasses.field(
+      init=False,
+      default=None,
+  )
+
+
+@dataclasses.dataclass
+class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
+  """Interface for a class that has a cache attached to it.
+
+  Methods of (any implementation of) this class can be decorated with
+  `cache_method` to enable caching. There can be multiple decorated methods, in
+  which case a single cache will handle all of them.
+
+  Attributes:
+    disable_caching: Whether caching is enabled for this object (inherited from
+      CacheEnabled).
+    cache_filename: Name of the file (full path) where the cache is stored.
   """
 
-  @property
-  @abc.abstractmethod
-  def cache_handler(self) -> SimpleCache[CachedType]:
-    """Cache attached to this object."""
+  cache_filename: str | None = None
+  # Override the type of cache handler.
+  _cache_handler: SimpleFileCache[CachedType] | None = dataclasses.field(
+      init=False,
+      default=None,
+  )
 
-  @property
-  @abc.abstractmethod
-  def disable_caching(self) -> bool:
-    """Whether caching is enabled for this object."""
+  def load_cache(self, restore_mapping: bool = False):
+    if self._cache_handler is None:
+      raise ValueError('Cache handler is not initialized.')
+    self._cache_handler.load(restore_mapping=restore_mapping)  # pytype: disable=attribute-error
+
+  def save_cache(self, overwrite: bool = False):
+    if self._cache_handler is None:
+      raise ValueError('Cache handler is not initialized.')
+    # Hint for the type checker.
+    assert self._cache_handler is not None
+    self._cache_handler.save(overwrite=overwrite)  # pytype: disable=attribute-error
 
 
 def _create_cache_key(
@@ -365,6 +416,37 @@ def return_first_and_cache_remaining(
   return values[0]
 
 
+def _get_cache_handler(
+    obj_with_cache: CacheEnabled[CachedType],
+) -> SimpleCache[CachedType]:
+  """Gets the cache handler of the given object.
+
+  Checks that the class of the method supports caching.
+  It would be best to do this at decoration time, but the method
+  decorators are executed before the class is created.
+
+  Args:
+    obj_with_cache: Object of class CacheEnabled. We are decorating its method.
+
+  Returns:
+    The cache handler of the given object.
+  """
+  if (not isinstance(obj_with_cache, CacheEnabled)):
+    raise ValueError(
+        "Decorator @cache_method is applied to a method whose class doesn't"
+        ' inherit from CacheEnabled.'
+    )
+  if getattr(obj_with_cache, '_cache_handler', None) is None:
+    raise ValueError(
+        "Decorator @cache_method is applied to a method whose class doesn't"
+        ' have a cache handler.'
+    )
+  cache_handler: SimpleCache[CachedType] = getattr(
+      obj_with_cache, '_cache_handler'
+  )
+  return cache_handler
+
+
 # Unfortunately, pytype does not properly support decorators that change the
 # signature: (internal link). Resorting to `...`.
 def cache_method(
@@ -479,24 +561,17 @@ def cache_method(
         ValueError if the object on which the method is called does not inherit
         from CacheEnabled.
       """
-      # Check that the class of the method supports caching.
-      # It would be best to do this at decoration time, but the method
-      # decorators are executed before the class is created.
-      if not isinstance(obj_with_cache, CacheEnabled):  # pytype: disable=attribute-error
-        raise ValueError(
-            "Decorator @cache_method is applied to a method whose class doesn't"
-            ' inherit from CacheEnabled.'
-        )
       if is_sampled:
         # Get sampling key from context.
         sampling_key = context_sampling_key.get()
       else:
         sampling_key = None
       key = maker.create_key(obj_with_cache, args, kwargs)
+      cache_handler = _get_cache_handler(obj_with_cache)
       if obj_with_cache.disable_caching:
         value = None
       else:
-        value = await obj_with_cache.cache_handler.get_cached_value(
+        value = await cache_handler.get_cached_value(
             key=key,
             sampling_key=sampling_key,
         )
@@ -533,7 +608,7 @@ def cache_method(
       # of the value once iterated through.
       if isinstance(value, executing.Executable):
         def callback(v: CachedType) -> CachedType:
-          obj_with_cache.cache_handler.cache_value(
+          _get_cache_handler(obj_with_cache).cache_value(
               key=key,
               sampling_key=sampling_key,
               value=v,
@@ -544,7 +619,7 @@ def cache_method(
             wrapped=value, postprocessing_callback=callback
         )
       else:
-        obj_with_cache.cache_handler.cache_value(
+        _get_cache_handler(obj_with_cache).cache_value(
             key=key,
             sampling_key=sampling_key,
             value=value,
@@ -554,15 +629,17 @@ def cache_method(
     @functools.wraps(method)
     async def ainner(self, *args, **kwargs) -> ReturnType:
       """Async method decorated with cache."""
-      nonlocal cache_extra_replies
+      # We access a protected member of `self`.
+      # pylint: disable=protected-access
+
       # Here "self" is the object of class CacheEnabled. We are decorating one
       # of its methods.
       value, (key, sampling_key) = await lookup(self, maker, args, kwargs)
       if value is not None:
         return value
       # Actually process the call. But first indicate that we are processing it.
-      if hasattr(self.cache_handler, 'calls_in_progress'):
-        self.cache_handler.calls_in_progress |= {(key, sampling_key)}
+      if hasattr(self._cache_handler, '_calls_in_progress'):
+        self._cache_handler._calls_in_progress |= {(key, sampling_key)}
       # Call/await depending on whether decorating a sync or async method.
       try:
         if inspect.iscoroutinefunction(method):
@@ -571,10 +648,10 @@ def cache_method(
         else:
           value = method(*((self,) + args), **kwargs)
       except Exception as err:  # pylint: disable=broad-except
-        if hasattr(self.cache_handler, 'calls_in_progress'):
+        if hasattr(self._cache_handler, '_calls_in_progress'):
           # We failed to process the call. Unblock other coroutines waiting for
           # the value.
-          self.cache_handler.calls_in_progress -= {(key, sampling_key)}
+          self._cache_handler._calls_in_progress -= {(key, sampling_key)}
         raise ValueError(
             f'Error raised while executing method {method}:\n{err}\n'
         ) from err
@@ -589,18 +666,21 @@ def cache_method(
             values=value,
             disable_caching=self.disable_caching,
             cache_value_callback=functools.partial(
-                self.cache_handler.cache_value,
+                self._cache_handler.cache_value,  # pytype: disable=attribute-error
                 key,
                 None,  # No sampling_key set.
             )
         )
       result = store(self, value, key, sampling_key)
       # Finally indicate that we have processed the call and cached the value.
-      if hasattr(self.cache_handler, 'calls_in_progress'):
-        self.cache_handler.calls_in_progress -= {(key, sampling_key)}
+      if hasattr(self._cache_handler, '_calls_in_progress'):
+        self._cache_handler._calls_in_progress -= {(key, sampling_key)}
+
+      # pylint: enable=protected-access
       return result
 
     return ainner
+    # pylint: enable=protected-access
 
   return method_wrapper
 
@@ -654,317 +734,43 @@ class SamplingKeyUpdater(executing.Executable):
     context_sampling_key.set(self.base_key)
 
 
-def add_json_extension(cache_filename: str) -> str:
-  if cache_filename.endswith('.json'):
-    return cache_filename
-  return f'{cache_filename}.json'
-
-
 @dataclasses.dataclass
-class SimpleFunctionCache(
+class _CacheData(
     Generic[CachedType],
     dataclasses_json.DataClassJsonMixin,
-    SimpleCache[CachedType],
 ):
-  """Simple implementation of a generic cache.
+  """Cache data.
 
   Attributes:
-    cache_filename: Any user-defined string that identifies the cache object.
-      Used as a name of the file when storing cache on disk.
-    cached_value_decoder: A function that can restore the values from their
-      serialized version into an object of appropriate type. When written to
-      disk, the cached values are json-serialized, so objects get converted into
-      dictionaries, hence the cached_value_decoder should convert those
-      dictionaries back to objects of the appropriate type (i.e. CachedType).
-    _counters: Counts of cache hits and misses, etc.
-    _values_by_key: Mapping of (hashed) cache keys to the existing values.
-    _num_used_values_by_key: Keeps track of how many of the existing values for
+    counters: Counts of cache hits and misses, etc.
+    values_by_key: Mapping of (hashed) cache keys to the existing values.
+    num_used_values_by_key: Keeps track of how many of the existing values for
       a given (hashed) cache key have been mapped to sampling_keys.
-    _sample_id_by_sampling_key_by_key: Mapping from a (hashed) cache and
+    sample_id_by_sampling_key_by_key: Mapping from a (hashed) cache and
       sampling keys to the index in the list of samples we have for that
       call.
   """
   # Note: The order of the attributes here determines the order in which they
   # appear in the JSON file. Smaller attributes should go at the top.
-  cache_filename: str = dataclasses.field(default_factory=str)
-  # Note: `exclude=dataclasses_json.Exclude.ALWAYS` is not sufficient. Indeed,
-  # even if this field is skipped from the json output, the `to_json()` function
-  # will still call `as_dict()` on it before skipping it, see `value = _asdict(`
-  # line in dataclasses_json/core.py.
-  # We add an empty encoder to make this work on functions that may be methods
-  # from a non-serializeable object.
-  cached_value_decoder: Callable[[Any], CachedType] | None = dataclasses.field(
-      metadata=dataclasses_json.config(
-          exclude=dataclasses_json.Exclude.ALWAYS, encoder=lambda _: None,
-      ),  # We don't store this on disk.
-      default=None,
-  )
-  _counters: collections.Counter[str] = dataclasses.field(
+  counters: collections.Counter[str] = dataclasses.field(
       default_factory=collections.Counter,
       metadata=dataclasses_json.config(decoder=collections.Counter),
   )
-  _values_by_key: dict[str, Any] = dataclasses.field(
+  values_by_key: dict[str, Any] = dataclasses.field(
       default_factory=dict,
   )
-  _num_used_values_by_key: collections.defaultdict[str, int] = (
+  num_used_values_by_key: collections.defaultdict[str, int] = (
       dataclasses.field(
           default_factory=lambda: collections.defaultdict(int),
           metadata=dataclasses_json.config(decoder=defaultdict_decoder),
       )
   )
-  _sample_id_by_sampling_key_by_key: collections.defaultdict[
+  sample_id_by_sampling_key_by_key: collections.defaultdict[
       str, collections.defaultdict[str, int]
   ] = dataclasses.field(
       default_factory=nested_defaultdict_initializer,
       metadata=dataclasses_json.config(decoder=nested_defaultdict_decoder),
   )
-  lock: threading.Lock = dataclasses.field(
-      metadata=dataclasses_json.config(
-          exclude=dataclasses_json.Exclude.ALWAYS,
-          encoder=lambda _: None,
-      ),  # We don't store this on disk.
-      default_factory=threading.Lock,
-  )
-  calls_in_progress: set[tuple[str, str | None]] = dataclasses.field(
-      metadata=dataclasses_json.config(
-          exclude=dataclasses_json.Exclude.ALWAYS,
-          encoder=lambda _: None,
-      ),  # We don't store this on disk.
-      default_factory=set,
-  )
-
-  def _cache_value(
-      self,
-      key: str,
-      sampling_key: str | None,
-      value: CachedType,
-  ) -> None:
-    """Stores the key-value pair in the cache.
-
-    Each cache key may be associated with multiple values, for example when the
-    function returns different samples. To distinguish between those, we may
-    provide a sampling_key. In this case we try and use it to determine whether
-    this is a new sample or whether we should override an existing sample.
-
-    Args:
-      key: The cache key to associate the value with.
-      sampling_key: Optional sampling key (stored in a context variable), see
-        `is_sampled` argument in `cache_method` decorator.
-      value: The value to be stored in the cache.
-    """
-
-    # In case a cached function returns several "samples" per one call (for
-    # example, LLMs can return N randomly sampled completions for the same
-    # prefix), the unused samples are stored for future use. This is implemented
-    # in cache_method for cache_extra_replies=True. Each extra sample is cached
-    # explicitly using cache_value method with sampling_key=None.
-    try:
-      # We attempt to copy the value in order to see if it can be pickled.
-      # If this fails, we will not be able to store the cache and it may lead
-      # to issues when trying to load the cache data.
-      _ = copy.deepcopy(value)
-    except Exception as e:
-      raise ValueError(
-          f'Failed to copy value to be cached: {value}. Make sure the caching'
-          ' decorator is set properly. Values that cannot be copied will not'
-          ' be properly restored from cache.'
-      ) from e
-    # A human readable version of the cache key.
-    key_for_logging = get_key_for_logging(key, sampling_key)
-    logging.info('Inserting result for key %s', key_for_logging)
-    # A hash of the key is used whenever we need to map from the key.
-    key_hash = _get_hash(key)
-    if key_hash in self._values_by_key:
-      existing_values = self._values_by_key[key_hash]
-      # We check whether we have an entry for the sampling_key.
-      if key_hash in self._sample_id_by_sampling_key_by_key:
-        if sampling_key in self._sample_id_by_sampling_key_by_key[key_hash]:
-          sample_id = self._sample_id_by_sampling_key_by_key[key_hash][
-              sampling_key
-          ]
-          # We found an entry, we assume it points to a valid entry in the list.
-          assert sample_id < len(existing_values)
-          # We replace this entry.
-          existing_value = existing_values[sample_id]
-          if value == existing_value:
-            logging.info('No result added for key %s', key_for_logging)
-            self._counters['add_redundant'] += 1
-          else:
-            # We have a match for both cache and sampling keys, but the already
-            # stored value is different from the one we are trying to store.
-            # This branch can not be reached if `cache_value` is called via
-            # `cache_method` decorator. It can only be reached when called
-            # explicitly.
-            self._counters['add_overwrote'] += 1
-            existing_values[sample_id] = value
-            logging.info('Overwriting cached value for key %s', key_for_logging)
-            logging.info('Old value: %s', repr(existing_value))
-            logging.info('New value: %s', repr(value))
-          return
-
-      # The cache key is not new but the sampling_key is. This can happen for
-      # two reasons: (a) sampling_key is None or (b) sampling_key is not None
-      # and it is new. Case (a) corresponds either to caching deterministic
-      # functions (with `is_sampled=False`) or explicit caching of extra unused
-      # samples, as described above. Case (b) is when we obtained a true new
-      # sample from a decorated stochastic function and want to store it.
-      # We append the new value to the list of values in any case.
-      logging.info('Adding new sample for key %s', key_for_logging)
-      self._counters['add_new_sample'] += 1
-      existing_values.append(value)
-      if sampling_key is not None:
-        # We also assign the sampling_key to the next available (not used) value
-        # in existing_values. This value does not necessarily need to be the one
-        # we have just appended to the list, for example if
-        # len(existing_values) > _num_used_values_by_key[key_hash].
-        self._sample_id_by_sampling_key_by_key[key_hash][sampling_key] = (
-            self._num_used_values_by_key[key_hash]
-        )
-        self._num_used_values_by_key[key_hash] += 1
-    else:
-      # The key is new, we add a new entry in the cache.
-      logging.info('Adding new key %s', key_for_logging)
-      self._counters['add_new'] += 1
-      self._values_by_key[key_hash] = [value]
-      if sampling_key is not None:
-        # This new entry is mapped from the sampling_key.
-        self._sample_id_by_sampling_key_by_key[key_hash][sampling_key] = 0
-        # And we thus consider that we have that sample_id already used for this
-        # sampling key.
-        self._num_used_values_by_key[key_hash] = 1
-
-  def cache_value(
-      self,
-      key: str,
-      sampling_key: str | None,
-      value: CachedType,
-  ) -> None:
-    """See parent class."""
-    with self.lock:
-      self._cache_value(
-          key,
-          sampling_key,
-          value,
-      )
-
-  async def get_cached_value(
-      self,
-      key: str,
-      sampling_key: str | None,
-  ) -> CachedType | None:
-    """Retrieves a value for cache key from the cache.
-
-    Args:
-      key: The cache key to retrieve the value.
-      sampling_key: Optional sampling key. See `is_sampled` of `cache_method`
-        decorator.
-
-    Returns:
-      The value found in the cache if any or None otherwise.
-    """
-    # A human readable version of the cache key.
-    key_for_logging = get_key_for_logging(key, sampling_key)
-    # A hash of the key is used whenever we need to map from the key.
-    key_hash = _get_hash(key)
-    logging.info('Looking up key %s', key_for_logging)
-    if (key, sampling_key) in self.calls_in_progress:
-      logging.info(
-          'Key-sampling_key pair %s is already in progress.',
-          key_for_logging,
-      )
-      # Another coroutine has already started processing the same call.
-      while True:
-        await asyncio.sleep(0)
-        if (key, sampling_key) not in self.calls_in_progress:
-          # Another coroutine has finished and cached the value.
-          if key_hash not in self._values_by_key:
-            raise ValueError(
-                'Another coroutine processed the same call but did not cache '
-                'the obtained value.'
-            )
-          break
-    with self.lock:
-      if key_hash in self._values_by_key:
-        # The key is in the cache, we check that we have an entry for the
-        # sampling_key.
-        existing_values = self._values_by_key[key_hash]
-        sample_id = 0
-        found = False
-        if sampling_key is None:
-          # Deterministic method is cached. Grab the first reply.
-          sample_id = 0
-          found = True
-        if key_hash in self._sample_id_by_sampling_key_by_key:
-          if (
-              sampling_key
-              in self._sample_id_by_sampling_key_by_key[key_hash]
-          ):
-            sample_id = self._sample_id_by_sampling_key_by_key[key_hash][
-                sampling_key
-            ]
-            found = True
-        if not found:
-          # Do we have unused elements in the cache that we could associate with
-          # this sampling key?
-          # We check how many samples have already been mapped.
-          if self._num_used_values_by_key[key_hash] < len(existing_values):
-            # We map a new one.
-            sample_id = self._num_used_values_by_key[key_hash]
-            self._num_used_values_by_key[key_hash] += 1
-            self._sample_id_by_sampling_key_by_key[key_hash][
-                sampling_key
-            ] = sample_id
-          else:
-            self._counters['get_hit_miss_sample'] += 1
-            logging.info(
-                'Found key but not the sampling key: %s', key_for_logging
-            )
-            return None
-
-        # We have a sample_id, we return the corresponding value.
-        # The sample_id should correspond to a valid index in the list of
-        # values.
-        assert sample_id < len(existing_values)
-        self._counters['get_hit'] += 1
-        logging.info(
-            'Found sample_id %d for key %s',
-            sample_id,
-            key_for_logging,
-        )
-        return existing_values[sample_id]
-      else:
-        # The key is not in the cache and no other coroutine is processing the
-        # same call.
-        self._counters['get_miss'] += 1
-        logging.info('Key not found: %s', key_for_logging)
-        return None
-
-  def write_to_directory(
-      self,
-      output_dir: str,
-      overwrite: bool = False,
-  ) -> None:
-    """Writes the contents of the cache to the given directory.
-
-    Args:
-      output_dir: Fully qualified path of directory to be written to.
-      overwrite: If False (default) right before saving cache in the file we
-        check if file with that name already exists and raise error if it does.
-        If True we overwrite.
-
-    Raises:
-      FileExistsError: If trying to save cache in file that already exists.
-    """
-    if not self.cache_filename:
-      raise ValueError('Cache filename must be provided when storing on disk.')
-    os.makedirs(output_dir, exist_ok=True)
-    filename = add_json_extension(self.cache_filename)
-    cache_file_path = os.path.join(output_dir, filename)
-    if os.path.exists(cache_file_path) and not overwrite:
-      raise FileExistsError(f'File {cache_file_path} already exists.')
-    with open(cache_file_path, 'w') as f:
-      logging.info('Writing cache to file: %s', cache_file_path)
-      f.write(self.to_json())
 
   @classmethod
   def create_from_file(
@@ -972,7 +778,7 @@ class SimpleFunctionCache(
       cache_file_path: str,
       restore_mapping: bool = False,
       cached_value_decoder: Callable[[Any], Any] | None = None
-  ) -> 'SimpleFunctionCache':
+  ) -> _CacheData[CachedType]:
     """Returns a new instance with the contents of the cache file.
 
     Args:
@@ -995,14 +801,14 @@ class SimpleFunctionCache(
     try:
       cache = cls.from_json(file_contents, infer_missing=True)
       # pylint: disable=protected-access
-      for key_hash, cached_values in cache._values_by_key.items():
+      for key_hash, cached_values in cache.values_by_key.items():
         # When reading from json, the values objects are created as dict or
         # other basic types. We convert them to the appropriate object using
         # the provided decoder.
         # Note that the encoding is done simply by calling `to_json` on the
         # cache so the decoder has to be able to read whatever calling
         # `from_json(to_json())` produces.
-        cache._values_by_key[key_hash] = [
+        cache.values_by_key[key_hash] = [
             cached_value_decoder(cached_value) for cached_value in cached_values
         ]
 
@@ -1010,11 +816,10 @@ class SimpleFunctionCache(
           logging.info('Restored sampling_key mapping from file.')
         else:
           logging.info('Create new sampling_key mapping.')
-          cache._num_used_values_by_key = collections.defaultdict(int)
-          cache._sample_id_by_sampling_key_by_key = (
+          cache.num_used_values_by_key = collections.defaultdict(int)
+          cache.sample_id_by_sampling_key_by_key = (
               nested_defaultdict_initializer()
           )
-        cache.cached_value_decoder = cached_value_decoder
       # pylint: enable=protected-access
     except Exception as error:  # pylint: disable=broad-except
       traceback.print_exc()
@@ -1022,3 +827,288 @@ class SimpleFunctionCache(
           'Error parsing cache file %s.' % cache_file_path
       ) from error
     return cache
+
+  def cache_value(
+      self,
+      key: str,
+      sampling_key: str | None,
+      value: CachedType,
+      key_for_logging: str,
+  ) -> None:
+    """Stores the key-value pair in the cache.
+
+    Each cache key may be associated with multiple values, for example when the
+    function returns different samples. To distinguish between those, we may
+    provide a sampling_key. In this case we try and use it to determine whether
+    this is a new sample or whether we should override an existing sample.
+
+    Args:
+      key: The cache key to associate the value with.
+      sampling_key: Optional sampling key (stored in a context variable), see
+        `is_sampled` argument in `cache_method` decorator.
+      value: The value to be stored in the cache.
+      key_for_logging: Human readable version of the cache key.
+    """
+    # In case a cached function returns several "samples" in one call (for
+    # example, LLMs can return N randomly sampled completions for the same
+    # prefix), the unused samples are stored for future use. This is
+    # implemented in the cache_method decorators by setting
+    # cache_extra_replies=True. Each extra sample is cached explicitly using
+    # the cache_value method with sampling_key=None.
+    if key in self.values_by_key:
+      existing_values = self.values_by_key[key]
+      # We check whether we have an entry for the sampling_key.
+      if key in self.sample_id_by_sampling_key_by_key:
+        if sampling_key in self.sample_id_by_sampling_key_by_key[key]:
+          sample_id = self.sample_id_by_sampling_key_by_key[key][sampling_key]
+          # We found an entry, we assume it points to a valid entry in the list.
+          assert sample_id < len(existing_values)
+          # We replace this entry.
+          existing_value = existing_values[sample_id]
+          if value == existing_value:
+            logging.info('No result added for key %s', key_for_logging)
+            self.counters['add_redundant'] += 1
+          else:
+            # We have a match for both cache and sampling keys, but the already
+            # stored value is different from the one we are trying to store.
+            # This branch can not be reached if `cache_value` is called via
+            # `cache_method` decorator. It can only be reached when called
+            # explicitly.
+            self.counters['add_overwrote'] += 1
+            existing_values[sample_id] = value
+            logging.info('Overwriting cached value for key %s', key_for_logging)
+            logging.info('Old value: %s', repr(existing_value))
+            logging.info('New value: %s', repr(value))
+          return
+
+      # The cache key is not new but the sampling_key is. This can happen for
+      # two reasons: (a) sampling_key is None or (b) sampling_key is not None
+      # and it is new. Case (a) corresponds either to caching deterministic
+      # functions (with `is_sampled=False`) or explicit caching of extra unused
+      # samples, as described above. Case (b) is when we obtained a true new
+      # sample from a decorated stochastic function and want to store it.
+      # We append the new value to the list of values in any case.
+      logging.info('Adding new sample for key %s', key_for_logging)
+      self.counters['add_new_sample'] += 1
+      existing_values.append(value)
+      if sampling_key is not None:
+        # We also assign the sampling_key to the next available (not used) value
+        # in existing_values. This value does not necessarily need to be the one
+        # we have just appended to the list, for example if
+        # len(existing_values) > _num_used_values_by_key[key_hash].
+        self.sample_id_by_sampling_key_by_key[key][sampling_key] = (
+            self.num_used_values_by_key[key]
+        )
+        self.num_used_values_by_key[key] += 1
+    else:
+      # The key is new, we add a new entry in the cache.
+      logging.info('Adding new key %s', key_for_logging)
+      self.counters['add_new'] += 1
+      self.values_by_key[key] = [value]
+      if sampling_key is not None:
+        # This new entry is mapped from the sampling_key.
+        self.sample_id_by_sampling_key_by_key[key][sampling_key] = 0
+        # And we thus consider that we have that sample_id already used for this
+        # sampling key.
+        self.num_used_values_by_key[key] = 1
+
+  def key_exists(self, key: str) -> bool:
+    """Returns whether the given key exists in the cache."""
+    return key in self.values_by_key
+
+  def get_cached_value(
+      self, key: str, sampling_key: str | None, key_for_logging: str
+  ) -> CachedType | None:
+    """Retrieves a value for cache key from the cache.
+
+    Args:
+      key: The cache key to retrieve the value.
+      sampling_key: Optional sampling key. See `is_sampled` of `cache_method`
+        decorator.
+      key_for_logging: Human readable version of the cache key.
+
+    Returns:
+      The value found in the cache if any or None otherwise.
+    """
+    if key in self.values_by_key:
+      # The key is in the cache, we check that we have an entry for the
+      # sampling_key.
+      existing_values = self.values_by_key[key]
+      sample_id = 0
+      found = False
+      if sampling_key is None:
+        # Deterministic method is cached. Grab the first reply.
+        sample_id = 0
+        found = True
+      if key in self.sample_id_by_sampling_key_by_key:
+        if (sampling_key in self.sample_id_by_sampling_key_by_key[key]):
+          sample_id = self.sample_id_by_sampling_key_by_key[key][sampling_key]
+          found = True
+      if not found:
+        # Do we have unused elements in the cache that we could associate with
+        # this sampling key?
+        # We check how many samples have already been mapped.
+        if self.num_used_values_by_key[key] < len(existing_values):
+          # We map a new one.
+          sample_id = self.num_used_values_by_key[key]
+          self.num_used_values_by_key[key] += 1
+          self.sample_id_by_sampling_key_by_key[key][
+              sampling_key
+          ] = sample_id
+        else:
+          self.counters['get_hit_miss_sample'] += 1
+          logging.info(
+              'Found key but not the sampling key: %s', key_for_logging
+          )
+          return None
+
+      # We have a sample_id, we return the corresponding value.
+      # The sample_id should correspond to a valid index in the list of
+      # values.
+      assert sample_id < len(existing_values)
+      self.counters['get_hit'] += 1
+      logging.info(
+          'Found sample_id %d for key %s',
+          sample_id,
+          key_for_logging,
+      )
+      return existing_values[sample_id]
+    else:
+      # The key is not in the cache and no other coroutine is processing the
+      # same call.
+      self.counters['get_miss'] += 1
+      logging.info('Key not found: %s', key_for_logging)
+      return None
+
+
+@dataclasses.dataclass
+class SimpleFunctionCache(
+    Generic[CachedType],
+    SimpleCache[CachedType],
+):
+  """Simple implementation of a thread-safe generic cache.
+
+  Attributes:
+    cache_filename: Full path to the JSON cache file.
+    cached_value_decoder: A function that can restore the values from their
+      serialized version into an object of appropriate type. When written to
+      disk, the cached values are json-serialized, so objects get converted into
+      dictionaries, hence the cached_value_decoder should convert those
+      dictionaries back to objects of the appropriate type (i.e. CachedType).
+  """
+
+  cache_filename: str | None = None
+  # We add an empty encoder to make this work on functions that may be methods
+  # from a non-serializeable object.
+  cached_value_decoder: Callable[[Any], CachedType] | None = dataclasses.field(
+      default=None,
+  )
+  _cache_data: _CacheData[CachedType] = dataclasses.field(
+      default_factory=_CacheData
+  )
+  _lock: threading.Lock = dataclasses.field(default_factory=threading.Lock)
+  _calls_in_progress: set[tuple[str, str | None]] = dataclasses.field(
+      default_factory=set,
+  )
+
+  def cache_value(
+      self,
+      key: str,
+      sampling_key: str | None,
+      value: CachedType,
+  ) -> None:
+    """See parent class."""
+    try:
+      # We attempt to copy the value in order to see if it can be pickled.
+      # If this fails, we will not be able to store the cache and it may lead
+      # to issues when trying to load the cache data.
+      _ = copy.deepcopy(value)
+    except Exception as e:
+      raise ValueError(
+          f'Failed to copy value to be cached: {value}. Make sure the caching'
+          ' decorator is set properly. Values that cannot be copied will not'
+          ' be properly restored from cache.'
+      ) from e
+    # A human readable version of the cache key.
+    key_for_logging = get_key_for_logging(key, sampling_key)
+    logging.info('Inserting result for key %s', key_for_logging)
+    # A hash of the key is used whenever we need to map from the key.
+    key_hash = _get_hash(key)
+    with self._lock:
+      self._cache_data.cache_value(
+          key_hash, sampling_key, value, key_for_logging
+      )
+
+  async def get_cached_value(
+      self,
+      key: str,
+      sampling_key: str | None,
+  ) -> CachedType | None:
+    """Retrieves a value for cache key from the cache.
+
+    Args:
+      key: The cache key to retrieve the value.
+      sampling_key: Optional sampling key. See `is_sampled` of `cache_method`
+        decorator.
+
+    Returns:
+      The value found in the cache if any or None otherwise.
+    """
+    # A human readable version of the cache key.
+    key_for_logging = get_key_for_logging(key, sampling_key)
+    # A hash of the key is used whenever we need to map from the key.
+    key_hash = _get_hash(key)
+    logging.info('Looking up key %s', key_for_logging)
+    if (key, sampling_key) in self._calls_in_progress:
+      logging.info(
+          'Key-sampling_key pair %s is already in progress.',
+          key_for_logging,
+      )
+      # Another coroutine has already started processing the same call.
+      while True:
+        await asyncio.sleep(0)
+        if (key, sampling_key) not in self._calls_in_progress:
+          # Another coroutine has finished and cached the value.
+          if not self._cache_data.key_exists(key_hash):
+            raise ValueError(
+                'Another coroutine processed the same call but did not cache '
+                'the obtained value.'
+            )
+          break
+    with self._lock:
+      return self._cache_data.get_cached_value(
+          key_hash, sampling_key, key_for_logging
+      )
+
+  def load(self, restore_mapping: bool = False):
+    if not self.cache_filename:
+      raise ValueError(
+          'Cache filename must be provided when loading from disk.'
+      )
+    self._cache_data = _CacheData.create_from_file(
+        self.cache_filename,
+        restore_mapping=restore_mapping,
+        cached_value_decoder=self.cached_value_decoder,
+    )
+
+  def save(self, overwrite: bool = False) -> None:
+    """Writes the contents of the cache to the given directory.
+
+    Args:
+      overwrite: If False (default) right before saving cache in the file we
+        check if file with that name already exists and raise error if it does.
+        If True we overwrite.
+
+    Raises:
+      FileExistsError: If trying to save cache in file that already exists.
+    """
+    if not self.cache_filename:
+      raise ValueError('Cache filename must be provided when storing on disk.')
+    if os.path.exists(self.cache_filename) and not overwrite:
+      raise FileExistsError(f'File {self.cache_filename} already exists.')
+    # Create the directory if it doesn't exist yet
+    os.makedirs(os.path.dirname(self.cache_filename), exist_ok=True)
+    with open(self.cache_filename, 'w') as f:
+      logging.info('Writing cache to file: %s', self.cache_filename)
+      f.write(self._cache_data.to_json())
+

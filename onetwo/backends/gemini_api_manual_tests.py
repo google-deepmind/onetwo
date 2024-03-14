@@ -50,13 +50,15 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
   api_key = _API_KEY.value
-  backend = gemini_api.GeminiAPI(api_key=api_key, batch_size=4)
+  fname = os.path.join(_CACHE_DIR.value, 'google_gemini_api.json')
+  backend = gemini_api.GeminiAPI(
+      cache_filename=fname, api_key=api_key, batch_size=4
+  )
   backend.register()
   if _LOAD_CACHE.value:
-    fname = os.path.join(_CACHE_DIR.value, 'google_gemini_api.json')
     print('Loading cache from file %s', fname)
     load_start = time.time()
-    backend.cache_handler = caching.SimpleFunctionCache.create_from_file(fname)
+    backend.load_cache()
     load_end = time.time()
     print('Spent %.4fsec loading cache.', load_end - load_start)
 
@@ -194,10 +196,7 @@ def main(argv: Sequence[str]) -> None:
   print('Took %.4fsec running requests.' % (time2 - time1))
   handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
   if not _LOAD_CACHE.value:
-    handler.write_to_directory(
-        output_dir=_CACHE_DIR.value,
-        overwrite=True,
-    )
+    handler.save(overwrite=True)
     time3 = time.time()
     print('Took %.4fsec saving cache to CNS.' % (time3 - time2))
 

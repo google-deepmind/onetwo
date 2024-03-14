@@ -55,7 +55,7 @@ def main(argv: Sequence[str]) -> None:
     fname = os.path.join(_CACHE_DIR.value, 'google_onetwo_api.json')
     print('Loading cache from file %s', fname)
     load_start = time.time()
-    backend.cache_handler = caching.SimpleFunctionCache.create_from_file(fname)
+    backend.cache_handler = caching.SimpleFunctionCache(cache_filename=fname)
     load_end = time.time()
     print('Spent %.4fsec loading cache.', load_end - load_start)
 

@@ -39,21 +39,21 @@ import requests
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class OneTwoAPI(
-    caching.CacheEnabled,  # Methods of this class are cached.
+    caching.FileCacheEnabled,  # Methods of this class are cached.
     backend_base.Backend,
 ):
   """Google OneTwo API.
 
   Attributes:
+    disable_caching: Whether caching is enabled for this object (inherited from
+      CacheEnabled).
+    cache_filename: Name of the file (full path) where the cache is stored
+      (inherited from FileCacheEnabled)
     endpoint: The address to connect to (typically some http endpoint).
     batch_size: Number of requests (generate_text or chat or generate_embedding)
       that is grouped together when sending them to OneTwo API. OneTwo API does
       not explicitly support batching (i.e. multiple requests can't be passed
       via arguments). Instead we send multiple requests from separate threads.
-    cache_filename: Some methods of this class will be cached. This attribute is
-      any user-defined string that is used as a name of the file when storing
-      cache on disk.
-    disable_caching: If True, no caching will be performed.
     enable_streaming: Whether to enable streaming replies from generate_text.
     max_qps: Maximum queries per second for the backend (if None, no rate
       limiting is applied).
@@ -68,10 +68,8 @@ class OneTwoAPI(
     top_k: Top-k parameter (int) for LLM text generation (can be set as a
       default and can be overridden per request).
   """
-  endpoint: str
+  endpoint: str = dataclasses.field(init=True, default_factory=str)
   batch_size: int = 1
-  cache_filename: str = 'onetwo_api'
-  disable_caching: bool = False
   enable_streaming: bool = False
   max_qps: float | None = None
 
@@ -82,9 +80,6 @@ class OneTwoAPI(
   top_p: float | None = None
   top_k: int | None = None
 
-  _cache_handler: caching.SimpleFunctionCache[str] | None = dataclasses.field(
-      init=False, default=None
-  )
   _counters: collections.Counter[str] = dataclasses.field(
       init=False, default_factory=collections.Counter
   )
@@ -103,21 +98,10 @@ class OneTwoAPI(
     llm.count_tokens.configure(self.count_tokens)
     llm.tokenize.configure(self.tokenize)
 
-  @property
-  def cache_handler(self) -> caching.SimpleFunctionCache[str]:
-    assert self._cache_handler is not None  # pytype hint.
-    return self._cache_handler
-
-  @cache_handler.setter
-  def cache_handler(self, value: caching.SimpleFunctionCache[str]) -> None:
-    self._cache_handler = value
-
   def __post_init__(self) -> None:
     # Create cache.
     self._cache_handler = caching.SimpleFunctionCache(
         cache_filename=self.cache_filename,
-        # We only cache strings, so we can use the default lambda x: x decoder.
-        cached_value_decoder=None,
     )
     # Check the health status of the endpoint.
     try:

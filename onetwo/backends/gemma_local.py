@@ -53,13 +53,16 @@ REPLY_SCORE: Final[str] = 'score'
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class Gemma(
-    caching.CacheEnabled,  # Methods of this class are cached.
+    caching.FileCacheEnabled,  # Methods of this class are cached.
     backend_base.Backend,
 ):
   """Google Gemma API wrapper.
 
   Attributes:
-    disable_caching: If True, caching is disabled.
+    disable_caching: Whether caching is enabled for this object (inherited from
+      CacheEnabled).
+    cache_filename: Name of the file (full path) where the cache is stored
+      (inherited from FileCacheEnabled)
     batch_size: Number of requests that can be sent simultaneously over
       multiple threads. Currently batch_size > 1 is NOT SUPPORTED.
     cache_filename: Some methods of this class will be cached. This attribute
@@ -72,7 +75,6 @@ class Gemma(
     stop: List of strings to stop the generation.
   """
 
-  disable_caching: bool = False
   # Only use batch_size = 1 for now!
   # We use a single instance of the sampler which is not thread-safe.
   # TODO: Make it possible to use batch_size > 1.
@@ -86,9 +88,8 @@ class Gemma(
   max_tokens: int | None = None
   stop: Sequence[str] | None = None
 
-  _cache_handler: caching.SimpleFunctionCache[str] | None = dataclasses.field(
-      init=False, default=None
-  )
+  # Used for logging by the batching.add_logging wrapper function in
+  # batching.batch_method_with_threadpool decorator.
   _counters: collections.Counter[str] = dataclasses.field(
       init=False, default_factory=collections.Counter
   )
@@ -107,15 +108,6 @@ class Gemma(
         temperature=self.temperature,
         stop=self.stop,
     )
-
-  @property
-  def cache_handler(self) -> caching.SimpleFunctionCache[str]:
-    assert self._cache_handler is not None  # pytype hint.
-    return self._cache_handler
-
-  @cache_handler.setter
-  def cache_handler(self, value: caching.SimpleFunctionCache[str]) -> None:
-    self._cache_handler = value
 
   def _load_model(
       self,
@@ -142,8 +134,6 @@ class Gemma(
     # Create cache.
     self._cache_handler = caching.SimpleFunctionCache(
         cache_filename=self.cache_filename,
-        # We only cache strings, so we can use the default lambda x: x decoder.
-        cached_value_decoder=None,
     )
     transformer_config, vocab, nested_params = self._load_model()
     # Create a sampler with the right param shapes.

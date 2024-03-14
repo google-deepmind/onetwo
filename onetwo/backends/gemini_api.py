@@ -83,7 +83,7 @@ def _truncate(text: str, max_tokens: int | None = None) -> str:
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class GeminiAPI(
-    caching.CacheEnabled,  # Methods of this class are cached.
+    caching.FileCacheEnabled,  # Methods of this class are cached.
     backend_base.Backend,
 ):
   """Google GenAI API.
@@ -93,13 +93,14 @@ class GeminiAPI(
   TODO: Add rate limiting.
 
   Attributes:
+    disable_caching: Whether caching is enabled for this object (inherited from
+      CacheEnabled).
+    cache_filename: Name of the file (full path) where the cache is stored
+      (inherited from FileCacheEnabled)
     batch_size: Number of requests (generate_text or chat or generate_embedding)
       that is grouped together when sending them to GenAI API. GenAI API does
       not explicitly support batching (i.e. multiple requests can't be passed
       via arguments). Instead we send multiple requests from separate threads.
-    cache_filename: Some methods of this class will be cached. This attribute is
-      any user-defined string that is used as a name of the file when storing
-      cache on disk.
     api_key: GenAI API key string.
     api_key_file: Full quialified path to a file that contains GenAI API key on
       its first line. Only one of api_key or api_key_file can be provided. If
@@ -124,9 +125,7 @@ class GeminiAPI(
       default and can be overridden per request).
   """
 
-  disable_caching: bool = False
   batch_size: int = 1
-  cache_filename: str = 'gemini_api'
   api_key: str | None = None
   api_key_file: str | None = None
   generate_model_name: str = DEFAULT_GENERATE_MODEL
@@ -152,13 +151,11 @@ class GeminiAPI(
   _embed_model: genai.GenerativeModel | None = dataclasses.field(
       init=False, default=None
   )
-
   _available_models: dict[str, Any] = dataclasses.field(
       init=False, default_factory=dict
   )
-  _cache_handler: caching.SimpleFunctionCache[str] | None = dataclasses.field(
-      init=False, default=None
-  )
+  # Used for logging by the batching.add_logging wrapper function in
+  # batching.batch_method_with_threadpool decorator.
   _counters: collections.Counter[str] = dataclasses.field(
       init=False, default_factory=collections.Counter
   )
@@ -187,15 +184,6 @@ class GeminiAPI(
         self.chat,
     )
     llm.count_tokens.configure(self.count_tokens)
-
-  @property
-  def cache_handler(self) -> caching.SimpleFunctionCache[str]:
-    assert self._cache_handler is not None  # pytype hint.
-    return self._cache_handler
-
-  @cache_handler.setter
-  def cache_handler(self, value: caching.SimpleFunctionCache[str]) -> None:
-    self._cache_handler = value
 
   def _get_api_key(self) -> str | None:
     """Retrieve GenAI API key.
@@ -284,8 +272,6 @@ class GeminiAPI(
     # Create cache.
     self._cache_handler = caching.SimpleFunctionCache(
         cache_filename=self.cache_filename,
-        # We only cache strings, so we can use the default lambda x: x decoder.
-        cached_value_decoder=None,
     )
     # Register GenAI API key.
     api_key = self._get_api_key()

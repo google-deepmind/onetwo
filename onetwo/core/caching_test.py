@@ -24,9 +24,11 @@ from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
+from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import constants
 from onetwo.core import executing
+from onetwo.core import sampling
 from onetwo.core import updating
 
 
@@ -90,26 +92,19 @@ class TestKeyMaker(caching.CacheKeyMaker):
       return args[0] + kwargs['b']
 
 
+@dataclasses.dataclass
 class ClassWithCachedMethods(caching.CacheEnabled[str]):
   """An implementation of abstract CacheEnabled that uses TestCache."""
 
-  def __init__(self, append_when_caching=False, disable_caching=False):
-    self._cache = TestCache(append_when_caching=append_when_caching)
-    self._disable_caching = disable_caching
+  append_when_caching: bool = False
 
-  @property
-  def cache_handler(self) -> TestCache:
-    """Returns the cache object for this class."""
-    return self._cache
-
-  @property
-  def disable_caching(self) -> bool:
-    """Returns the cache object for this class."""
-    return self._disable_caching
+  def __post_init__(self):
+    self._cache_handler = TestCache(
+        append_when_caching=self.append_when_caching
+    )
 
   @caching.cache_method(
-      name='method_decorated_with_default_cache_key_maker',
-      is_sampled=True
+      name='method_decorated_with_default_cache_key_maker', is_sampled=True
   )
   def method_decorated_with_default_cache_key_maker(
       self, a: str, b: str
@@ -259,7 +254,7 @@ class CacheDecorationTest(parameterized.TestCase):
     result = asyncio.run(
         getattr(ClassWithCachedMethods, method)(backend, 'test', b=' done')
     )
-    handler: TestCache = getattr(backend, 'cache_handler')
+    handler: TestCache = getattr(backend, '_cache_handler')
     list_keys = list(handler.contents.keys())
     # Hint: we only have one key in the cache.
     assert len(list_keys) == 1
@@ -270,7 +265,7 @@ class CacheDecorationTest(parameterized.TestCase):
   def test_method_with_var_positional(self):
     backend = ClassWithCachedMethods()
     result = asyncio.run(backend.method_with_var_positional('a', 'b', 'c'))
-    handler: TestCache = getattr(backend, 'cache_handler')
+    handler: TestCache = getattr(backend, '_cache_handler')
     keys = list(handler.contents.keys())
     keys = keys[0]
     self.assertEqual(
@@ -313,7 +308,7 @@ class CacheDecorationTest(parameterized.TestCase):
     )
     self.assertEqual(result, 'test done')
     # Check that two extra values were cached.
-    handler: TestCache = getattr(backend, 'cache_handler')
+    handler: TestCache = getattr(backend, '_cache_handler')
     values = list(handler.contents.values())
     if not disable_cache:
       # We have two keys: first reply with sampling_key='', second with None.
@@ -371,7 +366,7 @@ class CacheDecorationTest(parameterized.TestCase):
     results.append(
         asyncio.run(backend.method_with_implicit_arg(a='test2', b=' done'))
     )
-    handler: TestCache = getattr(backend, 'cache_handler')
+    handler: TestCache = getattr(backend, '_cache_handler')
     values = list(handler.contents.values())
     with self.subTest('ignores_a_as_cache_key'):
       self.assertListEqual(results, ['test done'] * 4)
@@ -380,7 +375,7 @@ class CacheDecorationTest(parameterized.TestCase):
 
   def test_cache_after_execution(self):
     backend = ClassWithCachedMethods()
-    handler: TestCache = getattr(backend, 'cache_handler')
+    handler: TestCache = getattr(backend, '_cache_handler')
     contents = handler.contents
 
     # Full execution which should be handled by the make_executable decorator,
@@ -424,20 +419,16 @@ class CacheDecorationTest(parameterized.TestCase):
       )
 
 
+@batching.add_batching
+@dataclasses.dataclass
 class ClassCachedWithSimpleFunctionCache(caching.CacheEnabled[str]):
 
-  def __init__(self):
-    self._cache = caching.SimpleFunctionCache(cache_filename='test')
+  _counters: collections.Counter[str] = dataclasses.field(
+      init=False, default_factory=collections.Counter
+  )
 
-  @property
-  def cache_handler(self) -> caching.SimpleFunctionCache:
-    """See parent class."""
-    return self._cache
-
-  @property
-  def disable_caching(self) -> bool:
-    """See parent class."""
-    return False
+  def __post_init__(self):
+    self._cache_handler = caching.SimpleFunctionCache(cache_filename='test')
 
   @caching.cache_method(is_sampled=False)
   def method_that_may_raise_errors(
@@ -447,6 +438,16 @@ class ClassCachedWithSimpleFunctionCache(caching.CacheEnabled[str]):
   ) -> str:
     if raise_error:
       raise ValueError('We raise error.')
+    return f'{a} result'
+
+  @executing.make_executable(copy_self=False)
+  @caching.cache_method(is_sampled=False)
+  @batching.batch_method_with_threadpool(
+      batch_size=5,
+      wrapper=batching.add_logging,
+  )
+  def method_that_is_batched(self, a: str):
+    self._counters['method_that_is_batched_calls'] += 1
     return f'{a} result'
 
 
@@ -462,19 +463,16 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
 
   def test_cache_file_path_exists_raises_exception(self):
     cache_dir = self.create_tempdir()
-    cache_filename = 'my_cache'
+    cache_filename = 'my_cache.json'
     # This file has the same path as the one that `write_to_directory` uses.
-    tmp_filename = os.path.join(
-        cache_dir.full_path,
-        caching.add_json_extension(cache_filename)
-    )
+    tmp_filename = os.path.join(cache_dir.full_path, cache_filename)
     _ = self.create_tempfile(tmp_filename)
     function_cache = caching.SimpleFunctionCache(
-        cache_filename=cache_filename,
+        cache_filename=tmp_filename,
         cached_value_decoder=lambda x: x,
     )
     with self.assertRaisesRegex(FileExistsError, '.*already exists.'):
-      function_cache.write_to_directory(cache_dir.full_path)
+      function_cache.save()
 
   def test_cache_and_get_cached_value(self):
 
@@ -492,11 +490,11 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           {
               'add_new': 2,
           },
-          function_cache._counters,
+          function_cache._cache_data.counters,
       )
       self.assertEqual(
           collections.defaultdict(int, {}),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     # New cache key, sample_id updates.
     function_cache.cache_value('key3', 'sampling_key_1', 'value_3')
@@ -505,11 +503,11 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           {
               'add_new': 3,
           },
-          function_cache._counters,
+          function_cache._cache_data.counters,
       )
       self.assertEqual(
           collections.defaultdict(int, {caching._get_hash('key3'): 1}),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, no sampling_key, append value.
     function_cache.cache_value('key1', sampling_key_none, 'value_4')
@@ -519,11 +517,11 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
               'add_new': 3,
               'add_new_sample': 1,
           },
-          function_cache._counters,
+          function_cache._cache_data.counters,
       )
       self.assertEqual(
           collections.defaultdict(int, {caching._get_hash('key3'): 1}),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, new sampling_key, append value, sample_id updates.
     function_cache.cache_value('key1', 'sampling_key_1', 'value_5')
@@ -533,19 +531,19 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
               'add_new': 3,
               'add_new_sample': 2,
           },
-          function_cache._counters,
+          function_cache._cache_data.counters,
       )
       self.assertEqual(
           collections.defaultdict(int, {
               caching._get_hash('key3'): 1,
               caching._get_hash('key1'): 1,
           }),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
       # By now we have 3 values for this key.
       self.assertEqual(
           ['value_1', 'value_4', 'value_5'],
-          function_cache._values_by_key[caching._get_hash('key1')],
+          function_cache._cache_data.values_by_key[caching._get_hash('key1')],
       )
     with self.subTest(
         'get_cached_existing_sampling_key_returns_not_the_last_element'
@@ -563,7 +561,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
               caching._get_hash('key3'): 1,
               caching._get_hash('key1'): 1,
           }),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     with self.subTest(
         'get_cached_new_sampling_key_maps_new_sample'
@@ -581,7 +579,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
               caching._get_hash('key3'): 1,
               caching._get_hash('key1'): 2,
           }),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, matched sampling_key, matched value. Redundant.
     function_cache.cache_value('key1', 'sampling_key_1', 'value_1')
@@ -595,14 +593,14 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
               'add_redundant': 1,
               'get_hit': 2,
           },
-          function_cache._counters,
+          function_cache._cache_data.counters,
       )
       self.assertEqual(
           collections.defaultdict(int, {
               caching._get_hash('key3'): 1,
               caching._get_hash('key1'): 2,
           }),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, matched sampling_key, new value. Overwrite.
     function_cache.cache_value('key1', 'sampling_key_1', 'value_2')
@@ -617,14 +615,14 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
               'add_overwrote': 1,
               'get_hit': 2,
           },
-          function_cache._counters,
+          function_cache._cache_data.counters,
       )
       self.assertEqual(
           collections.defaultdict(int, {
               caching._get_hash('key3'): 1,
               caching._get_hash('key1'): 2,
           }),
-          function_cache._num_used_values_by_key,
+          function_cache._cache_data.num_used_values_by_key,
       )
     # Deterministic function.
     function_cache.cache_value('key_det', sampling_key_none, 'value_1')
@@ -646,21 +644,34 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
             backend.method_that_may_raise_errors(a='some', raise_error=True)
         )
     # pytype hint.
-    handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
     with self.subTest('calls_in_progress_cleared_after_exception'):
-      self.assertEqual(handler.calls_in_progress, set())
+      self.assertEqual(handler._calls_in_progress, set())
+
+  def test_does_not_repeat_calls_in_progress(self):
+    backend = ClassCachedWithSimpleFunctionCache()
+
+    exectuable = backend.method_that_is_batched(a='some')
+    executables = sampling.repeat(exectuable, 5)
+    result = executing.run(executing.par_iter(executables))
+
+    with self.subTest('result_is_correct'):
+      self.assertEqual(result, ['some result'] * 5)
+
+    with self.subTest('called_method_only_once'):
+      self.assertDictEqual(
+          backend._counters,
+          {
+              'method_that_is_batched_batches': 1,
+              'method_that_is_batched_calls': 1,
+          },
+      )
 
   def test_write_to_and_load_from_disk(self):
-    cache_filename = 'my_cache'
-    function_cache = caching.SimpleFunctionCache(
-        cache_filename=cache_filename,
-        cached_value_decoder=lambda x: x,
-    )
+    cache_filename = 'my_cache.json'
     cache_dir = self.create_tempdir()
-    cache_file_path = os.path.join(
-        cache_dir.full_path,
-        caching.add_json_extension(cache_filename)
-    )
+    cache_filename = os.path.join(cache_dir.full_path, cache_filename)
+    function_cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
     sampling_key_none = None
     function_cache.cache_value('key1', sampling_key_none, 'value_1')
     function_cache.cache_value('key1', sampling_key_none, 'value_2')
@@ -671,15 +682,13 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     function_cache.cache_value('key2', sampling_key_none, 'value_6')
     function_cache.cache_value('key2', 'sampling_key_4', 'value_7')
     function_cache.cache_value('key3', 'sampling_key_5', 'value_8')
-    function_cache.write_to_directory(cache_dir.full_path)
+    function_cache.save()
     with self.subTest('cache_file_exists'):
-      self.assertTrue(os.path.exists(cache_file_path))
+      self.assertTrue(os.path.exists(cache_filename))
     # Cache with restored sample id mappings.
-    cache_1 = caching.SimpleFunctionCache.create_from_file(
-        cache_file_path, restore_mapping=True)
-    with self.subTest(
-        'cache_restored_properly_with_sample_mapping'
-    ):
+    cache_1 = caching.SimpleFunctionCache(cache_filename=cache_filename)
+    cache_1.load(restore_mapping=True)
+    with self.subTest('cache_restored_properly_with_sample_mapping'):
       self.assertEqual(
           asyncio.run(cache_1.get_cached_value('key1', 'sampling_key_2')),
           'value_2',
@@ -689,10 +698,9 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           'value_1',
       )
     # Cache with fresh sample id mappings.
-    cache_2 = caching.SimpleFunctionCache.create_from_file(cache_file_path)
-    with self.subTest(
-        'cache_restored_properly_with_fresh_sample_mapping'
-    ):
+    cache_2 = caching.SimpleFunctionCache(cache_filename=cache_filename)
+    cache_2.load(restore_mapping=False)
+    with self.subTest('cache_restored_properly_with_fresh_sample_mapping'):
       self.assertEqual(
           asyncio.run(cache_2.get_cached_value('key1', 'sampling_key_2')),
           'value_1',

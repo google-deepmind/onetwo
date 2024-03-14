@@ -173,7 +173,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
         )
     )
     # pytype hint.
-    handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
     with self.subTest('returns_correct_result_1'):
       self.assertEqual(res, 'a' * 10)
     expected_backend_counters = collections.Counter({
@@ -188,7 +188,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     expected_cache_counters = Counter(add_new=2, get_miss=2)
     with self.subTest('cache_behaves_as_expected_1'):
       self.assertCounterEqual(
-          handler._counters,
+          handler._cache_data.counters,
           expected_cache_counters,
       )
     # Same query to see if it has been cached.
@@ -206,7 +206,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     expected_cache_counters['get_hit'] += 2  # Generate and count_tokens.
     with self.subTest('cache_behaves_as_expected_2'):
       self.assertCounterEqual(
-          handler._counters,
+          handler._cache_data.counters,
           expected_cache_counters,
       )
     # Same query but different parameters, run generate request again.
@@ -232,7 +232,9 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     expected_cache_counters['get_miss'] += 1  # Could not find generate.
     expected_cache_counters['add_new'] += 1  # Cached generate.
     with self.subTest('cache_behaves_as_expected_3'):
-      self.assertCounterEqual(handler._counters, expected_cache_counters)
+      self.assertCounterEqual(
+          handler._cache_data.counters, expected_cache_counters
+      )
 
   def test_repeat_generate_and_count_tokens(self):
     backend = _get_and_register_backend()
@@ -249,7 +251,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     )
     res = executing.run(exe)
     # pytype hint.
-    handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
     with self.subTest('returns_correct_result'):
       self.assertEqual(res, 5 * ['a' * 10])
     expected_backend_counters = collections.Counter({
@@ -275,7 +277,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     )
     with self.subTest('cache_behaves_as_expected'):
       self.assertCounterEqual(
-          handler._counters,
+          handler._cache_data.counters,
           expected_cache_counters,
       )
     # One more run of repeat to hit the `get_hit_miss_sample` counter.
@@ -304,7 +306,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     )
     with self.subTest('cache_behaves_as_expected'):
       self.assertCounterEqual(
-          handler._counters,
+          handler._cache_data.counters,
           expected_cache_counters,
       )
 
@@ -319,7 +321,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     ])
     res = executing.run(exe)
     # pytype hint.
-    handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
     with self.subTest('returns_correct_result'):
       self.assertEqual(res, 5 * ['a' * 10])
     expected_backend_counters = collections.Counter({
@@ -336,7 +338,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     expected_cache_counters = Counter(add_new=10, get_miss=10)
     with self.subTest('cache_behaves_as_expected'):
       self.assertCounterEqual(
-          handler._counters,
+          handler._cache_data.counters,
           expected_cache_counters,
       )
 
@@ -352,7 +354,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     ])
     res = executing.run(exe)
     # pytype hint.
-    handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
     with self.subTest('returns_correct_result'):
       self.assertEqual(res, 5 * ['a' * 10])
     expected_backend_counters = collections.Counter({
@@ -369,7 +371,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
     expected_cache_counters = Counter(add_new=2, get_miss=2, get_hit=8)
     with self.subTest('cache_behaves_as_expected'):
       self.assertCounterEqual(
-          handler._counters,
+          handler._cache_data.counters,
           expected_cache_counters,
       )
 
