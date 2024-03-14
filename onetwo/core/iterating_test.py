@@ -24,6 +24,42 @@ from onetwo.core import iterating
 
 class IteratingTest(parameterized.TestCase):
 
+  def test_asyncio_run_wrapper_outside_loop(self):
+    async def f(i: int):
+      if i:
+        return i
+      else:
+        raise ValueError('zero')
+
+    with self.subTest('runs_without_error'):
+      self.assertEqual(iterating.asyncio_run_wrapper(f(1)), 1)
+
+    with self.subTest('raises_error'):
+      with self.assertRaisesRegex(ValueError, 'zero'):
+        iterating.asyncio_run_wrapper(f(0))
+
+  def test_asyncio_run_wrapper_inside_loop(self):
+
+    async def outer_wrapper():
+      async def f(i: int):
+        if i:
+          return i
+        else:
+          raise ValueError('zero')
+
+      with self.subTest('runs_without_error'):
+        self.assertEqual(iterating.asyncio_run_wrapper(f(1)), 1)
+
+      with self.subTest('raises_error'):
+        with self.assertRaisesRegex(ValueError, 'zero'):
+          iterating.asyncio_run_wrapper(f(0))
+
+      with self.subTest('direct_asyncio_fails'):
+        with self.assertRaises(RuntimeError):
+          asyncio.run(f(1))
+
+    asyncio.run(outer_wrapper())
+
   def test_async_iterator_to_sync(self):
     async def wrap():
       for i in range(5):

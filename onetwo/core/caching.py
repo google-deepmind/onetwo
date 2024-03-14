@@ -957,7 +957,7 @@ class SimpleFunctionCache(
     """
     if not self.cache_filename:
       raise ValueError('Cache filename must be provided when storing on disk.')
-    os.path.makedirs(output_dir)  # Create all dirs and subdirs.
+    os.makedirs(output_dir, exist_ok=True)
     filename = add_json_extension(self.cache_filename)
     cache_file_path = os.path.join(output_dir, filename)
     if os.path.exists(cache_file_path) and not overwrite:

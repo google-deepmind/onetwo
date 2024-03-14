@@ -518,7 +518,7 @@ def force_reset() -> None:
   This may leave hanging threads in the background so one may still need to
   restart the runtime if too many runs have been interrupted.
   """
-  asyncio.run(_finish_queues(force=True))
+  iterating.asyncio_run_wrapper(_finish_queues(force=True))
 
 
 @contextlib.asynccontextmanager
@@ -650,7 +650,7 @@ def run(
         return result
 
   with run_once():
-    return asyncio.run(wrap())
+    return iterating.asyncio_run_wrapper(wrap())
 
 
 def stream_with_callback(
@@ -686,7 +686,7 @@ def stream_with_callback(
           callback(result)
 
   with run_once():
-    asyncio.run(wrapper())
+    iterating.asyncio_run_wrapper(wrapper())
 
 
 @overload

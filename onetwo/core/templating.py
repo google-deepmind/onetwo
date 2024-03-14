@@ -35,7 +35,6 @@ from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
 
-import termcolor
 
 
 # Special fields for storing information in the Jinja context.
@@ -612,28 +611,6 @@ async def _input_callback(
   if variable_name in context.input_variables:
     return context.input_variables[variable_name]
   return input(prompt or '')
-
-
-def termcolor_tags(*args, **kwargs) -> tuple[str, str]:
-  """Convenience function to produce termcolor tags.
-
-  Produces the tags to surround a colored/formatted text.
-  Usage: `tags = termcolor_tags(color='blue')`
-  or: `tags = termcolor_tags('blue', attrs=['bold'])`
-  Then the tags can be used as role_tags for formatting the output of the
-  template.
-
-  Args:
-    *args: Positional arguments of the termcolor.colored function (first one is
-      color)
-    **kwargs: Keyword arguments of the termcolor.colored function (e.g. attrs=)
-
-  Returns:
-    A pair of (begin, end) tags corresponding to the color/formatting.
-  """
-  text = termcolor.colored('****', *args, **kwargs)
-  res = text.split('****')
-  return (res[0], res[1])
 
 
 def html_tags(style: str) -> tuple[str, str]:

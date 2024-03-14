@@ -198,6 +198,11 @@ class LLMForTest(backends_base.Backend):
       scores.append(self.reply_by_prompt_target.get(pt, self.default_score))
     return scores
 
+  def count_tokens(self, content: str | content_lib.ChunkList) -> int:
+    if isinstance(content, content_lib.ChunkList):
+      content = content.to_simple_string()
+    return len(content.split(' '))
+
   async def generate_object(
       self, prompt: str | content_lib.ChunkList, cls: Type[_T]
   ) -> _T:
@@ -213,3 +218,4 @@ class LLMForTest(backends_base.Backend):
     llm.generate_text.configure(self.generate_text)
     llm.score_text.configure(self.score_text)
     llm.generate_object.configure(self.generate_object)
+    llm.count_tokens.configure(self.count_tokens)

@@ -293,7 +293,7 @@ def run(
       execution_tracer.set(tracer)
       result = await return_value
       return result, execution_context.get(None)
-    return asyncio.run(wrapper())
+    return iterating.asyncio_run_wrapper(wrapper())
 
   return return_value, execution_context.get(None)
 

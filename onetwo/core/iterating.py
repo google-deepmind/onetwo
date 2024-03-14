@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Generator
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable, Iterator, Generator
 import contextlib
 import contextvars
 import copy
@@ -27,11 +27,70 @@ import itertools
 import logging
 import queue
 import threading
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, Generic, ParamSpec, TypeVar
 
 
 T = TypeVar('T')
 Args = ParamSpec('Args')
+
+
+class _ThreadWithAsyncioLoop(Generic[T], threading.Thread):
+  """A thread that runs an asyncio loop to execute a coroutine."""
+
+  def __init__(
+      self,
+      name: str,
+      coroutine: Coroutine[Any, Any, T],
+      loop: asyncio.AbstractEventLoop,
+  ):
+    super().__init__()
+    self.name = name
+    self.coroutine = coroutine
+    self.loop = loop
+    self.result = None
+
+  def run(self):
+    try:
+      self.result = self.loop.run_until_complete(self.coroutine)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      self.result = e
+
+
+def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
+  """Runs a coroutine in a new thread if the current thread is running asyncio.
+
+  By default this will simply call asyncio.run, but in the case where this is
+  called from an already running event loop (e.g. this is what happens
+  when running in Google colab, or in Jupyter notebooks), then a new thread
+  will be created to run the coroutine in a separate event loop.
+  This is to avoid the user to have to call await on the coroutine explicitly.
+
+  Args:
+    coroutine: The coroutine to be run.
+
+  Returns:
+    The result of the coroutine.
+
+  Raises:
+    Any exception that the coroutine may have raised.
+  """
+  try:
+    is_running = asyncio.get_event_loop().is_running()
+  except RuntimeError:
+    is_running = False
+  if is_running:
+    loop = asyncio.new_event_loop()
+    thr = _ThreadWithAsyncioLoop[T](
+        'Thread running an asyncio loop', coroutine, loop
+    )
+    thr.start()
+    thr.join()
+    if isinstance(thr.result, Exception):
+      raise thr.result
+    else:
+      return thr.result
+  else:
+    return asyncio.run(coroutine)
 
 
 # Note that we use Any as a type hint for the AsyncIterator because we can
@@ -204,7 +263,7 @@ def _run_async_iterator_in_queue(
       return
     put_or_shutdown(result_queue, job_done, shutdown)
 
-  context.run(asyncio.run, wrapper())
+  context.run(asyncio_run_wrapper, wrapper())
 
 
 def _run_iterator_in_queue(
@@ -296,7 +355,7 @@ def _run_coroutine_with_callback_in_queue(
     put_or_shutdown(result_queue, job_done, shutdown)
     return result
 
-  final_result = context.run(asyncio.run, wrapper())
+  final_result = context.run(asyncio_run_wrapper, wrapper())
   put_or_shutdown(result_queue, final_result, shutdown)
 
 

@@ -21,6 +21,7 @@ import pprint
 import textwrap
 from unittest import mock
 
+from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 import jinja2
@@ -44,6 +45,13 @@ def _llm(reply_by_prompt: Mapping[str, str]) -> Callable[[Context], str]:
 
 
 class TemplatingTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    # The `self.create_tempdir` method uses command line flag and such flags
+    # are not marked as parsed by default when running with pytest. Marking as
+    # parsed directly here to make the pytest run pass.
+    flags.FLAGS.mark_as_parsed()
 
   @parameterized.named_parameters(
       ('all_defined', None, {'var1': 'test', 'var2': ''}),
@@ -450,17 +458,6 @@ class TemplatingTest(parameterized.TestCase):
           },
           'part1\n<llm>test\n</llm>part4',
       ),
-      (
-          'color_tags',
-          {
-              'user': templating.termcolor_tags('red', attrs=['bold']),
-              'llm': ('<llm>', '</llm>'),
-          },
-          (
-              'part1\n\x1b[1m\x1b[31m<user>part2\n'
-              '</user>\x1b[0m<llm>test\n</llm>part4'
-          ),
-      ),
   )
   def test_j2_roles(self, role_tags, expected_prefix):
     prompt_text = textwrap.dedent("""\
@@ -499,15 +496,18 @@ class TemplatingTest(parameterized.TestCase):
               'llm': ('<llm_tag>', '</llm_tag>'),
           },
           {
-              'user': ('<ctrl99>user', '<ctrl100>'),
-              'other': ('', '<ctrl23>'),
+              'user': ('user_prefix_begin', 'user_prefix_end'),
+              'other': ('', 'other_prefix_end'),
               'llm': ('', ''),
           },
-          'part1\n<ctrl99>user\npart2\n<ctrl100>\npart3\n<ctrl23>\ntest\npart4',
+          (
+              'part1\nuser_prefix_begin\npart2\nuser_prefix_end\npart3\n'
+              'other_prefix_end\ntest\npart4'
+          ),
           (
               'part1\n'
-              '<user_tag><ctrl99>user\npart2\n<ctrl100></user_tag>'
-              '<other_tag>\npart3\n<ctrl23></other_tag>'
+              '<user_tag>user_prefix_begin\npart2\nuser_prefix_end</user_tag>'
+              '<other_tag>\npart3\nother_prefix_end</other_tag>'
               '<llm_tag>\ntest\n</llm_tag>'
               'part4'
           ),
@@ -519,30 +519,15 @@ class TemplatingTest(parameterized.TestCase):
               'llm': ('<llm>', '</llm>'),
           },
           {
-              'user': ('<ctrl99>user', '<ctrl100>'),
-              'other': ('', '<ctrl23>'),
+              'user': ('user_prefix_begin', 'user_prefix_end'),
+              'other': ('', 'other_prefix_end'),
               'llm': ('', ''),
           },
-          'part1\n<ctrl99>user\npart2\n<ctrl100>\npart3\n<ctrl23>\ntest\npart4',
-          'part1\n\npart3\n<ctrl23><llm>\ntest\n</llm>part4',
-      ),
-      (
-          'color_tags',
-          {
-              'user': templating.termcolor_tags('red', attrs=['bold']),
-              'llm': ('<llm>', '</llm>'),
-          },
-          {
-              'user': ('<ctrl99>user', '<ctrl100>'),
-              'other': ('', '<ctrl23>'),
-              'llm': ('', ''),
-          },
-          'part1\n<ctrl99>user\npart2\n<ctrl100>\npart3\n<ctrl23>\ntest\npart4',
           (
-              'part1\n'
-              '\x1b[1m\x1b[31m<ctrl99>user\npart2\n<ctrl100>\x1b[0m'
-              '\npart3\n<ctrl23><llm>\ntest\n</llm>part4'
+              'part1\nuser_prefix_begin\npart2\nuser_prefix_end\n'
+              'part3\nother_prefix_end\ntest\npart4'
           ),
+          'part1\n\npart3\nother_prefix_end<llm>\ntest\n</llm>part4',
       ),
   )
   def test_j2_prefix_roles(

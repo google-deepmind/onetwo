@@ -83,19 +83,19 @@ async def process_updates(request: str) -> str:
 
 # An arbitrary function can be turned into an executable.
 @make_executable
-def test_function(text: str) -> str:
+def my_function(text: str) -> str:
   return f'done: {text}'
 
 
 @make_executable
 async def async_wrap_function_without_call(text: str) -> str:
-  return await test_function(text)
+  return await my_function(text)
 
 
 @make_executable
 async def async_wrap_function_multiple_args(text1: str, text2: str) -> str:
-  res1 = await test_function(text1)
-  res2 = await test_function(text2)
+  res1 = await my_function(text1)
+  res2 = await my_function(text2)
   return f'{res1} {res2}'
 
 
@@ -105,21 +105,21 @@ def list_function(texts):
 
 
 @make_executable(non_copied_args=['uncopiable'])
-def test_function_with_non_copied_args(
+def my_function_with_non_copied_args(
     texts: list[str], uncopiable: UncopiableObject
 ) -> str:
   return f'done: {texts[0]} with {uncopiable.text}'
 
 
 @make_executable('other')
-async def test_function_with_input(
+async def my_function_with_input(
     text: str, other: ExecutableWithStr
 ) -> str:
   other_result = await other
   return f'done: {text} with {other_result}'
 
 
-def test_function_with_two_args(
+def my_function_with_two_args(
     one: ExecutableWithStr,
     two: ExecutableWithStr,
 ) -> Any:
@@ -255,10 +255,10 @@ class ExecutionTest(parameterized.TestCase):
       )
 
   def test_repeated_decoration(self):
-    decorated_fn_one = make_executable('one')(test_function_with_two_args)
+    decorated_fn_one = make_executable('one')(my_function_with_two_args)
     decorated_fn_two = make_executable('two')(decorated_fn_one)
-    first_exec_arg = test_function('1')
-    second_exec_arg = test_function('2')
+    first_exec_arg = my_function('1')
+    second_exec_arg = my_function('2')
     tuple_one = executing.run(
         decorated_fn_one(first_exec_arg, second_exec_arg)
     )
@@ -464,7 +464,7 @@ class ExecutionTest(parameterized.TestCase):
   def test_function_args_copy_with_non_copied_args(self):
     texts = ['r0']
     uncopiable = UncopiableObject('u0')
-    executable = test_function_with_non_copied_args(
+    executable = my_function_with_non_copied_args(
         texts, uncopiable=uncopiable
     )
     executable2 = copy.deepcopy(executable)
@@ -523,13 +523,13 @@ class ExecutionTest(parameterized.TestCase):
     def pass_through(text: str) -> str:
       return text
 
-    reply1 = executing.run(test_function_with_input(
-        pass_through('r'), test_function('s')
+    reply1 = executing.run(my_function_with_input(
+        pass_through('r'), my_function('s')
     ))
-    reply2 = executing.run(test_function_with_input('r', pass_through('s')))
-    reply3 = executing.run(test_function_with_input('r', test_function('s')))
-    reply4 = executing.run(test_function_with_input(
-        test_function('r'), test_function_with_input('s', pass_through('t'))
+    reply2 = executing.run(my_function_with_input('r', pass_through('s')))
+    reply3 = executing.run(my_function_with_input('r', my_function('s')))
+    reply4 = executing.run(my_function_with_input(
+        my_function('r'), my_function_with_input('s', pass_through('t'))
     ))
 
     with self.subTest('should_produce_correct_results'):
