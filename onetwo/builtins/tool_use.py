@@ -58,6 +58,8 @@ async def default_run_tool(
 ) -> Any:
   """Default implementation of run_tool which calls function_registry."""
   if tool_name == constants.ERROR_STRING:
+    # ERROR_STRING as the tool_name is a special case, where we are expected
+    # to simply echo the error message stored in the tool argument.
     if len(tool_args) != 1:
       raise ValueError(
           'When tool_name is ERROR_STRING, we expect there to be exactly one'

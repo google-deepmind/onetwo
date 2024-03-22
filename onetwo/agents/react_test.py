@@ -19,30 +19,30 @@ from absl.testing import parameterized
 from onetwo.agents import react
 from onetwo.backends import test_utils
 from onetwo.core import executing
-from onetwo.core import routing
 from onetwo.stdlib.code_execution import python_execution_safe_subset
-from onetwo.stdlib.tool_use import tool_handling
+from onetwo.stdlib.tool_use import llm_tool_use
+from onetwo.stdlib.tool_use import python_tool_use
 
 # Default reply for LLMForTest to return when it receives a prompt that it was
 # not expecting.
 DEFAULT_REPLY = 'UNKNOWN_PROMPT'
 
 
-def _get_tool_handler_with_python() -> tool_handling.ToolHandler:
-  """Returns a tool handler with a properly registered Python tool."""
-  tool_handler = tool_handling.ToolHandler()
-  routing.function_registry['Python'] = (
-      python_execution_safe_subset.arithmetic_eval
+def _get_environment_config_with_python() -> (
+    python_tool_use.PythonToolUseEnvironmentConfig
+):
+  """Returns an environment config with a Python tool."""
+  return python_tool_use.PythonToolUseEnvironmentConfig(
+      tools=[
+          llm_tool_use.ToolSpec(
+              name='Python',
+              function=python_execution_safe_subset.arithmetic_eval,
+              description='Python description.',
+              example='Python("1 + 1") returns `2`.',
+              color='magenta',
+          )
+      ]
   )
-  tool_handler.register_tool(
-      tool_handling.ToolSpec(
-          name='Python',
-          description='Python description.',
-          example='Python("1 + 1") returns `2`.',
-          color='magenta',
-      )
-  )
-  return tool_handler
 
 
 class ReactTest(parameterized.TestCase):
@@ -55,8 +55,7 @@ class ReactTest(parameterized.TestCase):
     stop_sequences = ['[Question]', '[Observe]']
 
     # Tool configuration.
-    tool_handler = _get_tool_handler_with_python()
-    tools = list(tool_handler.tools.values())
+    config = _get_environment_config_with_python()
 
     # Prompt configuration.
     prompt = react.ReActPromptJ2()
@@ -71,7 +70,7 @@ class ReactTest(parameterized.TestCase):
                     'First we need to find out the population of Tuebingen and'
                     ' Zuerich. We can use the Search tool for that.'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Search',
                     args=('population of Tuebingen',),
                     kwargs={},
@@ -94,17 +93,17 @@ class ReactTest(parameterized.TestCase):
                         'index': 2,
                     },
                 ],
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
             react.ReActStep(
                 is_finished=False,
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Search',
                     args=('population of Zuerich',),
                     kwargs={},
                 ),
                 observation='402,762 (2017)',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
         ],
     )
@@ -130,7 +129,7 @@ class ReactTest(parameterized.TestCase):
     # etc.)
     prompt_outputs, result = executing.run(
         prompt(
-            tools=list(tool_handler.tools.values()),
+            tools=config.tools,
             exemplars=exemplars,
             stop_prefix=stop_prefix,
             stop_sequences=stop_sequences,
@@ -142,8 +141,8 @@ class ReactTest(parameterized.TestCase):
     prefix = result.stages[0].outputs['prefix']
 
     with self.subTest('prompt_should_contain_the_tool_descriptions'):
-      self.assertIn(tools[0].description, prefix)
-      self.assertIn(tools[-1].description, prefix)
+      self.assertIn(config.tools[0].description, prefix)
+      self.assertIn(config.tools[-1].description, prefix)
 
     with self.subTest('prompt_should_contain_the_exemplar_inputs'):
       self.assertIn(exemplars[0].inputs, prefix)
@@ -201,7 +200,7 @@ class ReactTest(parameterized.TestCase):
   def test_sample_next_step(self):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
-    tool_handler = _get_tool_handler_with_python()
+    config = _get_environment_config_with_python()
     prev_state = react.ReActState(inputs=question, updates=[])
 
     # We hard-code the LLM to return the same thought every time (assuming the
@@ -219,24 +218,27 @@ class ReactTest(parameterized.TestCase):
 
     agent = react.ReActAgent(
         exemplars=react.REACT_FEWSHOTS,
-        tool_handler=tool_handler,
+        environment_config=config,
         max_steps=1,
         stop_prefix='',
     )
 
     num_candidates = 2
-    next_step_candidates = executing.run(
-        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)
-    )
+    with python_tool_use.PythonToolUseEnvironment(config=config) as env:
+      next_step_candidates = executing.run(
+          agent.sample_next_step(
+              state=prev_state, num_candidates=num_candidates, environment=env
+          )
+      )
 
     expected_next_step_candidate = react.ReActStep(
         is_finished=False,
         thought='We can use the Python tool to subtract one from another.',
-        action=tool_handling.FunctionCall(
+        action=llm_tool_use.FunctionCall(
             function_name='Python', args=('10 - 15',), kwargs={}
         ),
         observation=-5,
-        fmt=tool_handling.ArgumentFormat.PYTHON,
+        fmt=llm_tool_use.ArgumentFormat.PYTHON,
     )
 
     with self.subTest('should_return_the_expected_number_of_candidates'):
@@ -251,7 +253,7 @@ class ReactTest(parameterized.TestCase):
   def test_execute(self):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
-    tool_handler = _get_tool_handler_with_python()
+    config = _get_environment_config_with_python()
 
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
@@ -273,7 +275,7 @@ class ReactTest(parameterized.TestCase):
 
     agent = react.ReActAgent(
         exemplars=react.REACT_FEWSHOTS,
-        tool_handler=tool_handler,
+        environment_config=config,
         max_steps=10,
         stop_prefix='',
     )
@@ -292,11 +294,11 @@ class ReactTest(parameterized.TestCase):
                 thought=(
                     'We can use the Python tool to subtract one from another.'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Python', args=('10 - 15',), kwargs={}
                 ),
                 observation=-5,
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
             react.ReActStep(
                 is_finished=True,
@@ -348,7 +350,7 @@ class ReactTest(parameterized.TestCase):
   def test_execute_force_finish(self):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
-    tool_handler = _get_tool_handler_with_python()
+    config = _get_environment_config_with_python()
 
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
@@ -372,7 +374,7 @@ class ReactTest(parameterized.TestCase):
 
     agent = react.ReActAgent(
         exemplars=react.REACT_FEWSHOTS,
-        tool_handler=tool_handler,
+        environment_config=config,
         max_steps=1,
         stop_prefix='',
     )

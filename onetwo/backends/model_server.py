@@ -21,6 +21,7 @@ from typing import Any
 
 import fastapi
 from onetwo.builtins import llm
+from onetwo.core import batching
 import pydantic
 
 
@@ -74,6 +75,11 @@ class ModelServer:
         stream=sys.stdout,
     )
 
+    # We disable batching on the server (it may still be enabled on the client).
+    # This is specific to the way we run onetwo in an async application. In
+    # general, in client applications it is best to call onetwo.run().
+    batching._enable_batching.set(False)
+
     self._app = fastapi.FastAPI()
     self._app.add_api_route(
         path='/health',
@@ -100,6 +106,11 @@ class ModelServer:
 
   async def tokenize(self, request: TokenizeRequest) -> TokenizeResponse:
     """Wraps llm.tokenize."""
+    # We disable batching on the server (it may still be enabled on the client).
+    # This is specific to the way we run onetwo in an async application. In
+    # general, in client applications it is best to call onetwo.run().
+    batching._enable_batching.set(False)  # pylint: disable=protected-access
+
     try:
       res = await llm.tokenize(request.content)
       return TokenizeResponse(result=res)
@@ -117,6 +128,10 @@ class ModelServer:
       self, request: GenerateTextRequest
   ) -> GenerateTextResponse:
     """Wraps llm.generate_text."""
+    # We disable batching on the server (it may still be enabled on the client).
+    # This is specific to the way we run onetwo in an async application. In
+    # general, in client applications it is best to call onetwo.run().
+    batching._enable_batching.set(False)  # pylint: disable=protected-access
     try:
       res = await llm.generate_text(
           prompt=request.prompt,
@@ -140,6 +155,10 @@ class ModelServer:
       self, request: CountTokensRequest
   ) -> CountTokensResponse:
     """Wraps llm.count_tokens."""
+    # We disable batching on the server (it may still be enabled on the client).
+    # This is specific to the way we run onetwo in an async application. In
+    # general, in client applications it is best to call onetwo.run().
+    batching._enable_batching.set(False)  # pylint: disable=protected-access
     try:
       res = await llm.count_tokens(request.content)
       return CountTokensResponse(result=res)

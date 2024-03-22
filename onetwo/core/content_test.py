@@ -182,25 +182,6 @@ class ContentTest(parameterized.TestCase):
     l += _Chunk(' done')
     self.assertEqual(l.to_simple_string(), 'hello world done')
 
-  def test_hashing(self):
-    c1 = _Chunk('test')
-    c2 = _Chunk('test')
-    c3 = _Chunk(b'test')
-    c4 = _ChunkList() + c1 + c2
-    c5 = _Chunk(PIL.Image.new(mode='RGB', size=(2, 2)))
-    c6 = _Chunk(PIL.Image.new(mode='RGB', size=(2, 2)))
-
-    with self.subTest('str_hashing_works'):
-      self.assertEqual(hash(c1), hash(c2))
-      self.assertNotEqual(hash(c1), hash(_Chunk('test2')))
-      self.assertEqual(hash(c4), hash(str(hash(c1)) + str(hash(c2))))
-
-    with self.subTest('byte_hashing_works'):
-      self.assertEqual(hash(c1), hash(c3))
-
-    with self.subTest('pil_hashing_works'):
-      self.assertEqual(hash(c5), hash(c6))
-
 
 if __name__ == '__main__':
   absltest.main()

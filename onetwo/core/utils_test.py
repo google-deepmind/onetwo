@@ -13,13 +13,22 @@
 # limitations under the License.
 
 import asyncio
+import copy
 import functools
 import multiprocessing.pool
 import time
+from typing import TypeAlias
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import numpy as np
+from onetwo.core import content as content_lib
 from onetwo.core import utils
+import PIL.Image
+
+
+_Chunk: TypeAlias = content_lib.Chunk
+_ChunkList: TypeAlias = content_lib.ChunkList
 
 
 def f_empty():
@@ -337,6 +346,55 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('should_limit_async_calls'):
       # We run 20 queries with 2qps, on two objects, it should take ~5s.
       self.assertBetween(end - start, 5, 6)
+
+  @parameterized.named_parameters(
+      ('str', 'key1', 'key1', 'key2'),
+      ('list', [1, 2, 3], [1, 2, 3], [3, 2, 1]),
+      ('set', {'a', 'b'}, {'b', 'a'}, {'a', 'c'}),
+      ('dict', {'a': 1, 'b': 2}, {'b': 2, 'a': 1}, {'a': 1, 'b': 3}),
+      ('bytes', b'a', b'a', b'b'),
+      (
+          'pil',
+          PIL.Image.new(mode='RGB', size=(2, 2)),
+          PIL.Image.new(mode='RGB', size=(2, 2)),
+          PIL.Image.new(mode='RGB', size=(2, 3)),
+      ),
+      ('chunk', _Chunk('abc'), _Chunk('abc'), _Chunk('cba')),
+      (
+          'chunk_with_pil',
+          _Chunk(PIL.Image.new(mode='RGB', size=(2, 2))),
+          _Chunk(PIL.Image.new(mode='RGB', size=(2, 2))),
+          _Chunk(PIL.Image.new(mode='RGB', size=(2, 3))),
+      ),
+      (
+          'chunk_list',
+          _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'ab'), _Chunk('bc')]),
+          _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'ab'), _Chunk('bc')]),
+          _ChunkList(chunks=[_Chunk('bc'), _Chunk(b'ab'), _Chunk('ab')]),
+      ),
+      (
+          'np.array',
+          np.array([1, 2, 3]),
+          np.array([1, 2, 3]),
+          np.array([3, 2, 1]),
+      ),
+  )
+  def test_get_hash(self, key, similar_key, other_key):
+    # We create a simple copy of the key.
+    c = copy.deepcopy(key)
+    key_hash = utils.get_str_hash(key)
+    copy_hash = utils.get_str_hash(c)
+    similar_hash = utils.get_str_hash(similar_key)
+    other_hash = utils.get_str_hash(other_key)
+    # We check we obtain the same hash (this is not a very strong test
+    # as ideally one would compare hashes on different machines etc... but
+    # this is a first attempt at checking that some reasonable hash is created).
+    self.assertEqual(copy_hash, key_hash)
+    self.assertEqual(similar_hash, key_hash)
+    # We also check that the hashes are different for different keys (this
+    # would catch mistakes such as accidentally mapping all keys to the same
+    # hash).
+    self.assertNotEqual(other_hash, key_hash)
 
   def test_is_method(self):
     results = {}

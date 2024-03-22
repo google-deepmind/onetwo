@@ -130,22 +130,28 @@ class OneTwoAPI(
       top_k: int | None = None,
       top_p: float | None = None,
       include_details: bool = False,
-      **kwargs,  # Optional genai specific arguments.
+      **kwargs,  # Optional server-specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
-    del max_tokens, stop, top_k, top_p, kwargs
-
     self._counters['generate_text'] += 1
 
     if isinstance(prompt, content_lib.ChunkList):
       prompt = str(prompt)
 
+    args = {
+        'prompt': prompt,
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+        'stop': stop,
+        'top_k': top_k,
+        'top_p': top_p,
+        'include_details': include_details,
+    }
+    args = args.update(kwargs)
+
     response = requests.post(
         self.endpoint + '/generate_text',
-        json={
-            'prompt': prompt,
-            'temperature': temperature,
-        },
+        json=args,
     )
     if response.status_code != requests.codes.ok:
       raise ValueError(f'OneTwoAPI /generate_text failed: {response.text}')

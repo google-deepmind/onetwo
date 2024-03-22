@@ -59,7 +59,7 @@ from onetwo import ot
 
 ### Running unit tests
 
-In order to run the test, first clone the repository:
+In order to run the tests, first clone the repository:
 
 ```shell
 git clone https://github.com/deepmind-opensource/onetwo
@@ -71,17 +71,20 @@ Then from the cloned directory you can invoke `pytest`:
 pytest onetwo/core
 ```
 
-However, doing `pytest onetwo` will not work as pytest collects all the tests
-names without keeping their directory of origin so there may be name clashe, so
+However, doing `pytest onetwo` will not work as pytest collects all the test
+names without keeping their directory of origin so there may be name clashes, so
 you have to loop through the subdirectories.
 
 
-## Tutorial
+## Tutorial and Documentation
 
 This
-[Colab](https://colab.research.google.com/github/deepmind/onetwo/blob/master/colabs/tutorial.ipynb)
+[Colab](https://colab.research.google.com/github/deepmind/onetwo/blob/master/onetwo/colabs/tutorial.ipynb)
 is a good starting point and demonstrates most of the features available in
 onetwo.
+
+Some background on the basic concepts of the library can be found here:
+[Basics](docs/basics.md).
 
 ## License
 

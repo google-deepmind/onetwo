@@ -23,21 +23,13 @@ import pprint
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
-import numpy as np
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.core import sampling
 from onetwo.core import updating
-
-
-class KeyForTest:
-  def __init__(self, value: str):
-    self.value = value
-
-  def __hash__(self) -> int:
-    return hash(self.value + ' ' + self.value)
+from onetwo.core import utils
 
 
 class TestCache(caching.SimpleCache[str]):
@@ -506,7 +498,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.counters,
       )
       self.assertEqual(
-          collections.defaultdict(int, {caching._get_hash('key3'): 1}),
+          collections.defaultdict(int, {utils.get_str_hash('key3'): 1}),
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, no sampling_key, append value.
@@ -520,7 +512,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.counters,
       )
       self.assertEqual(
-          collections.defaultdict(int, {caching._get_hash('key3'): 1}),
+          collections.defaultdict(int, {utils.get_str_hash('key3'): 1}),
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, new sampling_key, append value, sample_id updates.
@@ -535,15 +527,15 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       )
       self.assertEqual(
           collections.defaultdict(int, {
-              caching._get_hash('key3'): 1,
-              caching._get_hash('key1'): 1,
+              utils.get_str_hash('key3'): 1,
+              utils.get_str_hash('key1'): 1,
           }),
           function_cache._cache_data.num_used_values_by_key,
       )
       # By now we have 3 values for this key.
       self.assertEqual(
           ['value_1', 'value_4', 'value_5'],
-          function_cache._cache_data.values_by_key[caching._get_hash('key1')],
+          function_cache._cache_data.values_by_key[utils.get_str_hash('key1')],
       )
     with self.subTest(
         'get_cached_existing_sampling_key_returns_not_the_last_element'
@@ -558,8 +550,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       # And sample ids don't change.
       self.assertEqual(
           collections.defaultdict(int, {
-              caching._get_hash('key3'): 1,
-              caching._get_hash('key1'): 1,
+              utils.get_str_hash('key3'): 1,
+              utils.get_str_hash('key1'): 1,
           }),
           function_cache._cache_data.num_used_values_by_key,
       )
@@ -576,8 +568,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       # And sampling ids change.
       self.assertEqual(
           collections.defaultdict(int, {
-              caching._get_hash('key3'): 1,
-              caching._get_hash('key1'): 2,
+              utils.get_str_hash('key3'): 1,
+              utils.get_str_hash('key1'): 2,
           }),
           function_cache._cache_data.num_used_values_by_key,
       )
@@ -597,8 +589,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       )
       self.assertEqual(
           collections.defaultdict(int, {
-              caching._get_hash('key3'): 1,
-              caching._get_hash('key1'): 2,
+              utils.get_str_hash('key3'): 1,
+              utils.get_str_hash('key1'): 2,
           }),
           function_cache._cache_data.num_used_values_by_key,
       )
@@ -619,8 +611,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       )
       self.assertEqual(
           collections.defaultdict(int, {
-              caching._get_hash('key3'): 1,
-              caching._get_hash('key1'): 2,
+              utils.get_str_hash('key3'): 1,
+              utils.get_str_hash('key1'): 2,
           }),
           function_cache._cache_data.num_used_values_by_key,
       )
@@ -710,37 +702,29 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           'value_2',
       )
 
-  @parameterized.named_parameters(
-      ('str', 'key1', 'key1', 'key2'),
-      ('list', [1, 2, 3], [1, 2, 3], [3, 2, 1]),
-      ('set', {'a', 'b'}, {'b', 'a'}, {'a', 'c'}),
-      ('dict', {'a': 1, 'b': 2}, {'b': 2, 'a': 1}, {'a': 1, 'b': 3}),
-      ('bytes', b'a', b'a', b'b'),
-      (
-          'np.array',
-          np.array([1, 2, 3]),
-          np.array([1, 2, 3]),
-          np.array([3, 2, 1]),
-      ),
-      ('hashable', KeyForTest('a'), KeyForTest('a'), KeyForTest('b')),
-  )
-  def test_get_hash(self, key, similar_key, other_key):
-    # We create a simple copy of the key.
-    c = copy.deepcopy(key)
-    key_hash = caching._get_hash(key)
-    copy_hash = caching._get_hash(c)
-    similar_hash = caching._get_hash(similar_key)
-    other_hash = caching._get_hash(other_key)
-    # We check we obtain the same hash (this is not a very strong test
-    # as ideally one would compare hashes on different machines etc... but
-    # this is a first attempt at checking that some reasonable hash is created).
-    self.assertEqual(copy_hash, key_hash)
-    self.assertEqual(similar_hash, key_hash)
-    # We also check that the hashes are different for different keys (this
-    # would catch mistakes such as accidentally mapping all keys to the same
-    # hash).
-    self.assertNotEqual(other_hash, key_hash)
 
+class CacheDataTest(parameterized.TestCase):
+  """Tests _CacheData class."""
+
+  def test_tuples_preserved_when_encoding_and_decoding_values_by_key(self):
+    cache_data = caching._CacheData()
+
+    values_by_key = {
+        'key1': ['val1', 'val2'],
+        'key2': [['val3', 'val4'], ['val5', 'val6']],
+        'key3': [('val7', 'val8'), ('val9', 'val10')],
+        'key4': [{'a': 'b'}, {'c': 'd'}],
+        'key5': [{'a': ['val11', 'val12']}, {'b': ['val11', 'val12']}],
+        'key6': [{'a': ('val11', 'val12')}, {'b': ('val11', 'val12')}],
+        'key7': [('val7', ('a', 'b')), ('val9', ('a', 'b'))],
+    }
+    cache_data.values_by_key = copy.deepcopy(values_by_key)
+    json_serialized = cache_data.to_json()
+    decoded = caching._CacheData.from_json(
+        json_serialized,
+        infer_missing=True,
+    )
+    self.assertEqual(decoded.values_by_key, values_by_key)
 
 if __name__ == '__main__':
   absltest.main()

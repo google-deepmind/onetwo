@@ -12,24 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Definitions of built-in functions and utilities for tool use.
-
-A tool can be an arbitrary function that we want to expose to the LLM so that
-it can call it.
-"""
+"""Library for use of tools via LLM prompting."""
 
 import ast
 from collections.abc import Callable, Mapping
 import dataclasses
 import enum
+import inspect
 import itertools
 import json
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any
 
-from onetwo.builtins import tool_use
-from onetwo.core import constants
+from onetwo.core import executing
 from onetwo.core import routing
-from onetwo.core import tracing
 import yaml
 
 
@@ -451,21 +446,23 @@ class ToolExample:
     return f'{rendered_call}\nwill return: {rendered_response}'
 
 
+# TODO: Rename `ToolSpec` to `Tool`, since it is now a callable.
 @dataclasses.dataclass
 class ToolSpec:
   """Information about a tool.
 
   Attributes:
     name: Name used by the LLM to call the tool.
-    name_in_registry: The name of the function in the function_registry that
-      will be called upon executing this tool.
+    function: Function to be called upon executing this tool. If not specified,
+      then we will fall back to look for a function of name `name_in_registry`
+      in the function registry.
     description: String containing a human-readable description of the tool.
     example: String containing a human-readable example of the tool usage.
     color: Optional color name for printing the output from this tool.
   """
 
   name: str
-  name_in_registry: str = ''
+  function: Callable[..., Any] | None = None
   description: str | None = None
   example: str | ToolExample | None = None
   color: str | None = None
@@ -480,93 +477,19 @@ class ToolSpec:
     else:
       return repr(self.example)
 
-
-_ToolSpec = TypeVar('_ToolSpec', bound=ToolSpec)
-
-
-# TODO: Extend `caching.CacheEnabled` and configure caching behavior
-# in the `ToolSpec`. Make sure that caching works robustly with stateful tools.
-@dataclasses.dataclass
-class GenericToolHandler(Generic[_ToolSpec]):
-  """Registry of tools that can be invoked by an LLM in a tool use strategy.
-
-  Attributes:
-    tools: Names (aliases) of the registered tools and their parameters.
-  """
-
-  # TODO: Store tool objects here, in addition to the tool functions.
-  # (This will be needed for maintaing the state of stateful tools, particularly
-  # in the case where the same tool object has multiple different tool methods.)
-  _tools: dict[str, _ToolSpec] = dataclasses.field(default_factory=dict)
-
-  @property
-  def tools(self) -> Mapping[str, _ToolSpec]:
-    return self._tools
-
-  def register(self) -> None:
-    """Add the relevant methods to the registry."""
-    tool_use.run_tool.configure(self.run_tool)
-
-  def register_tool(self, tool: _ToolSpec):
-    """Registers a tool and makes it available for invocation by the LLM.
-
-    Args:
-      tool: Spec of the tool to be registered. Its `name_in_registry` should
-        match the name of an actual entry in `routing.function_registry`.
-        Ownership of the spec object is transferred to the `ToolHandler`.
-    """
-    if not tool.name_in_registry:
-      tool.name_in_registry = tool.name
-    if tool.name_in_registry not in routing.function_registry:
+  async def __call__(self, *args, **kwargs):
+    """Calls the tool on the given args."""
+    tool_function = self.function or routing.function_registry.get(self.name)
+    if tool_function is None:
       raise ValueError(
-          f'Function {tool.name_in_registry} is not registered in the'
-          f' function_registry ({routing.function_registry=}).'
+          f'Tool "{self.name}" neither provides a tool function directly, nor'
+          f' is function "{self.name}" registered in the  function_registry '
+          f'({routing.function_registry=}).'
       )
-    self._tools[tool.name] = tool
-
-  @tracing.trace(name='run_tool')
-  async def run_tool(
-      self,
-      tool_name: str,
-      tool_args: tuple[Any, ...],
-      tool_kwargs: dict[str, Any],
-  ) -> Any:
-    """Runs the specified tool and returns the result.
-
-    Can be configured as an implementation of the `run_tool` builtin.
-
-    Args:
-      tool_name: The name of the tool to run. Should map the `name` of one of
-        the `ToolSpecs` managed by this tool handler.
-      tool_args: Position args to pass to the tool function.
-      tool_kwargs: Keyword args to pass to the tool function.
-
-    Returns:
-      The return value of the tool function.
-    """
-    if tool_name == constants.ERROR_STRING:
-      # ERROR_STRING as the tool_name is a special case, where we are expected
-      # to simply echo the error message stored in the tool argument.
-      return await tool_use.default_run_tool(tool_name, tool_args, tool_kwargs)
-
-    try:
-      tool_name_in_registry = tool_name
-      if tool_name in self.tools:
-        tool_name_in_registry = self.tools[tool_name].name_in_registry
-
-      # TODO: When using stateful tools, this is where we would need
-      # to fetch the appropriate instance of the tool based on the current world
-      # state. After the tool call, we would then need to update both the world
-      # state and the state of the given tool instance.
-
-      # By default, we simply call the corresponding function in the function
-      # registry.
-      return await tool_use.default_run_tool(
-          tool_name=tool_name_in_registry,
-          tool_args=tool_args,
-          tool_kwargs=tool_kwargs,
-      )
-    except ValueError as e:
-      return f'{constants.ERROR_STRING}: {e}'
-
-ToolHandler: TypeAlias = GenericToolHandler[ToolSpec]
+    if inspect.iscoroutinefunction(tool_function):
+      value = await tool_function(*args, **kwargs)
+    else:
+      value = tool_function(*args, **kwargs)
+    if isinstance(value, executing.Executable):
+      return await value
+    return value

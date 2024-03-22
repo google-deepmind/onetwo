@@ -28,6 +28,9 @@ from onetwo.core import executing
 from onetwo.core import sampling
 
 
+
+
+
 _API_KEY = flags.DEFINE_string('api_key', default=None, help='GenAI API key.')
 _CACHE_DIR = flags.DEFINE_string(
     'cache_dir',
@@ -69,7 +72,7 @@ def main(argv: Sequence[str]) -> None:
         content=prompt_text,
     )
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
-    max_token_count = 8196
+    max_token_count = 30720  # See https://ai.google.dev/models/gemini.
     if token_count > max_token_count:
       warning_msg = (
           f'Warning: Prompt token length ({token_count}) exceeds maximal input'
@@ -95,7 +98,7 @@ def main(argv: Sequence[str]) -> None:
   res = executing.run(check_and_complete(
       prompt_text=prompt_text,
       stop=['\n\n'],
-      max_tokens=5
+      max_tokens=5,
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
@@ -104,7 +107,7 @@ def main(argv: Sequence[str]) -> None:
   res = executing.run(check_and_complete(
       prompt_text=prompt_text,
       stop=['\n\n'],
-      max_tokens=512
+      max_tokens=5,
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
@@ -114,7 +117,7 @@ def main(argv: Sequence[str]) -> None:
       prompt_text=prompt_text,
       temperature=0.,
       stop=['\n\n'],
-      max_tokens=512
+      max_tokens=5,
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
@@ -122,7 +125,8 @@ def main(argv: Sequence[str]) -> None:
   print('2. Repeated generate request.')
   exe = executing.par_iter(sampling.repeat(
       executable=check_and_complete(
-          'Today is', temperature=0.5, stop=['.']),
+          'Today is', temperature=0.5, max_tokens=5, stop=['.']
+      ),
       num_repeats=5,
   ))
   res = executing.run(exe)
@@ -131,9 +135,9 @@ def main(argv: Sequence[str]) -> None:
     pprint.pprint(res)
   print('3. Three batched generate queries.')
   exe = executing.par_iter([
-      check_and_complete(prompt_text='In summer', max_tokens=1),
-      check_and_complete(prompt_text='In winter', max_tokens=32),
-      check_and_complete(prompt_text='In autumn', max_tokens=128),
+      check_and_complete(prompt_text='In summer', max_tokens=5),
+      check_and_complete(prompt_text='In winter', max_tokens=7),
+      check_and_complete(prompt_text='In autumn', max_tokens=9),
   ])
   res = executing.run(exe)
   if _PRINT_DEBUG.value:
@@ -190,15 +194,9 @@ def main(argv: Sequence[str]) -> None:
   executable = executing.par_iter(execs)
 
   res = executing.run(executable)
-  print(res)
-
-  time2 = time.time()
-  print('Took %.4fsec running requests.' % (time2 - time1))
-  handler: caching.SimpleFunctionCache = getattr(backend, 'cache_handler')
-  if not _LOAD_CACHE.value:
-    handler.save(overwrite=True)
-    time3 = time.time()
-    print('Took %.4fsec saving cache to CNS.' % (time3 - time2))
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
 
   print('7. Use ChunkList.')
   executable = (
@@ -211,11 +209,30 @@ def main(argv: Sequence[str]) -> None:
   if _PRINT_DEBUG.value:
     print('Returned value:', executable['answer'])
 
+  time2 = time.time()
+  print('Took %.4fsec running requests.' % (time2 - time1))
+  handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+  if not _LOAD_CACHE.value:
+    handler.save(overwrite=True)
+    time3 = time.time()
+    print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
+
   print('8. Check that multimodal is working.')
+  fname_mm = os.path.join(_CACHE_DIR.value, 'google_gemini_api_mm.json')
   backend = gemini_api.GeminiAPI(
-      generate_model_name='models/gemini-pro-vision', api_key=api_key
+      cache_filename=fname_mm,
+      generate_model_name=gemini_api.DEFAULT_MULTIMODAL_MODEL,
+      api_key=api_key,
   )
   backend.register()
+  if _LOAD_CACHE.value:
+    print('Loading cache from file %s', fname_mm)
+    load_start = time.time()
+    backend.load_cache()
+    load_end = time.time()
+    print('Spent %.4fsec loading cache.', load_end - load_start)
+
+  time1 = time.time()
   # Load image from testdata.
   image_path = os.path.join(
       os.path.dirname(__file__),
@@ -233,6 +250,14 @@ def main(argv: Sequence[str]) -> None:
   assert 'chickadee' in executable['answer'].lower(), executable['answer']
   if _PRINT_DEBUG.value:
     print('Returned value:', executable['answer'])
+
+  time2 = time.time()
+  print('Took %.4fsec running requests.' % (time2 - time1))
+  handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+  if not _LOAD_CACHE.value:
+    handler.save(overwrite=True)
+    time3 = time.time()
+    print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
 
   print('PASS')
 

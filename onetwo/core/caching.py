@@ -18,12 +18,11 @@ from __future__ import annotations
 import abc
 import asyncio
 import collections
-from collections.abc import ByteString, Callable, Coroutine, Hashable, Mapping, Sequence
+from collections.abc import ByteString, Callable, Coroutine, Mapping, Sequence
 import contextvars
 import copy
 import dataclasses
 import functools
-import hashlib
 import inspect
 import json
 import logging
@@ -65,36 +64,53 @@ CachedType = TypeVar('CachedType')
 _Args = ParamSpec('_Args')
 
 
-def _get_hash(key: Any) -> str:
-  """Best-effort hashing of various kinds of objects."""
-  match key:
-    case str():
-      bytes_value = key.encode('utf-8')
-    case list() | tuple():
-      bytes_value = str(key).encode('utf-8')
-    case dict():
-      bytes_value = str(sorted(key.items())).encode('utf-8')
-    case set():
-      bytes_value = str(sorted(list(key))).encode('utf-8')
-    case Hashable():
-      bytes_value = str(hash(key)).encode('utf-8')
-    case _:
-      if hasattr(key, 'tobytes'):  # Type `str` has no such attribute.
-        # This handles the case of a np.ndarray.
-        bytes_value = key.tobytes()
-      else:
-        bytes_value = bytes(key, 'utf-8')
-  return hashlib.sha224(bytes_value).hexdigest()
-
-
 def get_key_for_logging(key: str, sampling_key: str | None = None) -> str:
   """Produces key and sampling_key information for display in the logs."""
   rkey = repr(key)
   if len(rkey) > 50:
     rkey = rkey[:20] + f'[{len(rkey)-40} chars]' + rkey[-20:]
   return (
-      f'{rkey} (hash: {_get_hash(key)} - sampling key:{repr(sampling_key)})'
+      f'{rkey} (hash: {utils.get_str_hash(key)} - '
+      f'sampling key:{repr(sampling_key)})'
   )
+
+
+def _hint_tuple_encoder(arg: Any) -> Any:
+  """Encoder that helps (best effort) to preserve python tuples.
+
+  Python tuples are converted to lists in json. This encoder stores tuples in
+  such a way that later they can be properly decoded into tuples. Inspired by
+  https://stackoverflow.com/questions/15721363/preserve-python-tuples-with-json.
+
+  Args:
+    arg: Any JSON-compatible object (i.e., on which `json.dumps` can be called)
+      that needs to be encoded.
+
+  Returns:
+    Encoded object where every tuple `obj` is replaced with a dictionary
+    `{'__tuple__': True, 'items': obj}`.
+  """
+  if isinstance(arg, tuple):
+    return {
+        '__tuple__': True,
+        'items': [_hint_tuple_encoder(value) for value in arg],
+    }
+  if isinstance(arg, list):
+    return [_hint_tuple_encoder(value) for value in arg]
+  if isinstance(arg, dict):
+    return {key: _hint_tuple_encoder(value) for key, value in arg.items()}
+  return arg
+
+
+def _hint_tuple_decoder(arg: Any) -> Any:
+  """Decoder that helps (best effort) to preserve python tuples."""
+  if isinstance(arg, dict):
+    if '__tuple__' in arg:
+      return tuple(_hint_tuple_decoder(value) for value in arg['items'])
+    return {key: _hint_tuple_decoder(value) for key, value in arg.items()}
+  if isinstance(arg, list):
+    return [_hint_tuple_decoder(value) for value in arg]
+  return arg
 
 
 def nested_defaultdict_decoder(
@@ -267,7 +283,7 @@ def _create_cache_key(
 
   def maybe_hash(name: str, value: Any) -> Any:
     if hashed is not None and name in hashed:
-      return _get_hash(value)
+      return utils.get_str_hash(value)
     return value
 
   arg_value_by_name = {
@@ -756,8 +772,17 @@ class _CacheData(
       default_factory=collections.Counter,
       metadata=dataclasses_json.config(decoder=collections.Counter),
   )
-  values_by_key: dict[str, Any] = dataclasses.field(
+  values_by_key: dict[str, list[CachedType]] = dataclasses.field(
       default_factory=dict,
+      # This is the field that stores all the actual cached values. The cached
+      # values can be almost of any type and they may store python tuples.
+      # Unfortunately by default json does not support python tuple and it gets
+      # converted to a list. Here we make a best effort encoding that is meant
+      # to preserve python tuples.
+      metadata=dataclasses_json.config(
+          encoder=_hint_tuple_encoder,
+          decoder=_hint_tuple_decoder,
+      ),
   )
   num_used_values_by_key: collections.defaultdict[str, int] = (
       dataclasses.field(
@@ -799,15 +824,19 @@ class _CacheData(
     with open(cache_file_path) as f:
       file_contents = f.read()
     try:
-      cache = cls.from_json(file_contents, infer_missing=True)
+      cache = cls.from_json(
+          file_contents,
+          infer_missing=True,
+      )
       # pylint: disable=protected-access
       for key_hash, cached_values in cache.values_by_key.items():
         # When reading from json, the values objects are created as dict or
         # other basic types. We convert them to the appropriate object using
         # the provided decoder.
         # Note that the encoding is done simply by calling `to_json` on the
-        # cache so the decoder has to be able to read whatever calling
-        # `from_json(to_json())` produces.
+        # cache (which corresponds to `to_json` method of `DataClassJsonMixin`
+        # in `third_party/py/dataclasses_json/api.py`) so the decoder has to be
+        # able to read whatever calling `from_json(to_json())` produces.
         cache.values_by_key[key_hash] = [
             cached_value_decoder(cached_value) for cached_value in cached_values
         ]
@@ -984,7 +1013,7 @@ class _CacheData(
 @dataclasses.dataclass
 class SimpleFunctionCache(
     Generic[CachedType],
-    SimpleCache[CachedType],
+    SimpleFileCache[CachedType],
 ):
   """Simple implementation of a thread-safe generic cache.
 
@@ -1033,7 +1062,7 @@ class SimpleFunctionCache(
     key_for_logging = get_key_for_logging(key, sampling_key)
     logging.info('Inserting result for key %s', key_for_logging)
     # A hash of the key is used whenever we need to map from the key.
-    key_hash = _get_hash(key)
+    key_hash = utils.get_str_hash(key)
     with self._lock:
       self._cache_data.cache_value(
           key_hash, sampling_key, value, key_for_logging
@@ -1057,7 +1086,7 @@ class SimpleFunctionCache(
     # A human readable version of the cache key.
     key_for_logging = get_key_for_logging(key, sampling_key)
     # A hash of the key is used whenever we need to map from the key.
-    key_hash = _get_hash(key)
+    key_hash = utils.get_str_hash(key)
     logging.info('Looking up key %s', key_for_logging)
     if (key, sampling_key) in self._calls_in_progress:
       logging.info(
@@ -1110,5 +1139,9 @@ class SimpleFunctionCache(
     os.makedirs(os.path.dirname(self.cache_filename), exist_ok=True)
     with open(self.cache_filename, 'w') as f:
       logging.info('Writing cache to file: %s', self.cache_filename)
+      # The following call corresponds to `to_json` method of
+      # `DataClassJsonMixin` in `third_party/py/dataclasses_json/api.py`. This
+      # method in particular applies all the custom encoder transofrmations to
+      # the individual fields provided via `metadata`.
       f.write(self._cache_data.to_json())
 

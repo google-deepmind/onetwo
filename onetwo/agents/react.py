@@ -32,6 +32,8 @@ Adopting the "Agent" framework for the ReAct implementation means that:
 """
 
 import abc
+from collections.abc import AsyncIterator, Sequence
+import contextlib
 import dataclasses
 import re
 from typing import Any, Protocol
@@ -42,7 +44,8 @@ from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.core import templating
 from onetwo.core import tracing
-from onetwo.stdlib.tool_use import tool_handling
+from onetwo.stdlib.tool_use import llm_tool_use
+from onetwo.stdlib.tool_use import python_tool_use
 
 
 @dataclasses.dataclass
@@ -73,9 +76,9 @@ class ReActStep:
 
   is_finished: bool = False
   thought: str = ''
-  action: tool_handling.FunctionCall | None = None
+  action: llm_tool_use.FunctionCall | None = None
   observation: Any = None
-  fmt: tool_handling.ArgumentFormat | None = None
+  fmt: llm_tool_use.ArgumentFormat | None = None
 
   def render_action(self) -> str:
     """Returns the action formatted appropriately for insertion in a prompt."""
@@ -86,7 +89,7 @@ class ReActStep:
 
   def render_observation(self) -> str:
     """Returns the observation formatted for insertion in a prompt."""
-    return tool_handling.render_response(fmt=self.fmt, value=self.observation)
+    return llm_tool_use.render_response(fmt=self.fmt, value=self.observation)
 
 
 # In the ReAct strategy, the state consists of a monotonically increasing
@@ -171,40 +174,40 @@ REACT_FEWSHOTS = [
                     'First we need to find out how tall are Everest and K2. We'
                     ' can use the Search tool for that.'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Search',
                     args=('how tall is Everest?',),
                     kwargs={},
                 ),
                 observation='8,849 m',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
             ReActStep(
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Search', args=('how tall is K2?',), kwargs={}
                 ),
                 observation='8,611 m',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
             ReActStep(
                 thought=(
                     'Now we need to subtract their heights. We can use the'
                     ' Python tool for that.'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Python', args=('8849 - 8611',), kwargs={}
                 ),
                 observation='238',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
             ReActStep(
                 is_finished=True,
                 thought='Everest is 238 meters taller than K2.',
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Finish', args=('238 meters',), kwargs={}
                 ),
                 observation='238 meters',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
         ],
     ),
@@ -218,13 +221,13 @@ REACT_FEWSHOTS = [
                     'First we need to find out who invented relativity. We can'
                     ' use the Search tool for that.'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Search',
                     args=('who invented relativity?',),
                     kwargs={},
                 ),
                 observation='Albert Einstein',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
             ReActStep(
                 thought=(
@@ -232,7 +235,7 @@ REACT_FEWSHOTS = [
                     ' need to write a function that inverts the letters of its'
                     ' input and then apply it to the name retrieved above:'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Python',
                     args=(),
                     kwargs={
@@ -244,7 +247,7 @@ REACT_FEWSHOTS = [
                     },
                 ),
                 observation='nietsniE treblA',
-                fmt=tool_handling.ArgumentFormat.YAML_CODE,
+                fmt=llm_tool_use.ArgumentFormat.YAML_CODE,
             ),
             ReActStep(
                 is_finished=True,
@@ -252,11 +255,11 @@ REACT_FEWSHOTS = [
                     'Albert Einstein invented relativity and his name backwards'
                     ' is nietsniE treblA.'
                 ),
-                action=tool_handling.FunctionCall(
+                action=llm_tool_use.FunctionCall(
                     function_name='Finish', args=('nietsniE treblA',), kwargs={}
                 ),
                 observation='nietsniE treblA',
-                fmt=tool_handling.ArgumentFormat.PYTHON,
+                fmt=llm_tool_use.ArgumentFormat.PYTHON,
             ),
         ],
     ),
@@ -275,7 +278,7 @@ class ReActPromptProtocol(Protocol):
       state: ReActState,
       stop_prefix: str,
       stop_sequences: list[str],
-      tools: list[tool_handling.ToolSpec],
+      tools: Sequence[llm_tool_use.ToolSpec],
   ) -> str:
     """Executes the prompt template on the given args and returns the result.
 
@@ -319,7 +322,7 @@ class ReActPromptJ2(
       state: ReActState,
       stop_prefix: str,
       stop_sequences: list[str],
-      tools: list[tool_handling.ToolSpec],
+      tools: Sequence[llm_tool_use.ToolSpec],
   ) -> str:
     """See ReActPromptProtocol."""
     result = await self.render(
@@ -418,11 +421,11 @@ def react_parse(
         thought_content = reply_text[thought_end:act_start].strip()
       part_after_act = reply_text[act_end:].strip()
 
-      _, fn, args, kwargs, fmt, _ = tool_handling.parse_and_consume_call(
+      _, fn, args, kwargs, fmt, _ = llm_tool_use.parse_and_consume_call(
           text=part_after_act, context_vars=prompt_context.context_variables
       )
       is_finished = fn == 'Finish'
-      action = tool_handling.FunctionCall(
+      action = llm_tool_use.FunctionCall(
           function_name=fn, args=args, kwargs=kwargs
       )
       return ReActStep(
@@ -454,7 +457,13 @@ def react_parse(
 
 @dataclasses.dataclass
 class ReActAgent(
-    agents_base.SingleSampleAgent[str, str, ReActState, ReActStep, None]
+    agents_base.SingleSampleAgent[
+        str,  # _I (inputs)
+        str,  # _O (outputs)
+        ReActState,  # _S (state)
+        ReActStep,  # _U (update)
+        python_tool_use.PythonToolUseEnvironment,  # _E (environment)
+    ]
 ):
   """Agent for the ReAct strategy, doing sequence of thought/action/observation.
 
@@ -462,10 +471,12 @@ class ReActAgent(
     prompt: Prompt template used for prompting the LLM at each step.
     parse: Function for parsing an LLM reply into a `ReActStep`.
     exemplars: Few-shot exemplars to include in the prompt.
-    tool_handler: Registry of the tools that are available to be used and whose
-      descriptions are to be listed in the prompt. Any tools referenced in the
-      `exemplars` should be registered here, although it is not strictly
-      required for all of the tools to be illustrated in `exemplars`.
+    environment_config: Config controlling the behavior of environments created
+      by this agent. This includes list of the tools that are available to be
+      used and whose descriptions are to be listed in the prompt. Any tools
+      referenced in the `exemplars` should be registered here, although it is
+      not strictly required for all of the tools to be illustrated in
+      `exemplars`.
     max_steps: Number of ReAct iterations after which the agent will be forced
       to finish.
     stop_prefix: The string that is used to mark positions for early stopping.
@@ -476,8 +487,11 @@ class ReActAgent(
   prompt: ReActPromptProtocol = dataclasses.field(default_factory=ReActPromptJ2)
   parse: ReActParseProtocol = dataclasses.field(default=react_parse)
   exemplars: list[ReActState] = dataclasses.field(default_factory=list)
-  tool_handler: tool_handling.ToolHandler = dataclasses.field(
-      default_factory=tool_handling.ToolHandler
+  # TODO: Decouple the choice of environment from the agent.
+  environment_config: python_tool_use.PythonToolUseEnvironmentConfig = (
+      dataclasses.field(
+          default_factory=python_tool_use.PythonToolUseEnvironmentConfig
+      )
   )
   max_steps: int = 10
   stop_prefix: str = ''
@@ -502,10 +516,35 @@ class ReActAgent(
     """
     return ReActState(inputs=inputs)
 
+  @contextlib.asynccontextmanager
+  async def start_environment(
+      self,
+  ) -> AsyncIterator[python_tool_use.PythonToolUseEnvironment]:
+    """Context manager to start the environment.
+
+    Usage:
+    ```
+      agent = ...
+      async with agent.start_environment() as env:
+         # In here, we can call other methods on `agent` using `env` as the
+         # environment.
+    ```
+
+    Yields:
+      Environment object, which will be automatically cleaned up when exiting
+      the `with` block.
+    """
+    with python_tool_use.PythonToolUseEnvironment(
+        config=self.environment_config
+    ) as env:
+      yield env
+
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   @tracing.trace('ReActAgent._sample_single_next_step')
   async def _sample_single_next_step(
-      self, state: ReActState, environment: None = None
+      self,
+      state: ReActState,
+      environment: python_tool_use.PythonToolUseEnvironment,
   ) -> ReActStep:
     """Runs one step of the strategy and returns a new resulting state.
 
@@ -520,10 +559,13 @@ class ReActAgent(
       An incremental update to the agent state that would occur as a result of
       performing the given step.
     """
+    if environment is None:
+      raise ValueError('Environment must be specified for this agent.')
+
     # Prompt the LLM to determine the next action to take.
     force_finish = len(state.updates) >= self.max_steps
     llm_reply = await self.prompt(
-        tools=list(self.tool_handler.tools.values()),
+        tools=environment.config.tools,
         exemplars=self.exemplars,
         stop_prefix=self.stop_prefix,
         stop_sequences=self._get_stop_sequences(),
@@ -545,7 +587,10 @@ class ReActAgent(
       # TODO: Support variable reference and assignment in the
       # `llm_reply`.
       if next_step.action:
-        next_step.observation = await self.tool_handler.run_tool(
+        # Note that if we assume that the environment is always registered at
+        # the time we reach here, calling `environment.run_tool` like below is
+        # equivalent to calling the builtin `tool_use.run_tool`.
+        next_step.observation = await environment.run_tool(
             tool_name=next_step.action.function_name,
             tool_args=next_step.action.args,
             tool_kwargs=next_step.action.kwargs,

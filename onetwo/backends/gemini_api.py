@@ -70,7 +70,7 @@ def _truncate(text: str, max_tokens: int | None = None) -> str:
   """Truncates text to the given number of tokens."""
   # Unfortunately, when setting a max_output_tokens value in the API that is
   # smaller than what the model would naturally generate, the response is
-  # empty with a finish_reason öf "MAX_TOKENS". So we need to do post-hoc
+  # empty with a finish_reason of "MAX_TOKENS". So we need to do post-hoc
   # truncation.
   # However we don't want to tokenize the answer in order to know its exact
   # token length, so instead we approximately truncate by counting characters.

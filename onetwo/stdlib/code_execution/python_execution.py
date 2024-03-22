@@ -135,6 +135,7 @@ class SandboxResult:
   timing: SandboxResultTiming | None = None
 
   def __str__(self) -> str:
+    """Returns a string representation of the result's most salient content."""
     parts = []
     if self.stdout:
       parts.append(self.stdout)

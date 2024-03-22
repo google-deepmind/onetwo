@@ -13,8 +13,8 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from onetwo.agents import game_of_24
 from onetwo.agents import iterative_thought
+from onetwo.agents.tasks import game_of_24
 from onetwo.backends import test_utils
 from onetwo.core import executing
 

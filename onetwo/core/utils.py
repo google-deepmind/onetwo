@@ -20,11 +20,15 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 import copy
 import dataclasses
 import functools
+import hashlib
 import inspect
+import io
 import threading
 import time
-from typing import Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
+from typing import cast, Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
 
+from onetwo.core import content as content_lib
+import PIL.Image
 
 _T = TypeVar('_T')
 _Args = ParamSpec('_Args')
@@ -413,3 +417,63 @@ def rate_limit_method(
     else:
       return wrapper
   return decorate
+
+
+def _get_bytes_for_hashing(key: Any) -> bytes:
+  """Best-effort conversion of key to bytes for further hashing."""
+  match key:
+    # The `hash` function for python `str` and `bytes` by default (starting
+    # from python 3.3) adds a random seed to the hash. This means that between
+    # two runs `hash(obj)` is not deterministic. While for many applications
+    # such a behaviour would be ok, it clearly does not work well with caching,
+    # where we want same deterministic hashes between the runs.
+    case str():
+      bytes_value = key.encode('utf-8')
+    case bytes():
+      bytes_value = key
+    case list() | tuple():
+      bytes_value = str(key).encode('utf-8')
+    case dict():
+      bytes_value = str(sorted(key.items())).encode('utf-8')
+    case set():
+      bytes_value = str(sorted(list(key))).encode('utf-8')
+    case PIL.Image.Image():
+      # Extract bytes from the PIL Image object and hash it.
+      bytes_io = io.BytesIO()
+      cast(PIL.Image.Image, key).save(bytes_io, 'JPEG')
+      bytes_value = bytes_io.getvalue()
+    case content_lib.Chunk():
+      bytes_value = _get_bytes_for_hashing(key.content)
+    case content_lib.ChunkList():
+      bytes_value = b''.join(
+          [_get_bytes_for_hashing(chunk) for chunk in key.chunks]
+      )
+    # case Hashable():
+    #   Let us never add this case! This means we want to rely on `__hash__`
+    #   method of the type, but as pointed out above doing so is often
+    #   dangerous.
+    case _:
+      if hasattr(key, 'tobytes'):  # Type `str` has no such attribute.
+        # This handles the case of a np.ndarray.
+        bytes_value = key.tobytes()
+      else:
+        raise ValueError(f'Unsupported key type: {type(key)}')
+  return bytes_value
+
+
+def get_str_hash(key: Any) -> str:
+  """Best-effort hashing of various kinds of objects.
+
+  This function is used mainly by `core/caching.py` when computing the hash keys
+  of the function calls.
+
+  Args:
+    key: Any object that we want to hash.
+
+  Returns:
+    Unique string valued hash of the object. Main goal in the context of
+    `caching.py` is that identical calls to the cached functions end up being
+    properly recognized.
+  """
+  bytes_value = _get_bytes_for_hashing(key)
+  return hashlib.sha224(bytes_value).hexdigest()

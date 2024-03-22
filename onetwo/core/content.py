@@ -27,7 +27,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 import dataclasses
-import io
 from typing import Final, TypeAlias, Union, cast
 import immutabledict
 import PIL.Image
@@ -98,19 +97,6 @@ class Chunk:
       return cast(str, self.content)
     else:
       return f'<{self.content_type}>'
-
-  def __hash__(self) -> int:
-    match self.content:
-      case str() | bytes():
-        return hash(self.content)
-      case PIL.Image.Image():
-        # Extract bytes from the PIL Image object and hash it.
-        bytes_io = io.BytesIO()
-        cast(PIL.Image.Image, self.content).save(bytes_io, 'JPEG')
-        return hash(bytes_io.getvalue())
-      case _:
-        # Best effort hashing.
-        return hash(str(self.content))
 
   def lstrip(self, chars: str | None = None, /) -> Chunk:
     """Apply `lstrip` to the chunk if it is a string.
@@ -210,9 +196,6 @@ class ChunkList:
         + ', '.join([f"'{str(chunk)}'" for chunk in self.chunks])
         + ')'
     )
-
-  def __hash__(self) -> int:
-    return hash(''.join([str(hash(chunk)) for chunk in self.chunks]))
 
   def __iadd__(self, other: ContentType | Chunk | ChunkList) -> ChunkList:
     match other:
