@@ -48,7 +48,7 @@ deactivate
 Install the package:
 
 ```shell
-pip install git+https://github.com/deepmind-opensource/onetwo
+pip install git+https://github.com/google-deepmind/onetwo
 ```
 
 To start using it, import it with:
@@ -62,7 +62,7 @@ from onetwo import ot
 In order to run the tests, first clone the repository:
 
 ```shell
-git clone https://github.com/deepmind-opensource/onetwo
+git clone https://github.com/google-deepmind/onetwo
 ```
 
 Then from the cloned directory you can invoke `pytest`:
@@ -79,7 +79,7 @@ you have to loop through the subdirectories.
 ## Tutorial and Documentation
 
 This
-[Colab](https://colab.research.google.com/github/deepmind/onetwo/blob/master/onetwo/colabs/tutorial.ipynb)
+[Colab](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/tutorial.ipynb)
 is a good starting point and demonstrates most of the features available in
 onetwo.
 
