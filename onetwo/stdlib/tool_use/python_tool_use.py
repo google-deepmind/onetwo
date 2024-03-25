@@ -99,7 +99,7 @@ class PythonToolUseEnvironmentConfig:
   # tool object, and have a tool factory for each such object, so that we can
   # construct a new instance of the relevant tool object on demand, depending
   # on the desired starting state.
-  tools: Sequence[llm_tool_use.ToolSpec] = dataclasses.field(
+  tools: Sequence[llm_tool_use.Tool] = dataclasses.field(
       default_factory=list
   )
   imports: list[str] = dataclasses.field(default_factory=list)
@@ -128,7 +128,7 @@ PythonSandboxCache: TypeAlias = stateful_caching.StatefulObjectCache[
 
 
 # TODO: Extend `caching.CacheEnabled` and configure caching behavior
-# in the `ToolSpec`. Make sure that caching works robustly with stateful tools.
+# in the `Tool`. Make sure that caching works robustly with stateful tools.
 @dataclasses.dataclass
 class PythonToolUseEnvironment:
   """Stateful environment supporting Python code execution and tool calls.
@@ -173,7 +173,7 @@ class PythonToolUseEnvironment:
   # via `PythonToolUseEnvironment.run_code`.
   _sandbox_cache: PythonSandboxCache = dataclasses.field(init=False)
 
-  _stateless_tools: dict[str, llm_tool_use.ToolSpec] = dataclasses.field(
+  _stateless_tools: dict[str, llm_tool_use.Tool] = dataclasses.field(
       default_factory=dict
   )
   # TODO: When supporting stateful tools, we will need to group them
@@ -416,8 +416,8 @@ class PythonToolUseEnvironment:
     Can be configured as an implementation of the `run_tool` builtin.
 
     Args:
-      tool_name: The name of the tool to run. Should match the `name` of one of
-        the `ToolSpecs` managed by this tool handler.
+      tool_name: The name of the tool to run. Should match the `Tool.name` of
+        one of tools managed by this environment.
       tool_args: Position args to pass to the tool function.
       tool_kwargs: Keyword args to pass to the tool function.
 

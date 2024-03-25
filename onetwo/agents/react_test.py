@@ -34,7 +34,7 @@ def _get_environment_config_with_python() -> (
   """Returns an environment config with a Python tool."""
   return python_tool_use.PythonToolUseEnvironmentConfig(
       tools=[
-          llm_tool_use.ToolSpec(
+          llm_tool_use.Tool(
               name='Python',
               function=python_execution_safe_subset.arithmetic_eval,
               description='Python description.',

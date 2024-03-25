@@ -66,7 +66,7 @@ class PythonPlanningTest(parameterized.TestCase):
 
     # Tool configuration.
     tools = [
-        llm_tool_use.ToolSpec(
+        llm_tool_use.Tool(
             name='search',
             function=MockSearch(
                 reply_by_query={
@@ -77,7 +77,7 @@ class PythonPlanningTest(parameterized.TestCase):
             description='Google search engine.',
             example="search('capital of France')  # returns 'Paris'",
         ),
-        llm_tool_use.ToolSpec(
+        llm_tool_use.Tool(
             name='firstnumber',
             function=firstnumber,
             description='Extracts the first number in a string.',
@@ -172,7 +172,7 @@ num2 = firstnumber(population2)
 
     # Set up some simple tools that don't involve RPCs.
     tools = [
-        llm_tool_use.ToolSpec(
+        llm_tool_use.Tool(
             name='search',
             function=MockSearch(
                 reply_by_query={
@@ -183,7 +183,7 @@ num2 = firstnumber(population2)
             description='Google search engine.',
             example="search('capital of France')  # returns 'Paris'",
         ),
-        llm_tool_use.ToolSpec(
+        llm_tool_use.Tool(
             name='firstnumber',
             function=firstnumber,
             description='Extracts the first number in a string.',
@@ -259,7 +259,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 
     # Set up some simple tools that don't involve RPCs.
     tools = [
-        llm_tool_use.ToolSpec(
+        llm_tool_use.Tool(
             name='search',
             function=MockSearch(
                 reply_by_query={
@@ -270,7 +270,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
             description='Google search engine.',
             example="search('capital of France')  # returns 'Paris'",
         ),
-        llm_tool_use.ToolSpec(
+        llm_tool_use.Tool(
             name='firstnumber',
             function=firstnumber,
             description='Extracts the first number in a string.',

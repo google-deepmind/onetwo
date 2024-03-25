@@ -415,7 +415,8 @@ class FunctionCall:
   Attributes:
     function_name: The name of the function to be called. Should match the name
       of a function that is registered in `onetwo.function_registry` (or when
-      using a `ToolHandler`, the name of a tool as per its `ToolSpec`).
+      using a tool handler like `PythonToolUseEnvironment`, the name of a tool
+      as per its `Tool.name`).
     args: The arguments of the function.
     kwargs: The keyword arguments of the function.
   """
@@ -446,10 +447,9 @@ class ToolExample:
     return f'{rendered_call}\nwill return: {rendered_response}'
 
 
-# TODO: Rename `ToolSpec` to `Tool`, since it is now a callable.
 @dataclasses.dataclass
-class ToolSpec:
-  """Information about a tool.
+class Tool:
+  """A callable that can be invoked as a tool by an LLM.
 
   Attributes:
     name: Name used by the LLM to call the tool.

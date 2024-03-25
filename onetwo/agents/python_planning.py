@@ -224,7 +224,7 @@ class PythonPlanningPromptProtocol(Protocol):
       self,
       exemplars: list[PythonPlanningState],
       state: PythonPlanningState,
-      tools: Sequence[llm_tool_use.ToolSpec],
+      tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """Executes the prompt template on the given args and returns the result.
 
@@ -258,7 +258,7 @@ class PythonPlanningPromptJ2(
       self,
       exemplars: list[PythonPlanningState],
       state: PythonPlanningState,
-      tools: Sequence[llm_tool_use.ToolSpec],
+      tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """See PythonPlanningPromptProtocol."""
     result = await self.render(

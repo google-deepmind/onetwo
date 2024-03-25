@@ -318,7 +318,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     # No need to touch the function registry or builtins for calling
     # `env.run_tool` directly. Just configure the tool in the environment.
     config = python_tool_use.PythonToolUseEnvironmentConfig(
-        tools=[llm_tool_use.ToolSpec(name='add', function=add_function)]
+        tools=[llm_tool_use.Tool(name='add', function=add_function)]
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       result = executing.run(
@@ -337,7 +337,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     routing.function_registry['f'] = f_in_registry
 
     config = python_tool_use.PythonToolUseEnvironmentConfig(
-        tools=[llm_tool_use.ToolSpec(name='f', function=f_in_environment)]
+        tools=[llm_tool_use.Tool(name='f', function=f_in_environment)]
     )
     env = python_tool_use.PythonToolUseEnvironment(config=config)
 
@@ -365,7 +365,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     # hooks in a call to `env.run_code`directly. Just configure the tool in the
     # environment.
     config = python_tool_use.PythonToolUseEnvironmentConfig(
-        tools=[llm_tool_use.ToolSpec(name='add', function=lambda x, y: x + y)]
+        tools=[llm_tool_use.Tool(name='add', function=lambda x, y: x + y)]
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       result = executing.run(
@@ -398,7 +398,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
   def test_run_tool_error_unexpected_argument(self):
     # Note that we register the function with arg `x`, but call it with `y`.
     config = python_tool_use.PythonToolUseEnvironmentConfig(
-        tools=[llm_tool_use.ToolSpec(name='double', function=lambda x: x *2)]
+        tools=[llm_tool_use.Tool(name='double', function=lambda x: x *2)]
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       result = executing.run(

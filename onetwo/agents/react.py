@@ -278,7 +278,7 @@ class ReActPromptProtocol(Protocol):
       state: ReActState,
       stop_prefix: str,
       stop_sequences: list[str],
-      tools: Sequence[llm_tool_use.ToolSpec],
+      tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """Executes the prompt template on the given args and returns the result.
 
@@ -322,7 +322,7 @@ class ReActPromptJ2(
       state: ReActState,
       stop_prefix: str,
       stop_sequences: list[str],
-      tools: Sequence[llm_tool_use.ToolSpec],
+      tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """See ReActPromptProtocol."""
     result = await self.render(

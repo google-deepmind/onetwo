@@ -210,7 +210,7 @@ class LlmToolUseTest(parameterized.TestCase):
       llm_tool_use.parse_and_consume_call(text='Add(a1, a1)', context_vars={})
 
 
-class ToolSpecTest(parameterized.TestCase):
+class ToolTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       ('example_type_str', 'Search(pi) = "3.14".', 'Search(pi) = "3.14".'),
@@ -231,7 +231,7 @@ class ToolSpecTest(parameterized.TestCase):
       tool_example: str | llm_tool_use.ToolExample | None,
       expected_example_str: str,
   ):
-    tool_spec = llm_tool_use.ToolSpec(name='Search', example=tool_example)
+    tool_spec = llm_tool_use.Tool(name='Search', example=tool_example)
     self.assertEqual(expected_example_str, tool_spec.example_str)
 
   @parameterized.named_parameters(
@@ -240,7 +240,7 @@ class ToolSpecTest(parameterized.TestCase):
       ('executable', _add_executable),
   )
   def test_call_tool_via_function_in_tool_spec(self, add_function):
-    tool = llm_tool_use.ToolSpec(name='add', function=add_function)
+    tool = llm_tool_use.Tool(name='add', function=add_function)
 
     with self.subTest('positional_args'):
       self.assertEqual(5, executing.run(tool(2, 3)))
@@ -255,7 +255,7 @@ class ToolSpecTest(parameterized.TestCase):
   )
   def test_call_tool_via_tool_name_and_function_registry(self, add_function):
     routing.function_registry['add'] = add_function
-    tool = llm_tool_use.ToolSpec(name='add')
+    tool = llm_tool_use.Tool(name='add')
 
     with self.subTest('positional_args'):
       self.assertEqual(5, executing.run(tool(2, 3)))
