@@ -120,7 +120,6 @@ def _sandbox_state_from_agent_state(
   return code_sequence
 
 
-# TODO: Add more exemplars to make the prompt more robust.
 DEFAULT_PYTHON_PLANNING_PROMPT_TEXT = """\
 {#- Preamble: Tools description -#}
 {%- role name='system' -%}
@@ -269,7 +268,7 @@ class PythonPlanningPromptJ2(
     return result['llm_reply']
 
 
-# TODO: Does the output type have to be `str` or could it be `Any`?
+# TODO: Generalize the output type from `str` to `Any`.
 @dataclasses.dataclass
 class PythonPlanningAgent(
     agents_base.SingleSampleAgent[
@@ -415,7 +414,7 @@ class PythonPlanningAgent(
     Args:
       state: Current (presumably final) state of the agent.
     """
-    # TODO: Consider how to support non-string outputs.
+    # TODO: Add support for non-string outputs.
     if state.updates:
       answer = state.updates[-1].result
     else:

@@ -219,10 +219,6 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
         max_steps=1,
     )
 
-    # TODO: Figure out why this works when `num_candidates = 1`, but
-    # fails when `num_candidates = 2`. It throws an exception when `par_iter`
-    # tries to copy the Executables, saying:
-    # `TypeError: cannot pickle '_thread.lock' object`
     num_candidates = 2
     next_step_candidates = executing.run(
         agent.start_environment_and_sample_next_step(

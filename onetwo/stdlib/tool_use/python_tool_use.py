@@ -210,7 +210,7 @@ class PythonToolUseEnvironment:
   def register(self) -> None:
     """Registers the relevant methods in the builtin registry."""
     tool_use.run_tool.configure(self.run_tool)
-    # TODO: Once we start storing an environment state token in a
+    # TODO: If we switch to storing an environment state token in a
     # contextvar, we can remove the `sandbox_state` parameter from
     # `self.run_code` and then configure `self.run_code` as a builtin like this:
     # tool_use.run_python.configure(self.run_code)

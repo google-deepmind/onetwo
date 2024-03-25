@@ -385,7 +385,6 @@ def react_parse(
     returned ReActStep will be complete, with `observation` containing the final
     answer.
   """
-  # Creating an empty prompt text in imitation of `react_chain_j2_test.py`.
   # TODO: Would it ever make sense for the prompt template context
   # to be non-empty when parsing a ReAct reply? E.g., would it ever make sense
   # for the context to contain some predefined variables that could be
@@ -449,7 +448,6 @@ def react_parse(
       raise ValueError(f"Didn't find {action_pattern} or {finish_pattern}")
   except ValueError as e:
     # We catch all ValueErrors and echo them back to the LLM as an observation.
-    # TODO: Verify that the error gets echoed back properly.
     return ReActStep(
         is_finished=False, observation=f'{constants.ERROR_STRING}: {e}'
     )

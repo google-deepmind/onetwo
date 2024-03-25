@@ -50,8 +50,6 @@ class ExecutionStatus(enum.Enum):
   SUCCESS = 'SUCCESS'
   COMPILE_ERROR = 'COMPILE_ERROR'
   EXECUTION_ERROR = 'EXECUTION_ERROR'
-  # TODO: Do we still need PROGRAM_ERROR, or would all the cases of
-  # interest be covered by SANDBOX_ERROR and EXECUTION_ERROR?
   PROGRAM_ERROR = 'PROGRAM_ERROR'
   SANDBOX_TIMEOUT = 'SANDBOX_TIMEOUT'
   SANDBOX_ERROR = 'SANDBOX_ERROR'
@@ -124,11 +122,6 @@ class SandboxResult:
 
   final_expression_value: Any = None
   stdout: str = ''
-  # TODO: Add `stderr` here if for some of our sandbox implementations
-  # we are able to capture the contents written to `stderr`. (So far we have not
-  # succeeded in doing this in sandbox2, as `logging.error` leads to a sandbox
-  # violation, and `contextlib.redirect_stderr` always seems to result in just
-  # an empty string otherwise.)
   sandbox_status: SandboxStatus = SandboxStatus.AFTER_RUNNING_CODE
   execution_status: ExecutionStatus = ExecutionStatus.SUCCESS
   status_message: str = ''
