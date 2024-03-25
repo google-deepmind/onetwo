@@ -39,35 +39,35 @@ def _collect_stream(
 
 
 @dataclasses.dataclass
-class TestContext:
+class ContextForTest:
   content: str = dataclasses.field(default_factory=str)
 
 
 @dataclasses.dataclass
-class TestExecutableWithContext(
-    executing_with_context.ExecutableWithContext[TestContext, str]
+class ExecutableWithContextForTest(
+    executing_with_context.ExecutableWithContext[ContextForTest, str]
 ):
   content: str = dataclasses.field(default_factory=str)
 
   @override
-  def initialize_context(self, *args, **kwargs) -> TestContext:
-    return TestContext(*args)
+  def initialize_context(self, *args, **kwargs) -> ContextForTest:
+    return ContextForTest(*args)
 
   @classmethod
   @override
-  def wrap(cls, other: str) -> TestExecutableWithContext:
-    return TestExecutableWithContext(content=other)
+  def wrap(cls, other: str) -> ExecutableWithContextForTest:
+    return ExecutableWithContextForTest(content=other)
 
   @classmethod
   @override
-  def get_result(cls, context: TestContext) -> str:
+  def get_result(cls, context: ContextForTest) -> str:
     return context.content
 
   @override
   @executing.make_executable
   async def execute(
       self,
-      context: TestContext,
+      context: ContextForTest,
   ) -> str:
     # Add the content of this node to the context.
     context.content += self.content
@@ -76,14 +76,14 @@ class TestExecutableWithContext(
 
 
 @dataclasses.dataclass
-class TestSerialContext:
+class SerialContextForTest:
   content: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
-class TestSerialExecutableWithContext(
+class SerialExecutableWithContextForTest(
     executing_with_context.SerialExecutableWithContext[
-        TestSerialContext, list[str]
+        SerialContextForTest, list[str]
     ]
 ):
 
@@ -93,29 +93,29 @@ class TestSerialExecutableWithContext(
     return []
 
   @override
-  def initialize_context(self, *args, **kwargs) -> TestSerialContext:
-    return TestSerialContext(list(*args))
+  def initialize_context(self, *args, **kwargs) -> SerialContextForTest:
+    return SerialContextForTest(list(*args))
 
   @classmethod
   @override
-  def wrap(cls, other: str) -> TestSingleStepSerialExecutableWithContext:
-    return TestSingleStepSerialExecutableWithContext(content=other)
+  def wrap(cls, other: str) -> SingleStepSerialExecutableWithContextForTest:
+    return SingleStepSerialExecutableWithContextForTest(content=other)
 
   @classmethod
   @override
-  def get_result(cls, context: TestSerialContext) -> str:
+  def get_result(cls, context: SerialContextForTest) -> str:
     return ''.join(context.content)
 
 
 @dataclasses.dataclass
-class TestSingleStepSerialExecutableWithContext(
-    TestSerialExecutableWithContext
+class SingleStepSerialExecutableWithContextForTest(
+    SerialExecutableWithContextForTest
 ):
   content: str = dataclasses.field(default_factory=str)
 
   @override
   @executing.make_executable
-  def execute(self, context: TestContext) -> list[str]:
+  def execute(self, context: ContextForTest) -> list[str]:
     # Add the content of this node to the context.
     context.content += self.content
     # Return the content between quotes.
@@ -124,7 +124,7 @@ class TestSingleStepSerialExecutableWithContext(
   @override
   @executing.make_executable
   def iterate(
-      self, context: TestContext, iteration_depth: int = 1
+      self, context: ContextForTest, iteration_depth: int = 1
   ) -> list[str]:
     del iteration_depth
     # Add the content of this node to the context.
@@ -136,13 +136,13 @@ class TestSingleStepSerialExecutableWithContext(
 class ExecutingWithContextTest(parameterized.TestCase):
 
   def test_execute_simple(self):
-    e = TestExecutableWithContext(content='hello')
+    e = ExecutableWithContextForTest(content='hello')
     with self.subTest('run_directly'):
       res = executing.run(e)
       self.assertEqual(res, 'hello')
 
     with self.subTest('result_has_quotes'):
-      res = executing.run(e.execute(TestContext()))
+      res = executing.run(e.execute(ContextForTest()))
       self.assertEqual(res, '"hello"')
 
     with self.subTest('run_with_arguments'):
@@ -158,11 +158,11 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertListEqual(res, ['hello'])
 
     with self.subTest('stream_iterate'):
-      res = _collect_stream(e.iterate(TestContext()))
+      res = _collect_stream(e.iterate(ContextForTest()))
       self.assertListEqual(res, ['"hello"'])
 
   def test_execute_serial(self):
-    e = TestSerialExecutableWithContext()
+    e = SerialExecutableWithContextForTest()
     e += 'hello '
     e += 'world'
 
@@ -171,7 +171,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('result_is_a_list_with_quotes'):
-      res = executing.run(e.execute(TestSerialContext()))
+      res = executing.run(e.execute(SerialContextForTest()))
       self.assertListEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('stored_result_is_correct_after_run'):
@@ -189,7 +189,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'prefix hello world')
 
     with self.subTest('result_with_arguments'):
-      res = executing.run(e.execute(TestSerialContext(['prefix '])))
+      res = executing.run(e.execute(SerialContextForTest(['prefix '])))
       self.assertEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('run_with_resetting'):
@@ -197,12 +197,12 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('stream_iterate_returns_lists'):
-      res = _collect_stream(e.iterate(TestSerialContext()))
+      res = _collect_stream(e.iterate(SerialContextForTest()))
       self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
 
   def test_right_addition(self):
     e = 'hello '
-    e += TestSerialExecutableWithContext()
+    e += SerialExecutableWithContextForTest()
     e += 'world'
 
     with self.subTest('run_directly'):
@@ -210,7 +210,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('result_is_a_list_with_quotes'):
-      res = executing.run(e.execute(TestSerialContext()))
+      res = executing.run(e.execute(SerialContextForTest()))
       self.assertListEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('run_with_arguments'):
@@ -222,7 +222,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('stream_iterate'):
-      res = _collect_stream(e.iterate(TestSerialContext()))
+      res = _collect_stream(e.iterate(SerialContextForTest()))
       self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
 
 

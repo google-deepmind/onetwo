@@ -26,7 +26,7 @@ from onetwo.core import utils
 make_executable = executing.make_executable
 
 
-class TestReply:
+class ReplyForTest:
 
   def __init__(self, content):
     self.content = content
@@ -41,7 +41,7 @@ class TestReply:
     return self.__str__() == other.__str__()
 
 
-class TestRequest:
+class RequestForTest:
 
   def __init__(self, engine, content):
     self.engine = engine
@@ -51,14 +51,14 @@ class TestRequest:
     return f'{self.engine} {self.content}'
 
   def __repr__(self):
-    return f"TestRequest('{self.engine}', '{self.content}')"
+    return f"RequestForTest('{self.engine}', '{self.content}')"
 
   def __eq__(self, other):
     return self.__str__() == other.__str__()
 
 
 @batching.add_batching
-class TestEngine:
+class EngineForTest:
 
   def __init__(self, name, batch_size=3, out_of_order=False):
     self.name = name
@@ -74,8 +74,8 @@ class TestEngine:
 
   def batching_function(
       self,
-      batch: Sequence[TestRequest],
-      request: TestRequest,
+      batch: Sequence[RequestForTest],
+      request: RequestForTest,
   ) -> tuple[bool, bool]:
     """See base class."""
     del request
@@ -97,7 +97,7 @@ class TestEngine:
         self.skip = True
         return True, len(batch) >= self.batch_size - 1
 
-  async def execute(self, request: TestRequest) -> TestReply:
+  async def execute(self, request: RequestForTest) -> ReplyForTest:
     replies = await self._process_requests([request])
     return replies[0]
 
@@ -106,12 +106,12 @@ class TestEngine:
   )
   def _process_requests(
       self,
-      requests: Sequence[TestRequest]
-  ) -> list[TestReply]:
+      requests: Sequence[RequestForTest]
+  ) -> list[ReplyForTest]:
     """See base class."""
     self.batches.append(requests)
     replies = [
-        TestReply(r.content.replace('req', 'rep'))  # pytype: disable=attribute-error
+        ReplyForTest(r.content.replace('req', 'rep'))  # pytype: disable=attribute-error
         for r in requests
     ]
     return replies
@@ -128,7 +128,7 @@ def plan(num_requests, engine_from_id):
     requests.append(
         send_request(
             f'llm{llm_id}',
-            TestRequest(f'llm{llm_id}', f'req {i} for llm{llm_id}'),
+            RequestForTest(f'llm{llm_id}', f'req {i} for llm{llm_id}'),
         )
     )
   return executing.parallel(*requests)
@@ -148,38 +148,38 @@ class RoutingTest(parameterized.TestCase):
           [
               [
                   [
-                      TestRequest('llm1', 'req 0 for llm1'),
-                      TestRequest('llm1', 'req 2 for llm1'),
-                      TestRequest('llm1', 'req 4 for llm1'),
+                      RequestForTest('llm1', 'req 0 for llm1'),
+                      RequestForTest('llm1', 'req 2 for llm1'),
+                      RequestForTest('llm1', 'req 4 for llm1'),
                   ],
                   [
-                      TestRequest('llm1', 'req 6 for llm1'),
-                      TestRequest('llm1', 'req 8 for llm1'),
+                      RequestForTest('llm1', 'req 6 for llm1'),
+                      RequestForTest('llm1', 'req 8 for llm1'),
                   ],
               ],
               [
                   [
-                      TestRequest('llm2', 'req 1 for llm2'),
-                      TestRequest('llm2', 'req 3 for llm2'),
-                      TestRequest('llm2', 'req 5 for llm2'),
+                      RequestForTest('llm2', 'req 1 for llm2'),
+                      RequestForTest('llm2', 'req 3 for llm2'),
+                      RequestForTest('llm2', 'req 5 for llm2'),
                   ],
                   [
-                      TestRequest('llm2', 'req 7 for llm2'),
-                      TestRequest('llm2', 'req 9 for llm2'),
+                      RequestForTest('llm2', 'req 7 for llm2'),
+                      RequestForTest('llm2', 'req 9 for llm2'),
                   ],
               ],
           ],
           [
-              TestReply('rep 0 for llm1'),
-              TestReply('rep 1 for llm2'),
-              TestReply('rep 2 for llm1'),
-              TestReply('rep 3 for llm2'),
-              TestReply('rep 4 for llm1'),
-              TestReply('rep 5 for llm2'),
-              TestReply('rep 6 for llm1'),
-              TestReply('rep 7 for llm2'),
-              TestReply('rep 8 for llm1'),
-              TestReply('rep 9 for llm2'),
+              ReplyForTest('rep 0 for llm1'),
+              ReplyForTest('rep 1 for llm2'),
+              ReplyForTest('rep 2 for llm1'),
+              ReplyForTest('rep 3 for llm2'),
+              ReplyForTest('rep 4 for llm1'),
+              ReplyForTest('rep 5 for llm2'),
+              ReplyForTest('rep 6 for llm1'),
+              ReplyForTest('rep 7 for llm2'),
+              ReplyForTest('rep 8 for llm1'),
+              ReplyForTest('rep 9 for llm2'),
           ],
       ),
       (
@@ -189,38 +189,38 @@ class RoutingTest(parameterized.TestCase):
           [
               [
                   [
-                      TestRequest('llm1', 'req 0 for llm1'),
-                      TestRequest('llm1', 'req 2 for llm1'),
-                      TestRequest('llm1', 'req 4 for llm1'),
+                      RequestForTest('llm1', 'req 0 for llm1'),
+                      RequestForTest('llm1', 'req 2 for llm1'),
+                      RequestForTest('llm1', 'req 4 for llm1'),
                   ],
                   [
-                      TestRequest('llm1', 'req 6 for llm1'),
-                      TestRequest('llm1', 'req 8 for llm1'),
+                      RequestForTest('llm1', 'req 6 for llm1'),
+                      RequestForTest('llm1', 'req 8 for llm1'),
                   ],
               ],
               [
                   [
-                      TestRequest('llm2', 'req 1 for llm2'),
-                      TestRequest('llm2', 'req 3 for llm2'),
-                      TestRequest('llm2', 'req 5 for llm2'),
+                      RequestForTest('llm2', 'req 1 for llm2'),
+                      RequestForTest('llm2', 'req 3 for llm2'),
+                      RequestForTest('llm2', 'req 5 for llm2'),
                   ],
                   [
-                      TestRequest('llm2', 'req 7 for llm2'),
-                      TestRequest('llm2', 'req 9 for llm2'),
+                      RequestForTest('llm2', 'req 7 for llm2'),
+                      RequestForTest('llm2', 'req 9 for llm2'),
                   ],
               ],
           ],
           [
-              TestReply('rep 0 for llm1'),
-              TestReply('rep 1 for llm2'),
-              TestReply('rep 2 for llm1'),
-              TestReply('rep 3 for llm2'),
-              TestReply('rep 4 for llm1'),
-              TestReply('rep 5 for llm2'),
-              TestReply('rep 6 for llm1'),
-              TestReply('rep 7 for llm2'),
-              TestReply('rep 8 for llm1'),
-              TestReply('rep 9 for llm2'),
+              ReplyForTest('rep 0 for llm1'),
+              ReplyForTest('rep 1 for llm2'),
+              ReplyForTest('rep 2 for llm1'),
+              ReplyForTest('rep 3 for llm2'),
+              ReplyForTest('rep 4 for llm1'),
+              ReplyForTest('rep 5 for llm2'),
+              ReplyForTest('rep 6 for llm1'),
+              ReplyForTest('rep 7 for llm2'),
+              ReplyForTest('rep 8 for llm1'),
+              ReplyForTest('rep 9 for llm2'),
           ],
       ),
       (
@@ -230,36 +230,36 @@ class RoutingTest(parameterized.TestCase):
           [
               [
                   [
-                      TestRequest('llm1', 'req 0 for llm1'),
-                      TestRequest('llm1', 'req 1 for llm1'),
-                      TestRequest('llm1', 'req 2 for llm1'),
+                      RequestForTest('llm1', 'req 0 for llm1'),
+                      RequestForTest('llm1', 'req 1 for llm1'),
+                      RequestForTest('llm1', 'req 2 for llm1'),
                   ],
                   [
-                      TestRequest('llm1', 'req 3 for llm1'),
-                      TestRequest('llm1', 'req 4 for llm1'),
-                      TestRequest('llm1', 'req 5 for llm1'),
+                      RequestForTest('llm1', 'req 3 for llm1'),
+                      RequestForTest('llm1', 'req 4 for llm1'),
+                      RequestForTest('llm1', 'req 5 for llm1'),
                   ],
                   [
-                      TestRequest('llm1', 'req 6 for llm1'),
+                      RequestForTest('llm1', 'req 6 for llm1'),
                   ],
               ],
               [[
-                  TestRequest('llm2', 'req 7 for llm2'),
-                  TestRequest('llm2', 'req 8 for llm2'),
-                  TestRequest('llm2', 'req 9 for llm2'),
+                  RequestForTest('llm2', 'req 7 for llm2'),
+                  RequestForTest('llm2', 'req 8 for llm2'),
+                  RequestForTest('llm2', 'req 9 for llm2'),
               ]],
           ],
           [
-              TestReply('rep 0 for llm1'),
-              TestReply('rep 1 for llm1'),
-              TestReply('rep 2 for llm1'),
-              TestReply('rep 3 for llm1'),
-              TestReply('rep 4 for llm1'),
-              TestReply('rep 5 for llm1'),
-              TestReply('rep 6 for llm1'),
-              TestReply('rep 7 for llm2'),
-              TestReply('rep 8 for llm2'),
-              TestReply('rep 9 for llm2'),
+              ReplyForTest('rep 0 for llm1'),
+              ReplyForTest('rep 1 for llm1'),
+              ReplyForTest('rep 2 for llm1'),
+              ReplyForTest('rep 3 for llm1'),
+              ReplyForTest('rep 4 for llm1'),
+              ReplyForTest('rep 5 for llm1'),
+              ReplyForTest('rep 6 for llm1'),
+              ReplyForTest('rep 7 for llm2'),
+              ReplyForTest('rep 8 for llm2'),
+              ReplyForTest('rep 9 for llm2'),
           ],
       ),
       (
@@ -270,36 +270,36 @@ class RoutingTest(parameterized.TestCase):
               [],
               [
                   [
-                      TestRequest('llm2', 'req 0 for llm2'),
-                      TestRequest('llm2', 'req 1 for llm2'),
-                      TestRequest('llm2', 'req 2 for llm2'),
+                      RequestForTest('llm2', 'req 0 for llm2'),
+                      RequestForTest('llm2', 'req 1 for llm2'),
+                      RequestForTest('llm2', 'req 2 for llm2'),
                   ],
                   [
-                      TestRequest('llm2', 'req 3 for llm2'),
-                      TestRequest('llm2', 'req 4 for llm2'),
-                      TestRequest('llm2', 'req 5 for llm2'),
+                      RequestForTest('llm2', 'req 3 for llm2'),
+                      RequestForTest('llm2', 'req 4 for llm2'),
+                      RequestForTest('llm2', 'req 5 for llm2'),
                   ],
                   [
-                      TestRequest('llm2', 'req 6 for llm2'),
-                      TestRequest('llm2', 'req 7 for llm2'),
-                      TestRequest('llm2', 'req 8 for llm2'),
+                      RequestForTest('llm2', 'req 6 for llm2'),
+                      RequestForTest('llm2', 'req 7 for llm2'),
+                      RequestForTest('llm2', 'req 8 for llm2'),
                   ],
                   [
-                      TestRequest('llm2', 'req 9 for llm2'),
+                      RequestForTest('llm2', 'req 9 for llm2'),
                   ],
               ],
           ],
           [
-              TestReply('rep 0 for llm2'),
-              TestReply('rep 1 for llm2'),
-              TestReply('rep 2 for llm2'),
-              TestReply('rep 3 for llm2'),
-              TestReply('rep 4 for llm2'),
-              TestReply('rep 5 for llm2'),
-              TestReply('rep 6 for llm2'),
-              TestReply('rep 7 for llm2'),
-              TestReply('rep 8 for llm2'),
-              TestReply('rep 9 for llm2'),
+              ReplyForTest('rep 0 for llm2'),
+              ReplyForTest('rep 1 for llm2'),
+              ReplyForTest('rep 2 for llm2'),
+              ReplyForTest('rep 3 for llm2'),
+              ReplyForTest('rep 4 for llm2'),
+              ReplyForTest('rep 5 for llm2'),
+              ReplyForTest('rep 6 for llm2'),
+              ReplyForTest('rep 7 for llm2'),
+              ReplyForTest('rep 8 for llm2'),
+              ReplyForTest('rep 9 for llm2'),
           ],
       ),
   )
@@ -310,8 +310,8 @@ class RoutingTest(parameterized.TestCase):
       expected_batches,
       expected_results,
   ):
-    engine1 = TestEngine('llm1')
-    engine2 = TestEngine('llm2')
+    engine1 = EngineForTest('llm1')
+    engine2 = EngineForTest('llm2')
     engine1.register('llm1')
     engine2.register('llm2')
     results = executing.run(plan(num_requests, engine_from_id))
@@ -338,40 +338,40 @@ class RoutingTest(parameterized.TestCase):
           [
               [
                   [
-                      TestRequest('llm1', 'req 0 for llm1'),
-                      TestRequest('llm1', 'req 1 for llm1'),
-                      TestRequest('llm1', 'req 3 for llm1'),
+                      RequestForTest('llm1', 'req 0 for llm1'),
+                      RequestForTest('llm1', 'req 1 for llm1'),
+                      RequestForTest('llm1', 'req 3 for llm1'),
                   ],
                   [
-                      TestRequest('llm1', 'req 2 for llm1'),
-                      TestRequest('llm1', 'req 5 for llm1'),
+                      RequestForTest('llm1', 'req 2 for llm1'),
+                      RequestForTest('llm1', 'req 5 for llm1'),
                   ],
                   [
-                      TestRequest('llm1', 'req 4 for llm1'),
-                      TestRequest('llm1', 'req 6 for llm1'),
+                      RequestForTest('llm1', 'req 4 for llm1'),
+                      RequestForTest('llm1', 'req 6 for llm1'),
                   ],
               ],
               [
                   [
-                      TestRequest('llm2', 'req 7 for llm2'),
-                      TestRequest('llm2', 'req 8 for llm2'),
+                      RequestForTest('llm2', 'req 7 for llm2'),
+                      RequestForTest('llm2', 'req 8 for llm2'),
                   ],
                   [
-                      TestRequest('llm2', 'req 9 for llm2'),
+                      RequestForTest('llm2', 'req 9 for llm2'),
                   ],
               ],
           ],
           [
-              TestReply('rep 0 for llm1'),
-              TestReply('rep 1 for llm1'),
-              TestReply('rep 2 for llm1'),
-              TestReply('rep 3 for llm1'),
-              TestReply('rep 4 for llm1'),
-              TestReply('rep 5 for llm1'),
-              TestReply('rep 6 for llm1'),
-              TestReply('rep 7 for llm2'),
-              TestReply('rep 8 for llm2'),
-              TestReply('rep 9 for llm2'),
+              ReplyForTest('rep 0 for llm1'),
+              ReplyForTest('rep 1 for llm1'),
+              ReplyForTest('rep 2 for llm1'),
+              ReplyForTest('rep 3 for llm1'),
+              ReplyForTest('rep 4 for llm1'),
+              ReplyForTest('rep 5 for llm1'),
+              ReplyForTest('rep 6 for llm1'),
+              ReplyForTest('rep 7 for llm2'),
+              ReplyForTest('rep 8 for llm2'),
+              ReplyForTest('rep 9 for llm2'),
           ],
       ),
   )
@@ -382,8 +382,8 @@ class RoutingTest(parameterized.TestCase):
       expected_batches,
       expected_results,
   ):
-    engine1 = TestEngine('llm1', out_of_order=True)
-    engine2 = TestEngine('llm2', out_of_order=True)
+    engine1 = EngineForTest('llm1', out_of_order=True)
+    engine2 = EngineForTest('llm2', out_of_order=True)
     engine1.register('llm1')
     engine2.register('llm2')
     results = executing.run(plan(num_requests, engine_from_id))
@@ -403,24 +403,24 @@ class RoutingTest(parameterized.TestCase):
       self.assertEqual(results, expected_results, pprint.pformat(results))
 
   def test_function_call(self):
-    def simple_function(text: str, request: TestRequest) -> TestReply:
-      return TestReply(text + str(request))
+    def simple_function(text: str, request: RequestForTest) -> ReplyForTest:
+      return ReplyForTest(text + str(request))
 
-    engine = TestEngine('llm')
+    engine = EngineForTest('llm')
     engine.register()
     routing.function_registry['fn'] = simple_function
 
     with self.subTest('call_normal_function'):
       result = executing.run(
           routing.function_registry(
-              'fn', text='test', request=TestRequest('', 'req')
+              'fn', text='test', request=RequestForTest('', 'req')
           )
       )
       self.assertEqual(result, 'test req')
 
     with self.subTest('call_async_function'):
       result = executing.run(
-          routing.function_registry('llm', request=TestRequest('', 'req'))
+          routing.function_registry('llm', request=RequestForTest('', 'req'))
       )
       self.assertEqual(result, 'rep')
 

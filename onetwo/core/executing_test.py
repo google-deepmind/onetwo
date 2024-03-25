@@ -154,7 +154,7 @@ class CallRecorder:
       return fn(request)
 
 
-class TestObject:
+class ObjectForTest:
 
   def __init__(self, some_list: list[str]):
     self.some_list = some_list
@@ -293,7 +293,7 @@ class ExecutionTest(parameterized.TestCase):
       async for s in test_iterator(text):  # test_iterator should be async. pylint: disable=not-an-iterable
         yield s
 
-    bound_fn = make_executable(TestObject(['done: ']).not_decorated_method)
+    bound_fn = make_executable(ObjectForTest(['done: ']).not_decorated_method)
 
     cb_result = []
     def cb(res) -> None:
@@ -366,7 +366,7 @@ class ExecutionTest(parameterized.TestCase):
 
   def test_methods_are_executable(self):
     inner_text = ['req1']
-    obj = TestObject(inner_text)
+    obj = ObjectForTest(inner_text)
     result1 = executing.run(obj.method('_0'))
     result2 = executing.run(obj.async_method('_1'))
 
@@ -376,7 +376,7 @@ class ExecutionTest(parameterized.TestCase):
 
   def test_method_executable_copy_when_decorated_with_atsign(self):
     inner_text = ['req1']
-    obj = TestObject(inner_text)
+    obj = ObjectForTest(inner_text)
     obj2 = copy.deepcopy(obj)
     executable = obj.method('_0')
     executable2 = copy.deepcopy(executable)
@@ -402,7 +402,7 @@ class ExecutionTest(parameterized.TestCase):
 
   def test_method_executable_copy_when_decorated_inline(self):
     inner_text = ['req1']
-    obj = TestObject(inner_text)
+    obj = ObjectForTest(inner_text)
     executable = make_executable(obj.not_decorated_method)('_0')
     executable2 = copy.deepcopy(executable)
     executable3 = make_executable(copy_self=False)(obj.not_decorated_method)(
@@ -424,7 +424,7 @@ class ExecutionTest(parameterized.TestCase):
       self.assertEqual(executable3.args[0], executable4.args[0])
 
   def test_method_args_copy(self):
-    obj = TestObject(['req'])
+    obj = ObjectForTest(['req'])
     texts = ['_0']
     executable = obj.list_method(texts)
     executable2 = copy.deepcopy(executable)
@@ -445,7 +445,7 @@ class ExecutionTest(parameterized.TestCase):
       self.assertEqual(executing.run(executable2), 'done: r0')
 
   def test_method_args_copy_with_non_copied_args(self):
-    obj = TestObject(['req'])
+    obj = ObjectForTest(['req'])
     texts = ['_0']
     uncopiable = UncopiableObject('_u0')
     executable = obj.method_with_non_copied_args(texts, uncopiable=uncopiable)
@@ -510,7 +510,7 @@ class ExecutionTest(parameterized.TestCase):
 
   def test_no_need_to_call_methods(self):
     inner_text = ['req1']
-    obj = TestObject(inner_text)
+    obj = ObjectForTest(inner_text)
     result1 = executing.run(obj.method('_0'))
     result2 = executing.run(obj.async_method_without_call('_1'))
 

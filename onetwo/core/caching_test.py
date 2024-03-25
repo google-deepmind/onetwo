@@ -32,7 +32,7 @@ from onetwo.core import updating
 from onetwo.core import utils
 
 
-class TestCache(caching.SimpleCache[str]):
+class CacheForTest(caching.SimpleCache[str]):
   """Implementation of abstract SimpleCache for tests.
 
   Uses a tuple (key, sampling_key) as a cache key.
@@ -70,7 +70,7 @@ class TestCache(caching.SimpleCache[str]):
 
 
 @dataclasses.dataclass
-class TestKeyMaker(caching.CacheKeyMaker):
+class KeyMakerForTest(caching.CacheKeyMaker):
   """Simplified version of CacheKeyMaker for tests.
 
   A version of CacheKeyMaker with simpler implementation of create_key.
@@ -86,12 +86,12 @@ class TestKeyMaker(caching.CacheKeyMaker):
 
 @dataclasses.dataclass
 class ClassWithCachedMethods(caching.CacheEnabled[str]):
-  """An implementation of abstract CacheEnabled that uses TestCache."""
+  """An implementation of abstract CacheEnabled that uses CacheForTest."""
 
   append_when_caching: bool = False
 
   def __post_init__(self):
-    self._cache_handler = TestCache(
+    self._cache_handler = CacheForTest(
         append_when_caching=self.append_when_caching
     )
 
@@ -136,7 +136,7 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
   @caching.cache_method(
       name='method_decorated_with_test_cache_key_maker',
       is_sampled=True,
-      cache_key_maker=TestKeyMaker
+      cache_key_maker=KeyMakerForTest
   )
   def method_decorated_with_test_cache_key_maker(self, a: str, b: str) -> str:
     return a + b
@@ -223,7 +223,7 @@ class CacheDecorationTest(parameterized.TestCase):
           ),
       ),
       (
-          'use_TestKeyMaker',
+          'use_KeyMakerForTest',
           'method_decorated_with_test_cache_key_maker',
           ('test done', ''),
       ),
@@ -246,7 +246,7 @@ class CacheDecorationTest(parameterized.TestCase):
     result = asyncio.run(
         getattr(ClassWithCachedMethods, method)(backend, 'test', b=' done')
     )
-    handler: TestCache = getattr(backend, '_cache_handler')
+    handler: CacheForTest = getattr(backend, '_cache_handler')
     list_keys = list(handler.contents.keys())
     # Hint: we only have one key in the cache.
     assert len(list_keys) == 1
@@ -257,7 +257,7 @@ class CacheDecorationTest(parameterized.TestCase):
   def test_method_with_var_positional(self):
     backend = ClassWithCachedMethods()
     result = asyncio.run(backend.method_with_var_positional('a', 'b', 'c'))
-    handler: TestCache = getattr(backend, '_cache_handler')
+    handler: CacheForTest = getattr(backend, '_cache_handler')
     keys = list(handler.contents.keys())
     keys = keys[0]
     self.assertEqual(
@@ -300,7 +300,7 @@ class CacheDecorationTest(parameterized.TestCase):
     )
     self.assertEqual(result, 'test done')
     # Check that two extra values were cached.
-    handler: TestCache = getattr(backend, '_cache_handler')
+    handler: CacheForTest = getattr(backend, '_cache_handler')
     values = list(handler.contents.values())
     if not disable_cache:
       # We have two keys: first reply with sampling_key='', second with None.
@@ -358,7 +358,7 @@ class CacheDecorationTest(parameterized.TestCase):
     results.append(
         asyncio.run(backend.method_with_implicit_arg(a='test2', b=' done'))
     )
-    handler: TestCache = getattr(backend, '_cache_handler')
+    handler: CacheForTest = getattr(backend, '_cache_handler')
     values = list(handler.contents.values())
     with self.subTest('ignores_a_as_cache_key'):
       self.assertListEqual(results, ['test done'] * 4)
@@ -367,7 +367,7 @@ class CacheDecorationTest(parameterized.TestCase):
 
   def test_cache_after_execution(self):
     backend = ClassWithCachedMethods()
-    handler: TestCache = getattr(backend, '_cache_handler')
+    handler: CacheForTest = getattr(backend, '_cache_handler')
     contents = handler.contents
 
     # Full execution which should be handled by the make_executable decorator,

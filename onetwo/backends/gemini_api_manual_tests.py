@@ -34,7 +34,7 @@ from onetwo.core import sampling
 _API_KEY = flags.DEFINE_string('api_key', default=None, help='GenAI API key.')
 _CACHE_DIR = flags.DEFINE_string(
     'cache_dir',
-    default='',
+    default='.',
     help='Directory where the cache will be stored.'
 )
 _LOAD_CACHE = flags.DEFINE_bool(
