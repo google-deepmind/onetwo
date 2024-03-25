@@ -194,7 +194,7 @@ class ExecutionTest(parameterized.TestCase):
   def test_executable_object(self):
     """Tests the subclassing of Executable."""
 
-    class TestExecutable(ExecutableWithStr):
+    class ExecutableForTest(ExecutableWithStr):
       """Simple Executable issuing a sequence of requests."""
 
       def __init__(self, requests: list[str]):
@@ -213,7 +213,7 @@ class ExecutionTest(parameterized.TestCase):
         for request in self.requests:
           yield self.process(request)
 
-    e = TestExecutable(requests=['req1', 'req2', 'req3'])
+    e = ExecutableForTest(requests=['req1', 'req2', 'req3'])
     expected_results = ['rep1', 'rep2', 'rep3']
 
     run_results = executing.run(e)

@@ -302,7 +302,7 @@ class UtilsTest(parameterized.TestCase):
       self.assertLess(9.5, end - start)
 
   def test_rate_limit_method(self):
-    class TestClass:
+    class ClassForTest:
       @utils.rate_limit_method(2.0)
       def f(self, i: int):
         return i
@@ -313,8 +313,8 @@ class UtilsTest(parameterized.TestCase):
 
     # We create two instances to check that each instance is rate-limited
     # separately.
-    t1 = TestClass()
-    t2 = TestClass()
+    t1 = ClassForTest()
+    t2 = ClassForTest()
 
     async def plan(instance):
       return await asyncio.gather(*[instance.af(i) for i in range(10)])
@@ -420,7 +420,7 @@ class UtilsTest(parameterized.TestCase):
     def simple_function():  # pylint: disable=unused-variable
       return None
 
-    class TestClass:  # pylint: disable=unused-variable
+    class ClassForTest:  # pylint: disable=unused-variable
       @decorator
       def method(self):
         return None

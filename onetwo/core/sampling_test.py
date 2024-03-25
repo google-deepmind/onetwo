@@ -27,15 +27,6 @@ async def process(request: str) -> tuple[str, str]:
   return (request, key)
 
 
-class TestObject:
-  def __init__(self):
-    pass
-
-  @executing.make_executable
-  async def process(self, request: str) -> tuple[str, str]:
-    return process(request)
-
-
 class SamplingTest(parameterized.TestCase):
 
   def test_repeat(self):

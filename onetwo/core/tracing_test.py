@@ -72,13 +72,13 @@ def with_update(a: str) -> str:
   return a
 
 
-class Test:
+class ClassForTest:
   @tracing.trace
   def m(self, a: str) -> str:
     return a + ' done'
 
 
-class TestStringTracer(tracing.Tracer):
+class StringTracerForTest(tracing.Tracer):
   def __init__(self):
     self.buffer = io.StringIO()
     self.inner_tracer = tracing.StringTracer(self.buffer)
@@ -96,7 +96,7 @@ class TestStringTracer(tracing.Tracer):
     self.inner_tracer.update_outputs(name, outputs)
 
 
-class TestExecutionResultTracer(tracing.Tracer):
+class ExecutionResultTracerForTest(tracing.Tracer):
   def __init__(self):
     self.execution_result = ExecutionResult()
     self.inner_tracer = tracing.ExecutionResultTracer(self.execution_result)
@@ -120,10 +120,10 @@ class TracingTest(parameterized.TestCase):
       ('no_tracer', None, None),
       (
           'string_tracer',
-          TestStringTracer(),
+          StringTracerForTest(),
           "  ff: {'a': 'test'}\n  ff: {'output': 'other done'}\n",
       ),
-      ('execution_result_tracer', TestExecutionResultTracer(), None),
+      ('execution_result_tracer', ExecutionResultTracerForTest(), None),
   )
   def test_skip_inputs(self, tracer, expected_result):
     @tracing.trace(skip=['b'])
@@ -149,7 +149,7 @@ class TracingTest(parameterized.TestCase):
       )
       if tracer is not None:
         result = tracer.get_result()
-        if isinstance(tracer, TestExecutionResultTracer):
+        if isinstance(tracer, ExecutionResultTracerForTest):
           expected_result = ExecutionResult(stages=[expected_execution_result])
         self.assertEqual(
             result,
@@ -192,7 +192,9 @@ class TracingTest(parameterized.TestCase):
       )
 
   def test_decorate_method(self):
-    _, execution_result = tracing.run(functools.partial(Test().m, 'test'))
+    _, execution_result = tracing.run(
+        functools.partial(ClassForTest().m, 'test')
+    )
     with self.subTest('should_not_include_self'):
       self.assertEqual(
           execution_result,
@@ -209,7 +211,7 @@ class TracingTest(parameterized.TestCase):
       ('no_tracer', None, None),
       (
           'string_tracer',
-          TestStringTracer(),
+          StringTracerForTest(),
           (
               "  h: {'b': 'test'}\n"
               "    f: {'a': 'test other'}\n"
@@ -223,7 +225,7 @@ class TracingTest(parameterized.TestCase):
               "  h: {'output': 'test2 from g'}\n"
           ),
       ),
-      ('execution_result_tracer', TestExecutionResultTracer(), None),
+      ('execution_result_tracer', ExecutionResultTracerForTest(), None),
   )
   def test_tracing(self, tracer, expected_result):
     _, execution_result = tracing.run(
@@ -266,7 +268,7 @@ class TracingTest(parameterized.TestCase):
       )
       if tracer is not None:
         result = tracer.get_result()
-        if isinstance(tracer, TestExecutionResultTracer):
+        if isinstance(tracer, ExecutionResultTracerForTest):
           expected_result = ExecutionResult(stages=[expected_execution_result])
         self.assertEqual(
             result,
@@ -309,7 +311,7 @@ class TracingTest(parameterized.TestCase):
       ('no_tracer', None, None),
       (
           'string_tracer',
-          TestStringTracer(),
+          StringTracerForTest(),
           (
               "  ah: {'b': 'test'}\n"
               "    af: {'a': 'test other'}\n"
@@ -323,7 +325,7 @@ class TracingTest(parameterized.TestCase):
               "  ah: {'output': 'test2 from g'}\n"
           ),
       ),
-      ('execution_result_tracer', TestExecutionResultTracer(), None),
+      ('execution_result_tracer', ExecutionResultTracerForTest(), None),
   )
   def test_async_tracing(self, tracer, expected_result):
     _, execution_result = tracing.run(
@@ -366,7 +368,7 @@ class TracingTest(parameterized.TestCase):
       )
       if tracer is not None:
         result = tracer.get_result()
-        if isinstance(tracer, TestExecutionResultTracer):
+        if isinstance(tracer, ExecutionResultTracerForTest):
           expected_result = ExecutionResult(stages=[expected_execution_result])
         self.assertEqual(
             result,
@@ -495,7 +497,7 @@ class TracingTest(parameterized.TestCase):
 
   def test_queue_trace(self):
 
-    class TestTracer(tracing.QueueTracer):
+    class TracerForTest(tracing.QueueTracer):
       def set_inputs(self, name: str, inputs: Mapping[str, Any]) -> None:
         self.callback(f'{2-self.depth} - {name}: {inputs}')
 
@@ -516,7 +518,7 @@ class TracingTest(parameterized.TestCase):
       return f0(a) + ' ' + f0(a + '2') + str(list(f1(3)))
 
     updates = []
-    iterator = tracing.stream(f2('test'), TestTracer)
+    iterator = tracing.stream(f2('test'), TracerForTest)
     for update in iterator:
       updates.append(update)
     result = iterator.value
@@ -543,7 +545,7 @@ class TracingTest(parameterized.TestCase):
 
   def test_queue_trace_errors(self):
 
-    class TestTracer(tracing.QueueTracer):
+    class TracerForTest(tracing.QueueTracer):
       def set_inputs(self, name: str, inputs: Mapping[str, Any]) -> None:
         self.callback(f'{2-self.depth} - {name}: {inputs}')
 
@@ -555,7 +557,7 @@ class TracingTest(parameterized.TestCase):
       return a
 
     updates = []
-    iterator = tracing.stream(fn('test'), TestTracer)
+    iterator = tracing.stream(fn('test'), TracerForTest)
     for update in iterator:
       updates.append(update)
     result = iterator.value
@@ -571,7 +573,7 @@ class TracingTest(parameterized.TestCase):
     updates = []
     with self.subTest('should_raise_error'):
       with self.assertRaises(ValueError):
-        iterator = tracing.stream(fn('test'), TestTracer)
+        iterator = tracing.stream(fn('test'), TracerForTest)
         for update in iterator:
           updates.append(update)
           raise ValueError()

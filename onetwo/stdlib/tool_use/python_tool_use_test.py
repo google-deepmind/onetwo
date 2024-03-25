@@ -131,7 +131,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     # Simple class for configuring one step of the test (like in a parameterized
     # test, but all run within a single call to `executing.run`).
     @dataclasses.dataclass
-    class TestStep:
+    class StepForTest:
       sandbox_state: tuple[str, ...]
       code: str
       expected_result: python_tool_use.RunCodeResult | None
@@ -149,7 +149,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
             # Get a sandbox, run code on it. The environment should
             # automatically create a sandbox in the desired state, including
             # running any past code blocks.
-            TestStep(
+            StepForTest(
                 sandbox_state=("x = 'a'",),
                 code="x += 'b'\nx",
                 expected_result=python_tool_use.RunCodeResult(
@@ -166,7 +166,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
             # code on it. Even thought we've been in requested state before,
             # the environment will need to create a new sandbox, since the
             # sandbox we created earlier has already moved onto a new state.
-            TestStep(
+            StepForTest(
                 sandbox_state=("x = 'a'",),
                 code="x += 'c'\nx",
                 expected_result=python_tool_use.RunCodeResult(
@@ -181,7 +181,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
         (
             # Get a sandbox in the state that would have resulted from the first
             # step, run more code on it. This should reuse the existing sandbox.
-            TestStep(
+            StepForTest(
                 sandbox_state=("x = 'a'", "x += 'b'\nx"),
                 code="x += 'd'\nx",
                 expected_result=python_tool_use.RunCodeResult(
@@ -203,7 +203,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
             # request-reply cache for `run_code` requests (similar to the
             # caching that we do for LLM requests), in addition to caching the
             # sandboxes themselves.
-            TestStep(
+            StepForTest(
                 sandbox_state=("x = 'a'",),
                 code="x += 'b'\nx",
                 expected_result=python_tool_use.RunCodeResult(

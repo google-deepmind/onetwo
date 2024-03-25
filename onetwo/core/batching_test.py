@@ -700,7 +700,7 @@ class BatchingTest(parameterized.TestCase):
 
   def test_stop_queues(self):
     @batching.add_batching
-    class TestClassWithBatch:
+    class ClassWithBatchForTest:
 
       @batching.batch_method(batch_size=3)
       def process(self, requests):
@@ -722,7 +722,7 @@ class BatchingTest(parameterized.TestCase):
         res.append(result)
       return res
 
-    instance = TestClassWithBatch()
+    instance = ClassWithBatchForTest()
 
     async def method_stream_plan():
       for i in range(10):
