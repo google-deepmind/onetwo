@@ -132,6 +132,31 @@ class SandboxResult:
     parts = []
     if self.stdout:
       parts.append(self.stdout)
+    if self.final_expression_value is not None:
+      # If `final_expression_value` is non-None, then it must have been
+      # explicitly populated by the sandbox execution. To make sure we don't
+      # hide any relevant information, we thus include this value as part of
+      # result string, even if the executed Python code had already printed
+      # some other information earlier to stdout. This behavior is consistent
+      # with colab, which also outputs the value of the final expression of any
+      # given code block, regardless of whether additional content had been
+      # explicitly printed to stdout earlier in the code block.
+      parts.append(str(self.final_expression_value))
+    elif not self.stdout and self.execution_status == ExecutionStatus.SUCCESS:
+      # If `final_expression_value` is None, we currently don't have a robust
+      # way of distinguishing whether the last line of code actually evaluated
+      # to `None` vs. whether the last line had an undefined value (as is the
+      # case, for example, with a `print` statement) or was never even executed
+      # due to an error. As an approximation, we thus include the value `None`
+      # in the result string only in the case where the status is `SUCCESS`
+      # (which indicates that the last line really was executed) and where
+      # `self.stdout` is empty (which rules out the case where the last line was
+      # a print statement, or more generally, where the code block was designed
+      # purely around print statements). Note that this heuristic is sufficient
+      # to ensure that we always return a non-empty result string, including in
+      # the case where the Python sandbox is used in the style of a calculator,
+      # where the entire code block is designed to evaluate a single expression.
+      parts.append(str(self.final_expression_value))
     if self.execution_status != ExecutionStatus.SUCCESS:
       parts.append(f'{self.execution_status.value}: {self.status_message}')
     return '\n'.join(parts)

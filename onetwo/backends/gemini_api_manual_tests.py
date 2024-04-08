@@ -23,7 +23,6 @@ from absl import logging
 from onetwo.backends import gemini_api
 from onetwo.builtins import composables as c
 from onetwo.builtins import llm
-from onetwo.core import caching
 from onetwo.core import executing
 from onetwo.core import sampling
 
@@ -63,7 +62,7 @@ def main(argv: Sequence[str]) -> None:
     load_start = time.time()
     backend.load_cache()
     load_end = time.time()
-    print('Spent %.4fsec loading cache.', load_end - load_start)
+    print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
   @executing.make_executable
   async def check_and_complete(prompt_text, **other_args):
@@ -211,9 +210,8 @@ def main(argv: Sequence[str]) -> None:
 
   time2 = time.time()
   print('Took %.4fsec running requests.' % (time2 - time1))
-  handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
   if not _LOAD_CACHE.value:
-    handler.save(overwrite=True)
+    backend.save_cache(overwrite=True)
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
@@ -253,9 +251,8 @@ def main(argv: Sequence[str]) -> None:
 
   time2 = time.time()
   print('Took %.4fsec running requests.' % (time2 - time1))
-  handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
   if not _LOAD_CACHE.value:
-    handler.save(overwrite=True)
+    backend.save_cache(overwrite=True)
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
 

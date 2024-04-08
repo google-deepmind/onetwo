@@ -193,18 +193,25 @@ class _Container:
   Attributes:
     payload: The input to the function, represented as a Mapping from parameter
       name to parameter value.
-    result: Whatever the function will return.
+    result: Whatever the function will return (assuming no Exception is raised).
+    exception: Exception that the function will raise, if any. If this is
+      populated, then `result` will normally be `None`.
     done: True when the result has been obtained from the function.
   """
 
   def __init__(self, payload: Parameters):
     self.payload = payload
     self.result = None
+    self.exception = None
     self.done = False
 
   def __repr__(self) -> str:
-    if self.result is None:
+    if self.result is None and self.exception is None:
       return repr(self.payload)
+    elif self.exception is not None:
+      return (
+          f'_Container({repr(self.payload)}, exception={repr(self.exception)})'
+      )
     else:
       return f'_Container({repr(self.payload)}, {repr(self.result)})'
 
@@ -353,6 +360,18 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
         except asyncio.InvalidStateError:
           pass
         if all([r.done for r in wrapped_requests]):
+          # If an exception occurred when processing the request, we raise it
+          # here in the main thread so as to mimic as closely as possible the
+          # behavior the caller would have seen if they had executed the
+          # request directly without going via the batch queue. Note that it is
+          # important that we raise the exception here in the main thread,
+          # rather than in the processing thread, to ensure that the processing
+          # thread isn't killed before processing the whole request queue, and
+          # to ensure that the caller has the option to handle the exceptions
+          # while continuing with processing.
+          for r in wrapped_requests:
+            if r.exception is not None:
+              raise r.exception
           return [r.result for r in wrapped_requests]
         elif self.task.done():
           raise ValueError(
@@ -389,24 +408,34 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
     if self.debug:
       self.calls.append([req.payload for req in requests])
     # Actually call the wrapped function with a batch of requests.
-    if inspect.iscoroutinefunction(self.wrapped):
-      replies = await self.wrapped([req.payload for req in requests])
-    else:
-      replies = self.wrapped([req.payload for req in requests])
-    if not isinstance(replies, Sequence):
-      raise ValueError(
-          f'Batch function {self.wrapped} should return a Sequence of results,'
-          f' got {replies=} for requests {requests=}.'
-      )
-    if len(replies) != len(requests):
-      raise ValueError(
-          f'Batch function {self.wrapped} should return as many results as'
-          f' requests, got {replies=} for requests {requests=}.'
-      )
-    # Store the results into the container objects.
-    for container, reply in zip(requests, replies):
-      container.result = reply
-      container.done = True
+    try:
+      if inspect.iscoroutinefunction(self.wrapped):
+        replies = await self.wrapped([req.payload for req in requests])
+      else:
+        replies = self.wrapped([req.payload for req in requests])
+      if not isinstance(replies, Sequence):
+        raise ValueError(
+            f'Batch function {self.wrapped} should return a Sequence of'
+            f' results, got {replies=} for requests {requests=}.'
+        )
+      if len(replies) != len(requests):
+        raise ValueError(
+            f'Batch function {self.wrapped} should return as many results as'
+            f' requests, got {replies=} for requests {requests=}.'
+        )
+      # Store the results into the container objects.
+      for container, reply in zip(requests, replies):
+        container.result = reply
+        container.done = True
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      # If an exception is raised, then we store it in the container objects in
+      # place of the results. It is important that we don't raise the exception
+      # directly here, so as to ensure that we don't accidentally kill the
+      # processing thread before it has finished processing all of the requests
+      # in the queue.
+      for container in requests:
+        container.exception = e
+        container.done = True
 
   def get_batching_function(self) -> _BatchingFunction:
     if self.batching_function.value() is None:
@@ -442,7 +471,7 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
             break
           # We introduce a small delay to allow the queue to fill up otherwise
           # we may process it too soon (and get half-full batches).
-          # TODO: This could become a bottlneck if we use batching
+          # TODO: This could become a bottleneck if we use batching
           # on functions that execute really fast, so we might need to make
           # this customizable.
           await asyncio.sleep(0.01)
@@ -681,9 +710,11 @@ def stream_with_callback(
       execution_result = tracing.execution_context.get(None)
       async for result in iterator:
         if enable_tracing:
-          callback((result, execution_result))
+          res = callback((result, execution_result))
         else:
-          callback(result)
+          res = callback(result)
+        if isinstance(res, Awaitable):
+          await res
 
   with run_once():
     iterating.asyncio_run_wrapper(wrapper())
@@ -1169,8 +1200,23 @@ def _render_exceptions(exceptions: Sequence[Exception]) -> str:
   return result
 
 
+@overload
 def run_function_in_threadpool(
-    function: Callable[..., _ReplyT]
+    function: Callable[..., _ReplyT],
+    return_exceptions: Literal[False] = False,
+) -> _BatchedFunction[Parameters, _ReplyT | None]: ...
+
+
+@overload
+def run_function_in_threadpool(
+    function: Callable[..., _ReplyT],
+    return_exceptions: Literal[True] = True,
+) -> _BatchedFunction[Parameters, _ReplyT | None | Exception]: ...
+
+
+def run_function_in_threadpool(
+    function: Callable[..., _ReplyT],
+    return_exceptions: bool = False,
 ) -> _BatchedFunction[Parameters, _ReplyT | None]:
   """Decorator to run a function on a list of inputs in a threadpool.
 
@@ -1185,6 +1231,10 @@ def run_function_in_threadpool(
 
   Args:
     function: The function to be decorated.
+    return_exceptions: If False, any exception will stop the processing and no
+      result will be returned. If True, exceptions produced by individual
+      requests will be used as their returned result, so that the processing
+      will not be interrupted.
 
   Returns:
     A function which takes a sequence of inputs (each input being a dict
@@ -1195,10 +1245,13 @@ def run_function_in_threadpool(
   Raises:
     ValueError if one of the calls to the underlying function failed.
   """
+  if return_exceptions:
+    function = utils.returning_raised_exception(function)
+
   @functools.wraps(function)
   def wrapper(requests: ParametersBatch) -> Sequence[_ReplyT | None]:
     exceptions = []
-    def executor(kwargs: Parameters) -> _ReplyT | None:
+    def executor(kwargs: Parameters) -> _ReplyT | None | Exception:
       nonlocal exceptions
       try:
         return function(*(), **kwargs)
@@ -1221,8 +1274,23 @@ def run_function_in_threadpool(
   return wrapper
 
 
+@overload
 def run_method_in_threadpool(
     method: Callable[..., _ReplyT],
+    return_exceptions: Literal[False] = False,
+) -> _BatchedMethod[Parameters, _ReplyT | None]: ...
+
+
+@overload
+def run_method_in_threadpool(
+    method: Callable[..., _ReplyT],
+    return_exceptions: Literal[True] = True,
+) -> _BatchedMethod[Parameters, _ReplyT | None | Exception]: ...
+
+
+def run_method_in_threadpool(
+    method: Callable[..., _ReplyT],
+    return_exceptions: bool = False,
 ) -> _BatchedMethod[Parameters, _ReplyT | None]:
   """Decorator to run a function on a list of inputs in a threadpool.
 
@@ -1239,6 +1307,10 @@ def run_method_in_threadpool(
 
   Args:
     method: The function to be decorated.
+    return_exceptions: If False, any exception will stop the processing and no
+      result will be returned. If True, exceptions produced by individual
+      requests will be used as their returned result, so that the processing
+      will not be interrupted.
 
   Returns:
     A method which takes a sequence of inputs (each input being a dict
@@ -1254,6 +1326,9 @@ def run_method_in_threadpool(
         '@run_method_in_threadpool can not be used with coroutines (i.e.'
         ' functions defined with async def).'
     )
+
+  if return_exceptions:
+    method = utils.returning_raised_exception(method)
 
   @functools.wraps(method)
   def wrapper(self, requests: ParametersBatch) -> Sequence[_ReplyT | None]:
@@ -1287,8 +1362,8 @@ def batch_function_with_threadpool(
     batching_function: _BatchingFunction[_RequestT] | None = None,
     wrapper: (
         Callable[
-            [_BatchedFunction[_RequestT, _ReplyT]],
-            _BatchedFunction[_RequestT, _ReplyT],
+            [_BatchedFunction[_RequestT, _ReplyT | Exception]],
+            _BatchedFunction[_RequestT, _ReplyT | Exception],
         ] | None
     ) = None,
     debug: bool = False,
@@ -1334,7 +1409,9 @@ def batch_function_with_threadpool(
   def inner(
       function: Callable[..., _ReplyT]
   ) -> Callable[..., Awaitable[_ReplyT]]:
-    threadpool_function = run_function_in_threadpool(function)
+    threadpool_function = run_function_in_threadpool(
+        function, return_exceptions=True
+    )
     if wrapper is not None:
       signature = inspect.signature(threadpool_function)
       threadpool_function = wrapper(threadpool_function)
@@ -1344,13 +1421,15 @@ def batch_function_with_threadpool(
             f'The wrapper {wrapper} changed the signature from {signature} to'
             f' {other_signature}.'
         )
-    return batchable_function(
-        implementation=batch_function(
-            batch_size=batch_size,
-            batching_function=batching_function,
-            debug=debug,
+    return utils.raising_returned_exception(
+        batchable_function(
+            implementation=batch_function(
+                batch_size=batch_size,
+                batching_function=batching_function,
+                debug=debug,
+            )(threadpool_function)
         )(threadpool_function)
-    )(threadpool_function)
+    )
 
   return inner
 
@@ -1364,8 +1443,8 @@ def batch_method_with_threadpool(
     ) = None,
     wrapper: (
         Callable[
-            [_BatchedMethod[_RequestT, _ReplyT]],
-            _BatchedMethod[_RequestT, _ReplyT],
+            [_BatchedMethod[_RequestT, _ReplyT | Exception]],
+            _BatchedMethod[_RequestT, _ReplyT | Exception],
         ] | None
     ) = None,
     debug: bool = False,
@@ -1416,7 +1495,7 @@ def batch_method_with_threadpool(
   def inner(
       method: Callable[..., _ReplyT]
   ) -> Callable[..., Awaitable[_ReplyT]]:
-    threadpool_method = run_method_in_threadpool(method)
+    threadpool_method = run_method_in_threadpool(method, return_exceptions=True)
     if wrapper is not None:
       signature = inspect.signature(threadpool_method)
       threadpool_method = wrapper(threadpool_method)
@@ -1426,14 +1505,16 @@ def batch_method_with_threadpool(
             f'The wrapper {wrapper} changed the signature from {signature} to'
             f' {other_signature}.'
         )
-    return batchable_method(
-        implementation=batch_method(
-            batch_size=batch_size,
-            batching_function=batching_function,
-            debug=debug,
-        )(threadpool_method),
-        pass_self=True,
-    )(threadpool_method)
+    return utils.raising_returned_exception(
+        batchable_method(
+            implementation=batch_method(
+                batch_size=batch_size,
+                batching_function=batching_function,
+                debug=debug,
+            )(threadpool_method),
+            pass_self=True,
+        )(threadpool_method)
+    )
 
   return inner
 
@@ -1476,4 +1557,3 @@ def add_logging(method):
     return result
 
   return wrapped_method
-

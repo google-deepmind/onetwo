@@ -23,6 +23,7 @@ from typing import Any, Sequence
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import batching
+from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
 
@@ -316,7 +317,10 @@ class BatchingTest(parameterized.TestCase):
       result = await asyncio.gather(process([1]), process([2]), process([3, 4]))
       return result
 
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError,
+        'Batching queue not empty but none got batched',
+    ):
       batching.run(plan())
 
   def test_wrong_batch_function_return_type(self):
@@ -328,7 +332,9 @@ class BatchingTest(parameterized.TestCase):
       result = await asyncio.gather(process([1]), process([2]), process([3, 4]))
       return result
 
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, 'should return a Sequence of results'
+    ):
       batching.run(plan())
 
   def test_wrong_batch_function_return_length(self):
@@ -340,7 +346,9 @@ class BatchingTest(parameterized.TestCase):
       result = await asyncio.gather(process([1]), process([2]), process([3, 4]))
       return result
 
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, 'should return as many results as requests'
+    ):
       batching.run(plan())
 
   def test_run_twice(self):
@@ -356,7 +364,9 @@ class BatchingTest(parameterized.TestCase):
       batching.run(something())
       return result
 
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot call run or stream more than once per thread.'
+    ):
       batching.run(plan())
 
   def test_stream_and_run(self):
@@ -372,12 +382,16 @@ class BatchingTest(parameterized.TestCase):
         yield result
 
     for _ in batching.stream(plan()):
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(
+          ValueError, 'Cannot call run or stream more than once per thread.'
+      ):
         # Indeed, run expects Awaitable, and here we are sending AsyncGenerator.
         # Exception will be raised before the `run` actually being executed, so
         # let's just ignore the pytype error.
         batching.run(plan())  # pytype: disable=wrong-arg-types
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(
+          ValueError, 'Cannot call run or stream more than once per thread.'
+      ):
         for _ in batching.stream(plan()):
           pass
 
@@ -492,11 +506,11 @@ class BatchingTest(parameterized.TestCase):
         batches, [[i] for i in range(10)], pprint.pformat(batches)
     )
 
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(ValueError, 'test'):
       with batching.safe_stream(plan()) as iterator:
         for r in iterator:
           results.append(r)
-          raise ValueError()
+          raise ValueError('test')
 
   def test_stream_updates(self):
 
@@ -527,11 +541,11 @@ class BatchingTest(parameterized.TestCase):
       )
 
     with self.subTest('should_raise_on_loop_interruption'):
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(ValueError, 'test'):
         with batching.stream_updates(plan()) as iterator:
           for r in iterator:
             results.append(r)
-            raise ValueError()
+            raise ValueError('test')
 
   def test_stream_updates_with_batching(self):
     batches = []
@@ -578,11 +592,11 @@ class BatchingTest(parameterized.TestCase):
       )
 
     with self.subTest('should_raise_on_loop_interruption'):
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(ValueError, 'test'):
         with batching.stream_updates(plan()) as iterator:
           for r in iterator:
             results.append(r)
-            raise ValueError()
+            raise ValueError('test')
 
   def test_run_in_separate_threads(self):
     """Checks that batching.run() can be run in separate threads."""
@@ -1044,6 +1058,313 @@ class BatchingTest(parameterized.TestCase):
         batches_sizes[:3], [10, 10, 10], pprint.pformat(batches_sizes)
     )
 
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'no_error',
+          'inputs': [1, 2, 3],
+          'expected_processed': [[1, 2], [3]],
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error',
+          'inputs': [1, ValueError('error2'), 3],
+          'expected_processed': [[1, 'error2'], [3]],
+          # When an error occurs in a batch, it affects all of the other
+          # requests in that batch (but not requests from other batches).
+          'expected_results': ['error2', 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
+  )
+  def test_exception_handling_batch_function(
+      self,
+      inputs,
+      expected_processed,
+      expected_results,
+      expected_error_message_if_not_caught,
+  ):
+    processed = []
+
+    @batching.batch_function(batch_size=2)
+    def process_batch(requests: Sequence[dict[str, Any]]) -> Sequence[int]:
+      requests = [r['request'] for r in requests]
+      processed.append(
+          [(str(r) if isinstance(r, Exception) else r) for r in requests]
+      )
+      replies = []
+      for r in requests:
+        if isinstance(r, Exception):
+          raise r
+        else:
+          replies.append(r)
+      return replies
+
+    @executing.make_executable
+    @batching.batchable_function(implementation=process_batch)
+    def process(request: int | Exception) -> int:
+      del request
+      pass  # pytype: disable=bad-return-type
+
+    @executing.make_executable
+    async def process_with_error_handling(x: int | Exception) -> int | str:
+      try:
+        return await process(x)
+      except Exception as e:  # pylint: disable=broad-except
+        return str(e)
+
+    async def process_all_without_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int]:
+      executables = [process(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    async def process_all_with_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int | str]:
+      executables = [process_with_error_handling(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    results = batching.run(process_all_with_error_handling(inputs))
+    with self.subTest('processed_with_correct_batching'):
+      self.assertSequenceEqual(
+          expected_processed, processed, pprint.pformat(processed)
+      )
+    with self.subTest('returns_correct_results'):
+      self.assertSequenceEqual(
+          expected_results, results, pprint.pformat(results)
+      )
+
+    if expected_error_message_if_not_caught is not None:
+      with self.subTest('raises_informative_error_if_not_caught'):
+        # Here we verify that if the caller does not implement any error
+        # handling, the original error gets raised (the same as it would if no
+        # batching were applied), rather than getting masked by an error like
+        # "ValueError: Attempting to finish a non-empty queue".
+        with self.assertRaisesRegex(
+            ValueError, expected_error_message_if_not_caught
+        ):
+          batching.run(process_all_without_error_handling(inputs))
+
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'no_error',
+          'inputs': [1, 2, 3],
+          'expected_processed': [[1, 2], [3]],
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error',
+          'inputs': [1, ValueError('error2'), 3],
+          'expected_processed': [[1, 'error2'], [3]],
+          # When an error occurs in a batch, it affects all of the other
+          # requests in that batch (but not requests from other batches).
+          'expected_results': ['error2', 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
+  )
+  def test_exception_handling_batch_method(
+      self,
+      inputs,
+      expected_processed,
+      expected_results,
+      expected_error_message_if_not_caught,
+  ):
+    processed = []
+
+    @batching.add_batching
+    class C:
+
+      @batching.batch_method(batch_size=2)
+      def process_batch(
+          self, requests: Sequence[dict[str, Any]]
+      ) -> Sequence[int]:
+        requests = [r['request'] for r in requests]
+        processed.append(
+            [(str(r) if isinstance(r, Exception) else r) for r in requests]
+        )
+        replies = []
+        for r in requests:
+          if isinstance(r, Exception):
+            raise r
+          else:
+            replies.append(r)
+        return replies
+
+      @executing.make_executable
+      @batching.batchable_method(
+          implementation=utils.FromInstance('process_batch')
+      )
+      def process(self, request: int | Exception) -> int:
+        del request
+        pass  # pytype: disable=bad-return-type
+
+      @executing.make_executable
+      async def process_with_error_handling(
+          self, x: int | Exception
+      ) -> int | str:
+        try:
+          return await self.process(x)
+        except Exception as e:  # pylint: disable=broad-except
+          return str(e)
+
+    async def process_all_without_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int]:
+      c = C()
+      executables = [c.process(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    async def process_all_with_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int | str]:
+      c = C()
+      executables = [c.process_with_error_handling(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    results = batching.run(process_all_with_error_handling(inputs))
+    with self.subTest('processed_with_correct_batching'):
+      self.assertSequenceEqual(
+          expected_processed, processed, pprint.pformat(processed)
+      )
+    with self.subTest('returns_correct_results'):
+      self.assertSequenceEqual(
+          expected_results, results, pprint.pformat(results)
+      )
+
+    if expected_error_message_if_not_caught is not None:
+      with self.subTest('raises_informative_error_if_not_caught'):
+        # Here we verify that if the caller does not implement any error
+        # handling, the original error gets raised (the same as it would if no
+        # batching were applied), rather than getting masked by an error like
+        # "ValueError: Attempting to finish a non-empty queue".
+        with self.assertRaisesRegex(
+            ValueError, expected_error_message_if_not_caught
+        ):
+          batching.run(process_all_without_error_handling(inputs))
+
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'no_error',
+          'inputs': [1, 2, 3],
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error',
+          'inputs': [1, ValueError('error2'), 3],
+          'expected_results': [1, 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
+  )
+  def test_exception_handling_run_function_in_threadpool(
+      self, inputs, expected_results, expected_error_message_if_not_caught
+  ):
+    @executing.make_executable
+    @batching.batch_function_with_threadpool(batch_size=2)
+    def process(request: int | Exception) -> int:
+      if isinstance(request, Exception):
+        raise request
+      else:
+        return request
+
+    @executing.make_executable
+    async def process_with_error_handling(x: int | Exception) -> int | str:
+      try:
+        return await process(x)
+      except Exception as e:  # pylint: disable=broad-except
+        return str(e)
+
+    async def process_all_without_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int]:
+      executables = [process(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    async def process_all_with_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int | str]:
+      executables = [process_with_error_handling(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    results = batching.run(process_all_with_error_handling(inputs))
+    self.assertSequenceEqual(expected_results, results, pprint.pformat(results))
+
+    if expected_error_message_if_not_caught is not None:
+      with self.subTest('raises_informative_error_if_not_caught'):
+        # Here we verify that if the caller does not implement any error
+        # handling, the original error gets raised (the same as it would if no
+        # batching were applied), rather than getting masked by an error like
+        # "ValueError: Attempting to finish a non-empty queue".
+        with self.assertRaisesRegex(
+            ValueError, expected_error_message_if_not_caught
+        ):
+          batching.run(process_all_without_error_handling(inputs))
+
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'no_error',
+          'inputs': [1, 2, 3],
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error',
+          'inputs': [1, ValueError('error2'), 3],
+          'expected_results': [1, 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
+  )
+  def test_exception_handling_run_method_in_threadpool(
+      self, inputs, expected_results, expected_error_message_if_not_caught
+  ):
+    @batching.add_batching
+    class C:
+
+      @executing.make_executable
+      @batching.batch_method_with_threadpool(batch_size=2)
+      def process(self, request: int | Exception) -> int:
+        if isinstance(request, Exception):
+          raise request
+        else:
+          return request
+
+      @executing.make_executable
+      async def process_with_error_handling(
+          self, x: int | Exception
+      ) -> int | str:
+        try:
+          return await self.process(x)
+        except Exception as e:  # pylint: disable=broad-except
+          return str(e)
+
+    async def process_all_without_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int]:
+      c = C()
+      executables = [c.process(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    async def process_all_with_error_handling(
+        inputs: Sequence[int | Exception],
+    ) -> Sequence[int | str]:
+      c = C()
+      executables = [c.process_with_error_handling(x) for x in inputs]
+      return await executing.parallel(*executables)
+
+    results = batching.run(process_all_with_error_handling(inputs))
+    self.assertSequenceEqual(expected_results, results, pprint.pformat(results))
+
+    if expected_error_message_if_not_caught is not None:
+      with self.subTest('raises_informative_error_if_not_caught'):
+        # Here we verify that if the caller does not implement any error
+        # handling, the original error gets raised (the same as it would if no
+        # batching were applied), rather than getting masked by an error like
+        # "ValueError: Attempting to finish a non-empty queue".
+        with self.assertRaisesRegex(
+            ValueError, expected_error_message_if_not_caught
+        ):
+          batching.run(process_all_without_error_handling(inputs))
 
 if __name__ == '__main__':
   absltest.main()

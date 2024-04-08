@@ -684,10 +684,10 @@ class TemplatingTest(parameterized.TestCase):
         )
 
   @parameterized.named_parameters(
-      ('error', True, 'testing #ERROR#: something wrong'),
-      ('fine', False, 'testing ok')
+      ('error', True, 'testing #ERROR#: something wrong', 'something wrong'),
+      ('fine', False, 'testing ok', None),
   )
-  def test_j2_error_in_callback(self, raises, expected):
+  def test_j2_error_in_callback(self, raises, expected_prefix, expected_error):
     def cb(raises: bool = True):
       if raises:
         raise ValueError('something wrong')
@@ -699,7 +699,16 @@ class TemplatingTest(parameterized.TestCase):
     )
     prompt.register_callback('my_function', cb)
     result = executing.run(prompt.render(raises=raises))
-    self.assertEqual(result['prefix'], expected, repr(result['prefix']))
+
+    with self.subTest('prompt_prefix'):
+      self.assertEqual(
+          expected_prefix, result['prefix'], repr(result['prefix'])
+      )
+
+    with self.subTest('error_field'):
+      self.assertEqual(
+          expected_error, result.get('error'), repr(result.get('error'))
+      )
 
   def test_j2_raises_at_include_if_no_loader_present(self):
     prompt = templating.JinjaTemplate(text="{% include 'test_file.jinja' %}")

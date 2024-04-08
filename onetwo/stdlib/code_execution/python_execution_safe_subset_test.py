@@ -14,6 +14,7 @@
 
 import asyncio
 import dataclasses
+import math
 import textwrap
 from typing import Any
 
@@ -420,7 +421,51 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
       self.assertEqual(expected_context, context)
 
   @parameterized.named_parameters(
-      ('format_with_string_mod', "'x=%s' % x", {'x': 'a'}, 'x=a'),
+      {
+          'testcase_name': 'dotted_name_representing_function',
+          'code': 'math.exp(0)',
+          'context': {},
+          'allowed_callables': {'math.exp': math.exp},
+          'expected_value': 1,
+          'expected_context': {},
+      },
+      {
+          'testcase_name': 'dotted_name_representing_method',
+          'code': "x.append('b')\nx",
+          'context': {'x': ['a']},
+          'allowed_callables': {'list.append': list.append},
+          'expected_value': ['a', 'b'],
+          'expected_context': {'x': ['a', 'b']},
+      },
+  )
+  def test_function_calls(
+      self, code, context, allowed_callables, expected_value, expected_context
+  ):
+    value = _safe_eval(
+        code, context=context, allowed_callables=allowed_callables)
+    with self.subTest(name='correct_value'):
+      self.assertEqual(expected_value, value)
+    with self.subTest(name='correct_context'):
+      self.assertEqual(expected_context, context)
+
+  @parameterized.named_parameters(
+      ('if_exp_true', '1 if True else 2', {}, 1),
+      ('if_exp_false', '1 if False else 2', {}, 2),
+      ('if_statement_true', 'x = 2\nif True:\n  x = 1\nx', {}, 1),
+      ('if_statement_false', 'x = 2\nif False:\n  x = 1\nx', {}, 2),
+      ('if_else_true', 'if True:\n  x = 1\nelse:\n  x = 2\nx', {}, 1),
+      ('if_else_false', 'if False:\n  x = 1\nelse:\n  x = 2\nx', {}, 2),
+      (
+          'if_else_elif',
+          'if False:\n  x = 1\nelif True:\n  x = 2\nelse:\n  x = 3\nx',
+          {},
+          2,
+      ),
+      ('format_with_string_mod', "'x=%s' % x", {'x': 'Zürich'}, 'x=Zürich'),
+      ('fstring_default', "f'x={x}'", {'x': 'Zürich'}, 'x=Zürich'),
+      ('fstring_s', "f'x={x!s}'", {'x': 'Zürich'}, 'x=Zürich'),
+      ('fstring_r', "f'x={x!r}'", {'x': 'Zürich'}, "x='Zürich'"),
+      ('fstring_a', "f'x={x!a}'", {'x': 'Zürich'}, "x='Z\\xfcrich'"),
       ('set_difference', '{1, 2} - {1, 3}', None, {2}),
       ('set_intersection', '{1, 2} & {1, 3}', None, {1}),
       ('set_symmetric_diff', '{1, 2} ^ {1, 3}', None, {2, 3}),
@@ -433,7 +478,6 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
     self.assertEqual(expected_value, value)
 
   @parameterized.named_parameters(
-      ('append_list', 'x.append("b")', {'x': ['a']}, 'Unknown callable'),
       ('insert_in_dict', 'x["a"] = 2', {'x': {}}, 'ast.Subscript'),
       (
           'for_loop',
@@ -441,14 +485,6 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
           {},
           'ast.For',
           {'range': range},
-      ),
-      ('fstring', "f'x={x}'", {'x': 'a'}, 'ast.JoinedStr'),
-      ('if_exp', '1 if True else 2', {}, 'ast.IfExp'),
-      (
-          'if_statement',
-          'if True:\n  x = 1\nelse:\n  x = 2\nx',
-          {},
-          'ast.If',
       ),
       ('list_comprehension', '[str(x) for x in (1, 2)]', {}, 'ast.ListComp'),
       (
@@ -472,6 +508,19 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
       ),
   )
   def test_syntax_that_is_not_supported_now_but_may_be_in_the_future(
+      self, code, context, error_regex, allowed_callables=None
+  ):
+    with self.assertRaisesRegex(SyntaxError, error_regex):
+      _safe_eval(
+          code=code, context=context, allowed_callables=allowed_callables
+      )
+
+  @parameterized.named_parameters(
+      ('class_definition', 'class C:\n  pass', {}, 'type=ClassDef'),
+      ('function_definition', 'def f(x):\n  return x', {}, 'type=FunctionDef'),
+      ('lambda', 'f = lambda x: x', {}, 'ast.Lambda'),
+  )
+  def test_syntax_that_is_permanently_not_supported(
       self, code, context, error_regex, allowed_callables=None
   ):
     with self.assertRaisesRegex(SyntaxError, error_regex):
@@ -529,14 +578,36 @@ class PythonSandboxSafeSubsetTest(
       ('assignment', 'a = 2', 2),
       ('multiple_assignment', 'b = a = 2', 2),
       ('callable_bool', 'bool(2)', True),
-      ('callable_dict', 'dict([("x", 1), ("y", 2)])', {'x': 1, 'y': 2}),
+      ('callable_dict', "dict([('x', 1), ('y', 2)])", {'x': 1, 'y': 2}),
       ('callable_int', 'int(3.14)', 3),
       ('callable_float', '(float(1.0) / 3) * 3', 1.0),
-      ('callable_len', 'len(["a", "b"])', 2),
+      ('callable_len', "len(['a', 'b'])", 2),
       ('callable_list', 'list((0, 1, 2))', [0, 1, 2]),
       ('callable_range', 'list(range(3))', [0, 1, 2]),
-      ('callable_set', 'set(["a", "b", "a"])', {'a', 'b'}),
+      ('callable_set', "set(['a', 'b', 'a'])", {'a', 'b'}),
       ('callable_str', 'str(2)', '2'),
+      ('method_dict_clear', "d = {'x': 1, 'y': 2}\nd.clear()\nd", {}),
+      ('method_dict_copy', "d = {'x': 1, 'y': 2}\nd.copy()", {'x': 1, 'y': 2}),
+      ('method_dict_fromkeys', "dict.fromkeys(('x',), 0)", {'x': 0}),
+      ('method_dict_get', "d = {'x': 1, 'y': 2}\nd.get('x')", 1),
+      ('method_dict_items', "d = {'x': 1}\nlist(d.items())", [('x', 1)]),
+      ('method_dict_keys', "d = {'x': 1}\nlist(d.keys())", ['x']),
+      ('method_dict_pop', "d = {'x': 1, 'y': 2}\nd.pop('x')\nd", {'y': 2}),
+      ('meth0d_dict_popitem', "d = {'x': 1, 'y': 2}\nd.popitem()\nd", {'x': 1}),
+      ('method_dict_setdefault', "d = {}\nd.setdefault('x', 1)\nd", {'x': 1}),
+      ('method_dict_update', "d = {'x': 1}\nd.update({'x': 2})\nd", {'x': 2}),
+      ('method_dict_values', "d = {'x': 1}\nlist(d.values())", [1]),
+      ('method_list_append', 'x = ["a"]\nx.append("b")\nx', ['a', 'b']),
+      ('method_list_clear', 'x = ["a"]\nx.clear()\nx', []),
+      ('method_list_copy', 'x = ["a"]\nx.copy()', ['a']),
+      ('method_list_count', 'x = ["a", "b"]\nx.count("a")', 1),
+      ('method_list_extend', 'x = ["a"]\nx.extend(["b"])\nx', ['a', 'b']),
+      ('method_list_index', 'x = ["a", "b"]\nx.index("b")', 1),
+      ('method_list_insert', 'x = ["a"]\nx.insert(0, "b")\nx', ['b', 'a']),
+      ('method_list_pop', 'x = ["a", "b"]\nx.pop(0)', 'a'),
+      ('method_list_remove', 'x = ["a", "b"]\nx.remove("b")\nx', ['a']),
+      ('method_list_reverse', 'x = ["a", "b"]\nx.reverse()\nx', ['b', 'a']),
+      ('method_list_sort', 'x = ["b", "a"]\nx.sort()\nx', ['a', 'b']),
   )
   def test_run_on_simple_expressions(self, code, expected_value):
     expected_result = python_execution.SandboxResult(

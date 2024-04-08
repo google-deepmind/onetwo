@@ -14,7 +14,11 @@
 
 #!/bin/bash
 
-DIR="."
+# Run from the onetwo root dir that contains README.md and other files.
+ONETWO_ROOT_DIR="."
+START_SERVER_CMD="python3 ${ONETWO_ROOT_DIR}/onetwo/backends/run_model_server.py"
+START_CLIENT_CMD="python3 ${ONETWO_ROOT_DIR}/onetwo/backends/onetwo_api_manual_test.py"
+CACHE_DIR="${ONETWO_ROOT_DIR}/tmp"
 # Requires portpicker to be installed.
 PORT=`python3 -m portpicker $$`
 
@@ -28,12 +32,18 @@ echo "Using port ${PORT}"
 set -o xtrace
 
 # Start model_server.
-"${DIR}/onetwo/backends/run_model_server" --port="${PORT}" &
-sleep 5
+${START_SERVER_CMD} --port="${PORT}" &
+sleep 10
 
-# Start client and run test.
-"${DIR}/onetwo/backends/onetwo_api_manual_test" \
-  --endpoint="http://localhost:${PORT}" || clean_fail
+# Start client and run test: from scratch.
+${START_CLIENT_CMD} \
+  --endpoint="http://localhost:${PORT}" \
+  --cache_dir=${CACHE_DIR} & sleep 3 || clean_fail
+
+# Start client and run test: cached replies.
+${START_CLIENT_CMD} \
+  --endpoint="http://localhost:${PORT}" --cache_dir=${CACHE_DIR}\
+  --load_cache_file=True || clean_fail
 
 # Stop model_server.
 kill $!

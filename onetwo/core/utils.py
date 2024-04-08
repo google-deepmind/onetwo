@@ -25,7 +25,7 @@ import inspect
 import io
 import threading
 import time
-from typing import cast, Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
+from typing import cast, overload, Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
 
 from onetwo.core import content as content_lib
 import PIL.Image
@@ -417,6 +417,126 @@ def rate_limit_method(
     else:
       return wrapper
   return decorate
+
+
+@overload
+def returning_raised_exception(
+    function: Callable[_Args, _ReturnType],
+) -> Callable[_Args, _ReturnType | Exception]:
+  ...
+
+
+@overload
+def returning_raised_exception(
+    function: Callable[_Args, Awaitable[_ReturnType]],
+) -> Callable[_Args, Awaitable[_ReturnType | Exception]]:
+  ...
+
+
+def returning_raised_exception(function):
+  """Decorator to make a function return an exception instead of raising it."""
+  @functools.wraps(function)
+  def wrapper(*args, **kwargs):
+    try:
+      return function(*args, **kwargs)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      return e
+
+  @functools.wraps(function)
+  async def awrapper(*args, **kwargs):
+    try:
+      return await function(*args, **kwargs)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      return e
+
+  @functools.wraps(function)
+  def wrapper_m(self, *args, **kwargs):
+    try:
+      return function(self, *args, **kwargs)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      return e
+
+  @functools.wraps(function)
+  async def awrapper_m(self, *args, **kwargs):
+    try:
+      return await function(self, *args, **kwargs)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      return e
+
+  if inspect.iscoroutinefunction(function):
+    if is_method(function):
+      return awrapper_m
+    else:
+      return awrapper
+  else:
+    if is_method(function):
+      return wrapper_m
+    else:
+      return wrapper
+
+
+@overload
+def raising_returned_exception(
+    function: Callable[_Args, _ReturnType | Exception],
+) -> Callable[_Args, _ReturnType]:
+  ...
+
+
+@overload
+def raising_returned_exception(
+    function: Callable[_Args, Awaitable[_ReturnType | Exception]],
+) -> Callable[_Args, Awaitable[_ReturnType]]:
+  ...
+
+
+def raising_returned_exception(function):
+  """Decorator to make a function raise an exception instead of returning it."""
+  @functools.wraps(function)
+  def wrapper(*args, **kwargs):
+    result = function(*args, **kwargs)
+    if isinstance(result, Exception):
+      raise result
+    else:
+      return result
+
+  @functools.wraps(function)
+  async def awrapper(*args, **kwargs):
+    # For some reason, pytype seems to get confused here and thinks we are
+    # trying to call `__await__` on an `Exception`.
+    result = await function(*args, **kwargs)  # pytype: disable=bad-return-type
+    if isinstance(result, Exception):
+      raise result
+    else:
+      return result
+
+  @functools.wraps(function)
+  def wrapper_m(self, *args, **kwargs):
+    result = function(self, *args, **kwargs)
+    if isinstance(result, Exception):
+      raise result
+    else:
+      return result
+
+  @functools.wraps(function)
+  async def awrapper_m(self, *args, **kwargs):
+    # For some reason, pytype seems to get confused here and thinks we are
+    # trying to call `__await__` on an `Exception`.
+    result = await function(self, *args, **kwargs)  # pytype: disable=bad-return-type
+    if isinstance(result, Exception):
+      raise result
+    else:
+      return result
+
+  if inspect.iscoroutinefunction(function):
+    if is_method(function):
+      return awrapper_m
+    else:
+      return awrapper
+  else:
+    if is_method(function):
+      return wrapper_m
+    else:
+      return wrapper
 
 
 def _get_bytes_for_hashing(key: Any) -> bytes:

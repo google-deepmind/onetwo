@@ -47,6 +47,8 @@ INTERNAL_VARS: Final[str] = '__internal__'
 PROMPT_PREFIX = constants.PROMPT_PREFIX
 # Rendered prefix with role tags.
 PREFIX_WITH_ROLES: Final[str] = 'prefix_with_roles'
+# Error message, if an error occurred during processing.
+ERROR: Final[str] = 'error'
 # Partial reply from the backend as we iterate through it.
 ITERABLE_REPLY: Final[str] = '_iterable_reply'
 # Specific context variables to handle dry run.
@@ -113,6 +115,7 @@ class PromptTemplateContext:
     output_variables: dict of the variables that will be returned as the output
       of the template executing.
     prefix: The rendered prefix so far.
+    error: Error message, if an error occurred during processing.
     section_stack: The stack of sections that are currently open.
     role_stack: The stack of roles that are currently open.
     role_indices: The indices of the start and end of roles.
@@ -158,6 +161,14 @@ class PromptTemplateContext:
   @prefix.setter
   def prefix(self, value: str) -> None:
     self._context[CONTEXT_VARS][PROMPT_PREFIX] = value  # pytype: disable=unsupported-operands
+
+  @property
+  def error(self) -> str | None:
+    return self._context[CONTEXT_VARS].get(ERROR)  # pytype: disable=attribute-error
+
+  @error.setter
+  def error(self, value: str) -> None:
+    self._context[CONTEXT_VARS][ERROR] = value  # pytype: disable=unsupported-operands
 
   @property
   def jinja_context(self) -> immutabledict.immutabledict[str, Any]:
@@ -935,6 +946,7 @@ class JinjaTemplate:
     except ValueError as e:
       # We append the error to the prefix so that it can be inspected.
       context.prefix += f'{constants.ERROR_STRING}: {e}'
+      context.error = f'{e}'
       self._prompt_done = True
       yield ''  # This won't be used.
 
@@ -1044,6 +1056,8 @@ class JinjaTemplate:
       # one containing the partial reply.
       current_pair = updates.to_result()
       context.output_variables[PROMPT_PREFIX] = context.prefix
+      if context.error is not None:
+        context.output_variables[ERROR] = context.error
       iterable_reply = None
       if (
           len(current_pair) > 1

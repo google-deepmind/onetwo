@@ -86,6 +86,32 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'Environment not started'):
       executing.run(env.run_code(sandbox_state=state, code='x = 1 + 2'))
 
+  def test_start_unsafe_and_stop_manually(self):
+    config = python_tool_use.PythonToolUseEnvironmentConfig()
+    env = python_tool_use.PythonToolUseEnvironment(config=config)
+
+    executing.run(env.start_unsafe())
+
+    state = tuple()
+    result = executing.run(env.run_code(sandbox_state=state, code='x = 1 + 2'))
+
+    expected_final_result = python_tool_use.RunCodeResult(
+        code='x = 1 + 2',
+        sandbox_result=python_execution.SandboxResult(final_expression_value=3),
+    )
+
+    with self.subTest('run_code_should_succeed_after_start_unsafe'):
+      self.assertRunCodeResultEqualIgnoringTiming(
+          expected_final_result, result
+      )
+
+    with self.subTest('sandbox_should_stay_cached_until_stop_is_called'):
+      self.assertLen(env._sandbox_cache._objects, 1)
+
+    env.stop()
+    with self.subTest('sandbox_should_be_destroyed_when_stop_is_called'):
+      self.assertEmpty(env._sandbox_cache._objects)
+
   def test_get_and_cache_sandbox_for_state_sequential(self):
     # This represents the most basic case of sandbox usage, where we execute
     # a sequence of code blocks, on each step requesting a sandbox equivalent

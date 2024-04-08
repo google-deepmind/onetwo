@@ -547,7 +547,7 @@ def stream_with_callback(
   final_execution_result = None
   updates = Update()
 
-  def wrapper(result: batching.ResultType[Update]) -> None:
+  async def wrapper(result: batching.ResultType[Update]) -> None:
     nonlocal updates, final_execution_result
     if enable_tracing:
       assert isinstance(result, tuple)  # Type hint.
@@ -555,7 +555,9 @@ def stream_with_callback(
     else:
       update = result
     updates += update
-    callback(result)
+    res = callback(result)
+    if isinstance(res, Awaitable):
+      await res
 
   batching.stream_with_callback(
       executable.with_depth(iteration_depth),

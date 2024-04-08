@@ -228,7 +228,7 @@ async def naive_comparison_critic(
     # Map critic's choice back to the original ids.
     best_answer_id = answer_ids[best_answer_id]
   return best_answer_id, {
-      example['question']: {
+      example[question_key]: {
           'best_answer': best_answer,
           # Highlights that the order is irrelevant:
           'answers': list(answers),

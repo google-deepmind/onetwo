@@ -55,6 +55,9 @@ class LLMForTest(backends_base.Backend):
   entry were not present in the mapping (typically this means falling back to
   `default_reply` or `default_score`).
 
+  For any of these, if the configured reply is an Exception, then we will raise
+  it rather than returning a result.
+
   Attributes:
     reply_by_prompt: Mapping from prompt to reply, or to a sequence of replies
       in case we want to simulate multiple samples.
@@ -83,16 +86,16 @@ class LLMForTest(backends_base.Backend):
   """
 
   # Attributes for controlling the replies to be returned.
-  reply_by_prompt: Mapping[str, str | Sequence[str]] = dataclasses.field(
-      default_factory=dict
+  reply_by_prompt: Mapping[str, str | Sequence[str] | Exception] = (
+      dataclasses.field(default_factory=dict)
   )
-  reply_by_prompt_regex: Mapping[str, str | Sequence[str]] = dataclasses.field(
-      default_factory=dict
+  reply_by_prompt_regex: Mapping[str, str | Sequence[str] | Exception] = (
+      dataclasses.field(default_factory=dict)
   )
   reply_by_prompt_target: Mapping[str, float] = dataclasses.field(
       default_factory=dict
   )
-  default_reply: str = dataclasses.field(default_factory=str)
+  default_reply: str | Exception = dataclasses.field(default_factory=str)
   default_score: float = dataclasses.field(default_factory=float)
   iterable_replies: bool = False
 
@@ -117,7 +120,9 @@ class LLMForTest(backends_base.Backend):
     # By prompt.
     if prompt in self.reply_by_prompt:
       reply = self.reply_by_prompt[prompt]
-      if isinstance(reply, str):
+      if isinstance(reply, Exception):
+        raise reply
+      elif isinstance(reply, str):
         # Single reply specified. Always return it.
         return reply
       else:
@@ -131,7 +136,9 @@ class LLMForTest(backends_base.Backend):
     for regex, reply in self.reply_by_prompt_regex.items():
       if not re.search(regex, prompt):
         continue
-      if isinstance(reply, str):
+      if isinstance(reply, Exception):
+        raise reply
+      elif isinstance(reply, str):
         # Single reply specified. Always return it.
         return reply
       else:
@@ -143,7 +150,10 @@ class LLMForTest(backends_base.Backend):
 
     # Default.
     self.unexpected_prompts.append(prompt)
-    return self.default_reply
+    if isinstance(self.default_reply, Exception):
+      raise self.default_reply
+    else:
+      return self.default_reply
 
   @executing.make_executable
   def generate_text(
@@ -203,6 +213,11 @@ class LLMForTest(backends_base.Backend):
       content = content.to_simple_string()
     return len(content.split(' '))
 
+  def tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
+    if isinstance(content, content_lib.ChunkList):
+      content = content.to_simple_string()
+    return len(content.split(' ')) * [123]
+
   async def generate_object(
       self, prompt: str | content_lib.ChunkList, cls: Type[_T]
   ) -> _T:
@@ -219,3 +234,4 @@ class LLMForTest(backends_base.Backend):
     llm.score_text.configure(self.score_text)
     llm.generate_object.configure(self.generate_object)
     llm.count_tokens.configure(self.count_tokens)
+    llm.tokenize.configure(self.tokenize)

@@ -169,6 +169,47 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(llm_reply, prompt_outputs)
 
+  def test_prompt_error(self):
+    # Some typical inputs / configs. (As in the other test above.)
+    question = 'What is the total population of Tuebingen and Zuerich?'
+    exemplars = react.REACT_FEWSHOTS
+    stop_prefix = ''
+    stop_sequences = ['[Question]', '[Observe]']
+    config = _get_environment_config_with_python()
+    prompt = react.ReActPromptJ2()
+    state = react.ReActState(inputs=question, updates=[])
+
+    # We configure the LLM to raise an exception to verify how it is handled.
+    error_message = 'Some error.'
+    llm_backend = test_utils.LLMForTest(
+        default_reply=ValueError(error_message),
+    )
+    llm_backend.register()
+
+    # Now we execute the prompt and verify that the prompt contained the
+    # expected content. (Although we don't verify all of the prompt formatting,
+    # these assertions should be sufficient to catch many basic bugs where we
+    # omitted a for-loop, or failed to include some of the fields due to a typo,
+    # etc.)
+    prompt_outputs, result = executing.run(
+        prompt(
+            tools=config.tools,
+            exemplars=exemplars,
+            stop_prefix=stop_prefix,
+            stop_sequences=stop_sequences,
+            state=state,
+            force_finish=False,
+        ),
+        enable_tracing=True,
+    )
+    prefix = result.stages[0].outputs['prefix']
+
+    with self.subTest('prompt_should_contain_the_error_message'):
+      self.assertIn(error_message, prefix)
+
+    with self.subTest('should_return_the_llm_reply'):
+      self.assertEqual(f'#ERROR#: {error_message}', prompt_outputs)
+
   @parameterized.named_parameters(
       (
           'finish_default_final_stop_sequence',

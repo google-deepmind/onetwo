@@ -190,17 +190,47 @@ class PythonToolUseEnvironment:
       # TODO: Add support for stateful tools.
       self._stateless_tools[tool.name] = tool
 
-  def __enter__(self) -> Self:
-    """Starts the environment on context manager enter."""
+  def _start_unsafe(self) -> Self:
+    """Starts the environment (but does not automatically clean it up)."""
     if self._started:
       raise ValueError('Environment already started.')
     self._started = True
     return self
 
-  def __exit__(self, exc_type, exc_val, exc_tb):
-    """Stops and cleans up the environment on context manager exit."""
+  async def start_unsafe(self) -> Self:
+    """Starts the environment (but does not automatically clean it up).
+
+    It is the responsibility of the caller to call `stop` when they are done
+    with the environment.
+
+    Returns:
+      The current environment (in a started state).
+    """
+    return self._start_unsafe()
+
+  def stop(self, e: Exception | None = None) -> None:
+    """Stops the environment and any associated threads, queues, etc.
+
+    When using the environment as a context manager, the `stop` function will be
+    called automatically when exiting the context. When starting the environment
+    with `start_unsafe`, however, the caller is responsible for calling `stop`
+    manually when done using the environment.
+
+    Args:
+      e: Exception that led to the sandbox being stopped (in the case where the
+        sandbox had to be stopped prematurely due to an exception).
+    """
+    del e
     self._sandbox_cache.destroy()
     self._started = False
+
+  def __enter__(self) -> Self:
+    """Starts the environment on context manager enter."""
+    return self._start_unsafe()
+
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    """Stops and cleans up the environment on context manager exit."""
+    self.stop(exc_val)
 
   def is_tool_supported(self, tool_name: str) -> bool:
     """Returns whether the given tool is supported by this environment."""

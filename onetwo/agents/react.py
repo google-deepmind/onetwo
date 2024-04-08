@@ -333,7 +333,18 @@ class ReActPromptJ2(
         stop_sequences=stop_sequences,
         tools=tools,
     )
-    return result['llm_reply']
+    if 'llm_reply' in result:
+      # If the prompt succeeded in running to the end, we should come here.
+      return result['llm_reply']
+    elif templating.ERROR in result:
+      # If an error is raised whle processing the prompt, we should come here.
+      return f'{constants.ERROR_STRING}: {result[templating.ERROR]}'
+    else:
+      # If we come here, then there must be a bug somewhere.
+      raise ValueError(
+          "ReAct prompt result missing 'llm_reply' and lacking error message"
+          f' to explain why: {result}'
+      )
 
 
 class ReActParseProtocol(Protocol):

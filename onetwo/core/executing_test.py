@@ -502,6 +502,21 @@ class ExecutionTest(parameterized.TestCase):
     self.assertEqual(returned_result, result)
     self.assertListEqual(result, ['rep_0', 'rep_1'])
 
+  def test_serial_streaming_with_coroutine_callback(self):
+    executable = serial(
+        _wrap_request('req_0'), _wrap_request('req_1')
+    )
+    updates = executing.Update()
+
+    async def cb(update: executing.Update) -> None:
+      nonlocal updates
+      updates += update
+
+    returned_result = executing.stream_with_callback(executable, cb)
+    result = updates.to_result()
+    self.assertEqual(returned_result, result)
+    self.assertListEqual(result, ['rep_0', 'rep_1'])
+
   def test_no_need_to_call_wrapped_functions(self):
     reply = executing.run(async_wrap_function_without_call('r'))
 

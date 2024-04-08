@@ -445,6 +445,87 @@ class UtilsTest(parameterized.TestCase):
         },
     )
 
+  def test_returning_raised_exception(self):
+    @utils.returning_raised_exception
+    def f(x: int, y: str):
+      raise ValueError(f'error: {x}, {y}')
+
+    @utils.returning_raised_exception
+    async def af(x: int, y: str):
+      raise ValueError(f'error: {x}, {y}')
+
+    class C:
+      @utils.returning_raised_exception
+      def f(self, x: int, y: str):
+        raise ValueError(f'error: {x}, {y}')
+
+      @utils.returning_raised_exception
+      async def af(self, x: int, y: str):
+        raise ValueError(f'error: {x}, {y}')
+
+    o = C()
+
+    with self.subTest('regular_function'):
+      result = f(1, y='a')
+      self.assertEqual(ValueError, type(result))
+      self.assertEqual('error: 1, a', str(result))
+
+    with self.subTest('async_function'):
+      result = asyncio.run(af(1, y='a'))
+      self.assertEqual(ValueError, type(result))
+      self.assertEqual('error: 1, a', str(result))
+
+    with self.subTest('regular_method'):
+      result = o.f(1, y='a')
+      self.assertEqual(ValueError, type(result))
+      self.assertEqual('error: 1, a', str(result))
+
+    with self.subTest('async_method'):
+      result = asyncio.run(o.af(1, y='a'))
+      self.assertEqual(ValueError, type(result))
+      self.assertEqual('error: 1, a', str(result))
+
+  def test_raising_returned_exception(self):
+    # Here we verify that `raising_returned_exception` acts as a direct inverse
+    # of `returning_raised_exception`.
+    @utils.raising_returned_exception
+    @utils.returning_raised_exception
+    def f(x: int, y: str):
+      raise ValueError(f'error: {x}, {y}')
+
+    @utils.raising_returned_exception
+    @utils.returning_raised_exception
+    async def af(x: int, y: str):
+      raise ValueError(f'error: {x}, {y}')
+
+    class C:
+      @utils.raising_returned_exception
+      @utils.returning_raised_exception
+      def f(self, x: int, y: str):
+        raise ValueError(f'error: {x}, {y}')
+
+      @utils.raising_returned_exception
+      @utils.returning_raised_exception
+      async def af(self, x: int, y: str):
+        raise ValueError(f'error: {x}, {y}')
+
+    o = C()
+
+    with self.subTest('regular_function'):
+      with self.assertRaisesRegex(ValueError, 'error: 1, a'):
+        f(1, y='a')
+
+    with self.subTest('async_function'):
+      with self.assertRaisesRegex(ValueError, 'error: 1, a'):
+        asyncio.run(af(1, y='a'))
+
+    with self.subTest('regular_method'):
+      with self.assertRaisesRegex(ValueError, 'error: 1, a'):
+        o.f(1, y='a')
+
+    with self.subTest('async_method'):
+      with self.assertRaisesRegex(ValueError, 'error: 1, a'):
+        asyncio.run(o.af(1, y='a'))
 
 if __name__ == '__main__':
   absltest.main()

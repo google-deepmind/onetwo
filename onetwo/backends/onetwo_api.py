@@ -147,20 +147,16 @@ class OneTwoAPI(
         'top_p': top_p,
         'include_details': include_details,
     }
-    args = args.update(kwargs)
-
+    args.update(kwargs)
     response = requests.post(
         self.endpoint + '/generate_text',
-        json=args,
+        headers={'Content-Type': 'application/json'},
+        data=json.dumps(args),
     )
     if response.status_code != requests.codes.ok:
       raise ValueError(f'OneTwoAPI /generate_text failed: {response.text}')
     response = json.loads(response.text)
-    return (
-        (response['result'], {'text': response['result']})
-        if include_details
-        else response['result']
-    )
+    return (response if include_details else response[0])
 
   @caching.cache_method(  # Cache this method.
       name='tokenize',

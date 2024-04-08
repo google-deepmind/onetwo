@@ -21,7 +21,6 @@ from absl import app
 from absl import flags
 from onetwo.backends import onetwo_api
 from onetwo.builtins import llm
-from onetwo.core import caching
 from onetwo.core import executing
 from onetwo.core import sampling
 
@@ -49,15 +48,19 @@ _PRINT_DEBUG = flags.DEFINE_bool(
 
 def main(argv: Sequence[str]) -> None:
   del argv
-  backend = onetwo_api.OneTwoAPI(endpoint=_ENDPOINT.value, batch_size=4)
+  fname = os.path.join(_CACHE_DIR.value, 'onetwo_api.json')
+  backend = onetwo_api.OneTwoAPI(
+      endpoint=_ENDPOINT.value,
+      cache_filename=fname,
+      batch_size=4,
+  )
   backend.register()
   if _LOAD_CACHE.value:
-    fname = os.path.join(_CACHE_DIR.value, 'google_onetwo_api.json')
     print('Loading cache from file %s', fname)
     load_start = time.time()
-    backend.cache_handler = caching.SimpleFunctionCache(cache_filename=fname)
+    backend.load_cache()
     load_end = time.time()
-    print('Spent %.4fsec loading cache.', load_end - load_start)
+    print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
   print('1. A single generate query.')
   prompt_text = """
@@ -112,6 +115,11 @@ def main(argv: Sequence[str]) -> None:
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
+
+  if not _LOAD_CACHE.value:
+    start = time.time()
+    backend.save_cache(overwrite=True)
+    print('Took %.4fsec saving cache to %s.' % (time.time() - start, fname))
 
   print('PASS')
 

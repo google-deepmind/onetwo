@@ -200,15 +200,14 @@ async def safe_eval(
   * Variable assignment (including writing to the specified context dictionary).
   * Calls to functions (and other callables) from a specified allow list.
   * Sequential execution of multiple lines of code.
+  * Conditionals (if statements).
 
   The following features are **not** supported due to safety concerns:
   * Imports.
   * Calls to functions other than those listed in `allowed_callables`.
 
   The following features are not supported currently, but may be added later:
-  * Conditionals (if statements).
   * Loops (for, while, etc.).
-  * Calling object methods (e.g., `x.append("b")`).
   * Writing to an object attribute (e.g., `x.id = 2`).
 
   Args:
@@ -325,6 +324,33 @@ async def safe_eval(
     if isinstance(node, ast.Attribute):
       return _get_attribute(node=node, context=context)
 
+    # F-strings
+    if isinstance(node, ast.FormattedValue):
+      # See: https://docs.python.org/3/library/ast.html#ast.FormattedValue
+      value = await _evaluate(node.value)
+      if node.conversion == -1:
+        return f'{value}'
+      elif node.conversion == 115:
+        return f'{value!s}'
+      elif node.conversion == 114:
+        return f'{value!r}'
+      elif node.conversion == 97:
+        return f'{value!a}'
+      else:
+        raise SyntaxError(
+            f'Unsupported conversion for ast.FormattedValue: {node.conversion}'
+        )
+    if isinstance(node, ast.JoinedStr):
+      return ''.join([await _evaluate(part) for part in node.values])
+
+    # Conditionals
+    if isinstance(node, ast.IfExp) or isinstance(node, ast.If):
+      condition = await _evaluate(node.test)
+      if condition:
+        return await _evaluate(node.body)
+      else:
+        return await _evaluate(node.orelse)
+
     # Function calls
     if isinstance(node, ast.Call):
       # The following case supports calls to callable functions, supporting
@@ -335,16 +361,46 @@ async def safe_eval(
             f' (type={node.__class__.__name__})): {ast.unparse(node)} (parsed'
             f' as: {pprint.pformat(node)})'
         )
-      callable_name = _get_dotted_name(node.func)
+      # In the case where there is a dot in the function name, we first check
+      # if allowed_callables contains the full dotted name. This could happen
+      # if there is a library name to the left of the dot, e.g., if the code is
+      # `math.exp(2)` and we have `allowed_callables = {`math.exp`: math.exp}`.
+      func_node = node.func
+      callable_name = _get_dotted_name(func_node)
       if callable_name is None:
         raise SyntaxError('Malformed code: %r' % code)
-      if callable_name not in allowed_callables:
+      if callable_name in allowed_callables:
+        return await _run_callable(
+            allowed_callables[callable_name],
+            *[await _evaluate(arg) for arg in node.args],
+            **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
+        )
+      # If allowed_callables doesn't contain the full dotted name, the other
+      # possibility is that it may be referring to a method of an object,
+      # e.g., if the code is `x = []\nx.append("a")`, and we have
+      # `allowed_callables = {`list.append`: list.append}`.
+      if isinstance(func_node, ast.Attribute):
+        method_name = func_node.attr
+        if not isinstance(method_name, str):
+          raise SyntaxError(
+              'Expected method name to be a string, but was'
+              f' {type(method_name)}: {pprint.pformat(method_name)})'
+          )
+        object_of_method = await _evaluate(func_node.value)
+        object_type_str = object_of_method.__class__.__name__
+        dotted_method_name = f'{object_type_str}.{method_name}'
+        if dotted_method_name in allowed_callables:
+          args = [await _evaluate(arg) for arg in node.args]
+          args = [object_of_method] + args
+          return await _run_callable(
+              allowed_callables[dotted_method_name],
+              *args,
+              **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
+          )
+
+        # If we get this far, then we have exhausted all options for resolving
+        # the callable.
         raise SyntaxError('Unknown callable: %r' % callable_name)
-      return await _run_callable(
-          allowed_callables[callable_name],
-          *[await _evaluate(arg) for arg in node.args],
-          **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
-      )
 
     # Variable assignments
     if isinstance(node, ast.Assign):
@@ -455,6 +511,7 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
     """Prepares allowed callables for passing to `safe_eval`."""
     # Standard functions we always want to support.
     allowed_callables = {
+        # Standalone functions.
         'bool': bool,
         'dict': dict,
         'int': int,
@@ -465,6 +522,29 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
         'range': range,
         'set': set,
         'str': str,
+        # Methods.
+        'dict.clear': dict.clear,
+        'dict.copy': dict.copy,
+        'dict.fromkeys': dict.fromkeys,
+        'dict.get': dict.get,
+        'dict.items': dict.items,
+        'dict.keys': dict.keys,
+        'dict.pop': dict.pop,
+        'dict.popitem': dict.popitem,
+        'dict.setdefault': dict.setdefault,
+        'dict.update': dict.update,
+        'dict.values': dict.values,
+        'list.append': list.append,
+        'list.clear': list.clear,
+        'list.copy': list.copy,
+        'list.count': list.count,
+        'list.extend': list.extend,
+        'list.index': list.index,
+        'list.insert': list.insert,
+        'list.pop': list.pop,
+        'list.remove': list.remove,
+        'list.reverse': list.reverse,
+        'list.sort': list.sort,
     }
     # Custom hooks.
     allowed_callables.update(self.hooks)

@@ -14,7 +14,16 @@
 
 """Implementation of a Python Planning strategy using the Agent framework.
 
-Inspired by the approach taken in (internal link).
+In the Python Planning strategy, we iteratively prompt an LLM to generate blocks
+of Python code, which may include calls to "tools" that are provided in the form
+of functions. In each step, the LLM is shown the results of executing the
+previous steps, so that the LLM can either build on the previously generated
+code (in case of success), or else correct errors that became apparent from the
+execution results.
+
+Inspired by various research in Python-based tool orchestration, such as
+ViperGPT (https://arxiv.org/pdf/2303.08128.pdf) and AdaPlanner
+(https://arxiv.org/pdf/2305.16653.pdf)
 
 Adopting the "Agent" framework for the strategy implementation means that:
 * The full state of the strategy at each step is encapsulated in a
@@ -27,8 +36,8 @@ Adopting the "Agent" framework for the strategy implementation means that:
   template.
 * This ensures that in addition to running the full Python Planning strategy
   end-to-end, we are also able to support stop/restart, stepwise execution, and
-  composition of Python Planning with other agent strategies such as
-  tree-of-thought, for pursuing multiple possible trajectories in parallel.
+  composition of Python Planning with other agent strategies such as beam search
+  for pursuing multiple possible trajectories in parallel.
 """
 
 import abc
@@ -136,36 +145,39 @@ Tool description: {{ tool.description }}
 {{ '\n' }}
 Here is an example of how these tools can be used to solve a task:
 {% for exemplar in exemplars %}
-**Question**: {{ exemplar.inputs + '\n' }}
-{%- for step in exemplar.updates %}
+**Question**: {{ exemplar.inputs + '\n\n' }}
+{%- for step in exemplar.updates -%}
 ```
 {{ step.code }}
 ```
-{{ step.result + '\n' }}
+{{ step.result | trim + '\n\n' }}
 {%- if step.is_finished -%}
 **Done**
-{% endif -%}
+{{ '\n' }}
+{%- endif -%}
 {%- endfor -%}
 {%- endfor -%}
 
-{{ '\n\n' }}
+{{ '\n' }}
 Write code in Python using the above tools to solve the following question:
-{% endrole -%}
+{{ '\n' }}
+{%- endrole -%}
 
 {#- Start of the processing of the actual inputs. -#}
 
 {#- Render the original question. -#}
-**Question**: {{ state.inputs + '\n' }}
+**Question**: {{ state.inputs + '\n\n' }}
 
 {#- Render the current state (i.e., any steps performed up till now). -#}
 {%- for step in state.updates -%}
 ```
 {{ step.code }}
 ```
-{{ step.result + '\n' }}
+{{ step.result | trim + '\n\n' }}
 {%- if step.is_finished -%}
 **Done**
-{% endif -%}
+{{ '\n' }}
+{%- endif -%}
 {%- endfor -%}
 
 {#- Get a response from the LLM for the next step and return it. -#}

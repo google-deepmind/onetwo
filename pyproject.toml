@@ -18,12 +18,16 @@ dependencies = [
     "absl-py",
     "dataclasses-json",
     "fastapi",
+    # Note: there is a PYPI `gemma` library, which is not what we want.
     "gemma@git+https://github.com/google-deepmind/gemma.git",
     "google-generativeai",
     "immutabledict",
     "jinja2",
+    "numpy",
     "pillow",
-    "tensorflow",
+    "portpicker",  # For `backends/onetwo_api_test_script.sh`.
+    "pyyaml",  # For `import yaml`.
+    "termcolor",
     "tqdm",
     "typing_extensions",
     "uvicorn",
@@ -37,14 +41,14 @@ homepage = "https://github.com/google-deepmind/onetwo"
 repository = "https://github.com/google-deepmind/onetwo"
 
 [project.optional-dependencies]
-# Installed through `pip install .[dev]`.
+# Installed through `pip install '.[dev]'`.
 dev = [
     "pytest",
     "pytest-xdist",
     "pylint>=2.6.0",
     "pyink",
 ]
-# Installed through `pip install .[docs]`.
+# Installed through `pip install '.[docs]'`.
 docs = [
     # Install `apitree` with all extensions (sphinx, theme,...)
     "sphinx-apitree[ext]",
