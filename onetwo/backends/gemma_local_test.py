@@ -25,8 +25,8 @@ from absl.testing import parameterized
 from gemma import sampler as sampler_lib
 from onetwo.backends import gemma_local
 from onetwo.builtins import llm
+from onetwo.core import core_test_utils
 from onetwo.core import executing
-from onetwo.core import test_utils
 
 
 _BATCH_SIZE: Final[int] = 1
@@ -55,7 +55,17 @@ def mock_backend(reply: str, **kwargs) -> Iterator[gemma_local.Gemma]:
       yield backend
 
 
-class GemmaTest(parameterized.TestCase, test_utils.CounterAssertions):
+class GemmaTest(parameterized.TestCase, core_test_utils.CounterAssertions):
+
+  def setUp(self):
+    super().setUp()
+
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
 
   def test_generate_text(self):
     with mock_backend('a b') as backend:

@@ -20,7 +20,7 @@ import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from onetwo.builtins import base
+from onetwo.builtins import builtins_base
 from onetwo.core import executing
 from onetwo.core import routing
 
@@ -98,7 +98,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       ),
   )
   def test_configure_with_function(self, impl, expected_output):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int) -> int:
       del a
       raise NotImplementedError('This is just a signature.')
@@ -108,7 +108,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     self.assertExecutableResultEqual(fn(1), expected_output)
 
   def test_configurable_with_typevar(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: _T2, b: list[_T2]) -> int:
       del a, b
       raise NotImplementedError('This is just a signature.')
@@ -119,7 +119,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
   def test_configure_with_partial(self):
     """Verifies error gets raised when configuring with functools.partial."""
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int) -> int:
       del a
       raise NotImplementedError('This is just a signature.')
@@ -135,7 +135,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       fn.configure(functools.partial(fn_impl, b=0))
 
   def test_configure_with_method(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int) -> int:
       del a
       raise NotImplementedError('This is just a signature.')
@@ -163,7 +163,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       self.assertExecutableResultEqual(fn(1), 2)
 
   def test_binds_at_execution(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, b: int) -> int:
       del a, b
       raise NotImplementedError('This is just a signature.')
@@ -190,7 +190,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       self.assertExecutableResultEqual(e, 3)
 
   def test_signature(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, b: str = '') -> int:
       del b
       return a
@@ -266,7 +266,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
         fn.configure(incorrect_type)
 
   def test_defaults(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, b: int | None = None, c: int = 0) -> int:
       del a, b, c
       return 0
@@ -327,7 +327,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       self.assertExecutableResultEqual(fn(1, b=None), 4)
 
   def test_extra_args(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, b: int | None = None) -> int:
       del a, b
       return 0
@@ -351,7 +351,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
   )
   def test_executable(self, defaults, expected):
     """Tests that we can configure a Builtin function with an executable."""
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, b: int | None = None, c: int = 0) -> int:
       del a, b, c
       return 0
@@ -365,7 +365,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
   def test_wrapping(self):
     """Tests that we the properties of the wrapped function."""
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, *, b: int | None = None, c: int = 0) -> int:
       del b, c
       return a
@@ -375,7 +375,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     self.assertEqual(fn.__name__, 'fn')
 
   def test_configure_update_copy_registry(self):
-    @base.Builtin[int]
+    @builtins_base.Builtin[int]
     def fn(a: int, b: int | None = None, c: int = 0) -> int:
       del a, b, c
       return 0

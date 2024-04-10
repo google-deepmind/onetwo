@@ -44,6 +44,18 @@ def _add_executable(arg1: Any, arg2: Any) -> Any:
 
 class LlmToolUseTest(parameterized.TestCase):
 
+  def setUp(self):
+    super().setUp()
+
+    # This class tests routing.function_registry. In case `import routing` is
+    # not executed (this may happen when running `pytest` with multiple tests
+    # that import `llm` module) the `function_registry` may be already filled
+    # with various functions elsewhere in unexpected ways. We manually remove
+    # all the keys to make sure it is empty.
+    # TODO:` or such
+    # for better control of reproducibility.
+    routing.function_registry.clear()
+
   @parameterized.named_parameters(
       (
           'simple_yaml',
@@ -211,6 +223,16 @@ class LlmToolUseTest(parameterized.TestCase):
 
 
 class ToolTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+
+    # This class tests routing.function_registry. In case `import routing` is
+    # not executed (this may happen when running `pytest` with multiple tests
+    # that import `llm` module) the `function_registry` may be already filled
+    # with various functions elsewhere in unexpected ways. We manually remove
+    # all the keys to make sure it is empty.
+    routing.function_registry.clear()
 
   @parameterized.named_parameters(
       ('example_type_str', 'Search(pi) = "3.14".', 'Search(pi) = "3.14".'),

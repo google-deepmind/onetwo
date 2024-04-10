@@ -20,7 +20,7 @@ import random
 from typing import Generic, TypeVar, final
 
 import numpy as np
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
 from onetwo.core import executing
 from onetwo.core import tracing
 

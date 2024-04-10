@@ -2,7 +2,7 @@
 name = "onetwo"
 description = "LLM Orchestration Library by Google DeepMind."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = [{name = "OneTwo Authors", email="no-reply@google.com"}]
 classifiers = [
@@ -16,6 +16,7 @@ keywords = []
 # pip dependencies of the project.
 dependencies = [
     "absl-py",
+    "aenum",
     "dataclasses-json",
     "fastapi",
     # Note: there is a PYPI `gemma` library, which is not what we want.

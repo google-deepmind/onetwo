@@ -19,7 +19,7 @@ import re
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import python_planning
-from onetwo.backends import test_utils
+from onetwo.backends import backends_test_utils
 from onetwo.core import executing
 from onetwo.stdlib.code_execution import python_execution
 from onetwo.stdlib.tool_use import llm_tool_use
@@ -158,7 +158,7 @@ class PythonPlanningTest(parameterized.TestCase):
 num1 = firstnumber(population1)
 num2 = firstnumber(population2)
 """
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={'': [llm_reply]},
         default_reply=DEFAULT_REPLY,
     )
@@ -248,7 +248,7 @@ population1 = search('population of Tuebingen')
 population2 = search('population of Zuerich')
 print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 """
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             r'What is the total population of Tuebingen and Zuerich\?\n\n```$': (
                 llm_reply
@@ -331,7 +331,7 @@ population1 = search('population of Tuebingen')
 population2 = search('population of Zuerich')
 print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 """
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             r'What is the total population of Tuebingen and Zuerich\?'
             + r'\n\n```\n$': llm_reply,
@@ -359,7 +359,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     question = 'What is 3 to the 4th power?'
 
     # Hard-coded sequence of LLM replies (culminating in `exit()`).
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             '': [
                 'x = 3 * 3',

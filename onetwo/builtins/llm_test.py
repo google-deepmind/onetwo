@@ -17,24 +17,26 @@ from typing import Final, TypeAlias, TypeVar
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.builtins import formatting
 from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 
 
-_Message: TypeAlias = llm.Message
 _T = TypeVar('_T')
 
-Chunk = content_lib.Chunk
-ChunkList = content_lib.ChunkList
+_Message: TypeAlias = content_lib.Message
+_Chunk = content_lib.Chunk
+_ChunkList = content_lib.ChunkList
+_PredefinedRole = content_lib.PredefinedRole
 
 _SEPARATOR: Final[str] = ' @@@ '
 
 
 @executing.make_executable
 def _generate_text_returns_prompt_and_stop(
-    prompt: str | ChunkList,
+    prompt: str | _ChunkList,
     *,
     temperature: float | None = None,
     max_tokens: int | None = None,
@@ -44,17 +46,62 @@ def _generate_text_returns_prompt_and_stop(
     decoding_constraint: str | None = None,
 ) -> str:
   del temperature, max_tokens, top_k, top_p, decoding_constraint
-  # Concatenates prompt with last element in stop seq.
-  assert stop is not None and stop  # Make sure nonempty stop was provided.
-  return f'{prompt}{_SEPARATOR}{stop[-1]}'
+  # Concatenates prompt with the stop sequences.
+  if stop:
+    seqs = ','.join(sorted(stop))
+    return f'{prompt}{_SEPARATOR}{seqs}'
+  else:
+    return f'{prompt}'
+
+
+class FormatterForTest(formatting.Formatter):
+  """Formatter for testing."""
+
+  @property
+  def role_map(self) -> dict[str | _PredefinedRole, str]:
+    return {
+        _PredefinedRole.USER: 'user',
+        _PredefinedRole.MODEL: 'model',
+    }
+
+  def is_already_formatted(self, content: Sequence[_Message]) -> bool:
+    """Returns whether the content is already formatted."""
+    return any([('</' in str(msg.content)) for msg in content])
+
+  def extra_stop_sequences(self) -> list[str]:
+    return ['<user>']
+
+  def _format(
+      self,
+      content: Sequence[_Message],
+  ) -> _ChunkList:
+    """Returns formatted ChunkList."""
+    result = _ChunkList()
+    for msg in content:
+      role = (
+          msg.role.value
+          if isinstance(msg.role, _PredefinedRole)
+          else msg.role
+      )
+      result += _Chunk(content=f'<{role}>{msg.content}</{role}>\n')
+    return result
 
 
 class LlmTest(parameterized.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
+
   def test_generate_texts(self):
     @executing.make_executable
     def generate_test_function(
-        prompt: str | ChunkList,
+        prompt: str | _ChunkList,
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -81,7 +128,7 @@ class LlmTest(parameterized.TestCase):
   def test_generate_object(self):
     @executing.make_executable
     def generate_test_function(
-        prompt: str | ChunkList,
+        prompt: str | _ChunkList,
         cls: type[_T],
         *,
         temperature: float | None = None,
@@ -96,92 +143,10 @@ class LlmTest(parameterized.TestCase):
     result = executing.run(llm.generate_object(prompt='hello', cls=int))
     self.assertEqual(1, result)
 
-  @parameterized.named_parameters(
-      (
-          'has_rules_msg',
-          (
-              _Message(role=llm.ROLE_INSTRUCTIONS, content='Any instructions'),
-              _Message(role='user', content='Hello!'),
-          ),
-          (
-              f'Actor "{llm.ROLE_MODEL}" needs to obey the following rules '
-              'when generating the messages below:\n'
-              'Any instructions\n\n'
-              '**user**: Hello!\n'
-              '**model**:'
-          ),
-      ),
-      (
-          'has_many_rules_msgs_first_is_used',
-          (
-              _Message(role=llm.ROLE_INSTRUCTIONS, content='Any instructions'),
-              _Message(role='user', content='Hello!'),
-              _Message(role=llm.ROLE_INSTRUCTIONS, content='No instructions'),
-          ),
-          (
-              f'Actor "{llm.ROLE_MODEL}" needs to obey the following rules '
-              'when generating the messages below:\n'
-              'Any instructions\n\n'
-              '**user**: Hello!\n'
-              '**model**:'
-          ),
-      ),
-      (
-          'has_many_rules_msgs_first_nonempty_is_used',
-          (
-              _Message(role=llm.ROLE_INSTRUCTIONS, content=''),
-              _Message(role='user', content='Hello!'),
-              _Message(role=llm.ROLE_INSTRUCTIONS, content='Any instructions'),
-              _Message(role=llm.ROLE_INSTRUCTIONS, content='No instructions'),
-          ),
-          (
-              f'Actor "{llm.ROLE_MODEL}" needs to obey the following rules '
-              'when generating the messages below:\n'
-              'Any instructions\n\n'
-              '**user**: Hello!\n'
-              '**model**:'
-          ),
-      ),
-      (
-          'when_ends_with_user_switches_to_assistant',
-          (_Message(role='user', content='Hello!'),),
-          '**user**: Hello!\n**model**:',
-      ),
-      (
-          'when_ends_with_empty_assiostant_does_not_change_role',
-          (
-              _Message(role='user', content='Hello!'),
-              _Message(role=llm.ROLE_MODEL, content=''),
-          ),
-          '**user**: Hello!\n**model**:',
-      ),
-      (
-          'when_ends_with_nonempty_assiostant_does_not_change_role',
-          (
-              _Message(role='user', content='Hello!'),
-              _Message(role=llm.ROLE_MODEL, content='Hey'),
-          ),
-          '**user**: Hello!\n**model**: Hey',
-      ),
-  )
-  def test_default_chat(self, messages, expected_result):
-
-    # We configure only the generate_text function. By default chat is
-    # configured with an implementation that is based on generate_text.
-    llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
-    result = executing.run(llm.chat(messages))
-    result, stop = result.split(_SEPARATOR)
-
-    with self.subTest('prompt_formatted_as_expected'):
-      self.assertEqual(result, expected_result)
-
-    with self.subTest('stop_seq_added_as_expected'):
-      self.assertEqual(stop, '\n**')
-
   def test_select(self):
     @executing.make_executable
     def score(
-        prompt: str | ChunkList, targets: Sequence[str]
+        prompt: str | _ChunkList, targets: Sequence[str]
     ) -> Sequence[float]:
       del prompt
       return [float(i // 2) for i in range(len(targets))]
@@ -211,7 +176,7 @@ class LlmTest(parameterized.TestCase):
   def test_rank(self):
     @executing.make_executable
     def score(
-        prompt: str | ChunkList, targets: Sequence[str]
+        prompt: str | _ChunkList, targets: Sequence[str]
     ) -> Sequence[float]:
       del prompt
       return [float(i // 2) for i in range(len(targets))]
@@ -248,8 +213,8 @@ class LlmTest(parameterized.TestCase):
 
   def test_count_tokens(self):
     @executing.make_executable
-    def tokenize(content: str | ChunkList) -> Sequence[int]:
-      if isinstance(content, ChunkList):
+    def tokenize(content: str | _ChunkList) -> Sequence[int]:
+      if isinstance(content, _ChunkList):
         content = str(content)
       # We count the number of words in the string.
       return [len(chunk) for chunk in content.split()]
@@ -260,33 +225,101 @@ class LlmTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (
-          'prompt_no_prefix',
-          'Write a code',
-          None,
-          'Task: Write a code\nAnswer:',
+          'user_only_no_formatter',
+          [_Message(role=_PredefinedRole.USER, content='Hello')],
+          formatting.FormatterName.NONE,
+          'Hello',
       ),
       (
-          'empty_prompt',
-          '',
-          None,
-          'Task:\nAnswer:',
+          'user_and_model_no_formatter',
+          [
+              _Message(role=_PredefinedRole.USER, content='Hello'),
+              _Message(role=_PredefinedRole.MODEL, content='What can I'),
+          ],
+          formatting.FormatterName.NONE,
+          'HelloWhat can I',
       ),
       (
-          'prompt_and_prefix',
-          'Write a code',
-          'Start',
-          'Task: Write a code\nAnswer: Start',
+          'user_only_formatter',
+          [_Message(role=_PredefinedRole.USER, content='Hello')],
+          formatting.FormatterName.DEFAULT,
+          'Task: Hello\nAnswer:',
+      ),
+      (
+          'user_and_no_formatter',
+          [
+              _Message(role=_PredefinedRole.USER, content='Hello'),
+              _Message(role=_PredefinedRole.MODEL, content='What can I'),
+          ],
+          formatting.FormatterName.DEFAULT,
+          'Task: Hello\nAnswer: What can I',
+      ),
+  )
+  def test_default_chat(
+      self,
+      messages: Sequence[_Message],
+      formatter: formatting.FormatterName,
+      expected_result: str,
+  ):
+    # We configure only the generate_text function. By default chat is
+    # configured with an implementation that is based on generate_text.
+    llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
+    result = executing.run(llm.chat(messages, formatter=formatter))
+    if formatter == formatting.FormatterName.DEFAULT:
+      result, stop = result.split(_SEPARATOR)
+      with self.subTest('stop_seq_added_as_expected'):
+        self.assertEqual(stop, '\n**User**:,\nTask:')
+
+    with self.subTest('prompt_formatted_as_expected'):
+      self.assertEqual(result, expected_result)
+
+  def test_default_chat_raises(self):
+    llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
+    with self.assertRaises(NotImplementedError):
+      _ = executing.run(
+          llm.chat(
+              [_Message(role=_PredefinedRole.USER, content='Hello')],
+              formatter=formatting.FormatterName.API,
+          )
+      )
+
+  @parameterized.named_parameters(
+      (
+          'user_only_no_formatter',
+          'Hello',
+          None,
+          formatting.FormatterName.NONE,
+          'Hello',
+      ),
+      (
+          'user_and_model_no_formatter',
+          'Hello',
+          'What can I',
+          formatting.FormatterName.NONE,
+          'HelloWhat can I',
+      ),
+      (
+          'user_only_formatter',
+          'Hello',
+          None,
+          formatting.FormatterName.DEFAULT,
+          f'Task: Hello\nAnswer:{_SEPARATOR}\n**User**:,\nTask:',
+      ),
+      (
+          'user_and_no_formatter',
+          'Hello',
+          'What can I',
+          formatting.FormatterName.DEFAULT,
+          f'Task: Hello\nAnswer: What can I{_SEPARATOR}\n**User**:,\nTask:',
       ),
   )
   def test_default_instruct(
       self,
-      prompt,
-      assistant_prefix,
-      expected_result_wo_fewshot,
+      prompt: str,
+      assistant_prefix: str,
+      formatter: formatting.FormatterName,
+      expected_result: str,
   ):
-    """Verify that default implementation of instruct behaves as expected."""
-
-    expected_result = llm.DEFAULT_INSTRUCT_FEWSHOT + expected_result_wo_fewshot
     # We configure only the generate_text function. By default instruct is
     # configured with an implementation that is based on generate_text.
     llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
@@ -294,28 +327,11 @@ class LlmTest(parameterized.TestCase):
         llm.instruct(
             prompt=prompt,
             assistant_prefix=assistant_prefix,
+            formatter=formatter
         )
     )
-    result, stop = result.split(_SEPARATOR)
-
     with self.subTest('prompt_formatted_as_expected'):
-      msg = f'\ngot:\n{result}\n***\nexpected:\n{expected_result}\n***'
-      self.assertEqual(result, expected_result, msg)
-
-    with self.subTest('stop_seq_added_as_expected'):
-      self.assertEqual(stop, '\nTask:')
-
-    result = executing.run(
-        llm.instruct(
-            prompt=prompt,
-            assistant_prefix=assistant_prefix,
-            use_fewshot=False,
-        )
-    )
-    result, _ = result.split(_SEPARATOR)
-    with self.subTest('prompt_without_fewshot_formatted_as_expected'):
-      msg = f'\ngot:\n{result}\n***\nexpected:\n{expected_result}\n***'
-      self.assertEqual(result, expected_result_wo_fewshot, msg)
+      self.assertEqual(result, expected_result)
 
 
 if __name__ == '__main__':

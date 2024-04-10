@@ -21,13 +21,13 @@ it can call it.
 import inspect
 from typing import Any
 
-from onetwo.builtins import base as builtin_base
+from onetwo.builtins import builtins_base
 from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.core import routing
 
 
-@builtin_base.Builtin
+@builtins_base.Builtin
 def run_tool(
     tool_name: str, tool_args: tuple[Any, ...], tool_kwargs: dict[str, Any]
 ) -> Any:
@@ -88,8 +88,13 @@ async def default_run_tool(
   except ValueError as e:
     return f'{constants.ERROR_STRING}: {e}'
 
-run_tool.configure(default_run_tool)
 
+def reset_defaults():
+  """Resets default implementations for all builtins in this file."""
+  # Keep all module level `some_builtin.configure(...)` commands in this method.
+  run_tool.configure(default_run_tool)
+
+reset_defaults()
 # TODO: Define an additional `run_tool_text` builtin that takes as
 # input:
 # (1) a string like `f('a', 'b')` or `f(x, 'b')` or `y = f(x, 'b')` that can be

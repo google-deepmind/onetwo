@@ -17,7 +17,7 @@ import functools
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import react
-from onetwo.backends import test_utils
+from onetwo.backends import backends_test_utils
 from onetwo.core import executing
 from onetwo.stdlib.code_execution import python_execution_safe_subset
 from onetwo.stdlib.tool_use import llm_tool_use
@@ -116,7 +116,7 @@ class ReactTest(parameterized.TestCase):
         ' Zuerich. We can use the Python tool for that.\n[Act]:'
         " `Python('91877 + 402762')`\nBla bla"
     )
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={'': [llm_reply]},
         default_reply=DEFAULT_REPLY,
     )
@@ -181,7 +181,7 @@ class ReactTest(parameterized.TestCase):
 
     # We configure the LLM to raise an exception to verify how it is handled.
     error_message = 'Some error.'
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         default_reply=ValueError(error_message),
     )
     llm_backend.register()
@@ -246,7 +246,7 @@ class ReactTest(parameterized.TestCase):
 
     # We hard-code the LLM to return the same thought every time (assuming the
     # prompt is of the expected form).
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             r'What is larger, 10 or 15, and by how much\?$': (
                 '[Thought]: We can use the Python tool to subtract one from '
@@ -308,7 +308,7 @@ class ReactTest(parameterized.TestCase):
         "another.\n[Act]: Python('10 - 15')\n"
     )
     llm_reply_1 = '[Finish]: 15 is larger than 10 by 5.\n'
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={'': [llm_reply_0, llm_reply_1]},
         default_reply=DEFAULT_REPLY,
     )
@@ -388,7 +388,7 @@ class ReactTest(parameterized.TestCase):
           f'{leaf_results[2].outputs=}',
       )
 
-  def test_execute_force_finish(self):
+  def test_execute_force_finish_due_to_max_steps(self):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
     config = _get_environment_config_with_python()
@@ -396,7 +396,7 @@ class ReactTest(parameterized.TestCase):
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
     # the sequence of replies to return, regardless of the request.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             '': [
                 # LLM reply for step 1.
@@ -420,8 +420,9 @@ class ReactTest(parameterized.TestCase):
         stop_prefix='',
     )
 
-    output, execution_result = executing.run(
-        agent(inputs=question), enable_tracing=True
+    (output, final_state), execution_result = executing.run(
+        agent(inputs=question, return_final_state=True),
+        enable_tracing=True,
     )
     leaf_results = execution_result.get_leaf_results()
 
@@ -439,6 +440,76 @@ class ReactTest(parameterized.TestCase):
 
     with self.subTest('leaf_result_2_should_be_llm_call_for_force_finish'):
       self.assertEqual('generate_text', leaf_results[2].stage_name)
+
+    with self.subTest('should_end_in_finished_state'):
+      self.assertTrue(final_state.updates[-1].is_finished)
+
+    with self.subTest('should_generate_only_the_expected_requests'):
+      self.assertEmpty(llm_backend.unexpected_prompts)
+
+  def test_execute_force_finish_due_to_empty_reply(self):
+    # Some minimal agent configuration and inputs.
+    question = 'What is larger, 10 or 15, and by how much?'
+    config = _get_environment_config_with_python()
+
+    # Here we define a test LLM to use in place of the actual LLM. To avoid the
+    # need to hard-code here all of the expected requests, we will just specify
+    # the sequence of replies to return, regardless of the request.
+    llm_backend = backends_test_utils.LLMForTest(
+        reply_by_prompt_regex={
+            '': [
+                # LLM reply for step 1.
+                (
+                    '[Thought]: We can use the Python tool to subtract one from'
+                    ' another.\n[Act]: Python("10 - 15")\n[Observe]: Bla bla'
+                    ' bla.'
+                ),
+                # LLM reply for step 2 (empty reply).
+                '',
+                # LLM reply for force-finish.
+                '15 is larger than 10 by 5.\n\n[Question] Bla bla bla.',
+            ]
+        },
+        default_reply=DEFAULT_REPLY,
+    )
+    llm_backend.register()
+
+    agent = react.ReActAgent(
+        exemplars=react.REACT_FEWSHOTS,
+        environment_config=config,
+        max_steps=5,
+        stop_prefix='',
+    )
+
+    (output, final_state), execution_result = executing.run(
+        agent(inputs=question, return_final_state=True),
+        enable_tracing=True,
+    )
+    leaf_results = execution_result.get_leaf_results()
+
+    with self.subTest('should_output_the_stripped_final_llm_reply'):
+      self.assertEqual('15 is larger than 10 by 5.', output)
+
+    with self.subTest('should_yield_one_leaf_result_per_llm_call_and_action'):
+      self.assertLen(leaf_results, 4)
+
+    with self.subTest('leaf_result_0_should_be_llm_call_for_step_1'):
+      self.assertEqual('generate_text', leaf_results[0].stage_name)
+
+    with self.subTest('leaf_result_1_should_be_tool_call_for_step_1'):
+      self.assertEqual('run_tool', leaf_results[1].stage_name)
+
+    with self.subTest('leaf_result_2_should_be_llm_call_for_step_2'):
+      self.assertEqual('generate_text', leaf_results[2].stage_name)
+
+    with self.subTest('leaf_result_3_should_be_llm_call_for_force_finish'):
+      self.assertEqual('generate_text', leaf_results[3].stage_name)
+
+    with self.subTest('should_end_in_finished_state'):
+      self.assertTrue(final_state.updates[-1].is_finished)
+
+    with self.subTest('should_generate_only_the_expected_requests'):
+      self.assertEmpty(llm_backend.unexpected_prompts)
 
 
 if __name__ == '__main__':

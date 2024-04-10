@@ -26,31 +26,24 @@ was provided), and would fail otherwise.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-import copy
-import logging
 import random
-import textwrap
-from typing import Any, Final, NamedTuple, TypeVar, cast
+from typing import Any, TypeVar
 
-from onetwo.builtins import base
+from onetwo.builtins import builtins_base
+from onetwo.builtins import formatting
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.core import sampling
 
 
-ROLE_MODEL: Final[str] = 'model'
-ROLE_INSTRUCTIONS: Final[str] = 'instructions'
-ROLE_USER: Final[str] = 'user'
-
-DEFAULT_INSTRUCT_FEWSHOT: Final[str] = textwrap.dedent("""\
-    Task: Write me a palindrome.
-    Answer: Level
-    """)
-
 _T = TypeVar('_T')
 
+_Message = content_lib.Message
+_PredefinedRole = content_lib.PredefinedRole
 
-@base.Builtin[str]
+
+@builtins_base.Builtin[str]
 def generate_text_from_chunks(
     chunk_list: content_lib.ChunkList,
     *,
@@ -89,7 +82,7 @@ def generate_text_from_chunks(
   )
 
 
-@base.Builtin[str | tuple[str, Mapping[str, Any]]]
+@builtins_base.Builtin[str | tuple[str, Mapping[str, Any]]]
 async def generate_text(
     prompt: str | content_lib.ChunkList,
     *,
@@ -151,10 +144,7 @@ async def _default_generate_text_from_string(
   return await generate_text_from_chunks(prompt, **kwargs)
 
 
-generate_text.configure(_default_generate_text_from_string)
-
-
-@base.Builtin
+@builtins_base.Builtin
 def generate_texts(
     prompt: str | content_lib.ChunkList,
     samples: int = 1,
@@ -261,10 +251,7 @@ def _default_generate_texts(
   return executing.par_iter(executables)  # pytype: disable=bad-return-type
 
 
-generate_texts.configure(_default_generate_texts)
-
-
-@base.Builtin
+@builtins_base.Builtin
 def tokenize(content: str | content_lib.ChunkList) -> Sequence[int]:
   """Interface of the tokenize_text built-in function.
 
@@ -281,7 +268,7 @@ def tokenize(content: str | content_lib.ChunkList) -> Sequence[int]:
   )
 
 
-@base.Builtin
+@builtins_base.Builtin
 def count_tokens(content: str | content_lib.ChunkList) -> int:
   """Interface of the count_tokens built-in function.
 
@@ -306,10 +293,7 @@ async def _default_count_tokens(
   return len(tokens)
 
 
-count_tokens.configure(_default_count_tokens)
-
-
-@base.Builtin
+@builtins_base.Builtin
 def embed(content: str | content_lib.ChunkList) -> Sequence[float]:
   """Interface of the embed built-in function.
 
@@ -326,7 +310,7 @@ def embed(content: str | content_lib.ChunkList) -> Sequence[float]:
   )
 
 
-@base.Builtin
+@builtins_base.Builtin
 def score_text(
     prompt: str | content_lib.ChunkList, targets: Sequence[str]
 ) -> Sequence[float]:
@@ -346,17 +330,12 @@ def score_text(
   )
 
 
-class Message(NamedTuple):
-  """NamedTuple to represent a message in a chat conversation."""
-
-  role: str
-  content: str | content_lib.ChunkList
-
-
-@base.Builtin
+@builtins_base.Builtin
 def instruct(
     prompt: str | content_lib.ChunkList,
     assistant_prefix: str | content_lib.ChunkList | None = None,
+    *,
+    formatter: formatting.FormatterName = formatting.FormatterName.DEFAULT,
     **kwargs,
 ) -> str:
   """Interface of the instruct built-in function.
@@ -380,12 +359,14 @@ def instruct(
     assistant_prefix: Optional beginning of the assistant's reply. If provided,
       assistant's response will start from this string. E.g., "This story
       happened on a Planet called".
-    **kwargs: Optional arguments.
+    formatter: The formatter to use (see `formatting.FormatterName`).
+    **kwargs: Optional arguments to be passed to the generate_text function
+      or to the formatter.
 
   Returns:
     The string returned from LLM.
   """
-  del prompt, assistant_prefix, kwargs
+  del prompt, assistant_prefix, formatter, kwargs
   raise NotImplementedError(
       'The implementation should be provided at runtime by calling `configure`.'
       ' This function cannot be called directly.'
@@ -396,56 +377,25 @@ def instruct(
 async def default_instruct(
     prompt: str | content_lib.ChunkList,
     assistant_prefix: str | content_lib.ChunkList | None = None,
+    formatter: formatting.FormatterName = formatting.FormatterName.DEFAULT,
     **kwargs,
 ) -> str:
-  """Instruction prompting implementation of instruct via generate_text."""
-  if assistant_prefix is not None and assistant_prefix.startswith(' '):
-    logging.warning(
-        'assistant_prefix starts with space. This may potentially '
-        'cause bad LLM outputs.'
+  """Default implementation of instruct via chat."""
+  messages = [_Message(role=_PredefinedRole.USER, content=prompt)]
+  if assistant_prefix:
+    messages.append(
+        _Message(role=_PredefinedRole.MODEL, content=assistant_prefix)
     )
-  concat = f'{prompt}\n{assistant_prefix}'
-  matches = ['Task:', 'Answer:']
-  if any(substr in concat for substr in matches):
-    logging.warning(
-        'Looks like provided prompt or assistant_prefix already contain '
-        'some formatting, including "Task:" and "Answer:" strings. This may '
-        'cause difficulties and confuse LLM.'
-    )
-  # We use few shot prompting by default.
-
-  use_fewshot = True
-  if 'use_fewshot' in kwargs:
-    value = kwargs['use_fewshot']
-    if isinstance(value, bool):
-      use_fewshot = value
-    del kwargs['use_fewshot']
-  instruct_prompt = content_lib.ChunkList()
-  if isinstance(use_fewshot, bool) and use_fewshot:
-    instruct_prompt += DEFAULT_INSTRUCT_FEWSHOT
-  prompt = prompt.lstrip(' ')
-  if prompt:
-    instruct_prompt += 'Task: ' + prompt + '\nAnswer:'
-  else:
-    instruct_prompt += 'Task:\nAnswer:'
-  if assistant_prefix is not None:
-    assistant_prefix = assistant_prefix.lstrip(' ')
-    if assistant_prefix:
-      instruct_prompt += ' ' + assistant_prefix
-  copied_args = copy.deepcopy(kwargs)
-  if 'stop' not in copied_args:
-    copied_args['stop'] = []
-  copied_args['stop'].append('\nTask:')
-  content = await generate_text(instruct_prompt, **copied_args)
-  content = cast(str, content)
-  return content
+  return await chat(messages, formatter=formatter, **kwargs)
 
 
-instruct.configure(default_instruct)
-
-
-@base.Builtin
-def chat(messages: Sequence[Message], **kwargs) -> str:
+@builtins_base.Builtin
+def chat(
+    messages: Sequence[_Message],
+    *,
+    formatter: formatting.FormatterName = formatting.FormatterName.DEFAULT,
+    **kwargs
+) -> str:
   """Interface of the chat built-in function.
 
   Ask LLM to generate a new reply or complete existing reply in the chat. The
@@ -462,13 +412,15 @@ def chat(messages: Sequence[Message], **kwargs) -> str:
       answer by quoting Shakespeare". The first non-empty message with role
       ROLE_INSTRUCTIONS will be used to form the rules, the others will be
       ignored.
-    **kwargs: Optional arguments.
+    formatter: The formatter to use (see `formatting.FormatterName`).
+    **kwargs: Optional arguments to be passed to the generate_text function
+      or to the formatter.
 
   Returns:
     The string returned from LLM. The response always corresponds to the
       assistant role.
   """
-  del messages, kwargs
+  del messages, formatter, kwargs
   raise NotImplementedError(
       'The implementation should be provided at runtime by calling `configure`.'
       ' This function cannot be called directly.'
@@ -476,47 +428,43 @@ def chat(messages: Sequence[Message], **kwargs) -> str:
 
 
 @executing.make_executable
-async def default_chat(messages: Sequence[Message], **kwargs) -> str:
+async def default_chat(
+    messages: Sequence[_Message],
+    formatter: formatting.FormatterName = formatting.FormatterName.DEFAULT,
+    **kwargs
+) -> str:
   """Default implementation of chat via prompting and generate_text."""
-  prompt = content_lib.ChunkList()
-  # If there is a message with instructions role, append the rules.
-  for msg in messages:
-    if msg.role == ROLE_INSTRUCTIONS and msg.content:
-      prompt += (
-          f'Actor "{ROLE_MODEL}" needs to obey the following rules when '
-          'generating the messages below:\n'
-      )
-      prompt += msg.content + '\n\n'
-      break
-  # Remove any messages with instructions roles.
-  messages = [msg for msg in messages if msg.role != ROLE_INSTRUCTIONS]
-  if messages[-1].role != ROLE_MODEL:
-    # Include empty assistant message in the end.
-    messages.append(Message(role=ROLE_MODEL, content=''))
-  for message in messages[:-1]:
-    # Process all but the last message.
-    prompt += f'**{message.role}**: ' + message.content + '\n'
-  # Last message has assistant role. Don't include end of turn tag.
-  last_assistant_content = messages[-1].content
-  last_assistant_content = last_assistant_content.lstrip(' ')
-  if last_assistant_content:
-    prompt += f'**{ROLE_MODEL}**: ' + last_assistant_content
+  if formatter == formatting.FormatterName.API:
+    raise NotImplementedError(
+        'API formatting is not supported in this implementation of `chat`'
+        ' builtin.'
+    )
+  elif (
+      formatter == formatting.FormatterName.NONE
+  ):
+    # Concatenate all messages into a single ChunkList.
+    chunk_list = content_lib.ChunkList()
+    for msg in messages:
+      chunk_list += msg.content
+    return await generate_text(chunk_list, **kwargs)
   else:
-    prompt += f'**{ROLE_MODEL}**:'
-  copied_args = copy.deepcopy(kwargs)
-  if 'stop' not in copied_args:
-    copied_args['stop'] = []
-  # Stop generation when LLM finishes the assistant turn.
-  copied_args['stop'].append('\n**')
-  content = await generate_text(prompt, **copied_args)
-  content = cast(str, content)
-  return content
+    formatter_class = formatting.FORMATTER_CLASS_BY_NAME.get(formatter, None)
+    if formatter_class is None:
+      raise ValueError(f'Formatter {formatter.value} is not supported.')
+    formatter_instance = formatter_class(kwargs)  # pytype: disable=not-instantiable
+    prompt = formatter_instance.format(messages)
+    stop_sequences = formatter_instance.extra_stop_sequences()
+    defaults = routing.function_registry[generate_text.name].defaults
+    if 'stop' in defaults:
+      stop_sequences += defaults['stop'] or []
+    if 'stop' in kwargs:
+      stop_sequences += kwargs['stop']
+    if stop_sequences:
+      kwargs['stop'] = list(set(stop_sequences))
+    return await generate_text(prompt, **kwargs)
 
 
-chat.configure(default_chat)
-
-
-@base.Builtin
+@builtins_base.Builtin
 def select(
     prompt: str | content_lib.ChunkList,
     options: Sequence[str | content_lib.ChunkList],
@@ -542,7 +490,7 @@ def select(
   )
 
 
-@base.Builtin
+@builtins_base.Builtin
 def rank(
     prompt: str | content_lib.ChunkList,
     options: Sequence[str | content_lib.ChunkList],
@@ -590,9 +538,6 @@ async def _default_select_via_score(
     return options[best_index]
 
 
-select.configure(_default_select_via_score)
-
-
 @executing.make_executable
 async def _default_rank_via_score(
     prompt: str | content_lib.ChunkList,
@@ -619,10 +564,7 @@ async def _default_rank_via_score(
     return top_results
 
 
-rank.configure(_default_rank_via_score)
-
-
-@base.Builtin
+@builtins_base.Builtin
 async def generate_object(
     prompt: str | content_lib.ChunkList,
     cls: type[_T],
@@ -650,3 +592,17 @@ async def generate_object(
       'The implementation should be provided at runtime by calling `configure`.'
       ' This function cannot be called directly.'
   )
+
+
+def reset_defaults():
+  """Resets default implementations for all builtins in this file."""
+  # Keep all module level `some_builtin.configure(...)` commands in this method.
+  generate_text.configure(_default_generate_text_from_string)
+  generate_texts.configure(_default_generate_texts)
+  count_tokens.configure(_default_count_tokens)
+  instruct.configure(default_instruct)
+  chat.configure(default_chat)
+  select.configure(_default_select_via_score)
+  rank.configure(_default_rank_via_score)
+
+reset_defaults()

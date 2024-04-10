@@ -16,7 +16,7 @@
 
 import collections
 import string
-from typing import Any, Counter, Final
+from typing import Any, Counter, Final, TypeAlias
 import unittest
 from unittest import mock
 
@@ -29,9 +29,16 @@ from google.generativeai.types import model_types
 from onetwo.backends import gemini_api
 from onetwo.builtins import llm
 from onetwo.core import caching
+from onetwo.core import content as content_lib
+from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import sampling
-from onetwo.core import test_utils
+
+
+Message: TypeAlias = content_lib.Message
+Chunk: TypeAlias = content_lib.Chunk
+ChunkList: TypeAlias = content_lib.ChunkList
+PredefinedRole: TypeAlias = content_lib.PredefinedRole
 
 
 _BATCH_SIZE: Final[int] = 4
@@ -95,10 +102,17 @@ async def check_length_and_generate(
   return res
 
 
-class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
+class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
   def setUp(self):
     super().setUp()
+
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
 
     # Mock configure.
     self.mock_configure = self.enter_context(
@@ -414,7 +428,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
 
   def test_chat(self):
     backend = _get_and_register_backend()
-    msg = llm.Message(role=llm.ROLE_USER, content='Hello')
+    msg = Message(role=PredefinedRole.USER, content='Hello')
     result = executing.run(llm.chat(messages=[msg]))
 
     with self.subTest('returns_correct_result'):
@@ -422,7 +436,7 @@ class GeminiAPITest(parameterized.TestCase, test_utils.CounterAssertions):
 
     expected_backend_counters = collections.Counter({
         'chat': 1,
-        'chat_batches': 1,
+        'chat_via_api_batches': 1,
     })
 
     with self.subTest('sends_correct_number_of_api_calls'):

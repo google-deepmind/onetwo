@@ -15,7 +15,7 @@
 from absl.testing import absltest
 from onetwo.agents import iterative_thought
 from onetwo.agents.tasks import game_of_24
-from onetwo.backends import test_utils
+from onetwo.backends import backends_test_utils
 from onetwo.core import executing
 
 
@@ -38,7 +38,7 @@ class GameOf24Test(absltest.TestCase):
     # Now we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests and simulated replies,
     # however, we will just depend on a single default reply.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         default_reply=DEFAULT_REPLY,
         default_score=0.0,
     )
@@ -89,7 +89,7 @@ class GameOf24Test(absltest.TestCase):
     # Now we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests and simulated replies,
     # however, we will just depend on a single default reply.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         default_reply='ta\ntb',
         default_score=0.0,
     )

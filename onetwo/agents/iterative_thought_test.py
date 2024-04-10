@@ -15,7 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import iterative_thought
-from onetwo.backends import test_utils
+from onetwo.backends import backends_test_utils
 from onetwo.core import executing
 
 # Default reply for LLMForTest to return when it receives a prompt that it was
@@ -61,7 +61,7 @@ Input: qN
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={expected_request: simulated_reply},
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -100,7 +100,7 @@ Input: qN
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
     # the sequence of replies to return, regardless of the request.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             '': ['thought1', 'thought2', 'thought3', 'thought4']
         },
@@ -203,7 +203,7 @@ Input: qN
     expected_next_step_candidates = ['t2', 't2', 't2']
 
     # We hard-code the LLM to return the same thought every time.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             'Step #2:$': 't2',
         },
@@ -255,7 +255,7 @@ Input: qN
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
     # the sequence of replies to return, regardless of the request.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             '': ['thought1', 'thought2', 'thought3', 'thought4']
         },
@@ -290,7 +290,7 @@ Input: qN
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
     # the sequence of replies to return, regardless of the request.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             '': ['thought1', 'thought2', 'thought3', 'thought4']
         },
@@ -381,7 +381,7 @@ tb\
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={expected_request: simulated_reply},
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -445,7 +445,7 @@ tb\
     )
 
     # We hard-code the LLM to return a list of two candidate thoughts.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             'The next step could be one of the following': 't2a\nt2b',
         },
@@ -486,7 +486,7 @@ tb\
     # Here we define a test LLM to use in place of the actual LLM. To avoid the
     # need to hard-code here all of the expected requests, we will just specify
     # the sequence of replies to return, regardless of the request.
-    llm_backend = test_utils.LLMForTest(
+    llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={'': ['thought1', 'thought2', 'thought3']},
         default_reply=DEFAULT_REPLY,
     )

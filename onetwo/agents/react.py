@@ -38,7 +38,7 @@ import dataclasses
 import re
 from typing import Any, Protocol
 
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
 from onetwo.builtins import prompt_templating
 from onetwo.core import constants
 from onetwo.core import executing
@@ -571,8 +571,24 @@ class ReActAgent(
     if environment is None:
       raise ValueError('Environment must be specified for this agent.')
 
+    # Determine whether to force-finish. We do this either if we exceeded the
+    # maximum allowable steps, or if we got an empty response from the LLM
+    # response in the previous step. We force-finish in this latter case because
+    # otherwise the LLM would typically just keep sending empty responses anyway
+    # until reaching max_steps. One case where this can happen is where the LLM
+    # has already essentially solved the task in the previous step, but forgot
+    # to explicitly perform `Finish`. If the LLM considers itself to already be
+    # done, it may just start hallucinating a next '[Question]' rathering than
+    # outputting an '[Action]' or '[Finish]' step, which, due to the use of
+    # '[Question]' as a stop sequence, can show up as an empty response.
+    got_empty_reply = state.updates and (
+        not state.updates[-1].action
+        and not state.updates[-1].thought
+        and not state.updates[-1].is_finished
+    )
+    force_finish = len(state.updates) >= self.max_steps or got_empty_reply
+
     # Prompt the LLM to determine the next action to take.
-    force_finish = len(state.updates) >= self.max_steps
     llm_reply = await self.prompt(
         tools=environment.config.tools,
         exemplars=self.exemplars,

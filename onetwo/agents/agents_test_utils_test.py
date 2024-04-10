@@ -18,8 +18,8 @@ from typing import TypeAlias
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from onetwo.agents import base as agents_base
-from onetwo.agents import test_utils
+from onetwo.agents import agents_base
+from onetwo.agents import agents_test_utils
 from onetwo.core import executing
 
 
@@ -47,7 +47,7 @@ class DistributionAgentTest(parameterized.TestCase):
   )
   def test_next_step_distribution(self, words, prefix, expected):
     async def wrapper(words: dict[str, float], prefix: str) -> list[_SU]:
-      agent = test_utils.DistributionAgentForTest(words)
+      agent = agents_test_utils.DistributionAgentForTest(words)
       state = await agent.initialize_state(prefix)
       return await agent.get_next_step_distribution(state)
 
@@ -67,7 +67,7 @@ class DistributionAgentTest(parameterized.TestCase):
       ('hello$', 'hello$', 0.1),
   )
   def test_score_state(self, state, expected):
-    score = test_utils.DistributionAgentForTest(
+    score = agents_test_utils.DistributionAgentForTest(
         {'hello': 0.1, 'hello_world': 0.2, 'hallo': 0.2, 'world': 0.5}
     ).score_state(state)
     self.assertEqual(
@@ -86,7 +86,7 @@ class DistributionAgentTest(parameterized.TestCase):
   def test_is_finished(self, state, expected):
     self.assertEqual(
         expected,
-        test_utils.DistributionAgentForTest(
+        agents_test_utils.DistributionAgentForTest(
             {'hello': 0.1, 'hello_world': 0.2, 'hallo': 0.2, 'world': 0.5}
         ).is_finished(state),
     )
@@ -100,7 +100,7 @@ class DistributionAgentTest(parameterized.TestCase):
       ('x', 'x', ['x']),
   )
   def test_execute(self, prefix, expected):
-    agent = test_utils.DistributionAgentForTest(
+    agent = agents_test_utils.DistributionAgentForTest(
         {'hello': 0.1, 'hallo': 0.2, 'hello_world': 0.4, 'world': 0.3}
     )
     res = executing.run(agent(inputs=prefix))
@@ -110,7 +110,7 @@ class DistributionAgentTest(parameterized.TestCase):
 class StringAgentTest(parameterized.TestCase):
 
   def test_sample_next_step(self):
-    agent = test_utils.StringAgent(sequence=['a', 'b', 'c', 'd'])
+    agent = agents_test_utils.StringAgent(sequence=['a', 'b', 'c', 'd'])
     state = executing.run(agent.initialize_state(inputs='test'))
     result = executing.run(
         agent.sample_next_step(state=state, num_candidates=2)
@@ -122,7 +122,7 @@ class StringAgentTest(parameterized.TestCase):
     self.assertEqual(result, ['c', 'd'])
 
   def test_execute(self):
-    agent = test_utils.StringAgent(
+    agent = agents_test_utils.StringAgent(
         max_length=5, sequence=['a', 'a', 'b', 'b', 'a']
     )
     result = executing.run(agent(inputs='test'))

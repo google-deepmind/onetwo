@@ -27,7 +27,10 @@ from absl import logging
 from gemma import params as params_lib
 from gemma import sampler as sampler_lib
 from gemma import transformer as transformer_lib
-from onetwo.backends import base as backend_base
+from onetwo.backends import backends_base
+# Necessary for the FormatterName enum to be populated.
+from onetwo.backends import formatters  # pylint: disable=unused-import
+from onetwo.builtins import formatting
 from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import caching
@@ -54,7 +57,7 @@ REPLY_SCORE: Final[str] = 'score'
 @dataclasses.dataclass
 class Gemma(
     caching.FileCacheEnabled,  # Methods of this class are cached.
-    backend_base.Backend,
+    backends_base.Backend,
 ):
   """Google Gemma API wrapper.
 
@@ -108,6 +111,16 @@ class Gemma(
         temperature=self.temperature,
         stop=self.stop,
     )
+    if self.checkpoint_path is not None and self.checkpoint_path.endswith(
+        '-it'
+    ):
+      llm.chat.configure(
+          llm.default_chat, formatter=formatting.FormatterName.GEMMA
+      )
+    else:
+      llm.chat.configure(
+          llm.default_chat, formatter=formatting.FormatterName.DEFAULT
+      )
 
   def _load_model(
       self,
@@ -189,7 +202,9 @@ class Gemma(
     logging.info('Done sampling')
     response_text = response.text[0]
     stop_sequences = [] if stop is None else list(stop)
-    truncated_reply = backend_base.truncate_reply(response_text, stop_sequences)
+    truncated_reply = backends_base.truncate_reply(
+        response_text, stop_sequences
+    )
     if include_details:
       return truncated_reply, {
           REPLY_TEXT: response_text,

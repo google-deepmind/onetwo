@@ -26,7 +26,7 @@ from typing import Any, Final, cast
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import evaluation
-from onetwo.backends import base as backend_base
+from onetwo.backends import backends_base
 from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import content as content_lib
@@ -115,7 +115,7 @@ async def simple_strategy(question: str, option: int, **kwargs) -> str:
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class LanguageModelForTests(
-    backend_base.Backend,  # register method.
+    backends_base.Backend,  # register method.
 ):
   """Fake LLM for testing.
 
@@ -148,6 +148,16 @@ class LanguageModelForTests(
 
 
 class EvaluateTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
 
   def test_strategy_arg_mismatch(self):
     executables = evaluation._compile_strategies(
@@ -330,6 +340,16 @@ class EvaluateTest(parameterized.TestCase):
 
 
 class CompareWithCriticTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
 
   def test_apply_critic_to_answers(self):
 

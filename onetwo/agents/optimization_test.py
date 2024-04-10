@@ -20,10 +20,10 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
 
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
+from onetwo.agents import agents_test_utils
 from onetwo.agents import critics
 from onetwo.agents import optimization
-from onetwo.agents import test_utils
 from onetwo.core import executing
 
 _StringAgentState: TypeAlias = agents_base.UpdateListState[str, str]
@@ -51,7 +51,7 @@ class LogScoredListAgent(
       the agent will deterministically return the top num_candidate updates
       using the inner agent's distribution.
   """
-  inner_agent: test_utils.DistributionAgentForTest
+  inner_agent: agents_test_utils.DistributionAgentForTest
   sampling_is_deterministic: bool = False
 
   @executing.make_executable(copy_self=False)
@@ -139,7 +139,7 @@ class SelectorForTest(critics.SelectingFunction):
 class ResamplingAgentTest(parameterized.TestCase):
 
   def test_sample_next_step_with_scorer(self):
-    inner_agent = test_utils.StringAgent(
+    inner_agent = agents_test_utils.StringAgent(
         max_length=3, sequence=['a', 'a', 'b', 'c', 'b', 'b', 'c', 'd', 'a']
     )
     critic = ScorerForTest()
@@ -157,7 +157,7 @@ class ResamplingAgentTest(parameterized.TestCase):
     self.assertEqual(result, 'a c a')
 
   def test_sample_next_step_with_ranker(self):
-    inner_agent = test_utils.StringAgent(
+    inner_agent = agents_test_utils.StringAgent(
         max_length=3, sequence=['a', 'a', 'b', 'c', 'b', 'b', 'c', 'd', 'a']
     )
     critic = RankerForTest()
@@ -174,7 +174,7 @@ class ResamplingAgentTest(parameterized.TestCase):
     self.assertEqual(result, 'a b a')
 
   def test_sample_next_step_with_selector(self):
-    inner_agent = test_utils.StringAgent(
+    inner_agent = agents_test_utils.StringAgent(
         max_length=3, sequence=['a', 'a', 'b', 'c', 'b', 'b', 'c', 'd', 'a']
     )
     critic = SelectorForTest()
@@ -208,7 +208,7 @@ class BeamSearchTest(parameterized.TestCase):
   )
   def test_beam_search_with_critic(self, diversify_beam, expected_result):
     critic = RankerForTest()
-    inner_agent = test_utils.StringAgent(
+    inner_agent = agents_test_utils.StringAgent(
         max_length=3,
         sequence=[
             'a', 'a', 'a', 'b',
@@ -253,7 +253,7 @@ class BeamSearchTest(parameterized.TestCase):
       expected_result,
       expected_final_states,
   ):
-    inner_agent = test_utils.DistributionAgentForTest(
+    inner_agent = agents_test_utils.DistributionAgentForTest(
         {'hello': 0.1, 'hallo': 0.25, 'hello_world': 0.2, 'world': 0.45}
     )
     # With the above distribution, we have the following conditionals:
@@ -285,7 +285,7 @@ class BeamSearchTest(parameterized.TestCase):
   def test_beam_search_with_non_deterministic_distribution(
       self,
   ):
-    inner_agent = test_utils.DistributionAgentForTest(
+    inner_agent = agents_test_utils.DistributionAgentForTest(
         {'hello': 0.05, 'hallo': 0.3, 'hello_world': 0.2, 'world': 0.45}
     )
     wrapper = LogScoredListAgent(inner_agent, False)

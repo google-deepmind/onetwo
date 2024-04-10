@@ -44,6 +44,21 @@ def _add_executable(arg1: Any, arg2: Any) -> Any:
 
 class PythonToolUseEnvironmentTest(parameterized.TestCase):
 
+  def setUp(self):
+    super().setUp()
+
+    # This class tests routing.function_registry. In case `import routing` is
+    # not executed (this may happen when running `pytest` with multiple tests
+    # that import `llm` module) the `function_registry` may be already filled
+    # with various functions elsewhere in unexpected ways. We manually remove
+    # all the keys to make sure it is empty.
+    routing.function_registry.clear()
+    # Unfortunately, we also removed all the builtins configured when importing
+    # tool_use. Let's re-set them.
+    # TODO:` or such
+    # for better control of reproducibility.
+    tool_use.reset_defaults()
+
   # pylint: disable=invalid-name
   def assertRunCodeResultEqualIgnoringTiming(
       self,

@@ -27,7 +27,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 import dataclasses
-from typing import Final, TypeAlias, Union, cast
+import enum
+from typing import Final, NamedTuple, TypeAlias, Union, cast
 import immutabledict
 import PIL.Image
 
@@ -40,6 +41,20 @@ _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE: Final[Mapping[str, list[str]]] = (
         'pil_image': ['image/'],
     })
 )
+
+
+class PredefinedRole(enum.Enum):
+  """Predefined roles for a message.
+
+  We define a number of specific roles that may be used in specific ways by the
+  formatters. The string value corresponding to these roles is not directly used
+  in the prompt, but instead the formatters use these roles as keys in the
+  `role_map` property. See the builtins/formatting.py module for more details.
+  """
+  MODEL = 'model'
+  USER = 'user'
+  SYSTEM = 'system'
+  CONTEXT = 'context'
 
 
 @dataclasses.dataclass
@@ -287,3 +302,10 @@ class ChunkList:
     return ''.join(
         [str(chunk) for chunk in self.chunks if chunk.content_type == 'str']
     )
+
+
+class Message(NamedTuple):
+  """NamedTuple to represent a message in a chat conversation."""
+
+  role: str | PredefinedRole
+  content: str | ChunkList

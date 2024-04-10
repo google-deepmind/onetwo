@@ -22,7 +22,7 @@ import contextlib
 import copy
 import dataclasses
 from typing import Generic, TypeAlias, TypeVar, final
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
 from onetwo.agents import critics
 from onetwo.core import executing
 from onetwo.core import tracing

@@ -21,7 +21,7 @@ import dataclasses
 import re
 from typing import Any, Type, TypeVar
 
-from onetwo.backends import base as backends_base
+from onetwo.backends import backends_base
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing

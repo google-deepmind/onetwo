@@ -58,6 +58,16 @@ def generate_test_function(
 
 class ComposablesTest(parameterized.TestCase):
 
+  def setUp(self):
+    super().setUp()
+
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
+
   def test_composable(self):
     llm.generate_text.configure(generate_test_temp_function)
     result = executing.run('hello' + c.generate_text() + ' end')
@@ -203,7 +213,7 @@ class ComposablesTest(parameterized.TestCase):
         'hello ' + c.instruct(assistant_prefix='world') + ' end'
     )
     self.assertEqual('hello world done end', result)
-    self.assertStartsWith(actual_prompts[0], 'Task: ')
+    self.assertStartsWith(actual_prompts[0], 'Task: ', actual_prompts[0])
     self.assertEndsWith(str(actual_prompts[0]), 'Answer: world')
 
   def test_format_strings(self):

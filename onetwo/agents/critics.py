@@ -22,7 +22,7 @@ import abc
 from collections.abc import Sequence
 from typing import Generic, TypeAlias, TypeVar
 
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
 from onetwo.core import executing
 
 

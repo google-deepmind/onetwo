@@ -46,7 +46,7 @@ import contextlib
 import dataclasses
 from typing import Protocol, TypeAlias
 
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
 from onetwo.builtins import prompt_templating
 from onetwo.core import executing
 from onetwo.core import tracing

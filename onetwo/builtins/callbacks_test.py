@@ -38,6 +38,13 @@ class CallbacksTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
 
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
+
     def generate(
         prompt: str | content_lib.ChunkList,
         *,

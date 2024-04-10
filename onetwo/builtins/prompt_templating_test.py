@@ -22,7 +22,7 @@ from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 import dataclasses_json
-from onetwo.backends import test_utils
+from onetwo.backends import backends_test_utils
 from onetwo.builtins import prompt_templating
 from onetwo.core import executing
 from onetwo.core import sampling
@@ -64,7 +64,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     expected_reply_text_stripped = '2 * 3 * 4'  # Because of `trim`.
     expected_final_prefix = expected_request + expected_reply_text_stripped
 
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={expected_request: reply_text},
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -111,7 +111,7 @@ class PromptTemplatingTest(parameterized.TestCase):
         Q:What is 3**3?
         A:""")
     expected_final_prefix = expected_request + DEFAULT_REPLY + '\n'
-    backend = test_utils.LLMForTest(default_reply=DEFAULT_REPLY)
+    backend = backends_test_utils.LLMForTest(default_reply=DEFAULT_REPLY)
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
@@ -145,7 +145,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     # On a real language model backend typically the reply would come one token
     # at a time, but we are just simulating some reply that gets built up
     # incrementally.
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={'test': 'ok'},
         reply_by_prompt_target={},
         default_reply='',
@@ -216,7 +216,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     reply_text = ' The answer is 24.\n'
     expected_reply_text_stripped = 'The answer is 24.'
 
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={expected_request: reply_text},
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -280,7 +280,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     reply_by_prompt = {}
     reply_by_prompt[expected_request] = reply_text
 
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt=reply_by_prompt,
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -323,7 +323,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     reply_by_prompt_target = {
         f'Apple is  {target}': score for (target, score) in targets_and_scores
     }
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={},
         reply_by_prompt_target=reply_by_prompt_target,
         default_reply=DEFAULT_REPLY,
@@ -368,7 +368,7 @@ class PromptTemplatingTest(parameterized.TestCase):
         A:no
         Q:Are oranges blue?
         A:""")
-    backend = test_utils.LLMForTest(default_reply=DEFAULT_REPLY)
+    backend = backends_test_utils.LLMForTest(default_reply=DEFAULT_REPLY)
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
@@ -412,7 +412,7 @@ class PromptTemplatingTest(parameterized.TestCase):
       self, prefix: str, cls: type[Any], return_value: str, expected_prefix: str
   ):
     prompt_text = '{{ prefix }} {{ generate_object(cls) }}'
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={prefix: return_value},
         default_reply=DEFAULT_REPLY,
         default_score=0.0,
@@ -435,7 +435,7 @@ class PromptTemplatingTest(parameterized.TestCase):
   def test_j2_dry_run(self):
     expected_request = 'the first day of the week, i.e.'
     expected_reply = ', Sunday.\n\n'
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={expected_request: expected_reply},
         reply_by_prompt_target={},
         default_reply='some reply',
@@ -531,7 +531,7 @@ class PromptTemplatingTest(parameterized.TestCase):
       ('three', 3, ['1', '2', '3'], "test['1', '2', '3']"),
   )
   def test_samples(self, samples, expected_answer, expected_prefix):
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={'test': ['1', '2', '3', '4', '5']},
         reply_by_prompt_target={}, default_reply='', default_score=0.0,
     )
@@ -557,7 +557,7 @@ class PromptTemplatingTest(parameterized.TestCase):
       ),
   )
   def test_samples_streaming(self, samples, expected_answer, expected_prefix):
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
             'test': [
                 'long answer 1',
@@ -584,7 +584,7 @@ class PromptTemplatingTest(parameterized.TestCase):
       self.assertEqual(output['prefix'], expected_prefix, output['prefix'])
 
   def test_j2_render_stream_iterable(self):
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={'test-': 'abc'},
         iterable_replies=True,
     )
@@ -675,7 +675,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     reply_text_1 = ' 2'
     reply_text_2 = ' 3'
 
-    backend_1 = test_utils.LLMForTest(
+    backend_1 = backends_test_utils.LLMForTest(
         reply_by_prompt={
             expected_request_1: reply_text_1,
         },
@@ -685,7 +685,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     )
     # We create two separate backends to make sure the
     # `generates_only_the_expected_prompts` test behaves as expected.
-    backend_2 = test_utils.LLMForTest(
+    backend_2 = backends_test_utils.LLMForTest(
         reply_by_prompt={
             expected_request_2: reply_text_2,
         },
@@ -730,7 +730,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     expected_request_1 = 'Question: 1 + 1? Answer: '
     expected_request_2 = 'Question: 1 + 1? Answer:'
 
-    backend_1 = test_utils.LLMForTest(
+    backend_1 = backends_test_utils.LLMForTest(
         reply_by_prompt_target={
             f'{expected_request_1} 1': -2.,
             f'{expected_request_1} 2': -1.,
@@ -740,7 +740,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     )
     # We create two separate backends to make sure the
     # `generates_only_the_expected_prompts` test behaves as expected.
-    backend_2 = test_utils.LLMForTest(
+    backend_2 = backends_test_utils.LLMForTest(
         reply_by_prompt_target={
             f'{expected_request_2} 1': -4.,
             f'{expected_request_2} 2': -3.,
@@ -796,7 +796,7 @@ class PromptTemplatingTest(parameterized.TestCase):
             '{{ prompt_prefix }}{{ generate_object(cls, space_healing=True) }}'
         ),
     )
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
             '': ' a',  # We return a reply starting with a space.
         },
@@ -823,7 +823,7 @@ class PromptTemplatingTest(parameterized.TestCase):
 
     with self.subTest('validate_choose'):
       self.assertEqual(prefix2, expected_choose, repr(prefix2))
-    backend = test_utils.LLMForTest(
+    backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
             '': ' 3',  # We return a reply starting with a space.
         },

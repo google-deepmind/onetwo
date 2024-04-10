@@ -234,6 +234,16 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
             'provided implementation does not accept this argument.'
         )
 
+  def __repr__(self):
+    return str(self)
+
+  def __str__(self) -> str:
+    """For debugging purposes."""
+    return (
+        f'Builtin {self._builtin_name}, impl:'
+        f' {self._implementation}, defaults: {self._defaults}'
+    )
+
   @property
   def defaults(self):
     """Default argument values specified when configuring the builtin."""
@@ -343,6 +353,10 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
   def name(self) -> str:
     """Return the name of the builtin function."""
     return self._name
+
+  def is_configured(self) -> bool:
+    """Return whether the builtin function has been configured."""
+    return self._configured
 
   def configure(
       self,

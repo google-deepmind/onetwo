@@ -17,7 +17,7 @@ import dataclasses
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from onetwo.agents import base as agents_base
+from onetwo.agents import agents_base
 from onetwo.agents import distribution
 from onetwo.core import executing
 

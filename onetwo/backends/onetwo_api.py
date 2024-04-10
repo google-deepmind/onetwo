@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import json
 from typing import Any
-from onetwo.backends import base as backend_base
+from onetwo.backends import backends_base
 from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import caching
@@ -40,7 +40,7 @@ import requests
 @dataclasses.dataclass
 class OneTwoAPI(
     caching.FileCacheEnabled,  # Methods of this class are cached.
-    backend_base.Backend,
+    backends_base.Backend,
 ):
   """Google OneTwo API.
 

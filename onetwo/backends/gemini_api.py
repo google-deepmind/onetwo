@@ -21,7 +21,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, Final, cast
+from typing import Any, cast, Final
 
 from absl import logging
 import google.generativeai as genai
@@ -29,11 +29,13 @@ from google.generativeai.types import content_types
 from google.generativeai.types import generation_types
 from google.generativeai.types import safety_types
 import immutabledict
-from onetwo.backends import base as backend_base
+from onetwo.backends import backends_base
+from onetwo.builtins import formatting
 from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
+from onetwo.core import executing
 from onetwo.core import utils
 
 
@@ -84,7 +86,7 @@ def _truncate(text: str, max_tokens: int | None = None) -> str:
 @dataclasses.dataclass
 class GeminiAPI(
     caching.FileCacheEnabled,  # Methods of this class are cached.
-    backend_base.Backend,
+    backends_base.Backend,
 ):
   """Google GenAI API.
 
@@ -181,7 +183,7 @@ class GeminiAPI(
     )
     llm.embed.configure(self.embed)
     llm.chat.configure(
-        self.chat,
+        self.chat, formatter=formatting.FormatterName.API
     )
     llm.count_tokens.configure(self.count_tokens)
 
@@ -420,6 +422,19 @@ class GeminiAPI(
         )
     return results
 
+  async def chat(
+      self,
+      messages: Sequence[content_lib.Message],
+      formatter: formatting.FormatterName = formatting.FormatterName.API,
+      **kwargs,
+  ) -> str:
+    """See builtins.llm.chat."""
+    if formatter == formatting.FormatterName.API:
+      return await self.chat_via_api(messages, **kwargs)
+    else:
+      return await llm.default_chat(messages, formatter, **kwargs)
+
+  @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -429,26 +444,26 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def chat(
+  def chat_via_api(
       self,
-      messages: Sequence[llm.Message],
+      messages: Sequence[content_lib.Message],
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
 
     last_message_index = len(messages)-1
-    if messages[last_message_index].role == llm.ROLE_MODEL:
+    if messages[last_message_index].role == content_lib.PredefinedRole.MODEL:
       # If the last message is from the model, we remove it as there is no
       # support for continuing a prefix.
       last_message_index -= 1
 
     history = []
     for msg in messages[:last_message_index]:
-      if msg.role == llm.ROLE_INSTRUCTIONS:
+      if msg.role == content_lib.PredefinedRole.SYSTEM:
         # Ignore instructions for now.
         continue
-      role = 'user' if msg.role == llm.ROLE_USER else 'model'
+      role = 'user' if msg.role == content_lib.PredefinedRole.USER else 'model'
       history.append(
           content_types.to_content({'role': role, 'parts': [msg.content]})
       )
