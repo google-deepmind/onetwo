@@ -50,10 +50,16 @@ dev = [
     "pylint>=2.6.0",
     "pyink",
 ]
+
 # Installed through `pip install '.[docs]'`.
 docs = [
     # Install `apitree` with all extensions (sphinx, theme,...)
     "sphinx-apitree[ext]",
+]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
 ]
 
 [tool.pyink]
