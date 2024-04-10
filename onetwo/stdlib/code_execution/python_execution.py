@@ -16,6 +16,7 @@
 
 For library code prefer `python_execution_utils` instead.
 """
+from __future__ import annotations
 
 import abc
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -23,7 +24,7 @@ import contextlib
 import dataclasses
 import datetime
 import enum
-from typing import Any, Callable, Self
+from typing import Any, Callable
 
 from onetwo.core import executing
 
@@ -179,7 +180,7 @@ class PythonSandbox(metaclass=abc.ABCMeta):
     """Returns whether variables are carried over from one call to the next."""
 
   @contextlib.asynccontextmanager
-  async def start(self) -> AsyncIterator[Self]:
+  async def start(self) -> AsyncIterator[PythonSandbox]:
     """Context manager for starting the sandbox and cleaning up at the end.
 
     Yields:
@@ -194,7 +195,7 @@ class PythonSandbox(metaclass=abc.ABCMeta):
     else:
       self.stop()
 
-  async def start_unsafe(self) -> Self:
+  async def start_unsafe(self) -> PythonSandbox:
     """Starts the sandbox (but does not automatically clean it up).
 
     It is the responsibility of the caller to call `stop` when they are done

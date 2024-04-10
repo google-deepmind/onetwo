@@ -14,13 +14,15 @@
 
 """Library for executing Python code and calling tools directly or via code."""
 
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import datetime
 import functools
 import logging
 import traceback
-from typing import Any, Self, TypeAlias
+from typing import Any, TypeAlias
 
 from onetwo.builtins import tool_use
 from onetwo.core import constants
@@ -190,14 +192,14 @@ class PythonToolUseEnvironment:
       # TODO: Add support for stateful tools.
       self._stateless_tools[tool.name] = tool
 
-  def _start_unsafe(self) -> Self:
+  def _start_unsafe(self) -> PythonToolUseEnvironment:
     """Starts the environment (but does not automatically clean it up)."""
     if self._started:
       raise ValueError('Environment already started.')
     self._started = True
     return self
 
-  async def start_unsafe(self) -> Self:
+  async def start_unsafe(self) -> PythonToolUseEnvironment:
     """Starts the environment (but does not automatically clean it up).
 
     It is the responsibility of the caller to call `stop` when they are done
@@ -224,7 +226,7 @@ class PythonToolUseEnvironment:
     self._sandbox_cache.destroy()
     self._started = False
 
-  def __enter__(self) -> Self:
+  def __enter__(self) -> PythonToolUseEnvironment:
     """Starts the environment on context manager enter."""
     return self._start_unsafe()
 

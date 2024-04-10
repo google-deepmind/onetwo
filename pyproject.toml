@@ -2,7 +2,7 @@
 name = "onetwo"
 description = "LLM Orchestration Library by Google DeepMind."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [{name = "OneTwo Authors", email="no-reply@google.com"}]
 classifiers = [
