@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Google GenAI API model.
+"""OneTwo connector for the Google GenAI API.
 
-See https://ai.google.dev/api/python/google/generativeai
+See https://ai.google.dev/api/python/google/generativeai.
 """
 
 import collections

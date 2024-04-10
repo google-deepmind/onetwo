@@ -25,7 +25,9 @@ dependencies = [
     "immutabledict",
     "jinja2",
     "numpy",
+    "openai",
     "pillow",
+    "pytest",
     "portpicker",  # For `backends/onetwo_api_test_script.sh`.
     "pyyaml",  # For `import yaml`.
     "termcolor",
@@ -44,7 +46,6 @@ repository = "https://github.com/google-deepmind/onetwo"
 [project.optional-dependencies]
 # Installed through `pip install '.[dev]'`.
 dev = [
-    "pytest",
     "pytest-xdist",
     "pylint>=2.6.0",
     "pyink",

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backend wrapper for a locally-loaded Gemma model.
+"""OneTwo connector for a locally-loaded Gemma model.
 
 This will load and run the Gemma model in process. It can use a GPU/TPU if
 one is available.
