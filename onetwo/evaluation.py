@@ -36,7 +36,7 @@ import pprint
 import random
 import textwrap
 import time
-from typing import cast, Any, Final, Protocol, TypeAlias, TypeVar
+from typing import Any, Final, Protocol, TypeAlias, TypeVar, cast
 
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
@@ -61,21 +61,25 @@ ComparisonResult: TypeAlias = tuple[int, ExtraInfo]
 
 
 class _EvaluationCritic(Protocol[_Result]):
+
   def __call__(
       self,
       answer: _Result,
       example: Example,
       **kwargs: Any,
-  ) -> executing.Executable[MetricResult] | MetricResult: ...
+  ) -> executing.Executable[MetricResult] | MetricResult:
+    ...
 
 
 class _ComparisonCritic(Protocol[_Result]):
+
   def __call__(
       self,
       answers: Sequence[_Result],
       example: Example,
       **kwargs: Any,
-  ) -> executing.Executable[ComparisonResult] | ComparisonResult: ...
+  ) -> executing.Executable[ComparisonResult] | ComparisonResult:
+    ...
 
 
 def _compile_strategies(
@@ -254,8 +258,8 @@ def _apply_critic_to_answers(
       s_k_i is an answer of `k`-th strategy (out of K) on the i-th example. When
       executed, s_k_i returns a tuple (answer, example).
     critic: A function that follows either _EvaluationCritic or
-      _ComparisonCritic protocol. Returns Executable[_CriticResult]
-      (or _CriticResult).
+      _ComparisonCritic protocol. Returns Executable[_CriticResult] (or
+      _CriticResult).
     critic_takes_single_answer: Whether the critic function is expected to match
       _EvaluationCritic or _ComparisonCritic protocol. For the first case use
       True, for the latter use False (default).
@@ -263,6 +267,7 @@ def _apply_critic_to_answers(
   Yields:
     Stream of critic's values on the stream of answers.
   """
+
   @executing.make_executable
   async def _apply_critic(
       executables: Sequence[executing.Executable[tuple[_Result, Example]]],
@@ -354,8 +359,8 @@ def compare_with_critic(
       progress of evaluation.
     update_extra_info_fn: Function that aggregates additional metric
       information, returned by _ComparisonCritic. We aggregate additional
-      information in-place with `update_extra_info_fn(aggr_info, new_info)`.
-      By default we use dict's `update` method.
+      information in-place with `update_extra_info_fn(aggr_info, new_info)`. By
+      default we use dict's `update` method.
     print_debug: Print per example debug information.
 
   Returns:
@@ -445,8 +450,8 @@ async def naive_evaluation_critic(
   circumference of a circle with radius 1cm?".
 
   Args:
-    answer: Candidate answer for the question (contained in the example) that
-      a critic needs to evaluate.
+    answer: Candidate answer for the question (contained in the example) that a
+      critic needs to evaluate.
     example: Example that contains the question and the golden answer.
     question_key: Key of the element in the example dictionary that contains the
       question.
@@ -492,15 +497,17 @@ async def naive_evaluation_critic(
   critic_prompt += 'Answer 1 (correct): ' + example[golden_answer_key] + '\n'
   critic_prompt += 'Answer 2: ' + answer + '\n'
   critic_prompt += 'Is Answer 2 also correct? (yes/no):'
-  res = await llm.generate_text(
-      prompt=critic_prompt,
-      stop=['Question:'],
-  )
+  res = (
+      await llm.generate_text(
+          prompt=critic_prompt,
+          stop=['Question:'],
+      )
+  ).strip()
   # TODO: Implement the following as a builtin. It's fairly common.
-  if res.startswith(' yes'):
-    is_correct = 1.
-  elif res.startswith(' no'):
-    is_correct = 0.
+  if res.startswith('yes'):
+    is_correct = 1.0
+  elif res.startswith('no'):
+    is_correct = 0.0
   else:
     raise ValueError(
         'Critic is expected to start its answer from " yes" or " no" . Instead '
@@ -513,7 +520,7 @@ async def naive_evaluation_critic(
       example[question_key]: {
           'golden_answer': example[golden_answer_key],
           'candidate_answer': answer,
-          'answer_is_correct': res.startswith(' yes'),
+          'answer_is_correct': is_correct,
           'reason': reason,
           'critic_prompt': critic_prompt,
       }
@@ -556,19 +563,19 @@ def evaluate(
       `strategy(**example)` returns a valid Executable for any example in
       examples.
     examples: Iterable of examples on which to evaluate the strategy.
-    critic: A strategy (or a normal function) that takes (i) an answer
-      produced by the strategy that we want to evaluate and (ii) an example on
-      which the answer was produced (that contains the question and the golden
-      answer), and returns an Executable[MetricResult] (or simply MetricResult).
-      Must follow the _EvaluationCritic protocol.
+    critic: A strategy (or a normal function) that takes (i) an answer produced
+      by the strategy that we want to evaluate and (ii) an example on which the
+      answer was produced (that contains the question and the golden answer),
+      and returns an Executable[MetricResult] (or simply MetricResult). Must
+      follow the _EvaluationCritic protocol.
     examples_total_num: Even if examples object has no implementation of __len__
       (examples could be a generator function with `yield`) user may still know
       (and provide) its exact length. This value is used only for logging the
       progress of evaluation.
     update_extra_info_fn: Function that aggregates additional evaluation
       information, returned by `metric_fn`. We aggregate additional information
-      in-place with `update_extra_info_fn(aggr_info, new_info)`. By
-      default we use dict's `update` method.
+      in-place with `update_extra_info_fn(aggr_info, new_info)`. By default we
+      use dict's `update` method.
     print_debug: Print per example debug information.
 
   Returns:
