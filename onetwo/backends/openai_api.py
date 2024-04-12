@@ -204,7 +204,7 @@ class OpenAIAPI(
     self._cache_handler = caching.SimpleFunctionCache(
         cache_filename=self.cache_filename,
     )
-    if self.api_key is not None:
+    if self.api_key:
       self._client = openai.OpenAI(api_key=self.api_key)
     else:
       self._client = openai.OpenAI()

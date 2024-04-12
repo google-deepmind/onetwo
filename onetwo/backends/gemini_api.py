@@ -199,9 +199,9 @@ class GeminiAPI(
     Returns:
       API key if it was located, otherwise None.
     """
-    if self.api_key_file is not None and self.api_key is not None:
+    if self.api_key_file is not None and self.api_key:
       raise ValueError('Cannot use both api_key_file and api_key.')
-    if self.api_key is not None:
+    if self.api_key:
       return self.api_key
     if self.api_key_file is not None:
       if not os.path.exists(self.api_key_file):

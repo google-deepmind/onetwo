@@ -296,7 +296,7 @@ class BeamSearchTest(parameterized.TestCase):
     )
     result = executing.run(agent(inputs=''))
     with self.subTest('produces_expected_result'):
-      self.assertIn(result, ['hello$', 'hallo$', 'hello world$', 'world$'])
+      self.assertIn(result, ['hello$', 'hallo$', 'hello_world$', 'world$'])
 
 
 if __name__ == '__main__':
