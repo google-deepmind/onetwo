@@ -73,7 +73,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res, openai_mock._DEFAULT_REPLY)
     expected_backend_counters = collections.Counter({
         'chat': 1,
-        '_chat_completion': 1,
+        '_chat_completions': 1,
         'chat_via_api_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls'):
@@ -97,7 +97,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     expected_backend_counters = collections.Counter({
         'generate_text': 1,
         'generate_text_batches': 1,
-        '_chat_completion': 1,
+        '_chat_completions': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls_1'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
@@ -137,7 +137,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with self.subTest('returns_correct_result_3'):
       self.assertEqual(res, openai_mock._DEFAULT_REPLY)
     expected_backend_counters = collections.Counter({
-        '_chat_completion': 2,
+        '_chat_completions': 2,
         'generate_text': 2,
         'generate_text_batches': 2,
     })

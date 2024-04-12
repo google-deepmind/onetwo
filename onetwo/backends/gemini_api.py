@@ -298,7 +298,7 @@ class GeminiAPI(
       converted = []
       for c in prompt:
         match c.content_type:
-          case 'text':
+          case 'str':
             converted.append(c.content)
           case 'bytes' | 'image/jpeg':
             # If we have bytes we assume the image is in jpeg format.
@@ -461,7 +461,7 @@ class GeminiAPI(
     history = []
     for msg in messages[:last_message_index]:
       if msg.role == content_lib.PredefinedRole.SYSTEM:
-        # Ignore instructions for now.
+        # TODO: Support SYSTEM messages.
         continue
       role = 'user' if msg.role == content_lib.PredefinedRole.USER else 'model'
       history.append(

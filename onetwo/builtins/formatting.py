@@ -216,15 +216,15 @@ class DefaultFormatter(Formatter):
 
       instruct_prompt = content_lib.ChunkList()
       if self._kwargs.get('use_fewshots', False):
-        for prompt, answer in self._DEFAULT_FEWSHOT:
+        for fs_prompt, fs_answer in self._DEFAULT_FEWSHOT:
           instruct_prompt += (
               _INSTRUCTION_QUESTION_PREFIX
               + ' '
-              + prompt
+              + fs_prompt
               + _INSTRUCTION_SEPARATOR
               + _INSTRUCTION_ANSWER_PREFIX
               + ' '
-              + answer
+              + fs_answer
               + '\n'
           )
       prompt = prompt.lstrip(' ')

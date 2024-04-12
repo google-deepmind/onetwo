@@ -172,12 +172,12 @@ def main(argv: Sequence[str]) -> None:
       print('ValueError raised.')
   assert value_error_raised
 
-  print('6.1 Safety settings: default raises warnings')
+  print('6.1 Safety settings: default may raise warnings')
   execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]
   executable = executing.par_iter(execs)
   value_error_raised = False
   try:
-    executing.run(executable)
+    res = executing.run(executable)
   except ValueError as err:
     assert 'GeminiAPI.generate_text returned no answers.' in repr(err)
     assert 'This may be caused by safety filters:' in repr(err)
@@ -185,7 +185,10 @@ def main(argv: Sequence[str]) -> None:
     value_error_raised = True
     if _PRINT_DEBUG.value:
       print('ValueError raised.')
-  assert value_error_raised
+  if not value_error_raised:
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
 
   print('6.2 Safety settings: disable safety settings')
   llm.generate_text.update(safety_settings=gemini_api.SAFETY_DISABLED)

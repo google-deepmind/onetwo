@@ -134,6 +134,17 @@ async def generate_text(
   )
 
 
+@executing.make_executable
+def echo_generate_text(
+    prompt: str | content_lib.ChunkList, **kwargs
+) -> str | tuple[str, Mapping[str, Any]]:
+  """Implementation of generate_text that simply returns the prompt."""
+  del kwargs
+  if isinstance(prompt, str):
+    return prompt
+  return '', {'prompt': prompt}
+
+
 async def _default_generate_text_from_string(
     prompt: str | content_lib.ChunkList, **kwargs
 ) -> str | tuple[str, Mapping[str, Any]]:
@@ -361,7 +372,8 @@ def instruct(
       happened on a Planet called".
     formatter: The formatter to use (see `formatting.FormatterName`).
     **kwargs: Optional arguments to be passed to the generate_text function
-      or to the formatter.
+      or to the formatter. We assume that formatter-specific arguments (if
+      present) are all gathered in kwargs['formatter_kwargs'] as a dict.
 
   Returns:
     The string returned from LLM.
@@ -414,7 +426,8 @@ def chat(
       ignored.
     formatter: The formatter to use (see `formatting.FormatterName`).
     **kwargs: Optional arguments to be passed to the generate_text function
-      or to the formatter.
+      or to the formatter. We assume that formatter-specific arguments (if
+      present) are all gathered in kwargs['formatter_kwargs'] as a dict.
 
   Returns:
     The string returned from LLM. The response always corresponds to the
@@ -431,9 +444,18 @@ def chat(
 async def default_chat(
     messages: Sequence[_Message],
     formatter: formatting.FormatterName = formatting.FormatterName.DEFAULT,
-    **kwargs
+    **kwargs,
 ) -> str:
   """Default implementation of chat via prompting and generate_text."""
+
+  formatter_kwargs = {}
+  if 'formatter_kwargs' in kwargs:
+    # We store formatter-specific arguments under `formatter_kwargs` key. If it
+    # is there we store it and remove it from `kwargs`, as these will be used to
+    # call `generate_text`.
+    formatter_kwargs = kwargs['formatter_kwargs']
+    del kwargs['formatter_kwargs']
+
   if formatter == formatting.FormatterName.API:
     raise NotImplementedError(
         'API formatting is not supported in this implementation of `chat`'
@@ -451,7 +473,7 @@ async def default_chat(
     formatter_class = formatting.FORMATTER_CLASS_BY_NAME.get(formatter, None)
     if formatter_class is None:
       raise ValueError(f'Formatter {formatter.value} is not supported.')
-    formatter_instance = formatter_class(kwargs)  # pytype: disable=not-instantiable
+    formatter_instance = formatter_class(formatter_kwargs)  # pytype: disable=not-instantiable
     prompt = formatter_instance.format(messages)
     stop_sequences = formatter_instance.extra_stop_sequences()
     defaults = routing.function_registry[generate_text.name].defaults

@@ -34,9 +34,19 @@ import PIL.Image
 
 ContentType: TypeAlias = Union[str, bytes, PIL.Image.Image]
 
+# Mapping from Python type to the content type prefixes that are accepted.
+# For example, if the content is a string, the content_type should start with
+# 'str' or 'ctrl'.
+# Special cases:
+# - 'ctrl' is used to indicate that the content is a string that should be
+# treated as a special control token (this is used for example if the
+# underlying model has been trained or fine-tuned with special control tokens
+# and its API expects these tokens to be sent not as strings).
+# - 'image/' is used to indicate that the content is the bytes content of an
+# image.
 _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE: Final[Mapping[str, list[str]]] = (
     immutabledict.immutabledict({
-        'str': ['str',],
+        'str': ['str', 'ctrl'],
         'bytes': ['bytes', 'image/'],
         'pil_image': ['image/'],
     })
@@ -108,7 +118,7 @@ class Chunk:
 
   def __str__(self) -> str:
     # This function is lossless on string and lossy on byte content.
-    if self.content_type == 'str':
+    if self.content_type in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']:
       return cast(str, self.content)
     else:
       return f'<{self.content_type}>'
@@ -125,6 +135,8 @@ class Chunk:
     """
     updated_content = self.content
     if self.content_type == 'str':
+      # Note that we do not apply lstrip to control tokens (content_type
+      # 'ctrl').
       updated_content = cast(str, self.content).lstrip(chars)
     return Chunk(content=updated_content, content_type=self.content_type)
 
@@ -140,6 +152,8 @@ class Chunk:
     """
     updated_content = self.content
     if self.content_type == 'str':
+      # Note that we do not apply rstrip to control tokens (content_type
+      # 'ctrl').
       updated_content = cast(str, self.content).rstrip(chars)
     return Chunk(content=updated_content, content_type=self.content_type)
 
@@ -298,10 +312,18 @@ class ChunkList:
     return rendered.startswith(prefix, start, end)
 
   def to_simple_string(self) -> str:
-    """Converts the chunk list to a string whithout the multimodal elements."""
-    return ''.join(
-        [str(chunk) for chunk in self.chunks if chunk.content_type == 'str']
-    )
+    """Converts the chunk list to a string whithout the multimodal elements.
+
+    This includes the strings and the control tokens (content_type 'ctrl').
+
+    Returns:
+      A string containing all the string elements of the chunk list.
+    """
+    return ''.join([
+        str(chunk)
+        for chunk in self.chunks
+        if chunk.content_type in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']
+    ])
 
 
 class Message(NamedTuple):

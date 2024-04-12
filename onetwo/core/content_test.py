@@ -39,8 +39,12 @@ class ContentTest(parameterized.TestCase):
       ('supported_type_no_content_type', 'test', None, False, 'str'),
       ('supported_type_no_content_type_bytes', b'test', None, False, 'bytes'),
       ('supported_type_content_type', 'test', 'str', False, 'str'),
-      ('wrong_prefix', b'test', 'other', True, None),
-      ('correct_prefix', b'test', 'image/jpeg', False, 'image/jpeg'),
+      ('wrong_prefix_other', b'test', 'other', True, None),
+      ('wrong_prefix_str', b'test', 'str', True, None),
+      ('wrong_prefix_ctrl', b'test', 'ctrl', True, None),
+      ('correct_prefix_image', b'test', 'image/jpeg', False, 'image/jpeg'),
+      ('correct_prefix_str', 'test', 'str', False, 'str'),
+      ('correct_prefix_ctrl', 'test', 'ctrl', False, 'ctrl'),
       (
           'correct_prefix_pil',
           PIL.Image.Image(),
@@ -132,6 +136,12 @@ class ContentTest(parameterized.TestCase):
       self.assertEqual(_Chunk('testabbcbc').rstrip('abc'), _Chunk('test'))
       self.assertEqual(_Chunk('testabbcbc').rstrip(' '), _Chunk('testabbcbc'))
 
+    with self.subTest('chunk_rstrip_does_not_touch_ctrl'):
+      self.assertEqual(
+          _Chunk('testabbcbc', content_type='ctrl').rstrip('abc'),
+          _Chunk('testabbcbc', content_type='ctrl'),
+      )
+
     chunk_list = _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')])
 
     with self.subTest('chunk_list_rstrip_works'):
@@ -140,6 +150,12 @@ class ContentTest(parameterized.TestCase):
           _ChunkList(chunks=['12', b'13', _Chunk('test')]),
       )
       self.assertEqual(chunk_list.rstrip(' '), chunk_list)
+
+    with self.subTest('chunk_lstrip_does_not_touch_ctrl'):
+      self.assertEqual(
+          _Chunk('abbcbc', content_type='ctrl').lstrip('abc'),
+          _Chunk('abbcbc', content_type='ctrl'),
+      )
 
     chunk_list = _ChunkList(chunks=[_Chunk(''), _Chunk(''), '  123'])
 
@@ -170,17 +186,19 @@ class ContentTest(parameterized.TestCase):
     l += 'hello '
     l += _Chunk('world')
     l += _Chunk(b'123')
+    l += _Chunk('<ctrl>', content_type='ctrl')
     l += _Chunk(PIL.Image.Image())
-    self.assertEqual(str(l), 'hello world<bytes><image/jpeg>')
+    self.assertEqual(str(l), 'hello world<bytes><ctrl><image/jpeg>')
 
   def test_chunk_list_to_simple_string(self):
     l = _ChunkList()
     l += 'hello '
     l += _Chunk('world')
     l += _Chunk(b'123')
+    l += _Chunk('<ctrl>', content_type='ctrl')
     l += _Chunk(PIL.Image.Image())
     l += _Chunk(' done')
-    self.assertEqual(l.to_simple_string(), 'hello world done')
+    self.assertEqual(l.to_simple_string(), 'hello world<ctrl> done')
 
 
 if __name__ == '__main__':

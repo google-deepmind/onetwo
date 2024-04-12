@@ -138,6 +138,7 @@ class DefaultFormatterTest(parameterized.TestCase):
               ),
               _Message(role=_PredefinedRole.USER, content='Hello!'),
           ),
+          False,
           (
               '**System**: Actor "Model" needs to obey the following'
               ' rules when generating the messages below:\nAny'
@@ -151,6 +152,7 @@ class DefaultFormatterTest(parameterized.TestCase):
               _Message(role=_PredefinedRole.USER, content='Hello!'),
               _Message(role=_PredefinedRole.SYSTEM, content='No instructions'),
           ),
+          False,
           (
               '**System**: Actor "Model" needs to obey the following rules when'
               ' generating the messages below:\nAny instructions\n**User**:'
@@ -167,6 +169,7 @@ class DefaultFormatterTest(parameterized.TestCase):
               _Message(role=_PredefinedRole.SYSTEM, content='Any instructions'),
               _Message(role=_PredefinedRole.SYSTEM, content='No instructions'),
           ),
+          False,
           (
               '**User**: Hello!\n**System**: Actor "Model" needs to obey the'
               ' following rules when generating the messages below:\nAny'
@@ -176,29 +179,59 @@ class DefaultFormatterTest(parameterized.TestCase):
           ),
       ),
       (
-          'instruct_mode_single_msg',
+          'instruct_mode_single_msg_wo_fewshots',
           (_Message(role=_PredefinedRole.USER, content='Hello!'),),
+          False,
           'Task: Hello!\nAnswer:',
       ),
       (
-          'instruct_mode_with_empty_model_msg',
+          'instruct_mode_single_msg_with_fewshots',
+          (_Message(role=_PredefinedRole.USER, content='Hello!'),),
+          True,
+          'Task: Write me a palindrome.\nAnswer: Level\nTask: Hello!\nAnswer:',
+      ),
+      (
+          'instruct_mode_with_empty_model_msg_wo_fewshots',
           (
               _Message(role=_PredefinedRole.USER, content='Hello!'),
               _Message(role=_PredefinedRole.MODEL, content=''),
           ),
+          False,
           'Task: Hello!\nAnswer:',
       ),
       (
-          'instruct_mode_with_model_msg',
+          'instruct_mode_with_empty_model_msg_with_fewshots',
+          (
+              _Message(role=_PredefinedRole.USER, content='Hello!'),
+              _Message(role=_PredefinedRole.MODEL, content=''),
+          ),
+          True,
+          'Task: Write me a palindrome.\nAnswer: Level\nTask: Hello!\nAnswer:',
+      ),
+      (
+          'instruct_mode_with_model_msg_wo_fewshots',
           (
               _Message(role=_PredefinedRole.USER, content='Hello!'),
               _Message(role=_PredefinedRole.MODEL, content='Hey'),
           ),
+          False,
           'Task: Hello!\nAnswer: Hey',
       ),
+      (
+          'instruct_mode_with_model_msg_with_fewshots',
+          (
+              _Message(role=_PredefinedRole.USER, content='Hello!'),
+              _Message(role=_PredefinedRole.MODEL, content='Hey'),
+          ),
+          True,
+          (
+              'Task: Write me a palindrome.\nAnswer: Level\n'
+              'Task: Hello!\nAnswer: Hey'
+          ),
+      ),
   )
-  def test_format(self, messages, expected_result):
-    formatter = formatting.DefaultFormatter()
+  def test_format(self, messages, use_fewshots, expected_result):
+    formatter = formatting.DefaultFormatter({'use_fewshots': use_fewshots})
     res = formatter.format(messages)
     self.assertEqual(str(res), expected_result)
 
