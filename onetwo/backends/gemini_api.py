@@ -173,14 +173,17 @@ class GeminiAPI(
         top_p=self.top_p,
         top_k=self.top_k,
     )
-    llm.generate_texts.configure(
-        self.generate_texts,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        stop=self.stop,
-        top_p=self.top_p,
-        top_k=self.top_k,
-    )
+    # TODO: Disabling generate_texts so that we fall back to the
+    # default implemetation calling multiple times generate_text. Indeed it
+    # seems that there is a limitation to num_candidates=1 in generate_content.
+    # llm.generate_texts.configure(
+    #     self.generate_texts,
+    #     temperature=self.temperature,
+    #     max_tokens=self.max_tokens,
+    #     stop=self.stop,
+    #     top_p=self.top_p,
+    #     top_k=self.top_k,
+    # )
     llm.embed.configure(self.embed)
     llm.chat.configure(
         self.chat, formatter=formatting.FormatterName.API
@@ -328,7 +331,7 @@ class GeminiAPI(
       )
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
-          f'GeminiAPI.generate_text raised err:\n{err}\n'
+          f'GeminiAPI.generate_content raised err:\n{err}\n'
           f'for request:\n{pprint.pformat(prompt)[:100]}'
       ) from err
     empty = True
@@ -401,7 +404,7 @@ class GeminiAPI(
       include_details: bool = False,
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
-    """See builtins.llm.generate_text."""
+    """See builtins.llm.generate_texts."""
     self._counters['generate_texts'] += 1
     response = self._generate_content(
         prompt=prompt,
@@ -450,6 +453,10 @@ class GeminiAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
+    # TODO: The send_message method does not support parameters
+    # like temperature, top_k, top_p, etc. so they are just ignored. We should
+    # issue a warning to the user if they are set.
+    del kwargs
     self._counters['chat'] += 1
 
     last_message_index = len(messages)-1
@@ -474,7 +481,6 @@ class GeminiAPI(
     response = chat.send_message(
         content=messages[last_message_index].content,
         generation_config=generation_config,
-        **kwargs,
     )
 
     return response.text

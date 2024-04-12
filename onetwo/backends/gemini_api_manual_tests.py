@@ -22,7 +22,9 @@ from absl import flags
 from absl import logging
 from onetwo.backends import gemini_api
 from onetwo.builtins import composables as c
+from onetwo.builtins import formatting
 from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
 
@@ -49,6 +51,7 @@ _PRINT_DEBUG = flags.DEFINE_bool(
 
 
 def main(argv: Sequence[str]) -> None:
+  success = True
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
   api_key = _API_KEY.value
@@ -150,11 +153,15 @@ def main(argv: Sequence[str]) -> None:
         check_and_complete(', '.join(map(str, list(range(10000)))))
     )
   except ValueError as err:
-    assert 'GeminiAPI.generate_text raised' in repr(err)
+    if 'GeminiAPI.generate_content raised' not in repr(err):
+      success = False
+      print('ValueError raised, but not with the expected message.', err)
     value_error_raised = True
     if _PRINT_DEBUG.value:
       print('ValueError raised.')
-  assert value_error_raised
+  if not value_error_raised:
+    success = False
+    print('ValueError not raised.')
 
   print('5. Three batched generate queries, one of which does not fit.')
   exe = executing.par_iter([
@@ -166,11 +173,15 @@ def main(argv: Sequence[str]) -> None:
   try:
     _ = executing.run(exe)
   except ValueError as err:
-    assert 'GeminiAPI.generate_text raised' in repr(err)
+    if 'GeminiAPI.generate_content raised' not in repr(err):
+      success = False
+      print('ValueError raised, but not with the expected message:', err)
     value_error_raised = True
     if _PRINT_DEBUG.value:
       print('ValueError raised.')
-  assert value_error_raised
+  if not value_error_raised:
+    success = False
+    print('ValueError not raised.')
 
   print('6.1 Safety settings: default may raise warnings')
   execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]
@@ -179,13 +190,16 @@ def main(argv: Sequence[str]) -> None:
   try:
     res = executing.run(executable)
   except ValueError as err:
-    assert 'GeminiAPI.generate_text returned no answers.' in repr(err)
-    assert 'This may be caused by safety filters:' in repr(err)
-    assert 'finish_reason: SAFETY' in repr(err)
+    if 'GeminiAPI.generate_text returned no answers.' not in repr(
+        err
+    ) or 'finish_reason: SAFETY' not in repr(err):
+      success = False
+      print('ValueError raised, but not with the expected message:', err)
     value_error_raised = True
     if _PRINT_DEBUG.value:
       print('ValueError raised.')
   if not value_error_raised:
+    print('ValueError not raised.')
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
       pprint.pprint(res)
@@ -207,7 +221,9 @@ def main(argv: Sequence[str]) -> None:
       + c.store('answer', c.generate_text())
   )
   _ = executing.run(executable)
-  assert 'earth' in executable['answer'].lower(), executable['answer']
+  if 'earth' not in executable['answer'].lower():
+    success = False
+    print('Returned value does not contain "earth":', executable['answer'])
   if _PRINT_DEBUG.value:
     print('Returned value:', executable['answer'])
 
@@ -218,7 +234,79 @@ def main(argv: Sequence[str]) -> None:
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
-  print('8. Check that multimodal is working.')
+  print('8. Check that generate_texts is working.')
+  res = executing.run(
+      llm.generate_texts(
+          prompt=prompt_text,
+          samples=3,
+          stop=['\n\n'],
+          max_tokens=5,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('9a. Check that chat is working (API formatting).')
+  res = executing.run(
+      llm.chat(
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.SYSTEM,
+                  content='You are a helpful and insightful chatbot.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of France?',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.MODEL,
+                  content='Obviously, it is Paris.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of Germany?',
+              ),
+          ],
+          temperature=0.5,
+          max_tokens=15,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('9b. Check that chat is working (Default formatting).')
+  res = executing.run(
+      llm.chat(
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.SYSTEM,
+                  content='You are a helpful and insightful chatbot.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of France?',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.MODEL,
+                  content='Obviously, it is Paris.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of Germany?',
+              ),
+          ],
+          temperature=0.5,
+          formatter=formatting.FormatterName.DEFAULT,
+          max_tokens=15,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('10. Check that multimodal is working.')
   fname_mm = os.path.join(_CACHE_DIR.value, 'google_gemini_api_mm.json')
   backend = gemini_api.GeminiAPI(
       cache_filename=fname_mm,
@@ -248,7 +336,9 @@ def main(argv: Sequence[str]) -> None:
         + c.store('answer', c.generate_text())
     )
     _ = executing.run(executable)
-  assert 'chickadee' in executable['answer'].lower(), executable['answer']
+  if 'chickadee' not in executable['answer'].lower():
+    success = False
+    print('Returned value does not contain "chickadee":', executable['answer'])
   if _PRINT_DEBUG.value:
     print('Returned value:', executable['answer'])
 
@@ -259,7 +349,7 @@ def main(argv: Sequence[str]) -> None:
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
 
-  print('PASS')
+  print('PASS' if success else 'FAIL')
 
 
 if __name__ == '__main__':

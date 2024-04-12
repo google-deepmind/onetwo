@@ -403,7 +403,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     with self.subTest('generate_raises_value_error'):
       with self.assertRaisesRegex(
-          ValueError, 'GeminiAPI.generate_text raised er*'
+          ValueError, 'GeminiAPI.generate_content raised er*'
       ):
         _ = executing.run(exe)
     exe = executing.par_iter([
@@ -415,7 +415,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     ])
     with self.subTest('batched_generate_raises_value_error'):
       with self.assertRaisesRegex(
-          ValueError, 'GeminiAPI.generate_text raised er*'
+          ValueError, 'GeminiAPI.generate_content raised er*'
       ):
         _ = executing.run(exe)
 
@@ -424,7 +424,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     prompt = 'Something'
     results = executing.run(llm.generate_texts(prompt=prompt, samples=3))
     self.assertLen(results, 3)
-    self.assertListEqual(list(results), ['a' * 10, 'b' * 10, 'c' * 10])
+    self.assertListEqual(list(results), ['a' * 10, 'a' * 10, 'a' * 10])
 
   def test_chat(self):
     backend = _get_and_register_backend()
