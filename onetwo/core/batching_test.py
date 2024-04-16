@@ -1060,25 +1060,46 @@ class BatchingTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       {
-          'testcase_name': 'no_error',
+          'testcase_name': 'no_error_batching_enabled',
           'inputs': [1, 2, 3],
+          'enable_batching': True,
           'expected_processed': [[1, 2], [3]],
           'expected_results': [1, 2, 3],
           'expected_error_message_if_not_caught': None,
       },
       {
-          'testcase_name': 'single_error',
+          'testcase_name': 'single_error_batching_enabled',
           'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': True,
           'expected_processed': [[1, 'error2'], [3]],
           # When an error occurs in a batch, it affects all of the other
           # requests in that batch (but not requests from other batches).
           'expected_results': ['error2', 'error2', 3],
           'expected_error_message_if_not_caught': 'error2',
       },
+      {
+          'testcase_name': 'no_error_batching_disabled',
+          'inputs': [1, 2, 3],
+          'enable_batching': False,
+          'expected_processed': [[1], [2], [3]],
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error_batching_disabled',
+          'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': False,
+          'expected_processed': [[1], ['error2'], [3]],
+          # When an error occurs in a batch, it affects all of the other
+          # requests in that batch (but not requests from other batches).
+          'expected_results': [1, 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
   )
   def test_exception_handling_batch_function(
       self,
       inputs,
+      enable_batching,
       expected_processed,
       expected_results,
       expected_error_message_if_not_caught,
@@ -1124,7 +1145,9 @@ class BatchingTest(parameterized.TestCase):
       executables = [process_with_error_handling(x) for x in inputs]
       return await executing.parallel(*executables)
 
-    results = batching.run(process_all_with_error_handling(inputs))
+    results = batching.run(
+        process_all_with_error_handling(inputs), enable_batching=enable_batching
+    )
     with self.subTest('processed_with_correct_batching'):
       self.assertSequenceEqual(
           expected_processed, processed, pprint.pformat(processed)
@@ -1143,29 +1166,53 @@ class BatchingTest(parameterized.TestCase):
         with self.assertRaisesRegex(
             ValueError, expected_error_message_if_not_caught
         ):
-          batching.run(process_all_without_error_handling(inputs))
+          batching.run(
+              process_all_without_error_handling(inputs),
+              enable_batching=enable_batching,
+          )
 
   @parameterized.named_parameters(
       {
-          'testcase_name': 'no_error',
+          'testcase_name': 'no_error_batching_enabled',
           'inputs': [1, 2, 3],
+          'enable_batching': True,
           'expected_processed': [[1, 2], [3]],
           'expected_results': [1, 2, 3],
           'expected_error_message_if_not_caught': None,
       },
       {
-          'testcase_name': 'single_error',
+          'testcase_name': 'single_error_batching_enabled',
           'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': True,
           'expected_processed': [[1, 'error2'], [3]],
           # When an error occurs in a batch, it affects all of the other
           # requests in that batch (but not requests from other batches).
           'expected_results': ['error2', 'error2', 3],
           'expected_error_message_if_not_caught': 'error2',
       },
+      {
+          'testcase_name': 'no_error_batching_disabled',
+          'inputs': [1, 2, 3],
+          'enable_batching': False,
+          'expected_processed': [[1], [2], [3]],
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error_batching_disabled',
+          'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': False,
+          'expected_processed': [[1], ['error2'], [3]],
+          # When an error occurs in a batch, it affects all of the other
+          # requests in that batch (but not requests from other batches).
+          'expected_results': [1, 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
   )
   def test_exception_handling_batch_method(
       self,
       inputs,
+      enable_batching,
       expected_processed,
       expected_results,
       expected_error_message_if_not_caught,
@@ -1222,7 +1269,10 @@ class BatchingTest(parameterized.TestCase):
       executables = [c.process_with_error_handling(x) for x in inputs]
       return await executing.parallel(*executables)
 
-    results = batching.run(process_all_with_error_handling(inputs))
+    results = batching.run(
+        process_all_with_error_handling(inputs),
+        enable_batching=enable_batching,
+    )
     with self.subTest('processed_with_correct_batching'):
       self.assertSequenceEqual(
           expected_processed, processed, pprint.pformat(processed)
@@ -1241,24 +1291,47 @@ class BatchingTest(parameterized.TestCase):
         with self.assertRaisesRegex(
             ValueError, expected_error_message_if_not_caught
         ):
-          batching.run(process_all_without_error_handling(inputs))
+          batching.run(
+              process_all_without_error_handling(inputs),
+              enable_batching=enable_batching,
+          )
 
   @parameterized.named_parameters(
       {
-          'testcase_name': 'no_error',
+          'testcase_name': 'no_error_batching_enabled',
           'inputs': [1, 2, 3],
+          'enable_batching': True,
           'expected_results': [1, 2, 3],
           'expected_error_message_if_not_caught': None,
       },
       {
-          'testcase_name': 'single_error',
+          'testcase_name': 'single_error_batching_enabled',
           'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': True,
+          'expected_results': [1, 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
+      {
+          'testcase_name': 'no_error_batching_disabled',
+          'inputs': [1, 2, 3],
+          'enable_batching': False,
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error_batching_disabled',
+          'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': False,
           'expected_results': [1, 'error2', 3],
           'expected_error_message_if_not_caught': 'error2',
       },
   )
-  def test_exception_handling_run_function_in_threadpool(
-      self, inputs, expected_results, expected_error_message_if_not_caught
+  def test_exception_handling_batch_function_with_threadpool(
+      self,
+      inputs,
+      enable_batching,
+      expected_results,
+      expected_error_message_if_not_caught,
   ):
     @executing.make_executable
     @batching.batch_function_with_threadpool(batch_size=2)
@@ -1287,7 +1360,9 @@ class BatchingTest(parameterized.TestCase):
       executables = [process_with_error_handling(x) for x in inputs]
       return await executing.parallel(*executables)
 
-    results = batching.run(process_all_with_error_handling(inputs))
+    results = batching.run(
+        process_all_with_error_handling(inputs), enable_batching=enable_batching
+    )
     self.assertSequenceEqual(expected_results, results, pprint.pformat(results))
 
     if expected_error_message_if_not_caught is not None:
@@ -1299,24 +1374,47 @@ class BatchingTest(parameterized.TestCase):
         with self.assertRaisesRegex(
             ValueError, expected_error_message_if_not_caught
         ):
-          batching.run(process_all_without_error_handling(inputs))
+          batching.run(
+              process_all_without_error_handling(inputs),
+              enable_batching=enable_batching,
+          )
 
   @parameterized.named_parameters(
       {
-          'testcase_name': 'no_error',
+          'testcase_name': 'no_error_batching_enabled',
           'inputs': [1, 2, 3],
+          'enable_batching': True,
           'expected_results': [1, 2, 3],
           'expected_error_message_if_not_caught': None,
       },
       {
-          'testcase_name': 'single_error',
+          'testcase_name': 'single_error_batching_enabled',
           'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': True,
+          'expected_results': [1, 'error2', 3],
+          'expected_error_message_if_not_caught': 'error2',
+      },
+      {
+          'testcase_name': 'no_error_batching_disabled',
+          'inputs': [1, 2, 3],
+          'enable_batching': False,
+          'expected_results': [1, 2, 3],
+          'expected_error_message_if_not_caught': None,
+      },
+      {
+          'testcase_name': 'single_error_batching_disabled',
+          'inputs': [1, ValueError('error2'), 3],
+          'enable_batching': False,
           'expected_results': [1, 'error2', 3],
           'expected_error_message_if_not_caught': 'error2',
       },
   )
-  def test_exception_handling_run_method_in_threadpool(
-      self, inputs, expected_results, expected_error_message_if_not_caught
+  def test_exception_handling_batch_method_with_threadpool(
+      self,
+      inputs,
+      enable_batching,
+      expected_results,
+      expected_error_message_if_not_caught,
   ):
     @batching.add_batching
     class C:
@@ -1352,7 +1450,9 @@ class BatchingTest(parameterized.TestCase):
       executables = [c.process_with_error_handling(x) for x in inputs]
       return await executing.parallel(*executables)
 
-    results = batching.run(process_all_with_error_handling(inputs))
+    results = batching.run(
+        process_all_with_error_handling(inputs), enable_batching=enable_batching
+    )
     self.assertSequenceEqual(expected_results, results, pprint.pformat(results))
 
     if expected_error_message_if_not_caught is not None:
@@ -1364,7 +1464,11 @@ class BatchingTest(parameterized.TestCase):
         with self.assertRaisesRegex(
             ValueError, expected_error_message_if_not_caught
         ):
-          batching.run(process_all_without_error_handling(inputs))
+          batching.run(
+              process_all_without_error_handling(inputs),
+              enable_batching=enable_batching,
+          )
+
 
 if __name__ == '__main__':
   absltest.main()

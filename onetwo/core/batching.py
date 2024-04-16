@@ -380,6 +380,9 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
     else:
       wrapped_requests = [_Container(r) for r in requests]
       await self.process(wrapped_requests)
+      for r in wrapped_requests:
+        if r.exception is not None:
+          raise r.exception
       return [r.result for r in wrapped_requests]
 
   async def finish(self, force: bool = False) -> None:
