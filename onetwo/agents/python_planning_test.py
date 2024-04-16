@@ -58,6 +58,36 @@ def firstnumber(x: str) -> float | str:
     return f'Error: could not parse {x} as a number'
 
 
+def _get_environment_config_with_tools() -> (
+    python_tool_use.PythonToolUseEnvironmentConfig
+):
+  """Returns an environment config with search and firstnumber tools."""
+  # Set up some simple tools that don't involve RPCs.
+  return python_tool_use.PythonToolUseEnvironmentConfig(
+      tools=[
+          llm_tool_use.Tool(
+              name='search',
+              function=MockSearch(
+                  reply_by_query={
+                      'population of Tuebingen': '91,877',
+                      'population of Zuerich': '402,762',
+                  }
+              ),
+              description='Google search engine.',
+              example="search('capital of France')  # returns 'Paris'",
+          ),
+          llm_tool_use.Tool(
+              name='firstnumber',
+              function=firstnumber,
+              description='Extracts the first number in a string.',
+              example=(
+                  "firstnumber('it is 1,203m high')  # return 1203.0 as a float"
+              ),
+          ),
+      ]
+  )
+
+
 class PythonPlanningTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
@@ -119,27 +149,7 @@ class PythonPlanningTest(parameterized.TestCase):
     exemplars = python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS
 
     # Tool configuration.
-    tools = [
-        llm_tool_use.Tool(
-            name='search',
-            function=MockSearch(
-                reply_by_query={
-                    'population of Tuebingen': '91,877',
-                    'population of Zuerich': '402,762',
-                }
-            ),
-            description='Google search engine.',
-            example="search('capital of France')  # returns 'Paris'",
-        ),
-        llm_tool_use.Tool(
-            name='firstnumber',
-            function=firstnumber,
-            description='Extracts the first number in a string.',
-            example=(
-                "firstnumber('it is 1,203m high')  # return 1203.0 as a float"
-            ),
-        ),
-    ]
+    config = _get_environment_config_with_tools()
 
     # Prompt configuration.
     prompt = python_planning.PythonPlanningPromptJ2()
@@ -170,7 +180,7 @@ num2 = firstnumber(population2)
     # omitted a for-loop, or failed to include some of the fields due to a typo,
     # etc.)
     prompt_outputs, result = executing.run(
-        prompt(tools=tools, exemplars=exemplars, state=state),
+        prompt(tools=config.tools, exemplars=exemplars, state=state),
         enable_tracing=True,
     )
     prefix = result.get_leaf_results()[0].inputs['request']
@@ -178,8 +188,8 @@ num2 = firstnumber(population2)
     logging.info('Prompt sent to the LLM:\n%s', prefix)
 
     with self.subTest('prompt_should_contain_the_tool_descriptions'):
-      self.assertIn(tools[0].description, prefix)
-      self.assertIn(tools[-1].description, prefix)
+      self.assertIn(config.tools[0].description, prefix)
+      self.assertIn(config.tools[-1].description, prefix)
 
     with self.subTest('prompt_should_contain_the_exemplar_inputs'):
       self.assertIn(exemplars[0].inputs, prefix)
@@ -212,33 +222,45 @@ num2 = firstnumber(population2)
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(llm_reply.strip(), prompt_outputs)
 
+  def test_prompt_error(self):
+    # Some typical inputs / configs. (As in the other test above.)
+    question = 'What is the total population of Tuebingen and Zuerich?'
+    exemplars = python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS
+    config = _get_environment_config_with_tools()
+    prompt = python_planning.PythonPlanningPromptJ2()
+    state = python_planning.PythonPlanningState(inputs=question, updates=[])
+
+    # We configure the LLM to raise an exception to verify how it is handled.
+    error_message = 'Some error.'
+    llm_backend = backends_test_utils.LLMForTest(
+        default_reply=ValueError(error_message),
+    )
+    llm_backend.register()
+
+    # Now we execute the prompt and verify that the prompt contained the
+    # expected content. (Although we don't verify all of the prompt formatting,
+    # these assertions should be sufficient to catch many basic bugs where we
+    # omitted a for-loop, or failed to include some of the fields due to a typo,
+    # etc.)
+    prompt_outputs, result = executing.run(
+        prompt(tools=config.tools, exemplars=exemplars, state=state),
+        enable_tracing=True,
+    )
+    prefix = result.stages[0].outputs['prefix']
+
+    with self.subTest('prompt_should_contain_the_error_message'):
+      self.assertIn(error_message, prefix)
+
+    with self.subTest('should_return_the_llm_reply'):
+      self.assertEqual(f'#ERROR#: {error_message}', prompt_outputs)
+
   def test_sample_next_step(self):
     # Some minimal agent configuration and inputs.
     question = 'What is the total population of Tuebingen and Zuerich?'
     prev_state = python_planning.PythonPlanningState(inputs=question)
 
     # Set up some simple tools that don't involve RPCs.
-    tools = [
-        llm_tool_use.Tool(
-            name='search',
-            function=MockSearch(
-                reply_by_query={
-                    'population of Tuebingen': '91,877',
-                    'population of Zuerich': '402,762',
-                }
-            ),
-            description='Google search engine.',
-            example="search('capital of France')  # returns 'Paris'",
-        ),
-        llm_tool_use.Tool(
-            name='firstnumber',
-            function=firstnumber,
-            description='Extracts the first number in a string.',
-            example=(
-                "firstnumber('it is 1,203m high')  # return 1203.0 as a float"
-            ),
-        ),
-    ]
+    config = _get_environment_config_with_tools()
 
     # We hard-code the LLM to return the same thought every time (assuming the
     # prompt is of the expected form).
@@ -260,9 +282,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 
     agent = python_planning.PythonPlanningAgent(
         exemplars=python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS,
-        environment_config=python_tool_use.PythonToolUseEnvironmentConfig(
-            tools=tools
-        ),
+        environment_config=config,
         max_steps=1,
     )
 
@@ -301,27 +321,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     question = 'What is the total population of Tuebingen and Zuerich?'
 
     # Set up some simple tools that don't involve RPCs.
-    tools = [
-        llm_tool_use.Tool(
-            name='search',
-            function=MockSearch(
-                reply_by_query={
-                    'population of Tuebingen': '91,877',
-                    'population of Zuerich': '402,762',
-                }
-            ),
-            description='Google search engine.',
-            example="search('capital of France')  # returns 'Paris'",
-        ),
-        llm_tool_use.Tool(
-            name='firstnumber',
-            function=firstnumber,
-            description='Extracts the first number in a string.',
-            example=(
-                "firstnumber('it is 1,203m high')  # return 1203.0 as a float"
-            ),
-        ),
-    ]
+    config = _get_environment_config_with_tools()
 
     # We hard-code the LLM to return the same thought every time (assuming the
     # prompt is of the expected form).
@@ -342,9 +342,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 
     agent = python_planning.PythonPlanningAgent(
         exemplars=python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS,
-        environment_config=python_tool_use.PythonToolUseEnvironmentConfig(
-            tools=tools,
-        ),
+        environment_config=config,
         max_steps=1,
     )
 

@@ -48,7 +48,9 @@ from typing import Protocol, TypeAlias
 
 from onetwo.agents import agents_base
 from onetwo.builtins import prompt_templating
+from onetwo.core import constants
 from onetwo.core import executing
+from onetwo.core import templating
 from onetwo.core import tracing
 from onetwo.stdlib.code_execution import python_execution
 from onetwo.stdlib.tool_use import llm_tool_use
@@ -277,7 +279,18 @@ class PythonPlanningPromptJ2(
         state=state,
         tools=tools,
     )
-    return result['llm_reply']
+    if 'llm_reply' in result:
+      # If the prompt succeeded in running to the end, we should come here.
+      return result['llm_reply']
+    elif templating.ERROR in result:
+      # If an error is raised whle processing the prompt, we should come here.
+      return f'{constants.ERROR_STRING}: {result[templating.ERROR]}'
+    else:
+      # If we come here, then there must be a bug somewhere.
+      raise ValueError(
+          "PythonPlanning prompt result missing 'llm_reply' and lacking error"
+          f' message to explain why: {result}'
+      )
 
 
 # TODO: Generalize the output type from `str` to `Any`.
