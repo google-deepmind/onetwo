@@ -103,6 +103,9 @@ class Gemma(
   def register(self, name: str | None = None) -> None:
     """See parent class."""
     del name
+    # Reset all the defaults in case some other backend was already registered.
+    # Indeed, we rely on certain builtins configured with OneTwo defaults.
+    llm.reset_defaults()
     # Configure the generate_text method with the default parameters set in
     # the constructor (or __post_init__).
     llm.generate_text.configure(
@@ -196,6 +199,7 @@ class Gemma(
     # single prompt. In order to support batch_size>1 we should create several
     # instances and possibly send a list of prompts to each of the instances,
     # but we need to figure out what the sampler uses as batch_size underneath.
+    # TODO: Trace this external API call.
     response = self._sampler(
         input_strings=[prompt], total_generation_steps=max_tokens
     )

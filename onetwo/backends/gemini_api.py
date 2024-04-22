@@ -165,6 +165,9 @@ class GeminiAPI(
   def register(self, name: str | None = None) -> None:
     """See parent class."""
     del name
+    # Reset all the defaults in case some other backend was already registered.
+    # Indeed, we rely on certain builtins configured with OneTwo defaults.
+    llm.reset_defaults()
     llm.generate_text.configure(
         self.generate_text,
         temperature=self.temperature,
@@ -324,6 +327,7 @@ class GeminiAPI(
         top_p=top_p,
     )
     try:
+      # TODO: Trace this external API call.
       response = self._generate_model.generate_content(
           prompt,
           generation_config=generation_config,
@@ -477,6 +481,7 @@ class GeminiAPI(
     generation_config = genai.GenerationConfig(
         candidate_count=1,
     )
+    # TODO: Trace this external API call.
     chat = self._chat_model.start_chat(history=history)
     response = chat.send_message(
         content=messages[last_message_index].content,
@@ -498,6 +503,7 @@ class GeminiAPI(
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
 
+    # TODO: Trace this external API call.
     return genai.embed_content(
         model=self.embed_model_name,
         content=content,
@@ -517,6 +523,7 @@ class GeminiAPI(
     self._counters['count_tokens'] += 1
 
     try:
+      # TODO: Trace this external API call.
       response = self._generate_model.count_tokens(content)
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(

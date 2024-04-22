@@ -214,7 +214,7 @@ class DefaultFormatter(Formatter):
       if len(content) == 2:
         assistant_prefix = content[1].content
 
-      instruct_prompt = content_lib.ChunkList()
+      instruct_prompt = _ChunkList()
       if self._kwargs.get('use_fewshots', False):
         for fs_prompt, fs_answer in self._DEFAULT_FEWSHOT:
           instruct_prompt += (

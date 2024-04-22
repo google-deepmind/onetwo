@@ -133,6 +133,7 @@ onetwo.
 Some background on the basic concepts of the library can be found here:
 [Basics](docs/basics.md).
 
+Some of the frequently asked questions are discussed here: [FAQ](docs/faq.md).
 
 ## License
 

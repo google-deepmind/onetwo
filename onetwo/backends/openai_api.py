@@ -169,6 +169,9 @@ class OpenAIAPI(
   def register(self, name: str | None = None) -> None:
     """See parent class."""
     del name
+    # Reset all the defaults in case some other backend was already registered.
+    # Indeed, we rely on certain builtins configured with OneTwo defaults.
+    llm.reset_defaults()
     llm.generate_text.configure(
         self.generate_text,
         temperature=self.temperature,
@@ -287,6 +290,7 @@ class OpenAIAPI(
       # top probabilities.
       kwargs['logprobs'] = 0
     try:
+      # TODO: Trace this external API call.
       response = self._client.completions.create(
           model=self.model_name,
           prompt=prompt,
@@ -375,6 +379,7 @@ class OpenAIAPI(
     if include_details:
       kwargs['logprobs'] = True
     try:
+      # TODO: Trace this external API call.
       response = self._client.chat.completions.create(
           model=self.model_name,
           messages=converted_messages,
@@ -562,10 +567,10 @@ class OpenAIAPI(
   ) -> str:
     """See builtins.llm.chat."""
     if formatter == formatting.FormatterName.API:
-      # Use prompting with native completion api via client.completions.create.
+      # Use native chat api support via client.chat.completions.create.
       return await self.chat_via_api(messages, **kwargs)
     elif formatter == formatting.FormatterName.DEFAULT:
-      # Use native chat api support via client.chat.completions.create.
+      # Use prompting with native completion api via client.completions.create.
       return await llm.default_chat(messages, formatter, **kwargs)
     else:
       raise ValueError(

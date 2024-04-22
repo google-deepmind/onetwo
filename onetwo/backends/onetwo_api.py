@@ -87,6 +87,9 @@ class OneTwoAPI(
   def register(self, name: str | None = None) -> None:
     """See parent class."""
     del name
+    # Reset all the defaults in case some other backend was already registered.
+    # Indeed, we rely on certain builtins configured with OneTwo defaults.
+    llm.reset_defaults()
     llm.generate_text.configure(
         self.generate_text,
         temperature=self.temperature,
@@ -148,6 +151,7 @@ class OneTwoAPI(
         'include_details': include_details,
     }
     args.update(kwargs)
+    # TODO: Trace this external API call.
     response = requests.post(
         self.endpoint + '/generate_text',
         headers={'Content-Type': 'application/json'},
@@ -177,6 +181,7 @@ class OneTwoAPI(
     if isinstance(content, content_lib.ChunkList):
       content = str(content)
 
+    # TODO: Trace this external API call.
     response = requests.post(
         self.endpoint + '/tokenize',
         json={
@@ -207,6 +212,7 @@ class OneTwoAPI(
     if isinstance(content, content_lib.ChunkList):
       content = str(content)
 
+    # TODO: Trace this external API call.
     response = requests.post(
         url=self.endpoint + '/count_tokens',
         json={'content': content},
