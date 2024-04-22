@@ -204,7 +204,7 @@ class ExecutionTest(parameterized.TestCase):
       def process(self, request: str) -> str:
         return request.replace('req', 'rep')
 
-      async def _aexec(self) -> Sequence[str]:
+      async def _aexec(self) -> Sequence[str]:  # pytype: disable=signature-mismatch
         """Execute all requests."""
         return [self.process(request) for request in self.requests]
 

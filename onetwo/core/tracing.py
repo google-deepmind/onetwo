@@ -185,7 +185,7 @@ def stream(
       wrapper = IteratorWithReturnValue(it)
       for i in wrapper:
         yield i
-    return wrapper.value
+    return wrapper.value  # pytype: disable=bad-return-type
 
   async def wrapper(callback: Callable[[_T], None]) -> Awaitable[_V]:
     execution_context.set(None)

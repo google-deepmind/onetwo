@@ -184,7 +184,7 @@ class PythonToolUseEnvironment:
 
   def __post_init__(self):
     """Overridden from dataclasses.dataclass."""
-    self._sandbox_cache = PythonSandboxCache(
+    self._sandbox_cache = PythonSandboxCache(  # pytype: disable=wrong-arg-types
         create_object_function=self._create_sandbox_for_state,
         destroy_object_function=lambda sandbox: sandbox.stop(),
     )
