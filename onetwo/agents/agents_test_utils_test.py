@@ -112,21 +112,30 @@ class StringAgentTest(parameterized.TestCase):
   def test_sample_next_step(self):
     agent = agents_test_utils.StringAgent(sequence=['a', 'b', 'c', 'd'])
     state = executing.run(agent.initialize_state(inputs='test'))
-    result = executing.run(
-        agent.sample_next_step(state=state, num_candidates=2)
-    )
-    self.assertEqual(result, ['a', 'b'])
-    result = executing.run(
-        agent.sample_next_step(state=state, num_candidates=2)
-    )
-    self.assertEqual(result, ['c', 'd'])
 
-  def test_execute(self):
+    result = executing.run(
+        agent.sample_next_step(state=state, num_candidates=2)
+    )
+    with self.subTest('first_call_returns_first_steps_in_sequence'):
+      self.assertEqual(result, ['a', 'b'])
+
+    result = executing.run(
+        agent.sample_next_step(state=state, num_candidates=2)
+    )
+    with self.subTest('second_call_returns_next_steps_in_sequence'):
+      self.assertEqual(result, ['c', 'd'])
+
+  @parameterized.named_parameters(
+      ('max_length_equals_seq_length', 3, ['a', 'a', 'b'], 'a a b'),
+      ('max_length_greater_than_seq_length', 4, ['a', 'a', 'b'], 'a a b'),
+      ('max_length_less_than_seq_length', 2, ['a', 'a', 'b'], 'a a'),
+  )
+  def test_execute(self, max_length, sequence, expected_result):
     agent = agents_test_utils.StringAgent(
-        max_length=5, sequence=['a', 'a', 'b', 'b', 'a']
+        max_length=max_length, sequence=sequence
     )
     result = executing.run(agent(inputs='test'))
-    self.assertEqual(result, 'a a b b a')
+    self.assertEqual(expected_result, result)
 
 
 if __name__ == '__main__':

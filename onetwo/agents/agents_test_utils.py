@@ -134,7 +134,7 @@ class StringAgent(
 
   def is_finished(self, state: _StringAgentState) -> bool:
     """Overridden from base class (Agent)."""
-    return len(state.updates) >= self.max_length
+    return len(state.updates) >= self.max_length or not self.sequence
 
   @executing.make_executable(copy_self=False)
   async def _sample_single_next_step(
