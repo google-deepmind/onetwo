@@ -15,7 +15,7 @@
 """Base definitions for built-in functions."""
 
 import abc
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 import functools
 import inspect
 import typing
@@ -335,7 +335,7 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
   ```
   """
 
-  def __init__(self, wrapped: Callable[_Params, _T]):
+  def __init__(self, wrapped: Callable[_Params, _T | Awaitable[_T]]):
     self._wrapped = wrapped  # Builtin function.
     # We determine the name to use in the registry.
     module = getattr(wrapped, '__module__', None)

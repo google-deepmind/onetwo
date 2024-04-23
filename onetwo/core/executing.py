@@ -478,7 +478,7 @@ def stream(
 @overload
 def stream_with_callback(
     executable: Executable[Result],
-    callback: Callable[[batching.ResultType], None],
+    callback: Callable[[batching.ResultType], None | Awaitable[None]],
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
@@ -489,7 +489,7 @@ def stream_with_callback(
 @overload
 def stream_with_callback(
     executable: Executable[Result],
-    callback: Callable[[batching.ResultType], None],
+    callback: Callable[[batching.ResultType], Awaitable[None]],
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
@@ -501,7 +501,7 @@ def stream_with_callback(
 @overload
 def stream_with_callback(
     executable: Executable[Result],
-    callback: Callable[[batching.ResultType], None],
+    callback: Callable[[batching.ResultType], Awaitable[None]],
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -511,7 +511,7 @@ def stream_with_callback(
 
 def stream_with_callback(
     executable: Executable[Result],
-    callback: Callable[[batching.ResultType], None],
+    callback: Callable[[batching.ResultType], Awaitable[None]],
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
