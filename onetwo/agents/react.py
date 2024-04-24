@@ -549,7 +549,7 @@ class ReActAgent(
       yield env
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
-  @tracing.trace('ReActAgent._sample_single_next_step')
+  @tracing.trace('ReActAgent._sample_single_next_step', skip=['environment'])
   async def _sample_single_next_step(
       self,
       state: ReActState,

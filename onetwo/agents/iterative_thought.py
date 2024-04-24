@@ -186,7 +186,9 @@ class IterativeThoughtAgent(
     return state.updates
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
-  @tracing.trace('IterativeThoughtAgent._sample_single_next_step')
+  @tracing.trace(
+      'IterativeThoughtAgent._sample_single_next_step', skip=['environment']
+  )
   async def _sample_single_next_step(
       self, state: IterativeThoughtState, environment: None = None
   ) -> str:
@@ -367,7 +369,9 @@ class IterativeThoughtProposerAgent(
     return state.updates
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
-  @tracing.trace('IterativeThoughtProposerAgent.sample_next_step')
+  @tracing.trace(
+      'IterativeThoughtProposerAgent.sample_next_step', skip=['environment']
+  )
   async def sample_next_step(
       self,
       state: IterativeThoughtState,
