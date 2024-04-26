@@ -105,7 +105,7 @@ class ContentTest(parameterized.TestCase):
       self.assertFalse(_Chunk(''))
       self.assertFalse(_Chunk(b''))
 
-    with self.subTest('chunk_with_nonempty_content_evals_to_true'):
+    with self.subTest('chunk_with_non_empty_content_evals_to_true'):
       self.assertTrue(_Chunk('abc'))
       self.assertTrue(_Chunk(b'abc'))
 
@@ -113,7 +113,7 @@ class ContentTest(parameterized.TestCase):
       self.assertFalse(_ChunkList(chunks=[]))
       self.assertFalse(_ChunkList(chunks=[_Chunk(''), _Chunk(b''), _Chunk('')]))
 
-    with self.subTest('chunk_list_with_nonempty_chunk_evals_to_true'):
+    with self.subTest('chunk_list_with_non_empty_chunk_evals_to_true'):
       self.assertTrue(_ChunkList(chunks=[_Chunk(''), _Chunk(b'0'), _Chunk('')]))
 
   def test_chunk_and_chunk_list_str_functions(self):
@@ -122,15 +122,6 @@ class ContentTest(parameterized.TestCase):
     with self.subTest('chunk_lstrip_works'):
       self.assertEqual(chunk.lstrip('abc'), _Chunk('test'))
       self.assertEqual(chunk.lstrip(' '), chunk)
-
-    chunk_list = _ChunkList(chunks=[chunk, '12', b'13'])
-
-    with self.subTest('chunk_list_lstrip_works'):
-      self.assertEqual(
-          chunk_list.lstrip('abc'),
-          _ChunkList(chunks=[_Chunk('test'), '12', b'13']),
-      )
-      self.assertEqual(chunk_list.lstrip(' '), chunk_list)
 
     with self.subTest('chunk_rstrip_works'):
       self.assertEqual(_Chunk('testabbcbc').rstrip('abc'), _Chunk('test'))
@@ -142,36 +133,25 @@ class ContentTest(parameterized.TestCase):
           _Chunk('testabbcbc', content_type='ctrl'),
       )
 
-    chunk_list = _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')])
-
-    with self.subTest('chunk_list_rstrip_works'):
-      self.assertEqual(
-          chunk_list.rstrip('abc'),
-          _ChunkList(chunks=['12', b'13', _Chunk('test')]),
-      )
-      self.assertEqual(chunk_list.rstrip(' '), chunk_list)
-
     with self.subTest('chunk_lstrip_does_not_touch_ctrl'):
       self.assertEqual(
           _Chunk('abbcbc', content_type='ctrl').lstrip('abc'),
           _Chunk('abbcbc', content_type='ctrl'),
       )
 
-    chunk_list = _ChunkList(chunks=[_Chunk(''), _Chunk(''), '  123'])
-
-    with self.subTest('chunk_list_lstrip_does_not_skip_empty_chunks'):
-      self.assertEqual(chunk_list.lstrip(' '), chunk_list)
-
-    chunk_list = _ChunkList(chunks=['123. ', _Chunk(''), _Chunk('')])
-
-    with self.subTest('chunk_list_rstrip_does_not_skip_empty_chunks'):
-      self.assertEqual(chunk_list.lstrip(' '), chunk_list)
-
+    chunk = _Chunk('abccbbabbctest')
     with self.subTest('chunk_startswith_works'):
       self.assertTrue(chunk.startswith('abc'))
       self.assertTrue(chunk.startswith('bc', 1))
       self.assertTrue(chunk.startswith('b', 1, 2))
       self.assertFalse(chunk.startswith('123'))
+
+    with self.subTest('chunk_endswith_works'):
+      self.assertTrue(chunk.endswith('test'))
+      self.assertTrue(chunk.endswith('test', 10))
+      self.assertFalse(chunk.endswith('test', 11))
+      self.assertFalse(chunk.endswith('test', 10, 13))
+      self.assertTrue(chunk.endswith('test', 10, 14))
 
     with self.subTest('chunk_list_startswith_works'):
       chunk_list = _ChunkList(chunks=[_Chunk('abc'), '12', b'13'])
@@ -180,6 +160,96 @@ class ContentTest(parameterized.TestCase):
       self.assertTrue(chunk_list.startswith('c1', 2, 4))
       self.assertFalse(chunk_list.startswith('abc', 1))
       self.assertFalse(chunk_list.startswith('bc'))
+
+    with self.subTest('chunk_list_endswith_works'):
+      # 'abc<bytes>12'.
+      chunk_list = _ChunkList(chunks=[_Chunk('abc'), b'13', '12'])
+      self.assertTrue(chunk_list.endswith('12'))
+      self.assertTrue(chunk_list.endswith('<bytes>12'))
+      self.assertFalse(chunk_list.endswith('1312'))
+      self.assertTrue(chunk_list.endswith('1', 10, 11))
+
+  @parameterized.named_parameters(
+      (
+          'simple_strip_no_empty',
+          _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')]),
+          'abc',
+          _ChunkList(chunks=['12', b'13', _Chunk('test')]),
+      ),
+      (
+          'no_strip_no_empty',
+          _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')]),
+          ' ',
+          _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')]),
+      ),
+      (
+          'no_strip_remove_empty',
+          _ChunkList(chunks=['12', b'13', '', b'', PIL.Image.Image()]),
+          'a',
+          _ChunkList(chunks=['12', b'13']),
+      ),
+      (
+          'no_strip_remove_all_empty',
+          _ChunkList(chunks=['', b'', '', b'', PIL.Image.Image()]),
+          'a',
+          _ChunkList(chunks=[]),
+      ),
+      (
+          'strip_remove_empty',
+          _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc'), '', b'']),
+          'abc',
+          _ChunkList(chunks=['12', b'13', _Chunk('test')]),
+      ),
+      (
+          'strip_remove_empty_dont_propagate_to_previous',
+          _ChunkList(chunks=['abcd', 'abc', '', b'']),
+          'abc',
+          _ChunkList(chunks=['abcd']),
+      ),
+  )
+  def test_chunk_list_rstrip(self, chunk_list, rstrip_arg, expected):
+    self.assertEqual(chunk_list.rstrip(rstrip_arg), expected)
+
+  @parameterized.named_parameters(
+      (
+          'simple_strip_no_empty',
+          _ChunkList(chunks=[_Chunk('abbcbctest'), '12', b'13']),
+          'abc',
+          _ChunkList(chunks=[_Chunk('test'), '12', b'13']),
+      ),
+      (
+          'no_strip_no_empty',
+          _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')]),
+          'a',
+          _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')]),
+      ),
+      (
+          'no_strip_remove_empty',
+          _ChunkList(chunks=['', b'', PIL.Image.Image(), '12', b'13']),
+          'a',
+          _ChunkList(chunks=['12', b'13']),
+      ),
+      (
+          'no_strip_remove_all_empty',
+          _ChunkList(chunks=['', b'', '', b'', PIL.Image.Image()]),
+          'a',
+          _ChunkList(chunks=[]),
+      ),
+      (
+          'strip_remove_empty',
+          _ChunkList(chunks=['', b'', _Chunk('abbcbctest'), '12', b'13']),
+          'abc',
+          _ChunkList(chunks=[_Chunk('test'), '12', b'13']),
+      ),
+      (
+          'strip_remove_empty_dont_propagate_to_next',
+          _ChunkList(chunks=['', b'', 'abc', 'abcd']),
+          'abc',
+          _ChunkList(chunks=['abcd']),
+      ),
+  )
+  def test_chunk_list_lstrip(self, chunk_list, lstrip_arg, expected):
+    self.assertEqual(chunk_list.lstrip(lstrip_arg), expected)
 
   def test_chunk_list_to_str(self):
     l = _ChunkList()
@@ -200,6 +270,17 @@ class ContentTest(parameterized.TestCase):
     l += _Chunk(' done')
     self.assertEqual(l.to_simple_string(), 'hello world<ctrl> done')
 
+  @parameterized.named_parameters(
+      ('empty_str', '', True),
+      ('empty_bytes', b'', True),
+      ('empty_pil', PIL.Image.Image(), True),
+      ('str', 'abc', False),
+      ('bytes', b'123', False),
+      ('pil', PIL.Image.new(mode='RGB', size=(2, 2)), False),
+  )
+  def test_chunk_is_empty(self, chunk_content, expected):
+    chunk = _Chunk(chunk_content)
+    self.assertEqual(chunk.is_empty(), expected)
 
 if __name__ == '__main__':
   absltest.main()

@@ -123,6 +123,17 @@ class Chunk:
     else:
       return f'<{self.content_type}>'
 
+  def is_empty(self) -> bool:
+    """Returns True if the chunk is empty."""
+    match self.content:
+      case str() | bytes():
+        if self.content:
+          return False
+      case PIL.Image.Image():
+        if cast(PIL.Image.Image, self.content).size != (0, 0):
+          return False
+    return True
+
   def lstrip(self, chars: str | None = None, /) -> Chunk:
     """Apply `lstrip` to the chunk if it is a string.
 
@@ -175,26 +186,55 @@ class Chunk:
       True if the string representation of the object matches with the prefix.
     """
     rendered = str(self)
-    if end is None:
-      end = len(rendered)
     return rendered.startswith(prefix, start, end)
 
+  def endswith(
+      self,
+      suffix: str,
+      start: int = 0,
+      end: int | None = None,
+      /,
+  ) -> bool:
+    """Return `endswith` applied to the string representation of self.
 
-@dataclasses.dataclass
+    Args:
+      suffix: Suffix string to match.
+      start: Where to start matching the suffix.
+      end: Where to end matching the suffix.
+
+    Returns:
+      True if the string representation of the object matches with the suffix.
+    """
+    rendered = str(self)
+    return rendered.endswith(suffix, start, end)
+
+
 class ChunkList:
-  """Dataclass to represent a list of chunks in a multimodal prompt."""
-  chunks: list[Chunk] = dataclasses.field(default_factory=list)
+  """Class to represent a list of chunks in a multimodal prompt.
 
-  def __post_init__(self):
-    if not isinstance(self.chunks, list):
+  Attributes:
+    chunks: List of Chunks.
+  """
+
+  def __init__(self, chunks: list[Chunk | ContentType] | None = None):
+    if chunks is not None and not isinstance(chunks, list):
+      # In case typing did not catch this.
       raise ValueError(
-          f'Creating a ChunkList with content type {type(self.chunks)} which'
+          f'Creating a ChunkList with chunks type {type(chunks)} which'
           f' does not match expected type "list".'
       )
+    self.chunks: list[Chunk] = []
+    if chunks is None:
+      chunks = []
     # Convenience best-effort casting of the elements as Chunks.
-    for i, chunk in enumerate(self.chunks):
-      if not isinstance(chunk, Chunk):
-        self.chunks[i] = Chunk(chunk)
+    for chunk in chunks:
+      if isinstance(chunk, Chunk):
+        self.chunks.append(chunk)
+      else:
+        self.chunks.append(Chunk(chunk))
+
+  def __eq__(self, other):
+    return self.chunks == other.chunks
 
   def __bool__(self):
     return self.__nonzero__()
@@ -255,11 +295,15 @@ class ChunkList:
         return ChunkList([Chunk(other)] + self.chunks)
 
   def lstrip(self, chars: str | None = None, /) -> ChunkList:
-    """Apply `lstrip` to the first chunk of the list.
+    """Remove leading empty chunks, apply `lstrip` to the first non-empty one.
 
-    TODO. Should we propagate
-      lstrip to the first nonempty chunk? Refer to subtest called
-      `chunk_list_lstrip_does_not_skip_empty_chunks`.
+    If the entire first non-empty chunk gets stripped, this implementation does
+    not propagate to the next non-empty chunk, i.e.
+    ChunkList(['', '', 'abc', 'abcd']).lstrip('abc') results in
+    ChunkList(['abcd']).
+
+    TODO
+      in case the entire chunk gets stripped.
 
     Args:
       chars: String specifying the set of characters to be removed. When chars
@@ -267,27 +311,71 @@ class ChunkList:
 
     Returns:
       Copy of ChunkList, where `lstrip` is applied to its first chunk.
+      Leading empty chunks are removed.
     """
-    if self.chunks:
-      return ChunkList([self.chunks[0].lstrip(chars)] + self.chunks[1:])
-    return ChunkList()
+
+    # Find the first non-empty chunk.
+    first_nonempty_id = 0
+    while first_nonempty_id < len(self.chunks):
+      if not self.chunks[first_nonempty_id].is_empty():
+        break
+      # Empty chunk. Shift right.
+      first_nonempty_id += 1
+
+    if first_nonempty_id == len(self.chunks):
+      # Chunk list is empty or all chunks are empty.
+      return ChunkList()
+
+    # Strip the first non-empty chunk and delete the leading empty chunks.
+    result = (
+        [self.chunks[first_nonempty_id].lstrip(chars)]
+        + self.chunks[first_nonempty_id + 1:]
+    )
+    if result[0].is_empty():
+      # If we stripped the entire first chunk, remove it.
+      del result[0]
+    return ChunkList(result)
 
   def rstrip(self, chars: str | None = None, /) -> ChunkList:
-    """Apply `rstrip` to the last chunk of the list.
+    """Remove trailing empty chunks, apply `rstrip` to the last non-empty one.
 
-    TODO. Should we propagate
-      rstrip to the last nonempty chunk?
+    If the entire last non-empty chunk gets stripped, this implementation does
+    not propagate to the previous non-empty chunk, i.e.
+    ChunkList(['dabc', 'abc', '', '']).rstrip('abc') results in
+    ChunkList(['dabc']).
+
+    TODO: Propagate rstrip to the previous non-empty chunk (and
+      further) in case the entire chunk gets stripped.
 
     Args:
       chars: String specifying the set of characters to be removed. When chars
         is None (default) corresponds to the default of builtin `rstrip()`.
 
     Returns:
-      Copy of ChunkList, where `rstrip` is applied to its last chunk.
+      Copy of ChunkList, where `rstrip` is applied to its last non-empty chunk.
+      Trailing empty chunks are removed.
     """
-    if self.chunks:
-      return ChunkList(self.chunks[:-1] + [self.chunks[-1].rstrip(chars)])
-    return ChunkList()
+    # Find the last non-empty chunk.
+    last_nonempty_id = len(self.chunks) - 1
+    while last_nonempty_id >= 0:
+      if not self.chunks[last_nonempty_id].is_empty():
+        break
+      # Empty chunk. Shift left.
+      last_nonempty_id -= 1
+
+    if last_nonempty_id == -1:
+      # Chunk list is empty or all chunks are empty.
+      return ChunkList()
+
+    # Apply rstrip to the last non-empty chunk, remove the trailing empty ones.
+    result = (
+        self.chunks[:last_nonempty_id]
+        + [self.chunks[last_nonempty_id].rstrip(chars)]
+    )
+    if result[-1].is_empty():
+      # If we the stripped the entire last chunk, remove it.
+      del result[-1]
+    return ChunkList(result)
 
   def startswith(
       self,
@@ -307,9 +395,27 @@ class ChunkList:
       True if the string representation of the object matches with the prefix.
     """
     rendered = str(self)
-    if end is None:
-      end = len(rendered)
     return rendered.startswith(prefix, start, end)
+
+  def endswith(
+      self,
+      suffix: str,
+      start: int = 0,
+      end: int | None = None,
+      /,
+  ) -> bool:
+    """Return `endswith` applied to the string representation of self.
+
+    Args:
+      suffix: Suffix string to match.
+      start: Where to start matching the suffix.
+      end: Where to end matching the suffix.
+
+    Returns:
+      True if the string representation of the object matches with the suffix.
+    """
+    rendered = str(self)
+    return rendered.endswith(suffix, start, end)
 
   def to_simple_string(self) -> str:
     """Converts the chunk list to a string whithout the multimodal elements.
