@@ -368,11 +368,13 @@ class GeminiAPI(
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
+      decoding_constraint: str | None = None,
       include_details: bool = False,
       **kwargs,  # Optional genai specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_text'] += 1
+    del decoding_constraint
     response = self._generate_content(
         prompt=prompt,
         samples=1,
@@ -405,11 +407,13 @@ class GeminiAPI(
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
+      decoding_constraint: str | None = None,
       include_details: bool = False,
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
     """See builtins.llm.generate_texts."""
     self._counters['generate_texts'] += 1
+    del decoding_constraint
     response = self._generate_content(
         prompt=prompt,
         samples=samples,

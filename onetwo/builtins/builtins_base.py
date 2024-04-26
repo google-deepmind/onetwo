@@ -144,6 +144,9 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
     # `_compare_normalized_annotations`.
     impl_typevar_cache = {}
     base_typevar_cache = {}
+    # Names of the arguments in the base signature that don't appear in the
+    # implementation signature. E.g. 'b' is such an argument for the base
+    # signature `fn_base(a, b=1)` and the implementation signature `fn_impl(a)`.
     self._base_args_ignored_by_impl = []
     self._named_impl_args_not_in_base = []
     self._impl_has_kwargs = False
@@ -173,7 +176,6 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
           )
       else:
         self._base_args_ignored_by_impl.append(name)
-    # We also ignore the extra arguments that are set at configuration time.
     for name, value in impl_signature.parameters.items():
       if value.kind in (
           inspect.Parameter.VAR_POSITIONAL,
@@ -267,9 +269,16 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
       if key in kwargs and kwargs[key] is None:
         kwargs[key] = value
 
-    # Remove the arguments that are ignored by the implementation.
-    for name in self._base_args_ignored_by_impl:
-      kwargs.pop(name, None)
+    # Remove the arguments that are ignored by the implementation, unless the
+    # implementation has a VAR_KEYWORD argument. If it does, we may want to pass
+    # the argument values inside of the VAR_KEYWORD argument. E.g, for the base
+    # signature `fn_base(a, b=1)` and the implementation signature
+    # `fn_impl(a, **kwargs)` we may pass `b=2` via the `kwargs` argument of
+    # `fn_impl` and it should overwrite the default value of `b=1` declared in
+    # the base signature.
+    if not self._impl_has_kwargs:
+      for name in self._base_args_ignored_by_impl:
+        kwargs.pop(name, None)
 
     # Make sure that all the passed named arguments appear in the builtin
     # signature.
@@ -397,8 +406,8 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
     ```
       base_fn.configure(impl_fn, b='abc')
     ```
-    and then call `base_fn(a=1, c=12)`. A good example is `use_fewshot` kwarg in
-    `_default_instruct` method of `onetwo.builtins.llm.py`.
+    and then call `base_fn(a=1, c=12)`. A good example is `formatter_kwargs`
+    kwarg in `_default_chat` method of `onetwo/builtins/llm.py`.
 
     Note: we don't check that the return type of the implementation matches the
     one of the base. We often have decorators that change the return type and

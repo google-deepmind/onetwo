@@ -192,8 +192,8 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
   def test_signature(self):
     @builtins_base.Builtin[int]
     def fn(a: int, b: str = '') -> int:
-      del b
-      return a
+      del a, b
+      raise NotImplementedError('This is just a signature.')
 
     def correct(a: int, b: str = '') -> int:
       del b
@@ -326,16 +326,40 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       # for it, we use the default.
       self.assertExecutableResultEqual(fn(1, b=None), 4)
 
+  def test_base_args_ignored_by_impl(self):
+
+    def other_fn(a, b=1):
+      return a + b
+
+    @builtins_base.Builtin[int]
+    def fn(a: int, b: int = 0) -> int:
+      del a, b
+      raise NotImplementedError('This is just a signature.')
+
+    def impl_ignores_b_has_kwargs(a: int, **kwargs) -> int:
+      return other_fn(a, **kwargs)
+
+    fn.configure(impl_ignores_b_has_kwargs)
+    with self.subTest('b_value_from_call_should_be_used'):
+      self.assertExecutableResultEqual(fn(a=1, b=2), 3)
+
+    def impl_ignores_b_has_no_kwargs(a: int) -> int:
+      return other_fn(a)
+
+    fn.configure(impl_ignores_b_has_no_kwargs)
+    with self.subTest('b_value_popped_and_ignored'):
+      self.assertExecutableResultEqual(fn(a=1, b=2), 2)
+
   def test_extra_args(self):
     @builtins_base.Builtin[int]
-    def fn(a: int, b: int | None = None) -> int:
+    def fn(a: int, b: int = 0) -> int:
       del a, b
-      return 0
+      raise NotImplementedError('This is just a signature.')
 
-    def implementation(a: int, b: int | None = None, **kwargs) -> int:
+    def impl(a: int, b: int = 0, **kwargs) -> int:
       return a + b + kwargs['c']
 
-    fn.configure(implementation, a=1)
+    fn.configure(impl, a=1)
     with self.subTest('should_pass_extra_args'):
       self.assertExecutableResultEqual(fn(b=2, c=3), 6)
 
