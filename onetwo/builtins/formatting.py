@@ -229,6 +229,8 @@ class DefaultFormatter(Formatter):
           )
       prompt = prompt.lstrip(' ')
       if prompt:
+        # Note: if `prompt` is a ChunkList, the following line will append
+        # multiple chunks.
         instruct_prompt += (
             _INSTRUCTION_QUESTION_PREFIX
             + ' '
@@ -275,7 +277,7 @@ class DefaultFormatter(Formatter):
       if last_assistant_content:
         prompt += (
             _MULTITURN_ROLE_PATTERN.format(self.role_map[_PredefinedRole.MODEL])
-            + f' {last_assistant_content}\n'
+            + f' {last_assistant_content}'
         )
       else:
         prompt += _MULTITURN_ROLE_PATTERN.format(

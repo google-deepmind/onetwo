@@ -229,6 +229,37 @@ class DefaultFormatterTest(parameterized.TestCase):
               'Task: Hello!\nAnswer: Hey'
           ),
       ),
+      (
+          'chat_mode_user_last',
+          (
+              _Message(role=_PredefinedRole.USER, content='Hello!'),
+              _Message(role=_PredefinedRole.MODEL, content='Hey.'),
+              _Message(role=_PredefinedRole.USER, content='How are you?'),
+          ),
+          False,
+          (
+              '**User**: Hello!\n'
+              '**Model**: Hey.\n'
+              '**User**: How are you?\n'
+              '**Model**:'
+          ),
+      ),
+      (
+          'chat_mode_assistant_last_dont_include_newline',
+          (
+              _Message(role=_PredefinedRole.USER, content='Hello!'),
+              _Message(role=_PredefinedRole.MODEL, content='Hey.'),
+              _Message(role=_PredefinedRole.USER, content='How are you?'),
+              _Message(role=_PredefinedRole.MODEL, content='I am'),
+          ),
+          False,
+          (
+              '**User**: Hello!\n'
+              '**Model**: Hey.\n'
+              '**User**: How are you?\n'
+              '**Model**: I am'
+          ),
+      ),
   )
   def test_format(self, messages, use_fewshots, expected_result):
     formatter = formatting.DefaultFormatter({'use_fewshots': use_fewshots})

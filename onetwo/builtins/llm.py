@@ -139,10 +139,9 @@ def echo_generate_text(
     prompt: str | content_lib.ChunkList, **kwargs
 ) -> str | tuple[str, Mapping[str, Any]]:
   """Implementation of generate_text that simply returns the prompt."""
-  del kwargs
   if isinstance(prompt, str):
     return prompt
-  return '', {'prompt': prompt}
+  return '', {'prompt': prompt, 'kwargs': kwargs}
 
 
 async def _default_generate_text_from_string(
