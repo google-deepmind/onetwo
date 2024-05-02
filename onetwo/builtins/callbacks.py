@@ -303,12 +303,26 @@ async def choose(
     top_k: int = 1,
     space_healing: bool = True,
     mock_value: str | None = None,
-) -> Mapping[str, list[str] | list[float]]:
+) -> str:
   """Callback to choose from a set of completions given the context.
 
   Similar to `_llm_callback` callback, but using `score` instead of `complete`
   method. Useful when we know the options we want to choose from. Reduces the
   generation problem to the classification problem.
+
+  Updates context variables with a dictionary `('choices': choices, 'scores':
+  scores)`, where `choices` is a list containing `top_k` highest scored elements
+  among `candidates` sorted in descreasing order and `scores` is a list of the
+  same length as `candidates`, where `scores[j]` contains the score of
+  `candidates[j]`. For example:
+    _choose_callback(context, ['yes', 'no', 'abstain'], 1)
+  may return:
+    {'choices': ['yes'], 'scores': [-0.356, -1.609, -2.302]},
+  while
+    _choose_callback(context, ['red', 'green', 'blue', 'orange'], 2)
+  may return
+    {'choices': ['orange', 'green'],
+      'scores': [-2.995, -1.609, -1.897, -0.510]}.
 
   Args:
     context: Context information passed automatically to the function.
@@ -322,19 +336,7 @@ async def choose(
       test_j2_choose_callback_mock_value_with_zipped_examples for an example.
 
   Returns:
-    A dict ('choices': choices, 'scores': scores), where `choices` is a list
-    containing `top_k` highest scored elements among `candidates` sorted in
-    descreasing order and `scores` is a list of the same length as `candidates`,
-    where `scores[j]` contains the score of `candidates[j]`.
-    For example:
-      _choose_callback(context, ['yes', 'no', 'abstain'], 1)
-    may return:
-      {'choices': ['yes'], 'scores': [-0.356, -1.609, -2.302]},
-    while
-      _choose_callback(context, ['red', 'green', 'blue', 'orange'], 2)
-    may return
-      {'choices': ['orange', 'green'],
-       'scores': [-2.995, -1.609, -1.897, -0.510]}.
+    The highest scoring option among `candidates`.
   """
   # The mock_value is added by the add_mock_value decorator to prevent it
   # from being traced. It is part of the function signature for documentation
@@ -356,7 +358,7 @@ async def choose(
   context_variables = {CHOICES_VAR: choices, SCORES_VAR: scores}
   context.context_variables.update(context_variables)
   tracing.execution_context.get().outputs.update(context_variables)
-  return choices[0]  # pytype: disable=bad-return-type
+  return choices[0]
 
 
 def mock_llm_callback(
