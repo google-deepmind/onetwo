@@ -220,21 +220,21 @@ class ExecutionTest(parameterized.TestCase):
 
     with self.subTest('run'):
       self.assertEqual(
-          run_results, expected_results, msg=pprint.pformat(run_results)
+          expected_results, run_results, msg=pprint.pformat(run_results)
       )
 
     with executing.stream_updates(e) as iterator:
       stream_results = list(iterator)
-    with self.subTest('stream'):
+    with self.subTest('stream_updates'):
       self.assertEqual(
-          stream_results, expected_results, msg=pprint.pformat(stream_results)
+          expected_results, stream_results, msg=pprint.pformat(stream_results)
       )
 
     with executing.safe_stream(e) as iterator:
       stream_results = list(iterator)
-    with self.subTest('stream'):
+    with self.subTest('safe_stream'):
       self.assertEqual(
-          stream_results, expected_results, msg=pprint.pformat(stream_results)
+          expected_results, stream_results, msg=pprint.pformat(stream_results)
       )
 
     results = []
@@ -246,12 +246,12 @@ class ExecutionTest(parameterized.TestCase):
     final_result = executing.stream_with_callback(e, cb)
     with self.subTest('stream_with_callback_list'):
       self.assertEqual(
-          results, expected_results, msg=pprint.pformat(results)
+          expected_results, results, msg=pprint.pformat(results)
       )
 
     with self.subTest('stream_with_callback_final'):
       self.assertEqual(
-          final_result, expected_results[-1], msg=pprint.pformat(final_result)
+          expected_results[-1], final_result, msg=pprint.pformat(final_result)
       )
 
   def test_repeated_decoration(self):
@@ -310,7 +310,7 @@ class ExecutionTest(parameterized.TestCase):
       with self.subTest(f'run_{fn.__name__}'):
         result = executing.run(fn('test'))
         expected_result = 'done: test'
-        self.assertEqual(result, expected_result, msg=pprint.pformat(result))
+        self.assertEqual(expected_result, result, msg=pprint.pformat(result))
 
       with self.subTest(f'safe_stream_{fn.__name__}'):
         with executing.safe_stream(fn('test')) as iterator:
@@ -322,8 +322,8 @@ class ExecutionTest(parameterized.TestCase):
             'done: test',
         ]
         self.assertEqual(
-            result,
             expected_result if is_iterative else [expected_result[-1]],
+            result,
             msg=pprint.pformat(result),
         )
 
@@ -338,8 +338,8 @@ class ExecutionTest(parameterized.TestCase):
         ]
         result = result if is_iterative else iterator.value
         self.assertEqual(
-            result,
             expected_result if is_iterative else expected_result[-1],
+            result,
             msg=pprint.pformat(result),
         )
 
@@ -354,13 +354,13 @@ class ExecutionTest(parameterized.TestCase):
         ]
         expected_final_result = expected_result[-1]
         self.assertEqual(
-            cb_result,
             expected_result if is_iterative else [expected_final_result],
+            cb_result,
             msg=pprint.pformat(cb_result),
         )
         self.assertEqual(
-            final_result,
             expected_final_result,
+            final_result,
             msg=pprint.pformat(final_result),
         )
 
@@ -371,8 +371,8 @@ class ExecutionTest(parameterized.TestCase):
     result2 = executing.run(obj.async_method('_1'))
 
     with self.subTest('should_produce_correct_results'):
-      self.assertEqual(result1, 'req1_0')
-      self.assertEqual(result2, 'req1_1')
+      self.assertEqual('req1_0', result1)
+      self.assertEqual('req1_1', result2)
 
   def test_method_executable_copy_when_decorated_with_atsign(self):
     inner_text = ['req1']
@@ -385,19 +385,19 @@ class ExecutionTest(parameterized.TestCase):
     inner_text[0] = 'req2'
 
     with self.subTest('copy_is_deep_on_object'):
-      self.assertEqual(obj.some_list, ['req2'])
-      self.assertEqual(obj2.some_list, ['req1'])
+      self.assertEqual(['req2'], obj.some_list)
+      self.assertEqual(['req1'], obj2.some_list)
 
     with self.subTest('copy_is_deep_on_executable'):
-      self.assertEqual(executing.run(executable), 'req2_0')
-      self.assertEqual(executing.run(executable2), 'req1_0')
+      self.assertEqual('req2_0', executing.run(executable))
+      self.assertEqual('req1_0', executing.run(executable2))
 
     with self.subTest('copy_is_deep_on_self'):
       self.assertNotEqual(executable.args[0], executable2.args[0])
 
     with self.subTest('copy_is_not_deep_with_self'):
-      self.assertEqual(executing.run(executable3), 'req2_0')
-      self.assertEqual(executing.run(executable4), 'req2_0')
+      self.assertEqual('req2_0', executing.run(executable3))
+      self.assertEqual('req2_0', executing.run(executable4))
       self.assertEqual(executable3.args[0], executable4.args[0])
 
   def test_method_executable_copy_when_decorated_inline(self):
@@ -412,15 +412,15 @@ class ExecutionTest(parameterized.TestCase):
     inner_text[0] = 'req2'
 
     with self.subTest('copy_is_deep_on_executable'):
-      self.assertEqual(executing.run(executable), 'req2_0')
-      self.assertEqual(executing.run(executable2), 'req1_0')
+      self.assertEqual('req2_0', executing.run(executable))
+      self.assertEqual('req1_0', executing.run(executable2))
 
     with self.subTest('copy_is_deep_on_self'):
       self.assertNotEqual(executable.args[0], executable2.args[0])
 
     with self.subTest('copy_is_not_deep_with_self'):
-      self.assertEqual(executing.run(executable3), 'req2_0')
-      self.assertEqual(executing.run(executable4), 'req2_0')
+      self.assertEqual('req2_0', executing.run(executable3))
+      self.assertEqual('req2_0', executing.run(executable4))
       self.assertEqual(executable3.args[0], executable4.args[0])
 
   def test_method_args_copy(self):
@@ -431,8 +431,8 @@ class ExecutionTest(parameterized.TestCase):
     texts[0] = '_1'
 
     with self.subTest('arguments_are_copied'):
-      self.assertEqual(executing.run(executable), 'req_1')
-      self.assertEqual(executing.run(executable2), 'req_0')
+      self.assertEqual('req_1', executing.run(executable))
+      self.assertEqual('req_0', executing.run(executable2))
 
   def test_function_args_copy(self):
     texts = ['r0']
@@ -441,8 +441,8 @@ class ExecutionTest(parameterized.TestCase):
     texts[0] = 'r1'
 
     with self.subTest('arguments_are_copied'):
-      self.assertEqual(executing.run(executable), 'done: r1')
-      self.assertEqual(executing.run(executable2), 'done: r0')
+      self.assertEqual('done: r1', executing.run(executable))
+      self.assertEqual('done: r0', executing.run(executable2))
 
   def test_method_args_copy_with_non_copied_args(self):
     obj = ObjectForTest(['req'])
@@ -456,10 +456,10 @@ class ExecutionTest(parameterized.TestCase):
     with self.subTest('non_copied_args_are_not_copied'):
       # The original `executable` is the one whose args we modified directly,
       # so we see the updated values for all args.
-      self.assertEqual(executing.run(executable), 'req_1_u1')
+      self.assertEqual('req_1_u1', executing.run(executable))
       # The copied `executable2` shows the original value of the normal arg,
       # but the updated value of the uncopied one
-      self.assertEqual(executing.run(executable2), 'req_0_u1')
+      self.assertEqual('req_0_u1', executing.run(executable2))
 
   def test_function_args_copy_with_non_copied_args(self):
     texts = ['r0']
@@ -474,10 +474,10 @@ class ExecutionTest(parameterized.TestCase):
     with self.subTest('non_copied_args_are_not_copied_but_others_are'):
       # The original `executable` is the one whose args we modified directly,
       # so we see the updated values for all args.
-      self.assertEqual(executing.run(executable), 'done: r1 with u1')
+      self.assertEqual('done: r1 with u1', executing.run(executable))
       # The copied `executable2` shows the original value of the normal arg,
       # but the updated value of the uncopied one
-      self.assertEqual(executing.run(executable2), 'done: r0 with u1')
+      self.assertEqual('done: r0 with u1', executing.run(executable2))
 
   def test_serial_streaming(self):
     executable = serial(
@@ -485,7 +485,7 @@ class ExecutionTest(parameterized.TestCase):
     )
     with executing.stream_updates(executable) as iterator:
       result = sum(iterator, start=updating.Update()).to_result()
-    self.assertListEqual(result, ['rep_0', 'rep_1'])
+    self.assertListEqual(['rep_0', 'rep_1'], result)
 
   def test_serial_streaming_with_callback(self):
     executable = serial(
@@ -500,7 +500,7 @@ class ExecutionTest(parameterized.TestCase):
     returned_result = executing.stream_with_callback(executable, cb)
     result = updates.to_result()
     self.assertEqual(returned_result, result)
-    self.assertListEqual(result, ['rep_0', 'rep_1'])
+    self.assertListEqual(['rep_0', 'rep_1'], result)
 
   def test_serial_streaming_with_coroutine_callback(self):
     executable = serial(
@@ -515,13 +515,13 @@ class ExecutionTest(parameterized.TestCase):
     returned_result = executing.stream_with_callback(executable, cb)
     result = updates.to_result()
     self.assertEqual(returned_result, result)
-    self.assertListEqual(result, ['rep_0', 'rep_1'])
+    self.assertListEqual(['rep_0', 'rep_1'], result)
 
   def test_no_need_to_call_wrapped_functions(self):
     reply = executing.run(async_wrap_function_without_call('r'))
 
     with self.subTest('should_produce_correct_results'):
-      self.assertEqual(reply, 'done: r')
+      self.assertEqual('done: r', reply)
 
   def test_no_need_to_call_methods(self):
     inner_text = ['req1']
@@ -530,8 +530,8 @@ class ExecutionTest(parameterized.TestCase):
     result2 = executing.run(obj.async_method_without_call('_1'))
 
     with self.subTest('should_produce_correct_results'):
-      self.assertEqual(result1, 'req1_0')
-      self.assertEqual(result2, 'req1_1')
+      self.assertEqual('req1_0', result1)
+      self.assertEqual('req1_1', result2)
 
   def test_wrap_with_executable_parameter(self):
     @make_executable
@@ -548,28 +548,25 @@ class ExecutionTest(parameterized.TestCase):
     ))
 
     with self.subTest('should_produce_correct_results'):
-      self.assertEqual(reply1, 'done: r with done: s')
-      self.assertEqual(reply2, 'done: r with s')
-      self.assertEqual(reply3, 'done: r with done: s')
-      self.assertEqual(reply4, 'done: done: r with done: s with t')
+      self.assertEqual('done: r with done: s', reply1)
+      self.assertEqual('done: r with s', reply2)
+      self.assertEqual('done: r with done: s', reply3)
+      self.assertEqual('done: done: r with done: s with t', reply4)
 
-  def test_multiple_arguments(self):
-    res1 = executing.run(async_wrap_function_multiple_args('r', 's'))
-    res2 = executing.run(async_wrap_function_multiple_args(
-        _wrap_request('r_0'), 's'
-    ))
-    res3 = executing.run(async_wrap_function_multiple_args(
-        'r', _wrap_request('s_0')
-    ))
-    res4 = executing.run(async_wrap_function_multiple_args(
-        _wrap_request('r_0'), _wrap_request('s_0')
-    ))
-
-    with self.subTest('should_produce_correct_results'):
-      self.assertEqual(res1, 'done: r done: s')
-      self.assertEqual(res2, 'done: r_0 done: s')
-      self.assertEqual(res3, 'done: r done: s_0')
-      self.assertEqual(res4, 'done: r_0 done: s_0')
+  @parameterized.named_parameters(
+      ('no_wrap', 'r', 's', 'done: r done: s'),
+      ('wrap_first_arg', _wrap_request('r_0'), 's', 'done: r_0 done: s'),
+      ('wrap_second_arg', 'r', _wrap_request('s_0'), 'done: r done: s_0'),
+      (
+          'wrap_both_args',
+          _wrap_request('r_0'),
+          _wrap_request('s_0'),
+          'done: r_0 done: s_0',
+      ),
+  )
+  def test_multiple_arguments(self, arg1, arg2, expected_result):
+    result = executing.run(async_wrap_function_multiple_args(arg1, arg2))
+    self.assertEqual(expected_result, result)
 
   @parameterized.named_parameters(
       (
@@ -621,8 +618,8 @@ class ExecutionTest(parameterized.TestCase):
     result2 = iterator.value
 
     with self.subTest('should_produce_correct_results'):
-      self.assertEqual(result, ['rep_0', 'rep_1', 'rep_2'])
-      self.assertEqual(result2, result)
+      self.assertEqual(['rep_0', 'rep_1', 'rep_2'], result)
+      self.assertEqual(result, result2)
 
   def test_serial_parallel_stream(self):
     """Test the interleaving of two parallel series of calls."""
@@ -703,7 +700,7 @@ class ExecutionTest(parameterized.TestCase):
 
     executable = parallel(fn1(), fn2(fn1()), fn2('other'))
     self.assertEqual(
-        executing.run(executable), ['test', 'test done', 'other done']
+        ['test', 'test done', 'other done'], executing.run(executable)
     )
 
   def test_corner_cases(self):
@@ -722,18 +719,18 @@ class ExecutionTest(parameterized.TestCase):
     executable = fn2(executable)
     with self.subTest('parallel_of_one'):
       self.assertEqual(
-          executing.run(executable), 'test done'
+          'test done', executing.run(executable)
       )
 
     executable = par_iter([])
 
     with self.subTest('empty_iterable'):
-      self.assertEqual(executing.run(executable), [])
+      self.assertEqual([], executing.run(executable))
 
     executable = parallel(parallel(fn1()))
     with self.subTest('nested_parallel'):
       self.assertEqual(
-          executing.run(executable), [['test']]
+          [['test']], executing.run(executable)
       )
 
   def test_wrap_asyncgen(self):
@@ -795,35 +792,35 @@ class ExecutionTest(parameterized.TestCase):
       result4b = iterator.value
 
     with self.subTest('iterate_should_return_item_on_run'):
-      self.assertEqual(result1, '2_0')
+      self.assertEqual('2_0', result1)
 
     with self.subTest('run_should_return_list_on_run'):
-      self.assertListEqual(result2, ['0_0', '1_0', '2_0'])
+      self.assertListEqual(['0_0', '1_0', '2_0'], result2)
 
     with self.subTest('should_return_list_on_stream'):
-      self.assertListEqual(incremental1, ['0_0', '1_0', '2_0'])
-      self.assertListEqual(incremental2, [['0_0', '1_0', '2_0']])
-      self.assertListEqual(incremenatal2b, ['0_0', '1_0', '2_0'])
+      self.assertListEqual(['0_0', '1_0', '2_0'], incremental1)
+      self.assertListEqual([['0_0', '1_0', '2_0']], incremental2)
+      self.assertListEqual(['0_0', '1_0', '2_0'], incremenatal2b)
 
     with self.subTest('iteration_depth_0_should_behave_as_run'):
-      self.assertListEqual(incremental3, [executing.Update('2_0')])
+      self.assertListEqual([executing.Update('2_0')], incremental3)
       self.assertListEqual(
-          incremental4,
           [executing.Update(['0_0', '1_0', '2_0'])],
+          incremental4,
       )
-      self.assertListEqual(incremental3b, [])
-      self.assertListEqual(incremental4b, [])
-      self.assertEqual(result3b, '2_0')
-      self.assertListEqual(result4b, ['0_0', '1_0', '2_0'])
+      self.assertListEqual([], incremental3b)
+      self.assertListEqual([], incremental4b)
+      self.assertEqual('2_0', result3b)
+      self.assertListEqual(['0_0', '1_0', '2_0'], result4b)
 
   def test_iterable_reply(self):
     request = _wrap_request('req_0', streaming=True)
     with executing.stream_updates(request, iteration_depth=-1) as iterator:
       for i, reply_update in enumerate(iterator):
         assert isinstance(reply_update, executing.Update)  # Type hint.
-        self.assertEqual(reply_update.to_result(), 'rep_0'[: i + 1])
+        self.assertEqual('rep_0'[: i + 1], reply_update.to_result())
     reply = executing.run(request)
-    self.assertEqual(reply, 'rep_0')
+    self.assertEqual('rep_0', reply)
 
   def test_iterable_parallel_reply(self):
     request1 = _wrap_request('req_0', streaming=True)
@@ -855,11 +852,11 @@ class ExecutionTest(parameterized.TestCase):
         results.append(
             (copy.deepcopy(update.payload[0][0].payload), update.payload[0][1])
         )
-    self.assertListEqual(results, expected_results, pprint.pformat(results))
+    self.assertListEqual(expected_results, results, pprint.pformat(results))
 
     executable = parallel(request1, request2)
     reply = list(executing.run(executable))
-    self.assertListEqual(reply, ['rep_0', 'other_rep_1'])
+    self.assertListEqual(['rep_0', 'other_rep_1'], reply)
 
     executable = parallel(
         process_updates('req_0'),
@@ -889,8 +886,8 @@ class ExecutionTest(parameterized.TestCase):
         'o_rep_1',
         [None, 'o_rep_1'],
     ]
-    self.assertListEqual(results, expected_results, pprint.pformat(results))
-    self.assertListEqual(result, ['rep_0', 'o_rep_1'], pprint.pformat(result))
+    self.assertListEqual(expected_results, results, pprint.pformat(results))
+    self.assertListEqual(['rep_0', 'o_rep_1'], result, pprint.pformat(result))
 
   def test_parallel_iterators(self):
     @executing.make_executable
@@ -964,7 +961,7 @@ class ExecutionTest(parameterized.TestCase):
         ('0rep_2', 0),
         ('1rep_5', 1),
     ]
-    self.assertListEqual(results, expected_result, pprint.pformat(results))
+    self.assertListEqual(expected_result, results, pprint.pformat(results))
 
   @parameterized.named_parameters(
       (
@@ -1053,7 +1050,7 @@ class ExecutionTest(parameterized.TestCase):
           results.append(copy.deepcopy(update.to_simplified_result()))
         else:
           results.append(copy.deepcopy(update))
-    self.assertListEqual(results, expected_result, pprint.pformat(results))
+    self.assertListEqual(expected_result, results, pprint.pformat(results))
 
   def test_executable_with_postprocessing(self):
     @executing.make_executable
@@ -1080,11 +1077,11 @@ class ExecutionTest(parameterized.TestCase):
 
     with self.subTest('run_with_postprocessing_callback'):
       res1 = executing.run(e1)
-      self.assertEqual(res1, 'done 2 post')
+      self.assertEqual('done 2 post', res1)
 
     with self.subTest('run_with_postprocessing_and_update_callbacks'):
       res3 = executing.run(e3)
-      self.assertEqual(res3, 'done 2 post')
+      self.assertEqual('done 2 post', res3)
 
     with self.subTest('stream_with_postprocessing_callback'):
       res2 = updating.Update()
@@ -1093,9 +1090,9 @@ class ExecutionTest(parameterized.TestCase):
         for update in iterator:
           res2 += update
           updates2.append(update.to_result())
-      self.assertEqual(res2.to_result(), 'done 2 post')
+      self.assertEqual('done 2 post', res2.to_result())
       self.assertListEqual(
-          updates2, ['done 0 post', 'done 1 post', 'done 2 post']
+          ['done 0 post', 'done 1 post', 'done 2 post'], updates2
       )
 
     with self.subTest('stream_with_postprocessing_and_update_callbacks'):
@@ -1106,9 +1103,9 @@ class ExecutionTest(parameterized.TestCase):
           res4 += update
           updates4.append(update)
 
-      self.assertEqual(res4.to_result(), 'done 2 update')
+      self.assertEqual('done 2 update', res4.to_result())
       self.assertListEqual(
-          updates4, ['done 0 update', 'done 1 update', 'done 2 update']
+          ['done 0 update', 'done 1 update', 'done 2 update'], updates4
       )
 
   @parameterized.named_parameters(
@@ -1120,20 +1117,21 @@ class ExecutionTest(parameterized.TestCase):
       ('stream_updates_no_return_exceptions', 'stream_updates', False),
   )
   def test_parallel_exceptions(self, run_mode, return_exceptions):
+    error_string = 'Some error'
     @executing.make_executable
     def compute(s: str) -> str:
-      if s == 'error':
+      if s == error_string:
         raise ValueError(s)
       else:
         return s + ' done'
 
-    executables = [compute(s) for s in ['test1', 'error', 'test2']]
+    executables = [compute(s) for s in ['test1', error_string, 'test2']]
     executable = executing.par_iter(
         executables, return_exceptions=return_exceptions
     )
 
     if not return_exceptions:
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(ValueError, error_string):
         match run_mode:
           case 'run':
             _ = executing.run(executable)
@@ -1155,7 +1153,7 @@ class ExecutionTest(parameterized.TestCase):
             res = sum(iterator, start=updating.Update()).to_result()
         case _:
           res = None
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(ValueError, error_string):
         raise res[1]
 
   def test_chain_with_iterate_argument(self):
@@ -1179,7 +1177,7 @@ class ExecutionTest(parameterized.TestCase):
 
     result = executing.run(executable)
     with self.subTest('execute_append'):
-      self.assertEqual(result, 'abcd')
+      self.assertEqual('abcd', result)
 
     result = []
     with executing.safe_stream(executable2) as iterator:
@@ -1188,7 +1186,7 @@ class ExecutionTest(parameterized.TestCase):
 
     with self.subTest('iterate_append'):
       # We iterate the prefix but not from the postfix.
-      self.assertListEqual(result, ['a', 'ab', 'abcd'])
+      self.assertListEqual(['a', 'ab', 'abcd'], result)
 
     executable = append(
         append_non_exec('a', 'b'), append_non_exec('c', 'd')
@@ -1197,7 +1195,7 @@ class ExecutionTest(parameterized.TestCase):
 
     result = executing.run(executable)
     with self.subTest('execute_append_non_exec'):
-      self.assertEqual(result, 'abcd')
+      self.assertEqual('abcd', result)
 
     result = []
     with executing.safe_stream(executable2) as iterator:
@@ -1206,7 +1204,7 @@ class ExecutionTest(parameterized.TestCase):
 
     with self.subTest('iterate_append_non_exec'):
       # We iterate the prefix but not from the postfix.
-      self.assertListEqual(result, ['a', 'ab', 'abcd'])
+      self.assertListEqual(['a', 'ab', 'abcd'], result)
 
     executable = append_it(append_it('a ', 'b c'), append_it(' d ', 'e f'))
     executable2 = copy.deepcopy(executable)
@@ -1214,7 +1212,7 @@ class ExecutionTest(parameterized.TestCase):
     result = executing.run(executable)
     with self.subTest('execute_append_it'):
       # Spaces have been removed from the postfixes but not the prefixes.
-      self.assertEqual(result, 'a bcdef')
+      self.assertEqual('a bcdef', result)
 
     result = []
     with executing.safe_stream(executable2) as iterator:
@@ -1224,7 +1222,6 @@ class ExecutionTest(parameterized.TestCase):
     with self.subTest('iterate_append_it'):
       # We iterate the prefix but not from the postfix.
       self.assertListEqual(
-          result,
           [
               'a ',  # Prefix of prefix of function call
               'a b',  # Iterate 1 of postfix of prefix
@@ -1233,6 +1230,7 @@ class ExecutionTest(parameterized.TestCase):
               'a bcd',  # First part of postfix
               'a bcdef',  # Second part of postfix
           ],
+          result,
       )
 
   def test_iterator_with_var_positional_args(self):
@@ -1242,13 +1240,13 @@ class ExecutionTest(parameterized.TestCase):
         yield arg
 
     result = executing.run(iterator('a', 'b', 'c', 'd'))
-    self.assertEqual(result, 'd')
+    self.assertEqual('d', result)
 
     with executing.safe_stream(iterator('a', 'b', 'c', 'd')) as iterator:
       result = []
       for update in iterator:
         result.append(updating.Update(update).to_result())
-      self.assertEqual(result, ['a', 'b', 'c', 'd'])
+      self.assertEqual(['a', 'b', 'c', 'd'], result)
 
   def test_pre_execute(self):
     @make_executable
@@ -1262,19 +1260,19 @@ class ExecutionTest(parameterized.TestCase):
 
     with self.subTest('execute_run'):
       result = executing.run(wrapper(3))
-      self.assertEqual(result, 'done 2')
+      self.assertEqual('done 2', result)
 
     with self.subTest('execute_stream'):
       with executing.safe_stream(wrapper(3)) as iterator:
         result = []
         for update in iterator:
           result.append(updating.Update(update).to_result())
-        self.assertEqual(result, ['done 0', 'done 1', 'done 2'])
+        self.assertEqual(['done 0', 'done 1', 'done 2'], result)
 
     with self.subTest('pre_execute_run'):
       pre_result = executing.run(wrapper(3).pre_execute())
       result = executing.run(pre_result)
-      self.assertEqual(result, 'done 2')
+      self.assertEqual('done 2', result)
 
     with self.subTest('pre_execute_stream'):
       pre_result = executing.run(wrapper(3).pre_execute())
@@ -1282,7 +1280,7 @@ class ExecutionTest(parameterized.TestCase):
         result = []
         for update in iterator:
           result.append(updating.Update(update).to_result())
-        self.assertEqual(result, ['done 0', 'done 1', 'done 2'])
+        self.assertEqual(['done 0', 'done 1', 'done 2'], result)
 
   def test_execution_of_var_positional(self):
     @executing.make_executable
@@ -1299,10 +1297,12 @@ class ExecutionTest(parameterized.TestCase):
       result = executing.run(
           f1(idle('a'), idle('b'), idle('c'), other=idle('d'))
       )
-      self.assertEqual(result, 'a;b,c d')
+      self.assertEqual('a;b,c d', result)
 
     with self.subTest('fails_to_execute'):
-      with self.assertRaises(TypeError):
+      with self.assertRaisesRegex(
+          TypeError, 'expected str instance, FunctionExecWrapper found'
+      ):
         # This raises a TypeError because the arguments will not be executed
         # hence the function will call `join` on objects that are executables
         # instead of strings.
@@ -1310,7 +1310,7 @@ class ExecutionTest(parameterized.TestCase):
 
     with self.subTest('execute_non_positional'):
       result = executing.run(f2('a', 'b', 'c', other=idle('d')))
-      self.assertEqual(result, 'a;b,c d')
+      self.assertEqual('a;b,c d', result)
 
   def test_callable_object(self):
     class _CallableObject:
@@ -1320,7 +1320,7 @@ class ExecutionTest(parameterized.TestCase):
 
     obj = make_executable(_CallableObject())
     result = executing.run(obj(1, b=3))
-    self.assertEqual(result, "called((1,), {'b': 3})")
+    self.assertEqual("called((1,), {'b': 3})", result)
 
   def test_async_callable_object(self):
     class _AsyncCallableObject:
@@ -1330,7 +1330,7 @@ class ExecutionTest(parameterized.TestCase):
 
     obj = make_executable(_AsyncCallableObject())
     result = executing.run(obj(1, b=3))
-    self.assertEqual(result, "called((1,), {'b': 3})")
+    self.assertEqual("called((1,), {'b': 3})", result)
 
   @parameterized.named_parameters(
       ('depth_0', 0, []),
@@ -1355,10 +1355,14 @@ class ExecutionTest(parameterized.TestCase):
       return res
 
     with executing.stream_updates(plan(3), iteration_depth=depth) as it:
-      res = list(it)
-    final = it.value
-    self.assertListEqual(res, expected_updates)
-    self.assertEqual(final, 3)
+      updates = list(it)
+    final_result = it.value
+
+    with self.subTest('should_produce_correct_updates'):
+      self.assertListEqual(expected_updates, updates)
+
+    with self.subTest('should_produce_correct_final_result'):
+      self.assertEqual(3, final_result)
 
 
 if __name__ == '__main__':
