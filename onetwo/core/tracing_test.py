@@ -123,9 +123,13 @@ class TracingTest(parameterized.TestCase):
           StringTracerForTest(),
           "  ff: {'a': 'test'}\n  ff: {'output': 'other done'}\n",
       ),
-      ('execution_result_tracer', ExecutionResultTracerForTest(), None),
+      (
+          'execution_result_tracer',
+          ExecutionResultTracerForTest(),
+          'SEE_CODE_BELOW_FOR_EXPECTED_TRACE',
+      ),
   )
-  def test_skip_inputs(self, tracer, expected_result):
+  def test_skip_inputs(self, tracer, expected_trace):
     @tracing.trace(skip=['b'])
     def ff(a, b):
       del a
@@ -137,25 +141,24 @@ class TracingTest(parameterized.TestCase):
         outputs={results.MAIN_OUTPUT: 'other done'},
         stages=[],
     )
+    if isinstance(tracer, ExecutionResultTracerForTest):
+      expected_trace = ExecutionResult(stages=[expected_execution_result])
 
     _, execution_result = tracing.run(
         functools.partial(ff, 'test', 'other'), tracer=tracer
     )
-    with self.subTest('should_return_correct_results'):
+
+    with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
-          execution_result,
           expected_execution_result,
+          execution_result,
           pprint.pformat(execution_result),
       )
-      if tracer is not None:
-        result = tracer.get_result()
-        if isinstance(tracer, ExecutionResultTracerForTest):
-          expected_result = ExecutionResult(stages=[expected_execution_result])
-        self.assertEqual(
-            result,
-            expected_result,
-            pprint.pformat(result),
-        )
+
+    if tracer is not None:
+      with self.subTest('should_return_correct_trace'):
+        trace = tracer.get_result()
+        self.assertEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_change_name(self):
     @tracing.trace(name='f2')
@@ -163,15 +166,15 @@ class TracingTest(parameterized.TestCase):
       return a + ' done'
 
     _, execution_result = tracing.run(functools.partial(ff, 'test'))
-    with self.subTest('should_return_correct_results'):
+    with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
-          execution_result,
           ExecutionResult(
               stage_name='f2',
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test done'},
               stages=[],
           ),
+          execution_result,
           pprint.pformat(execution_result),
       )
 
@@ -179,15 +182,15 @@ class TracingTest(parameterized.TestCase):
     _, execution_result = tracing.run(
         functools.partial(with_update, 'test')
     )
-    with self.subTest('should_return_correct_results'):
+    with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
-          execution_result,
           ExecutionResult(
               stage_name='with_update',
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test'},
               info={'a': 'test'},
           ),
+          execution_result,
           pprint.pformat(execution_result),
       )
 
@@ -197,13 +200,13 @@ class TracingTest(parameterized.TestCase):
     )
     with self.subTest('should_not_include_self'):
       self.assertEqual(
-          execution_result,
           ExecutionResult(
               stage_name='m',
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test done'},
               stages=[],
           ),
+          execution_result,
           pprint.pformat(execution_result),
       )
 
@@ -225,9 +228,13 @@ class TracingTest(parameterized.TestCase):
               "  h: {'output': 'test2 from g'}\n"
           ),
       ),
-      ('execution_result_tracer', ExecutionResultTracerForTest(), None),
+      (
+          'execution_result_tracer',
+          ExecutionResultTracerForTest(),
+          'SEE_CODE_BELOW_FOR_EXPECTED_TRACE',
+      ),
   )
-  def test_tracing(self, tracer, expected_result):
+  def test_tracing(self, tracer, expected_trace):
     _, execution_result = tracing.run(
         functools.partial(h, 'test'), tracer=tracer
     )
@@ -259,22 +266,20 @@ class TracingTest(parameterized.TestCase):
             ),
         ],
     )
+    if isinstance(tracer, ExecutionResultTracerForTest):
+      expected_trace = ExecutionResult(stages=[expected_execution_result])
 
-    with self.subTest('should_return_correct_results'):
+    with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
-          execution_result,
           expected_execution_result,
+          execution_result,
           pprint.pformat(execution_result),
       )
-      if tracer is not None:
-        result = tracer.get_result()
-        if isinstance(tracer, ExecutionResultTracerForTest):
-          expected_result = ExecutionResult(stages=[expected_execution_result])
-        self.assertEqual(
-            result,
-            expected_result,
-            pprint.pformat(result),
-        )
+
+    if tracer is not None:
+      with self.subTest('should_return_correct_trace'):
+        trace = tracer.get_result()
+        self.assertEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_missing_decorator_tracing(self):
     @tracing.trace
@@ -289,9 +294,8 @@ class TracingTest(parameterized.TestCase):
       return a
 
     _, execution_result = tracing.run(functools.partial(f1, 'test'))
-    with self.subTest('should_return_correct_results'):
+    with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
-          execution_result,
           ExecutionResult(
               stage_name='f1',
               inputs={'a': 'test'},
@@ -304,6 +308,7 @@ class TracingTest(parameterized.TestCase):
                   )
               ],
           ),
+          execution_result,
           pprint.pformat(execution_result),
       )
 
@@ -325,9 +330,13 @@ class TracingTest(parameterized.TestCase):
               "  ah: {'output': 'test2 from g'}\n"
           ),
       ),
-      ('execution_result_tracer', ExecutionResultTracerForTest(), None),
+      (
+          'execution_result_tracer',
+          ExecutionResultTracerForTest(),
+          'SEE_CODE_BELOW_FOR_EXPECTED_TRACE',
+      ),
   )
-  def test_async_tracing(self, tracer, expected_result):
+  def test_async_tracing(self, tracer, expected_trace):
     _, execution_result = tracing.run(
         functools.partial(ah, 'test'), tracer=tracer
     )
@@ -359,22 +368,20 @@ class TracingTest(parameterized.TestCase):
             ),
         ],
     )
+    if isinstance(tracer, ExecutionResultTracerForTest):
+      expected_trace = ExecutionResult(stages=[expected_execution_result])
 
-    with self.subTest('should_return_correct_results'):
+    with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
-          execution_result,
           expected_execution_result,
+          execution_result,
           pprint.pformat(execution_result),
       )
-      if tracer is not None:
-        result = tracer.get_result()
-        if isinstance(tracer, ExecutionResultTracerForTest):
-          expected_result = ExecutionResult(stages=[expected_execution_result])
-        self.assertEqual(
-            result,
-            expected_result,
-            pprint.pformat(result),
-        )
+
+    if tracer is not None:
+      with self.subTest('should_return_correct_trace'):
+        trace = tracer.get_result()
+        self.assertEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_async_iterator(self):
     @tracing.trace
@@ -418,8 +425,8 @@ class TracingTest(parameterized.TestCase):
     ]
 
     asyncio.run(wrapper())
-    with self.subTest('should_return_correct_results'):
-      self.assertListEqual(trace, expected_trace, pprint.pformat(trace))
+    with self.subTest('should_return_correct_trace'):
+      self.assertListEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_par_tracing(self):
     @tracing.trace
@@ -437,7 +444,6 @@ class TracingTest(parameterized.TestCase):
 
     with self.subTest('should_return_correct_results'):
       self.assertEqual(
-          execution_result,
           ExecutionResult(
               stage_name='f1',
               inputs={'a': 'test'},
@@ -470,6 +476,7 @@ class TracingTest(parameterized.TestCase):
                   ),
               ],
           ),
+          execution_result,
           pprint.pformat(execution_result),
       )
 
@@ -490,8 +497,8 @@ class TracingTest(parameterized.TestCase):
         outputs={results.MAIN_OUTPUT: 2},
     )
     self.assertEqual(
-        execution_result,
         expected_execution_result,
+        execution_result,
         pprint.pformat(execution_result),
     )
 
@@ -521,11 +528,10 @@ class TracingTest(parameterized.TestCase):
     iterator = tracing.stream(f2('test'), TracerForTest)
     for update in iterator:
       updates.append(update)
-    result = iterator.value
+    final_result = iterator.value
 
     with self.subTest('should_return_correct_updates'):
       self.assertListEqual(
-          updates,
           [
               "1 - f2: {'a': 'test'}",
               "2 - f0: {'a': 'test'}",
@@ -538,10 +544,11 @@ class TracingTest(parameterized.TestCase):
               "2 - f1: {'output': '2'}",
               "1 - f2: {'output': \"test done test2 done['0', '1', '2']\"}",
           ],
+          updates,
       )
 
-    with self.subTest('should_return_correct_result'):
-      self.assertEqual(result, "test done test2 done['0', '1', '2']")
+    with self.subTest('should_return_correct_final_result'):
+      self.assertEqual("test done test2 done['0', '1', '2']", final_result)
 
   def test_queue_trace_errors(self):
 
@@ -560,39 +567,36 @@ class TracingTest(parameterized.TestCase):
     iterator = tracing.stream(fn('test'), TracerForTest)
     for update in iterator:
       updates.append(update)
-    result = iterator.value
+    final_result = iterator.value
 
     with self.subTest('should_return_correct_updates'):
       self.assertListEqual(
-          updates, ["1 - fn: {'a': 'test'}", "1 - fn: {'output': 'test'}"]
+          ["1 - fn: {'a': 'test'}", "1 - fn: {'output': 'test'}"], updates
       )
 
-    with self.subTest('should_return_correct_result'):
-      self.assertEqual(result, 'test')
+    with self.subTest('should_return_correct_final_result'):
+      self.assertEqual('test', final_result)
 
     updates = []
-    with self.subTest('should_raise_error'):
-      with self.assertRaises(ValueError):
+    with self.subTest('simulate_an_error_during_processing_of_updates'):
+      with self.assertRaisesRegex(ValueError, 'Some error'):
         iterator = tracing.stream(fn('test'), TracerForTest)
         for update in iterator:
           updates.append(update)
-          raise ValueError()
-      self.assertListEqual(
-          updates,
-          [
-              "1 - fn: {'a': 'test'}",
-          ],
-      )
+          raise ValueError('Some error')
 
-    with self.subTest('should_continue'):
+    with self.subTest('updates_should_contain_content_up_until_the_error'):
+      self.assertListEqual(["1 - fn: {'a': 'test'}"], updates)
+
+    with self.subTest('if_we_resume_iterating_we_should_get_remaining_udpates'):
       for update in iterator:
         updates.append(update)
       self.assertListEqual(
-          updates,
           [
               "1 - fn: {'a': 'test'}",
               "1 - fn: {'output': 'test'}",
           ],
+          updates,
       )
 
   @parameterized.named_parameters(
@@ -657,15 +661,15 @@ class TracingTest(parameterized.TestCase):
     iterator = tracing.stream_updates(f2('test'), iteration_depth=depth)
     for update in iterator:
       updates.append(update)
-    result = iterator.value
+    final_result = iterator.value
 
     with self.subTest('should_return_correct_updates'):
       self.assertListEqual(
           updates, expected_updates
       )
 
-    with self.subTest('should_return_correct_result'):
-      self.assertEqual(result, "['0 done', '1 done', '2 done']")
+    with self.subTest('should_return_correct_final_result'):
+      self.assertEqual("['0 done', '1 done', '2 done']", final_result)
 
 
 if __name__ == '__main__':
