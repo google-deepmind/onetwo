@@ -17,9 +17,10 @@
 from collections.abc import Callable
 import copy
 import dataclasses
-import inspect
 import itertools
 from typing import Generic, TypeVar
+
+from onetwo.core import utils
 
 # Type used to represent an object in a StatefulObjectCache.
 _Obj = TypeVar('_Obj')
@@ -127,10 +128,7 @@ class StatefulObjectCache(Generic[_Obj, _ObjState]):
       # supported yet [not-supported-yet] Please assign the expression to a
       # local variable.`
       create_object_function = self.create_object_function
-      if inspect.iscoroutinefunction(create_object_function):  # Awaitable.
-        obj = await create_object_function(state)  # pytype: disable=bad-return-type
-      else:
-        obj = create_object_function(state)
+      obj = await utils.call_and_maybe_await(create_object_function, state)
       self._objects.append(obj)
       return obj  # pytype: disable=bad-return-type
 

@@ -29,6 +29,8 @@ import queue
 import threading
 from typing import Any, Generic, ParamSpec, TypeVar
 
+from onetwo.core import utils
+
 
 T = TypeVar('T')
 Args = ParamSpec('Args')
@@ -705,7 +707,7 @@ def to_thread(
   """
 
   def wrap(func):
-    if inspect.iscoroutinefunction(func):
+    if utils.returns_awaitable(func):
       raise ValueError(
           '@to_thread decorator should be applied to a blocking function, not a'
           ' coroutine function.'

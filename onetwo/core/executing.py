@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Iterable, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
 import contextlib
 import copy
 import dataclasses
@@ -30,6 +30,7 @@ import itertools
 from typing import Any, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from onetwo.core import batching
+from onetwo.core import executing_impl
 from onetwo.core import iterating
 from onetwo.core import results as results_lib
 from onetwo.core import tracing
@@ -43,61 +44,9 @@ _Args = ParamSpec('_Args')
 
 run = batching.run
 
+Executable = executing_impl.Executable
 Update = updating.Update
 ListUpdate = updating.ListUpdate
-
-
-class Executable(
-    Generic[Result],
-    Awaitable[Result],
-    AsyncIterator[Update[Result]],
-    metaclass=abc.ABCMeta,
-):
-  """Interface for a process that can be executed step by step.
-
-  Executable supports both `await` and `async for` statements. If the underlying
-  implementation supports only `await`, we wrap it into the async iterator that
-  yields only that one item. Similarly, if the underlying implementation is an
-  async iterator and only supports `async for`, we implement `await` by manually
-  iterating through all of the values and returning the final one.
-
-  When awaited, executable returns a value of type Result. However, when using
-  `async for`, executable produces instances of class (or subclasses of)
-  `updating.Update`. Class Update helps maintaining (`accumulate`) intermediate
-  resuts and obtaining the final result (`to_result`) based on accumulated
-  information.
-  """
-
-  @abc.abstractmethod
-  async def _aexec(self) -> Result:
-    """Implementation as an Awaitable."""
-
-  @abc.abstractmethod
-  async def _aiterate(
-      self, iteration_depth: int = 1
-  ) -> AsyncIterator[Update[Result]]:
-    """Implementation as an AsyncIterator with configurable depth."""
-    yield Update()  # For correct typing
-
-  @final
-  def with_depth(self, iteration_depth: int) -> AsyncIterator[Update[Result]]:
-    return self._aiterate(iteration_depth)
-
-  @final
-  def __await__(self) -> Generator[Any, Any, Result]:
-    """Method that is called when using `await executable`."""
-    result = yield from self._aexec().__await__()
-    return result
-
-  @final
-  def __aiter__(self) -> AsyncIterator[Update[Result]]:
-    """Method that is called when using `async for executable`."""
-    return self._aiterate().__aiter__()
-
-  @final
-  async def __anext__(self) -> Update[Result]:
-    """Method that is called when using `async for executable`."""
-    return await self._aiterate().__anext__()
 
 
 @dataclasses.dataclass
@@ -672,7 +621,7 @@ def make_executable(
   ):
     function = function.__call__
 
-  if getattr(function, 'decorated_with_make_executable', False):
+  if utils.is_decorated_with_make_executable(function):
     return function
 
   non_copied_args = list(non_copied_args)
@@ -704,8 +653,8 @@ def make_executable(
         iterate_argument=iterate_argument,
     )
 
-  inner_m.decorated_with_make_executable = True
-  inner_f.decorated_with_make_executable = True
+  utils.set_decorated_with_make_executable(inner_m)
+  utils.set_decorated_with_make_executable(inner_f)
 
   if inspect.isfunction(function):
     # Decorating a function or decorating a method with "@".
@@ -730,7 +679,7 @@ def make_executable(
           execute_result=execute_result,
           iterate_argument=iterate_argument,
       )
-    inner_bound.decorated_with_make_executable = True
+    utils.set_decorated_with_make_executable(inner_bound)
     return inner_bound
   else:
     raise ValueError('Decorator must be applied to a method or function.')

@@ -23,6 +23,7 @@ from typing import Any, Generic, ParamSpec, TypeVar
 
 from onetwo.core import executing
 from onetwo.core import routing
+from onetwo.core import utils
 
 
 _T = TypeVar('_T')
@@ -127,7 +128,7 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
       )
 
     # Make sure that implementation returns an Executable.
-    if not getattr(implementation, 'decorated_with_make_executable', False):
+    if not utils.is_decorated_with_make_executable(implementation):
       implementation = executing.make_executable(copy_self=False)(
           implementation
       )

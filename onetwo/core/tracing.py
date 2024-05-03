@@ -475,6 +475,10 @@ def trace(
         ' function and not a method'
     )
 
+  # TODO: Correctly handle the case where `tracing.trace` wraps a
+  # function that is already wrapped with `executing.executable`. One potential
+  # improvement would be call `utils.returns_awaitable` instead of
+  # `inspect.iscoroutinefunction`, but this may not be sufficient.
   if inspect.iscoroutinefunction(function):
     return awrapper
   elif inspect.isasyncgenfunction(function):

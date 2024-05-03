@@ -18,13 +18,12 @@ import ast
 from collections.abc import Callable, Mapping
 import dataclasses
 import enum
-import inspect
 import itertools
 import json
 from typing import Any
 
-from onetwo.core import executing
 from onetwo.core import routing
+from onetwo.core import utils
 import yaml
 
 
@@ -486,10 +485,4 @@ class Tool:
           f' is function "{self.name}" registered in the  function_registry '
           f'({routing.function_registry=}).'
       )
-    if inspect.iscoroutinefunction(tool_function):
-      value = await tool_function(*args, **kwargs)
-    else:
-      value = tool_function(*args, **kwargs)
-    if isinstance(value, executing.Executable):
-      return await value
-    return value
+    return await utils.call_and_maybe_await(tool_function, *args, **kwargs)

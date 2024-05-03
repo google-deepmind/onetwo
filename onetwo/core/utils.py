@@ -28,6 +28,7 @@ import time
 from typing import cast, overload, Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
 
 from onetwo.core import content as content_lib
+from onetwo.core import executing_impl
 import PIL.Image
 
 _T = TypeVar('_T')
@@ -41,6 +42,18 @@ _FunctionToDecorate: TypeAlias = (
     | Callable[_ParamType, Awaitable[_ReturnType]]
     | Callable[_ParamType, AsyncIterator[_ReturnType]]
 )
+
+# We expose the following functions here rather than in `executing.py`, as they
+# are used in `batching.py`, which would create a circular dependency if they
+# were defined in `executing.py`.
+set_decorated_with_make_executable = (
+    executing_impl.set_decorated_with_make_executable
+)
+is_decorated_with_make_executable = (
+    executing_impl.is_decorated_with_make_executable
+)
+returns_awaitable = executing_impl.returns_awaitable
+call_and_maybe_await = executing_impl.call_and_maybe_await
 
 
 def is_method(function: Callable[..., Any]) -> bool:

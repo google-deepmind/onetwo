@@ -410,7 +410,7 @@ def make_composable(
     )
   first_arg_name = parameter_names[0]
 
-  if not getattr(fn, 'decorated_with_make_executable', False):
+  if not utils.is_decorated_with_make_executable(fn):
     fn = executing.make_executable(
         first_arg_name, *composable_args, execute_result=False
     )(fn)

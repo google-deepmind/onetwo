@@ -18,13 +18,13 @@ A tool can be an arbitrary function that we want to expose to the LLM so that
 it can call it.
 """
 
-import inspect
 from typing import Any
 
 from onetwo.builtins import builtins_base
 from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.core import routing
+from onetwo.core import utils
 
 
 @builtins_base.Builtin
@@ -77,13 +77,9 @@ async def default_run_tool(
           f'Function {tool_name} is not registered in the function_registry'
           f' ({routing.function_registry=}).'
       )
-    if inspect.iscoroutinefunction(tool_function):
-      value = await tool_function(*tool_args, **tool_kwargs)
-    else:
-      value = tool_function(*tool_args, **tool_kwargs)
-    if isinstance(value, executing.Executable):
-      return await value
-    return value
+    return await utils.call_and_maybe_await(
+        tool_function, *tool_args, **tool_kwargs
+    )
 
   except ValueError as e:
     return f'{constants.ERROR_STRING}: {e}'

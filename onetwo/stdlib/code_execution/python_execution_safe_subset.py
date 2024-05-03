@@ -19,13 +19,13 @@ from collections.abc import Callable, Mapping, Sequence
 import contextlib
 import dataclasses
 import datetime
-import inspect
 import io
 import logging
 import pprint
 from typing import Any
 
 from onetwo.core import executing
+from onetwo.core import utils
 from onetwo.stdlib.code_execution import python_execution
 
 
@@ -164,19 +164,6 @@ def arithmetic_eval(expression: str) -> Any:
   # We use parse mode 'eval' to limit to single-line expressions.
   node = ast.parse(expression.strip(), mode='eval').body
   return _evaluate(node)
-
-
-async def _run_callable(
-    allowed_callable: Callable[..., Any], *args, **kwargs
-) -> Any:
-  """Runs a callable (possibly an executable) and returns the result."""
-  if inspect.iscoroutinefunction(allowed_callable):
-    value = await allowed_callable(*args, **kwargs)
-  else:
-    value = allowed_callable(*args, **kwargs)
-  if isinstance(value, executing.Executable):
-    return await value
-  return value
 
 
 async def safe_eval(
@@ -370,7 +357,7 @@ async def safe_eval(
       if callable_name is None:
         raise SyntaxError('Malformed code: %r' % code)
       if callable_name in allowed_callables:
-        return await _run_callable(
+        return await utils.call_and_maybe_await(
             allowed_callables[callable_name],
             *[await _evaluate(arg) for arg in node.args],
             **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
@@ -392,7 +379,7 @@ async def safe_eval(
         if dotted_method_name in allowed_callables:
           args = [await _evaluate(arg) for arg in node.args]
           args = [object_of_method] + args
-          return await _run_callable(
+          return await utils.call_and_maybe_await(
               allowed_callables[dotted_method_name],
               *args,
               **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
