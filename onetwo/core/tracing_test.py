@@ -525,7 +525,7 @@ class TracingTest(parameterized.TestCase):
       return f0(a) + ' ' + f0(a + '2') + str(list(f1(3)))
 
     updates = []
-    iterator = tracing.stream(f2('test'), TracerForTest)
+    iterator = tracing.stream(f2('test'), tracer=TracerForTest)
     for update in iterator:
       updates.append(update)
     final_result = iterator.value
@@ -564,7 +564,7 @@ class TracingTest(parameterized.TestCase):
       return a
 
     updates = []
-    iterator = tracing.stream(fn('test'), TracerForTest)
+    iterator = tracing.stream(fn('test'), tracer=TracerForTest)
     for update in iterator:
       updates.append(update)
     final_result = iterator.value
@@ -580,7 +580,7 @@ class TracingTest(parameterized.TestCase):
     updates = []
     with self.subTest('simulate_an_error_during_processing_of_updates'):
       with self.assertRaisesRegex(ValueError, 'Some error'):
-        iterator = tracing.stream(fn('test'), TracerForTest)
+        iterator = tracing.stream(fn('test'), tracer=TracerForTest)
         for update in iterator:
           updates.append(update)
           raise ValueError('Some error')

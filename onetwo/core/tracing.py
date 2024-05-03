@@ -159,6 +159,7 @@ class IteratorWithReturnValue(Generic[_T, _V], Iterator[_T]):
 
 def stream(
     coroutine: Awaitable[_V],
+    *,
     tracer: type[QueueTracer] = QueueTracer,
     iteration_depth: int = 1,
 ) -> IteratorWithReturnValue[Any, _V]:
@@ -219,6 +220,7 @@ class OutputTracer(QueueTracer):
 
 def stream_updates(
     coroutine: Awaitable[_V],
+    *,
     iteration_depth: int = 1,
 ) -> IteratorWithReturnValue[Any, _V]:
   """Runs a coroutine and iterates over its updates.
@@ -241,7 +243,7 @@ def stream_updates(
       coroutine execution.
   """
 
-  return stream(coroutine, OutputTracer, iteration_depth)
+  return stream(coroutine, tracer=OutputTracer, iteration_depth=iteration_depth)
 
 
 async def report_update(update: Any, name: str | None = None):
@@ -267,6 +269,7 @@ def update_info(info: Mapping[str, Any]) -> None:
 
 def run(
     coroutine: Callable[[], _ReturnType],
+    *,
     tracer: Tracer | None = None,
 ) -> tuple[_ReturnType, results.ExecutionResult]:
   """Run a coroutine while enabling tracing of its execution.

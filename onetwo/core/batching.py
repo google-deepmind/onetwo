@@ -613,6 +613,7 @@ def run_once():
 @overload
 def run(
     executable: Awaitable[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
     tracer: tracing.Tracer | None = None,
@@ -622,6 +623,7 @@ def run(
 @overload
 def run(
     executable: Awaitable[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
     tracer: tracing.Tracer | None = None,
@@ -632,6 +634,7 @@ def run(
 @overload
 def run(
     executable: Awaitable[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -640,6 +643,7 @@ def run(
 
 def run(
     executable: Awaitable[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -688,6 +692,7 @@ def run(
 def stream_with_callback(
     iterator: AsyncIterator[_ReplyT],
     callback: Callable[[ResultType[_ReplyT]], Any],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -726,6 +731,7 @@ def stream_with_callback(
 @overload
 def safe_stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
     tracer: tracing.Tracer | None = None,
@@ -735,6 +741,7 @@ def safe_stream(
 @overload
 def safe_stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
     tracer: tracing.Tracer | None = None,
@@ -745,6 +752,7 @@ def safe_stream(
 @overload
 def safe_stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -754,6 +762,7 @@ def safe_stream(
 @contextlib.contextmanager
 def safe_stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -806,6 +815,7 @@ def safe_stream(
 @contextlib.contextmanager
 def stream_updates(  # pytype: disable=invalid-annotation
     coroutine: Awaitable[_ReplyT],
+    *,
     enable_batching: bool = True,
     iteration_depth: int = 1,
 ) -> Iterator[tracing.IteratorWithReturnValue[Any, _ReplyT]]:
@@ -847,6 +857,7 @@ def stream_updates(  # pytype: disable=invalid-annotation
 @overload
 def stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
     tracer: tracing.Tracer | None = None,
@@ -856,6 +867,7 @@ def stream(
 @overload
 def stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
     tracer: tracing.Tracer | None = None,
@@ -866,6 +878,7 @@ def stream(
 @overload
 def stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -874,6 +887,7 @@ def stream(
 
 def stream(
     iterator: AsyncIterator[_ReplyT],
+    *,
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
@@ -902,7 +916,12 @@ def stream(
   Yields:
     The results yielded by the iterator or a pair (result, execution_result).
   """
-  with safe_stream(iterator, enable_batching, enable_tracing, tracer) as it:
+  with safe_stream(
+      iterator,
+      enable_batching=enable_batching,
+      enable_tracing=enable_tracing,
+      tracer=tracer,
+  ) as it:
     yield from it
 
 

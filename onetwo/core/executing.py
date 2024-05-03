@@ -160,6 +160,7 @@ class ExecutableWithPostprocessing(
 @contextlib.contextmanager
 def _safe_stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -168,7 +169,10 @@ def _safe_stream(
   """See safe_stream."""
   if iteration_depth == 0:
     result = batching.run(
-        executable, enable_batching, enable_tracing, tracer=tracer
+        executable,
+        enable_batching=enable_batching,
+        enable_tracing=enable_tracing,
+        tracer=tracer,
     )
     def iterator():
       if enable_tracing:
@@ -184,8 +188,8 @@ def _safe_stream(
     if enable_tracing:
       with batching.safe_stream(
           executable.with_depth(iteration_depth),
-          enable_batching,
-          True,
+          enable_batching=enable_batching,
+          enable_tracing=True,
           tracer=tracer,
       ) as iterator:
         yield cast(
@@ -195,8 +199,8 @@ def _safe_stream(
     else:
       with batching.safe_stream(
           executable.with_depth(iteration_depth),
-          enable_batching,
-          False,
+          enable_batching=enable_batching,
+          enable_tracing=False,
           tracer=tracer,
       ) as iterator:
         yield cast(Iterator[Update[Result]], iterator)
@@ -205,6 +209,7 @@ def _safe_stream(
 @overload
 def safe_stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
@@ -215,6 +220,7 @@ def safe_stream(
 @overload
 def safe_stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
@@ -229,6 +235,7 @@ def safe_stream(
 @overload
 def safe_stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -245,6 +252,7 @@ def safe_stream(
 # the return type of safe_stream as an AbstractContextManager.
 def safe_stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -293,7 +301,11 @@ def safe_stream(
     methods of class Executable return Updates.
   """
   context_manager = _safe_stream(
-      executable, iteration_depth, enable_batching, enable_tracing, tracer
+      executable,
+      iteration_depth=iteration_depth,
+      enable_batching=enable_batching,
+      enable_tracing=enable_tracing,
+      tracer=tracer,
   )
   if enable_tracing:
     return cast(
@@ -312,6 +324,7 @@ def safe_stream(
 @contextlib.contextmanager
 def stream_updates(  # pytype: disable=invalid-annotation
     executable: Executable[Result],
+    *,
     enable_batching: bool = True,
     iteration_depth: int = 1,
 ) -> Iterator[tracing.IteratorWithReturnValue[Any, Result]]:
@@ -328,7 +341,9 @@ def stream_updates(  # pytype: disable=invalid-annotation
     and its final result.
   """
   with batching.stream_updates(
-      executable, enable_batching, iteration_depth
+      executable,
+      enable_batching=enable_batching,
+      iteration_depth=iteration_depth,
   ) as it:
     yield it
 
@@ -336,6 +351,7 @@ def stream_updates(  # pytype: disable=invalid-annotation
 @overload
 def stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
@@ -346,6 +362,7 @@ def stream(
 @overload
 def stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
@@ -357,6 +374,7 @@ def stream(
 @overload
 def stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -366,6 +384,7 @@ def stream(
 
 def stream(
     executable: Executable[Result],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -419,7 +438,11 @@ def stream(
     methods of class Executable return Updates.
   """
   with safe_stream(
-      executable, iteration_depth, enable_batching, enable_tracing, tracer
+      executable,
+      iteration_depth=iteration_depth,
+      enable_batching=enable_batching,
+      enable_tracing=enable_tracing,
+      tracer=tracer,
   ) as iterator:
     yield from iterator
 
@@ -428,6 +451,7 @@ def stream(
 def stream_with_callback(
     executable: Executable[Result],
     callback: Callable[[batching.ResultType], None],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
@@ -439,6 +463,7 @@ def stream_with_callback(
 def stream_with_callback(
     executable: Executable[Result],
     callback: Callable[[batching.ResultType], None],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
@@ -451,6 +476,7 @@ def stream_with_callback(
 def stream_with_callback(
     executable: Executable[Result],
     callback: Callable[[batching.ResultType], None],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -461,6 +487,7 @@ def stream_with_callback(
 def stream_with_callback(
     executable: Executable[Result],
     callback: Callable[[batching.ResultType], None],
+    *,
     iteration_depth: int = 1,
     enable_batching: bool = True,
     enable_tracing: bool = False,
@@ -510,9 +537,9 @@ def stream_with_callback(
 
   batching.stream_with_callback(
       executable.with_depth(iteration_depth),
-      wrapper,
-      enable_batching,
-      enable_tracing,
+      callback=wrapper,
+      enable_batching=enable_batching,
+      enable_tracing=enable_tracing,
       tracer=tracer,
   )
   if enable_tracing:
