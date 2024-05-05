@@ -643,8 +643,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
   def test_does_not_repeat_calls_in_progress(self):
     backend = ClassCachedWithSimpleFunctionCache()
 
-    exectuable = backend.method_that_is_batched(a='some')
-    executables = sampling.repeat(exectuable, 5)
+    executable = backend.method_that_is_batched(a='some')
+    executables = sampling.repeat(executable, 5)
     result = executing.run(executing.par_iter(executables))
 
     with self.subTest('result_is_correct'):
