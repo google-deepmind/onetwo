@@ -43,45 +43,6 @@ _Message = content_lib.Message
 _PredefinedRole = content_lib.PredefinedRole
 
 
-@builtins_base.Builtin[str]
-def generate_text_from_chunks(
-    chunk_list: content_lib.ChunkList,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    stop: Sequence[str] | None = None,
-    top_k: int | None = None,
-    top_p: float | None = None,
-    include_details: bool = False,
-) -> str | tuple[str, Mapping[str, Any]]:
-  """Interface of the multimodal generate_text built-in function.
-
-  This function should be configured by the backend, but the generate_text
-  function can be used as the main entry point, as it also takes care of the
-  parsing of a string prompt (provided `string_to_chunk_list` is also
-  configured).
-
-  Args:
-    chunk_list: A content_lib.ChunkList representing the input prompt.
-    temperature: Optional temperature parameter (float).
-    max_tokens: Optional maximum number of tokens to generate (int).
-    stop: Optional Sequence of strings on which to stop the generation.
-    top_k: Optional top_k parameter (int).
-    top_p: Optional top_p parameter (float).
-    include_details: If True, the result will be a Sequence of tuples instead of
-      a sequence of strings (see include_details in generate_text).
-
-  Returns:
-    The answer from the calling the MMM text generation function
-    on the provided chunks.
-  """
-  del chunk_list, temperature, max_tokens, stop, top_k, top_p, include_details
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
-
-
 @builtins_base.Builtin[str | tuple[str, Mapping[str, Any]]]
 async def generate_text(
     prompt: str | content_lib.ChunkList,
@@ -142,16 +103,6 @@ def echo_generate_text(
   if isinstance(prompt, str):
     return prompt
   return '', {'prompt': prompt, 'kwargs': kwargs}
-
-
-async def _default_generate_text_from_string(
-    prompt: str | content_lib.ChunkList, **kwargs
-) -> str | tuple[str, Mapping[str, Any]]:
-  """Default implementation of generate_text treats the string as a chunk."""
-
-  if isinstance(prompt, str):
-    prompt = content_lib.ChunkList([prompt])  # pytype: disable=wrong-arg-types
-  return await generate_text_from_chunks(prompt, **kwargs)
 
 
 @builtins_base.Builtin
@@ -618,7 +569,6 @@ async def generate_object(
 def reset_defaults():
   """Resets default implementations for all builtins in this file."""
   # Keep all module level `some_builtin.configure(...)` commands in this method.
-  generate_text.configure(_default_generate_text_from_string)
   generate_texts.configure(_default_generate_texts)
   count_tokens.configure(_default_count_tokens)
   instruct.configure(default_instruct)
