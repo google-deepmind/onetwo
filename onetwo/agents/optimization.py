@@ -145,11 +145,13 @@ class BeamSearch(
   max_candidates: int | None = None  # If None we will use the beam_size.
   diversify_beam: bool = False
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   @final
-  async def initialize_state(self, inputs: _I) -> _BSState:
+  async def initialize_state(
+      self, inputs: _I, environment: _E | None = None
+  ) -> _BSState:
     """See base class (Agent)."""
-    initial_state = await self.inner_agent.initialize_state(inputs)
+    initial_state = await self.inner_agent.initialize_state(inputs, environment)
     return BeamSearchState([initial_state] * self.beam_size)
 
   @contextlib.asynccontextmanager

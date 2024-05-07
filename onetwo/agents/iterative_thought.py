@@ -163,8 +163,10 @@ class IterativeThoughtAgent(
       default_factory=list
   )
 
-  @executing.make_executable(copy_self=False)
-  async def initialize_state(self, inputs: str) -> IterativeThoughtState:
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
+  async def initialize_state(
+      self, inputs: str, environment: None = None
+  ) -> IterativeThoughtState:
     """Returns a newly initialized state based on the input question.
 
     Overridden from base class (Agent).
@@ -172,6 +174,8 @@ class IterativeThoughtAgent(
     Args:
       inputs: Input to the agent, representing the overall goal that the agent
         is trying to achieve.
+      environment: Environment in which to perform the operation. Not relevant
+        for IterativeThought.
     """
     return IterativeThoughtState(inputs=inputs)
 
@@ -346,8 +350,10 @@ class IterativeThoughtProposerAgent(
       default_factory=list
   )
 
-  @executing.make_executable(copy_self=False)
-  async def initialize_state(self, inputs: str) -> IterativeThoughtState:
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
+  async def initialize_state(
+      self, inputs: str, environment: None = None
+  ) -> IterativeThoughtState:
     """Returns a newly initialized state based on the input question.
 
     Overridden from base class (Agent).
@@ -355,6 +361,8 @@ class IterativeThoughtProposerAgent(
     Args:
       inputs: Input to the agent, representing the overall goal that the agent
         is trying to achieve.
+      environment: Environment in which to perform the operation. Not relevant
+        for IterativeThought.
     """
     return IterativeThoughtState(inputs=inputs)
 

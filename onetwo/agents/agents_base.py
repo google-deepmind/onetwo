@@ -161,14 +161,19 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
     turns in performing steps vs. a fully- or partially-shared state.
   """
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   @abc.abstractmethod
-  async def initialize_state(self, inputs: _I) -> _S:
+  async def initialize_state(
+      self, inputs: _I, environment: _E | None = None
+  ) -> _S:
     """Returns a newly initialized state based on the input.
 
     Args:
       inputs: Input to the agent, representing the overall goal that the agent
         is trying to achieve.
+      environment: Environment in which to perform the operation. Can be omitted
+        if the given agent does not require an environment (i.e., if the
+        environment type `_E` is parameterized as `None`).
     """
 
   # TODO: For more convenient usage in colab, provide an ordinary
@@ -189,6 +194,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
       Environment object, which will be automatically cleaned up when exiting
       the `with` block.
     """
+    del self
     # TODO: Ideally we would `yield None` here only if type `_E` is
     # parameterized to `None` and raise a `NotImplementedError` otherwise.
     # Is there any way to do this?
@@ -374,11 +380,11 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
       and the agent's final state. If the agent failed to reach a state for
       for which an output is defined, then the output will be `None`.
     """
-    if initial_state is not None:
-      state = copy.deepcopy(initial_state)
-    else:
-      state = await self.initialize_state(inputs)
     async with self.start_environment() as env:
+      if initial_state is not None:
+        state = copy.deepcopy(initial_state)
+      else:
+        state = await self.initialize_state(inputs, environment=env)
       async for update in self.stream_updates(
           initial_state=state,
           environment=env,
@@ -523,11 +529,13 @@ class AgentWrapper(
 
   inner_agent: Agent[_I, _O, _S, _U, _E]
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   @final
-  async def initialize_state(self, inputs: _I) -> _S:
+  async def initialize_state(
+      self, inputs: _I, environment: _E | None = None
+  ) -> _S:
     """Overridden from base class (Agent)."""
-    return self.inner_agent.initialize_state(inputs)
+    return self.inner_agent.initialize_state(inputs, environment)
 
   @contextlib.asynccontextmanager
   async def start_environment(self) -> AsyncIterator[_E]:

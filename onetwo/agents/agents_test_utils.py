@@ -27,17 +27,16 @@ _ULS: TypeAlias = agents_base.UpdateListState[str, _SU]
 
 @dataclasses.dataclass
 class DistributionAgentForTest(
-    distribution.DistributionAgent[
-        str, str, str, _SU, None
-    ]
+    distribution.DistributionAgent[str, str, str, _SU, None]
 ):
   """Given a distribution over strings, form a distribution over next chars."""
-  distribution: dict[str, float] = dataclasses.field(
-      default_factory=dict
-  )
 
-  @executing.make_executable(copy_self=False)
-  async def initialize_state(self, inputs: str) -> str:
+  distribution: dict[str, float] = dataclasses.field(default_factory=dict)
+
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
+  async def initialize_state(
+      self, inputs: str, environment: None = None
+  ) -> str:
     """Overridden from base class (Agent)."""
     return inputs
 
@@ -122,9 +121,9 @@ class StringAgent(
   max_length: int = 5
   sequence: list[str] = dataclasses.field(default_factory=list)
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def initialize_state(
-      self, inputs: str
+      self, inputs: str, environment: None = None
   ) -> _StringAgentState:
     return _StringAgentState(inputs=inputs)
 

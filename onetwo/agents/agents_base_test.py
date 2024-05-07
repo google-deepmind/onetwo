@@ -47,9 +47,9 @@ class StringAgent(
 
   max_length: int | None = None
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def initialize_state(
-      self, inputs: str
+      self, inputs: str, environment: None = None
   ) -> StringAgentState:
     return StringAgentState(inputs=inputs)
 
@@ -90,10 +90,11 @@ class StringAgentWithEnvironment(
 
   max_length: int | None = None
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def initialize_state(
-      self, inputs: str
+      self, inputs: str, environment: list[str] | None = None
   ) -> StringAgentState:
+    del environment
     return StringAgentState(inputs=inputs)
 
   @contextlib.asynccontextmanager

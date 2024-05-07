@@ -513,8 +513,12 @@ class ReActAgent(
         else ['[Question]', '[Observe]']
     )
 
-  @executing.make_executable(copy_self=False)
-  async def initialize_state(self, inputs: str) -> ReActState:
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
+  async def initialize_state(
+      self,
+      inputs: str,
+      environment: python_tool_use.PythonToolUseEnvironment | None = None,
+  ) -> ReActState:
     """Returns a newly initialized state based on the input question.
 
     Overridden from base class (Agent).
@@ -522,7 +526,10 @@ class ReActAgent(
     Args:
       inputs: Input to the agent, representing the overall goal that the agent
         is trying to achieve.
+      environment: Environment in which to perform the operation. Not relevant
+        for ReAct currently. (In the future, this could store the ToolHandler.)
     """
+    del environment
     return ReActState(inputs=inputs)
 
   @contextlib.asynccontextmanager

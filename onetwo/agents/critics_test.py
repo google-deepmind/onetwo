@@ -69,7 +69,7 @@ class DistributionAgentForTest(
       default_factory=list
   )
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def initialize_state(self, inputs: str) -> str:
     """Overridden from base class (Agent)."""
     return inputs

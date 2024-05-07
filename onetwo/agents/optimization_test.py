@@ -51,17 +51,23 @@ class LogScoredListAgent(
       the agent will deterministically return the top num_candidate updates
       using the inner agent's distribution.
   """
+
   inner_agent: agents_test_utils.DistributionAgentForTest
   sampling_is_deterministic: bool = False
 
-  @executing.make_executable(copy_self=False)
-  async def initialize_state(self, inputs: str) -> _ULS:
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
+  async def initialize_state(
+      self, inputs: str, environment: None = None
+  ) -> _ULS:
     """Overridden from base class (Agent)."""
     return _ULS(
         inputs=inputs,
-        updates=[_SU(
-            update=inputs, score=np.log(self.inner_agent.score_state(inputs))
-        )],
+        updates=[
+            _SU(
+                update=inputs,
+                score=np.log(self.inner_agent.score_state(inputs)),
+            )
+        ],
     )
 
   def extract_output(self, state: _ULS) -> str:
