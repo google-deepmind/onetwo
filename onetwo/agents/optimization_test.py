@@ -85,7 +85,7 @@ class LogScoredListAgent(
     """Overridden from base class (Agent)."""
     if not self.sampling_is_deterministic:
       steps = await self.inner_agent.sample_next_step(
-          self.extract_output(state), num_candidates=num_candidates
+          state=self.extract_output(state), num_candidates=num_candidates
       )
     else:
       dist = await self.inner_agent.get_next_step_distribution(

@@ -382,6 +382,7 @@ class PythonPlanningAgent(
   )
   async def _sample_single_next_step(
       self,
+      *,
       state: PythonPlanningState,
       environment: python_tool_use.PythonToolUseEnvironment,
   ) -> PythonPlanningStep:

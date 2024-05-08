@@ -211,7 +211,11 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   @tracing.trace('SingleSampleAgent.sample_next_step', skip=['environment'])
   @abc.abstractmethod
   async def sample_next_step(
-      self, state: _S, num_candidates: int, environment: _E | None = None,
+      self,
+      *,
+      state: _S,
+      num_candidates: int,
+      environment: _E | None = None,
   ) -> list[_U]:
     """Samples up to `num_candidates` possible next steps of the agent strategy.
 
@@ -264,6 +268,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   @final
   async def stream_updates(
       self,
+      *,
       initial_state: _S,
       environment: _E | None = None,
       max_steps: int | None = None,
@@ -296,7 +301,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
       if stop_condition is not None and stop_condition(state):
         break
       candidate_updates = await self.sample_next_step(
-          state, num_candidates=1, environment=environment
+          state=state, num_candidates=1, environment=environment
       )
       if not candidate_updates:
         break
@@ -309,6 +314,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   @final
   async def stream_states(
       self,
+      *,
       initial_state: _S,
       environment: _E | None = None,
       max_steps: int | None = None,
@@ -347,6 +353,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   async def __call__(
       self,
       inputs: _I,
+      *,
       initial_state: _S | None = None,
       max_steps: int | None = None,
       stop_condition: Callable[[_S], bool] | None = None,
@@ -401,7 +408,8 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   @executing.make_executable(copy_self=False)
   @final
   async def start_environment_and_sample_next_step(
-      self, state: _S, num_candidates: int) -> list[_U]:
+      self, *, state: _S, num_candidates: int
+  ) -> list[_U]:
     """Starts a new environment and executes `sample_next_step`."""
     async with self.start_environment() as env:
       return await self.sample_next_step(
@@ -412,6 +420,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   @final
   async def start_environment_and_stream_updates(
       self,
+      *,
       initial_state: _S,
       max_steps: int | None = None,
       stop_condition: Callable[[_S], bool] | None = None,
@@ -430,6 +439,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   @final
   async def start_environment_and_stream_states(
       self,
+      *,
       initial_state: _S,
       max_steps: int | None = None,
       stop_condition: Callable[[_S], bool] | None = None,
@@ -457,7 +467,7 @@ class SingleSampleAgent(Agent[_I, _O, _S, _U, _E]):
   @abc.abstractmethod
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def _sample_single_next_step(
-      self, state: _S, environment: _E | None = None
+      self, *, state: _S, environment: _E | None = None
   ) -> _U:
     """Samples one possible next step of the agent strategy.
 
@@ -476,7 +486,7 @@ class SingleSampleAgent(Agent[_I, _O, _S, _U, _E]):
   @tracing.trace('SingleSampleAgent.sample_next_step', skip=['environment'])
   @final
   async def sample_next_step(
-      self, state: _S, num_candidates: int, environment: _E | None = None
+      self, *, state: _S, num_candidates: int, environment: _E | None = None
   ) -> list[_U]:
     """Samples `num_candidates` possible next steps of the agent strategy.
 

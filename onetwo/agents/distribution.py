@@ -96,7 +96,7 @@ class DistributionAgent(
   )
   @final
   async def sample_next_step(
-      self, state: _S, num_candidates: int, environment: _E | None = None
+      self, *, state: _S, num_candidates: int, environment: _E | None = None
   ) -> list[_SU]:
     """Returns next step samples with their probabilities.
 

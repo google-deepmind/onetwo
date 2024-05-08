@@ -559,6 +559,7 @@ class ReActAgent(
   @tracing.trace('ReActAgent._sample_single_next_step', skip=['environment'])
   async def _sample_single_next_step(
       self,
+      *,
       state: ReActState,
       environment: python_tool_use.PythonToolUseEnvironment,
   ) -> ReActStep:

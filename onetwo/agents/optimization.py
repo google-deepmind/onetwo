@@ -73,11 +73,13 @@ class ResamplingAgent(
   )
   @final
   async def sample_next_step(
-      self, state: _S, num_candidates: int, environment: _E | None = None
+      self, *, state: _S, num_candidates: int, environment: _E | None = None
   ) -> list[_U]:
     """See base class (Agent)."""
     next_steps = await self.inner_agent.sample_next_step(
-        state, self.extra_sampling_factor * num_candidates, environment
+        state=state,
+        num_candidates=self.extra_sampling_factor * num_candidates,
+        environment=environment,
     )
     ranked_updates_indices = await self.critic(
         [(state, next_step) for next_step in next_steps]
@@ -176,6 +178,7 @@ class BeamSearch(
   @final
   async def sample_next_step(
       self,
+      *,
       state: _BSState,
       num_candidates: int,
       environment: _E | None = None,
@@ -191,10 +194,10 @@ class BeamSearch(
       unique_states = list(multiplicities.keys())
       executables = [
           self.inner_agent.sample_next_step(
-              state,
-              multiplicities[state]
+              state=state,
+              num_candidates=multiplicities[state]
               * (self.max_candidates or self.beam_size),
-              environment,
+              environment=environment,
           )
           for state in unique_states
       ]
@@ -230,9 +233,9 @@ class BeamSearch(
     else:
       executables = [
           self.inner_agent.sample_next_step(
-              inner_state,
-              self.max_candidates or self.beam_size,
-              environment,
+              state=inner_state,
+              num_candidates=self.max_candidates or self.beam_size,
+              environment=environment,
           )
           for inner_state in state.states
       ]

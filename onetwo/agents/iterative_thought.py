@@ -194,7 +194,7 @@ class IterativeThoughtAgent(
       'IterativeThoughtAgent._sample_single_next_step', skip=['environment']
   )
   async def _sample_single_next_step(
-      self, state: IterativeThoughtState, environment: None = None
+      self, *, state: IterativeThoughtState, environment: None = None
   ) -> str:
     """Samples one possible next step of the agent strategy.
 
@@ -383,6 +383,7 @@ class IterativeThoughtProposerAgent(
   async def sample_next_step(
       self,
       state: IterativeThoughtState,
+      *,
       num_candidates: int,
       environment: None = None,
   ) -> list[str]:
