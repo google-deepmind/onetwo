@@ -27,6 +27,7 @@ import inspect
 import io
 from typing import Any, Generic, ParamSpec, TypeVar
 
+from onetwo.core import executing_impl
 from onetwo.core import iterating
 from onetwo.core import results
 from onetwo.core import utils
@@ -301,6 +302,36 @@ def run(
   return return_value, execution_context.get(None)
 
 
+def _set_decorated_with_trace(f: Callable[..., Any]) -> None:
+  """Marks the callable as being decorated with @tracing.trace.
+
+  Args:
+    f: An arbitrary callable.
+  """
+  f.decorated_with_trace = True
+
+
+def is_decorated_with_trace(f: Callable[..., Any]) -> bool:
+  """Returns whether the callable is decorated with @tracing.trace.
+
+  Args:
+    f: An arbitrary callable.
+  """
+  # Special handling for partial functions.
+  while isinstance(f, functools.partial):
+    f = f.func
+
+  # Special handling for callable objects (e.g., sub-classes of Agent).
+  if (
+      hasattr(f, '__call__')
+      and not inspect.isfunction(f)
+      and not inspect.ismethod(f)
+  ):
+    f = f.__call__
+
+  return getattr(f, 'decorated_with_trace', False)
+
+
 @utils.decorator_with_optional_args
 def trace(
     function: _FunctionToDecorate | None = None,
@@ -340,14 +371,13 @@ def trace(
     A function of the same type and signature as the decorated one.
   """
 
+  # Ensure that `@tracing.trace` is idempotent.
+  if is_decorated_with_trace(function):
+    return function
+
   def _prepare_and_populate_inputs(
       *args, **kwargs
-  ) -> tuple[
-      str,
-      results.ExecutionResult,
-      contextvars.Token[results.ExecutionResult],
-      contextvars.Token[ExecutionResultTracer] | None,
-  ]:
+  ) -> tuple[results.ExecutionResult, ExecutionResultTracer | None]:
     execution_result = execution_context.get(None)
     if execution_result is None:
       execution_result = results.ExecutionResult()
@@ -389,15 +419,35 @@ def trace(
     if tracer is not None:
       new_tracer = tracer.add_stage()
       new_tracer.set_inputs(stage_name, inputs)
-      tracer_token = execution_tracer.set(new_tracer)
+    else:
+      new_tracer = None
+
+    return execution_result, new_tracer
+
+  def _set_execution_context_and_tracer(
+      execution_result: results.ExecutionResult,
+      tracer: ExecutionResultTracer | None,
+  ) -> tuple[
+      contextvars.Token[results.ExecutionResult],
+      contextvars.Token[ExecutionResultTracer] | None,
+  ]:
+    execution_context_token = execution_context.set(execution_result)
+    if tracer is not None:
+      tracer_token = execution_tracer.set(tracer)
     else:
       tracer_token = None
+    return execution_context_token, tracer_token
 
-    token = execution_context.set(execution_result)
-    return stage_name, execution_result, token, tracer_token
+  def _reset_execution_context_and_tracer(
+      execution_context_token: contextvars.Token[results.ExecutionResult],
+      tracer_token: contextvars.Token[ExecutionResultTracer] | None,
+  ) -> None:
+    execution_context.reset(execution_context_token)
+    if tracer_token is not None:
+      execution_tracer.reset(tracer_token)
 
   def _update_outputs(
-      execution_result: results.ExecutionResult | None, value: Any, name: str
+      execution_result: results.ExecutionResult | None, value: Any
   ) -> None:
     if execution_result is None:
       return
@@ -418,58 +468,106 @@ def trace(
     tracer = execution_tracer.get(None)
     if tracer is not None:
       if skip is None or results.MAIN_OUTPUT not in skip:
-        tracer.update_outputs(name, execution_result.outputs)
+        tracer.update_outputs(
+            execution_result.stage_name, execution_result.outputs
+        )
+
+  def _wrap_executable_to_trace_outputs(
+      executable: executing_impl.Executable,
+      execution_result: results.ExecutionResult,
+      tracer: ExecutionResultTracer | None,
+  ) -> executing_impl.Executable:
+    """Returns an Executable that runs the specified one and traces its outputs.
+
+    Args:
+      executable: The executable to wrap.
+      execution_result: An execution result that has already been populated with
+        the inputs that will be passed to the executable. We will populate the
+        outputs here when the executable is executed.
+      tracer: A tracer that has already been populated with the inputs that will
+        be passed to the executable. If specified, then we will similarly
+        populate the outputs here when the executable is executed.
+    """
+    def _update_outputs_callback(value: Any) -> Any:
+      token2, tracer_token2 = _set_execution_context_and_tracer(
+          execution_result, tracer
+      )
+      _update_outputs(execution_result, value)
+      _reset_execution_context_and_tracer(token2, tracer_token2)
+      return value
+
+    return executing_impl.ExecutableWithPostprocessing(
+        wrapped=executable,
+        postprocessing_callback=_update_outputs_callback,
+        update_callback=_update_outputs_callback,
+    )
 
   @functools.wraps(function)
   async def awrapper(*args, **kwargs) -> _ReturnType:
-    stage_name, execution_result, token, tracer_token = (
-        _prepare_and_populate_inputs(*args, **kwargs)
+    execution_result, tracer = _prepare_and_populate_inputs(*args, **kwargs)
+    token, tracer_token = _set_execution_context_and_tracer(
+        execution_result, tracer
     )
     # Call
     return_value = await function(*args, **kwargs)
-    _update_outputs(execution_result, return_value, stage_name)
-    execution_context.reset(token)
-    if tracer_token is not None:
-      execution_tracer.reset(tracer_token)
+    if isinstance(return_value, executing_impl.Executable):
+      return_value = _wrap_executable_to_trace_outputs(
+          return_value, execution_result, tracer
+      )
+    else:
+      _update_outputs(execution_result, return_value)
+    _reset_execution_context_and_tracer(token, tracer_token)
     return return_value
 
   @functools.wraps(function)
   async def iwrapper(*args, **kwargs) -> AsyncIterator[_ReturnType]:
-    stage_name, execution_result, token, tracer_token = (
-        _prepare_and_populate_inputs(*args, **kwargs)
+    execution_result, tracer = _prepare_and_populate_inputs(*args, **kwargs)
+    token, tracer_token = _set_execution_context_and_tracer(
+        execution_result, tracer
     )
     # Call
     async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
-      _update_outputs(execution_result, return_value, stage_name)
+      if isinstance(return_value, executing_impl.Executable):
+        return_value = _wrap_executable_to_trace_outputs(
+            return_value, execution_result, tracer
+        )
+      else:
+        _update_outputs(execution_result, return_value)
       yield return_value
-    execution_context.reset(token)
-    if tracer_token is not None:
-      execution_tracer.reset(tracer_token)
+    _reset_execution_context_and_tracer(token, tracer_token)
 
   @functools.wraps(function)
   def gwrapper(*args, **kwargs) -> Iterator[_ReturnType]:
-    stage_name, execution_result, token, tracer_token = (
-        _prepare_and_populate_inputs(*args, **kwargs)
+    execution_result, tracer = _prepare_and_populate_inputs(*args, **kwargs)
+    token, tracer_token = _set_execution_context_and_tracer(
+        execution_result, tracer
     )
     # Call
     for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
-      _update_outputs(execution_result, return_value, stage_name)
+      if isinstance(return_value, executing_impl.Executable):
+        return_value = _wrap_executable_to_trace_outputs(
+            return_value, execution_result, tracer
+        )
+      else:
+        _update_outputs(execution_result, return_value)
       yield return_value
-    execution_context.reset(token)
-    if tracer_token is not None:
-      execution_tracer.reset(tracer_token)
+    _reset_execution_context_and_tracer(token, tracer_token)
 
   @functools.wraps(function)
   def wrapper(*args, **kwargs) -> _ReturnType:
-    stage_name, execution_result, token, tracer_token = (
-        _prepare_and_populate_inputs(*args, **kwargs)
+    execution_result, tracer = _prepare_and_populate_inputs(*args, **kwargs)
+    token, tracer_token = _set_execution_context_and_tracer(
+        execution_result, tracer
     )
     # Call
     return_value = function(*args, **kwargs)
-    _update_outputs(execution_result, return_value, stage_name)
-    execution_context.reset(token)
-    if tracer_token is not None:
-      execution_tracer.reset(tracer_token)
+    if isinstance(return_value, executing_impl.Executable):
+      return_value = _wrap_executable_to_trace_outputs(
+          return_value, execution_result, tracer
+      )
+    else:
+      _update_outputs(execution_result, return_value)
+    _reset_execution_context_and_tracer(token, tracer_token)
     return return_value
 
   if isinstance(name, utils.FromInstance) and not utils.is_method(function):
@@ -478,15 +576,16 @@ def trace(
         ' function and not a method'
     )
 
-  # TODO: Correctly handle the case where `tracing.trace` wraps a
-  # function that is already wrapped with `executing.executable`. One potential
-  # improvement would be call `utils.returns_awaitable` instead of
-  # `inspect.iscoroutinefunction`, but this may not be sufficient.
-  if inspect.iscoroutinefunction(function):
-    return awrapper
-  elif inspect.isasyncgenfunction(function):
+  _set_decorated_with_trace(iwrapper)
+  _set_decorated_with_trace(gwrapper)
+  _set_decorated_with_trace(awrapper)
+  _set_decorated_with_trace(wrapper)
+
+  if inspect.isasyncgenfunction(function):
     return iwrapper
   elif inspect.isgeneratorfunction(function):
     return gwrapper
+  elif inspect.iscoroutinefunction(function):
+    return awrapper
   else:
     return wrapper

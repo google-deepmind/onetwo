@@ -293,6 +293,35 @@ class ExecutionTest(parameterized.TestCase):
       async for s in test_iterator(text):  # test_iterator should be async. pylint: disable=not-an-iterable
         yield s
 
+    # The below function is like `test_iterator` above, except `@tracing.trace`
+    # is on the outside. Note that this is not normally the recommended order of
+    # decoration, and it has some limitations. In particular, tracing does not
+    # work reliably when `executing.run` or `executing.stream_updates`, etc. is
+    # performed on this function directly. This limitation normally only
+    # affects tracing, but in the case of `executing.stream_updates`, it also
+    # affects the behavior of `stream_updates` itself, as this using a special
+    # form of tracing internally as part of its implementation. (In this case,
+    # it `executing.stream_updates` is called directly on the below function, it
+    # will just return the final result the way `executing.run` would, rather
+    # than properly streaming the individual updates.)
+    @tracing.trace
+    @make_executable
+    def test_iterator_traced_outside(text: str) -> Iterator[str]:
+      for i in range(1, len(text) + 1):
+        res = 'done: ' + text[:i]
+        yield res
+
+    # Note that the limitations described for `test_iterator_traced_outside`
+    # only apply when `executing.run` or `executing.stream_updates`, etc. are
+    # performed on `test_iterator_traced_outside`. When wrapped in another
+    # ordinary `@make_executable` function, everything behaves as expected.
+    @make_executable
+    async def async_test_iterator_wrapping_iterator_traced_outside(
+        text: str,
+    ) -> AsyncIterator[str]:
+      async for s in test_iterator_traced_outside(text):  # test_iterator should be async. pylint: disable=not-an-iterable
+        yield s
+
     bound_fn = make_executable(ObjectForTest(['done: ']).not_decorated_method)
 
     cb_result = []
@@ -300,12 +329,16 @@ class ExecutionTest(parameterized.TestCase):
       nonlocal cb_result
       cb_result.append(res)
 
-    for fn, is_iterative in [
-        (test_fn, False),
-        (bound_fn, False),
-        (async_test_fn, False),
-        (test_iterator, True),
-        (async_test_iterator, True),
+    for fn, is_iterative, is_iterative_for_stream_updates in [
+        (test_fn, False, False),
+        (bound_fn, False, False),
+        (async_test_fn, False, False),
+        (test_iterator, True, True),
+        (async_test_iterator, True, True),
+        # Note that the below case has is_iterative_for_stream_updates=False due
+        # to the limitations described in the function comment above.
+        (test_iterator_traced_outside, True, False),
+        (async_test_iterator_wrapping_iterator_traced_outside, True, True),
     ]:
       with self.subTest(f'run_{fn.__name__}'):
         result = executing.run(fn('test'))
@@ -336,9 +369,11 @@ class ExecutionTest(parameterized.TestCase):
             'done: tes',
             'done: test',
         ]
-        result = result if is_iterative else iterator.value
+        result = result if is_iterative_for_stream_updates else iterator.value
+        if not is_iterative_for_stream_updates:
+          expected_result = expected_result[-1]
         self.assertEqual(
-            expected_result if is_iterative else expected_result[-1],
+            expected_result,
             result,
             msg=pprint.pformat(result),
         )

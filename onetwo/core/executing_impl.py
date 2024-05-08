@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import abc
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator
+import dataclasses
 import functools
 import inspect
 from typing import Any, final, Generic, ParamSpec, TypeVar
@@ -95,6 +96,55 @@ class Executable(
   async def __anext__(self) -> _Update[_Result]:
     """Method that is called when using `async for executable`."""
     return await self._aiterate().__anext__()
+
+
+@dataclasses.dataclass
+class ExecutableWithPostprocessing(
+    Generic[_Result], Executable[_Result]
+):
+  """An executable with a callback executed at the end of the processing.
+
+  One can define two callbacks, one for when the executable is executed with
+  `await` and one when the executable is iterated through with `async for`.
+  The latter one is optional.
+
+  Attributes:
+    wrapped: Executable to augment with postprocessing.
+    postprocessing_callback: Callback to call at the end of the processing (in
+      case we call the executable with `await`).
+    update_callback: Callback to call after each update from the
+      wrapped Executable (in case we call the executable with `async for`). If
+      this is None, we will use the postprocessing_callback on
+      `update.to_result()` (hence converting the updates into results, calling
+      the callback and converting this back into an Update to be yielded).
+  """
+
+  wrapped: Executable[_Result]
+  postprocessing_callback: Callable[[_Result], _Result]
+  update_callback: Callable[[_Update[_Result]], _Update[_Result]] | None = None
+
+  @final
+  async def _aiterate(
+      self, iteration_depth: int = 1
+  ) -> AsyncIterator[_Update[_Result]]:
+    """Yields the intermediate values and calls the final_value_callback."""
+    updates = _Update()
+    async for update in self.wrapped.with_depth(iteration_depth):
+      updates += update
+      if self.update_callback is not None:
+        yield self.update_callback(update)
+      else:
+        yield _Update(self.postprocessing_callback(updates.to_result()))
+
+  @final
+  async def _aexec(self) -> _Result:
+    """Iterate this value until done (including calling final_value_callback).
+
+    Returns:
+      The final value given by the AsyncIterator _inner().
+    """
+    result = await self.wrapped
+    return self.postprocessing_callback(result)
 
 
 def set_decorated_with_make_executable(f: Callable[..., Any]) -> None:

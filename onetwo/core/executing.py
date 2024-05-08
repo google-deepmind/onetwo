@@ -45,6 +45,7 @@ _Args = ParamSpec('_Args')
 run = batching.run
 
 Executable = executing_impl.Executable
+ExecutableWithPostprocessing = executing_impl.ExecutableWithPostprocessing
 Update = updating.Update
 ListUpdate = updating.ListUpdate
 
@@ -106,55 +107,6 @@ class ExecutableWithCallback(
     """Produces the intermediate values."""
     yield Update(self.final_value)  # To force the correct signature.
     raise NotImplementedError()
-
-
-@dataclasses.dataclass
-class ExecutableWithPostprocessing(
-    Generic[Result], Executable[Result]
-):
-  """An executable with a callback executed at the end of the processing.
-
-  One can define two callbacks, one for when the executable is executed with
-  `await` and one when the executable is iterated through with `async for`.
-  The latter one is optional.
-
-  Attributes:
-    wrapped: Executable to augment with postprocessing.
-    postprocessing_callback: Callback to call at the end of the processing (in
-      case we call the executable with `await`).
-    update_callback: Callback to call after each update from the
-      wrapped Executable (in case we call the executable with `async for`). If
-      this is None, we will use the postprocessing_callback on
-      `update.to_result()` (hence converting the updates into results, calling
-      the callback and converting this back into an Update to be yielded).
-  """
-
-  wrapped: Executable[Result]
-  postprocessing_callback: Callable[[Result], Result]
-  update_callback: Callable[[Update[Result]], Update[Result]] | None = None
-
-  @final
-  async def _aiterate(
-      self, iteration_depth: int = 1
-  ) -> AsyncIterator[Update[Result]]:
-    """Yields the intermediate values and calls the final_value_callback."""
-    updates = Update()
-    async for update in self.wrapped.with_depth(iteration_depth):
-      updates += update
-      if self.update_callback is not None:
-        yield self.update_callback(update)
-      else:
-        yield Update(self.postprocessing_callback(updates.to_result()))
-
-  @final
-  async def _aexec(self) -> Result:
-    """Iterate this value until done (including calling final_value_callback).
-
-    Returns:
-      The final value given by the AsyncIterator _inner().
-    """
-    result = await self.wrapped
-    return self.postprocessing_callback(result)
 
 
 @contextlib.contextmanager

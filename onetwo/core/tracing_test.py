@@ -22,6 +22,7 @@ from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.core import executing
 from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.core import utils
@@ -72,6 +73,30 @@ def with_update(a: str) -> str:
   return a
 
 
+@tracing.trace
+async def traced_async_add(x, y):
+  return x + y
+
+
+@executing.make_executable
+@tracing.trace
+def executable_traced_add(x, y):
+  return x + y
+
+
+@tracing.trace
+@executing.make_executable
+def traced_executable_add(x, y):
+  return x + y
+
+
+@tracing.trace
+@executing.make_executable
+@tracing.trace
+def traced_executable_traced_add(x, y):
+  return x + y
+
+
 class ClassForTest:
   @tracing.trace
   def m(self, a: str) -> str:
@@ -115,6 +140,20 @@ class ExecutionResultTracerForTest(tracing.Tracer):
 
 
 class TracingTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('untraced_ordinary_function', g, False),
+      ('untraced_async_function', ag, False),
+      ('traced_ordinary_function', f, True),
+      ('traced_async_function', traced_async_add, True),
+      ('executable_traced_function', executable_traced_add, True),
+      ('traced_executable_function', traced_executable_add, True),
+  )
+  def test_is_decorated_with_trace(self, function, expected_result):
+    self.assertEqual(
+        expected_result,
+        tracing.is_decorated_with_trace(function),
+    )
 
   @parameterized.named_parameters(
       ('no_tracer', None, None),
@@ -671,6 +710,73 @@ class TracingTest(parameterized.TestCase):
     with self.subTest('should_return_correct_final_result'):
       self.assertEqual("['0 done', '1 done', '2 done']", final_result)
 
+  @parameterized.named_parameters(
+      ('traced_async_function', traced_async_add, 'traced_async_add'),
+      (
+          'executable_traced_function',
+          executable_traced_add,
+          'executable_traced_add',
+      ),
+      (
+          'traced_executable_function',
+          traced_executable_add,
+          'traced_executable_add',
+      ),
+      (
+          'verify_that_tracing_decorator_is_idempotent',
+          traced_executable_traced_add,
+          'traced_executable_traced_add',
+      ),
+  )
+  def test_tracing_with_make_executable(self, function, expected_stage_name):
+    expected_trace = ExecutionResult(
+        stage_name='',
+        inputs={},
+        outputs={},
+        stages=[
+            ExecutionResult(
+                stage_name=expected_stage_name,
+                inputs={'x': 'x', 'y': 'y'},
+                outputs={'output': 'xy'},
+                stages=[],
+                error='',
+                info={},
+            )
+        ],
+        error='',
+        info={},
+    )
+
+    # Note that it is important to wrap the call to `function('x', 'y')` in an
+    # executable to make sure that the full execution of `function`, including
+    # tracing, happens inside the `async with running_context()` block of
+    # `batching.run`. This is one limitation of applying `@tracing.trace` to a
+    # function that was already decorated with `@executing.make_executable`.
+    # To minimize such pitfalls, it is still preferable to decorate with
+    # `@tracing.trace` first, and then with `@executing.make_executable` outside
+    # of that.
+    @executing.make_executable
+    async def wrapper() -> Any:
+      return function('x', 'y')
+
+    tracer = ExecutionResultTracerForTest()
+    outputs, execution_result = executing.run(
+        wrapper(), enable_tracing=True, tracer=tracer
+    )
+
+    with self.subTest('should_return_correct_outputs'):
+      self.assertEqual('xy', outputs)
+
+    with self.subTest('should_return_correct_execution_result'):
+      self.assertEqual(
+          expected_trace,
+          execution_result,
+          pprint.pformat(execution_result),
+      )
+
+    with self.subTest('should_return_correct_trace'):
+      trace = tracer.get_result()
+      self.assertEqual(expected_trace, trace, pprint.pformat(trace))
 
 if __name__ == '__main__':
   absltest.main()
