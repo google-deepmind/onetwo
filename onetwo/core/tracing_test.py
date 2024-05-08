@@ -15,6 +15,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterator, Mapping
 import copy
+import dataclasses
 import functools
 import io
 import pprint
@@ -520,26 +521,29 @@ class TracingTest(parameterized.TestCase):
       )
 
   def test_from_instance_name(self):
+    @dataclasses.dataclass
     class C:
-      def __init__(self, name: str):
-        self.name = name
+      name: str
 
       @tracing.trace(name=utils.FromInstance('name'))
       def f(self, x: int) -> int:
         return x + 1
 
-    c = C('test')
-    _, execution_result = tracing.run(functools.partial(c.f, 1))
-    expected_execution_result = ExecutionResult(
-        stage_name='test',
-        inputs={'x': 1},
-        outputs={results.MAIN_OUTPUT: 2},
-    )
-    self.assertEqual(
-        expected_execution_result,
-        execution_result,
-        pprint.pformat(execution_result),
-    )
+    c1 = C('test1')
+    _, execution_result = tracing.run(functools.partial(c1.f, 1))
+
+    with self.subTest('correct_stage_name_first_time'):
+      self.assertEqual(
+          'test1', execution_result.stage_name, pprint.pformat(execution_result)
+      )
+
+    c2 = C('test2')
+    _, execution_result = tracing.run(functools.partial(c2.f, 1))
+
+    with self.subTest('correct_stage_name_second_time'):
+      self.assertEqual(
+          'test2', execution_result.stage_name, pprint.pformat(execution_result)
+      )
 
   def test_queue_trace(self):
 

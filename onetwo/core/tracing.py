@@ -388,15 +388,15 @@ def trace(
       execution_result.stages.append(results.ExecutionResult())
       execution_result = execution_result.stages[-1]
 
-    nonlocal name
+    stage_name = name
     if isinstance(name, utils.FromInstance):
       if 'self' in kwargs:
         obj = kwargs['self']
       else:
         obj = args[0]
-      name = utils.RuntimeParameter[str](name, obj).value()
+      stage_name = utils.RuntimeParameter[str](name, obj).value()
 
-    stage_name = name or function.__name__
+    stage_name = stage_name or function.__name__
     inputs = copy.copy(
         utils.get_expanded_arguments(function, False, args, kwargs)
     )
