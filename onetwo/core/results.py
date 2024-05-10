@@ -14,9 +14,13 @@
 
 """Data structures for storing results of prompting and experiment execution."""
 
+from __future__ import annotations
+
+import collections
 from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
+import datetime
 import pprint
 import textwrap
 from typing import Any
@@ -52,6 +56,10 @@ OUTPUT_KEY_REPLY_OBJECT = 'reply_object'
 MAIN_OUTPUT = 'output'
 # Output field storing the repeated values to compute list metrics.
 VALUES_FOR_LIST_METRICS = 'values_for_list_metrics'
+
+# Constants for standard counter names.
+COUNTER_TOTAL_EXAMPLES = 'total_count'
+COUNTER_ERRORS = 'error_count'
 
 
 def _exclude_empty(x: Any) -> bool:
@@ -354,7 +362,7 @@ class ExperimentResult(ExecutionResult):
   # pytype: enable=wrong-arg-types
 
   def to_compact_record(self) -> 'ExperimentResult':
-    """Returns a compact version of self for writing to results.json."""
+    """Returns a compact version of self for writing to `results.json`."""
     record_compact = copy.deepcopy(self)
     record_compact.stages = []
 
@@ -408,11 +416,134 @@ def experiment_result_from_dict(data: dict[str, Any]) -> ExperimentResult:
 
 
 @dataclasses.dataclass
-class HTMLRenderer:
-  """Renders an ExecutionResult or list of such in an interactive HTML format.
+class ExperimentTiming:
+  """Timing information for an experiment.
 
   Attributes:
-    levels_to_expand: Number of levels in the hierarchy to expand by default.
+    start_time: The start time of the experiment.
+    end_time: The start time of the experiment.
+    time_elapsed: The time elapsed from beginning to end of the experiment.
+  """
+  start_time: datetime.datetime = datetime.datetime.now()
+  end_time: datetime.datetime = datetime.datetime.now()
+
+  @property
+  def time_elapsed(self) -> datetime.timedelta:
+    return self.end_time - self.start_time
+
+
+@dataclasses.dataclass
+class ExperimentSummary:
+  """Summary of the results of an experiment.
+
+  Attributes:
+    timing: Experiment timing information.
+    metrics: Mapping of metric name to metric value.
+    counters: Mapping of counter name to counter value.
+    example_keys: Mapping of example index to example key.
+    results: Mapping of example key to experiment result (w/o detailed trace).
+    results_debug: Mapping of example key to experiment result (w/ detailed
+      trace).
+    final_states: Mapping of example key to final state of agent. Only relevant
+      when the strategy is a subclass of `Agent`.
+  """
+  timing: ExperimentTiming = dataclasses.field(default_factory=ExperimentTiming)
+  metrics: dict[str, float] = dataclasses.field(default_factory=dict)
+  counters: collections.Counter[str] = dataclasses.field(
+      default_factory=collections.Counter)
+  example_keys: dict[int, str|int] = dataclasses.field(default_factory=dict)
+  results: dict[str|int, ExperimentResult] = dataclasses.field(
+      default_factory=dict)
+  results_debug: dict[str|int, ExperimentResult] = dataclasses.field(
+      default_factory=dict)
+  final_states: dict[str|int, Any] = dataclasses.field(default_factory=dict)
+
+  def replace_example_index_and_key(
+      self, example_index: int, example_key: str|int) -> None:
+    """Replaces the example index and keys in the summary with the given ones.
+
+    This is intended to be used only in the case where the ExperimentSummary
+    contains the results of just a single example.
+
+    Args:
+      example_index: The new example index to use.
+      example_key: The new example key to use.
+    """
+    current_example_keys = (
+        set(self.example_keys.values())
+        | set(self.results.keys())
+        | set(self.results_debug.keys())
+        | set(self.final_states.keys())
+    )
+    if (len(current_example_keys) > 1):
+      raise ValueError(
+          'Cannot replace example index and key in ExperimentSummary with '
+          'multiple examples.')
+    self.example_keys = {example_index: example_key}
+    if self.results:
+      self.results[example_key] = self.results.pop(list(self.results.keys())[0])
+    if self.results_debug:
+      self.results_debug[example_key] = self.results_debug.pop(
+          list(self.results_debug.keys())[0])
+    if self.final_states:
+      self.final_states[example_key] = self.final_states.pop(
+          list(self.final_states.keys())[0])
+
+  def __iadd__(self, other: ExperimentSummary) -> ExperimentSummary:
+    """Adds the contents of the given experiment summary to the current one.
+
+    Updates all attributes in-place.
+
+    Note that we intentionally do not provide an implementation for ordinary
+    `__add__`, as normally when adding experiment summary objects the typical
+    pattern is to have one summary representing the experiment as a whole and
+    then to add it summaries representing the incremental results from
+    evaluation of individual examples in the experiment. In such cases, it is
+    much more efficient to use `__iadd__`, so as to avoid unnecessary copying
+    of the increasingly large summary object of the full experiment.
+
+    Args:
+      other: The other experiment summary to add.
+
+    Returns:
+      Self (after updating with the contents of `other`).
+    """
+    self.timing.start_time = min(
+        self.timing.start_time, other.timing.start_time)
+    self.timing.end_time = max(
+        self.timing.end_time, other.timing.end_time)
+
+    # Update the metrics as weighted averages based on number of examples.
+    self_count = self.counters[COUNTER_TOTAL_EXAMPLES]
+    other_count = other.counters[COUNTER_TOTAL_EXAMPLES]
+    if self_count and other_count:
+      if self.metrics.keys() != other.metrics.keys():
+        raise ValueError(
+            'Cannot add ExperimentSummary objects with inconsistent metric '
+            f'keys ({self.metrics.keys()}) != ({other.metrics.keys()})')
+    for metric_name in self.metrics.keys() | other.metrics.keys():
+      self_value = self.metrics.get(metric_name, 0)
+      other_value = other.metrics.get(metric_name, 0)
+      numerator = self_value * self_count + other_value * other_count
+      denominator = self_count + other_count
+      self.metrics[metric_name] = numerator / denominator
+
+    self.counters.update(other.counters)
+    self.example_keys.update(other.example_keys)
+    self.results.update(other.results)
+    self.results_debug.update(other.results_debug)
+    self.final_states.update(other.final_states)
+    return self
+
+
+@dataclasses.dataclass
+class HTMLRenderer:
+  """Renders ExecutionResult(s) or ExperimentSummary in HTML format.
+
+  Attributes:
+    levels_to_expand: Number of levels in the hierarchy to expand by default,
+      when rendering a single result or list of results. (When rendering an
+      entire ExperimentSummary, we display only the top level initially.)
   """
 
   # Public attributes.
@@ -496,7 +627,7 @@ class HTMLRenderer:
       stage_number: int | None = None,
       levels_to_expand: int = 0,
   ) -> str:
-    """Returns a rendering of the ExecutionResult in ...<ul>...</ul> form."""
+    """Returns a rendering of the ExecutionResult in <li>...</li>... form."""
     # Skip over redundant ExecutionResult objects that are simply empty wrappers
     # for a single ExecutionResult stage that contains the actual content. This
     # situation commonly occurs in the outermost layer of the ExecutionResult
@@ -645,6 +776,178 @@ class HTMLRenderer:
     lines.append('</ul>')
     return '\n'.join(lines)
 
+  def _render_agent_state(
+      self,
+      state: Any,
+      *,
+      element_id: str,
+      stage_number: int | None = None,
+      levels_to_expand: int = 0,
+  ) -> str:
+    """Returns a rendering of the state as text or in ...<ul>...</ul> form."""
+    if stage_number is None:
+      stage_number_str = ''
+    else:
+      stage_number_str = f'[{stage_number+1}] '
+
+    type_string = f'{type(state).__name__}'
+    try:
+      # Special handling for the common case of `UpdateListState`.
+      # We detect this case via `try...except` because `UpdateListState` is a
+      # generic and does not `instanceof`.
+      content_str = (
+          f'{state.inputs!r} <b>&rArr;</b> {len(state.updates)} updates'
+      )
+      # If we get this far, then `state` must be an instance of
+      # `UpdateListState`, or at least something that looks and acts like one.
+      is_update_list_state = True
+    except TypeError:
+      # Default handling where `state` is not an `UpdateListState`.
+      content_str = repr(state)
+      is_update_list_state = False
+
+    expanded = (levels_to_expand > 0)
+    if expanded:
+      content_string_style = 'display:none'
+      content_block_style = 'display:block'
+    else:
+      content_string_style = 'display:inline'
+      content_block_style = 'display:none'
+
+    if len(content_str) > self._max_stage_content_summary_length:
+      content_str = content_str[:self._max_stage_content_summary_length] + '...'
+
+    lines = []
+    lines.append(
+        f"<li onClick=\"toggleElements(['{element_id}', '{element_id}c'])\">"
+        f'<b>{stage_number_str}<u>{type_string}</u></b> '
+        f'<div id="{element_id}c" style="{content_string_style}">{content_str}'
+        f'</div></li>'
+    )
+    if is_update_list_state:
+      # Special handling for the common case of `UpdateListState`.
+      lines.append(f'<ul id="{element_id}" style="{content_block_style}">')
+      inputs_string = self._render_single_value(
+          state.inputs, element_id=f'{element_id}i'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'{element_id}i\')"><b>inputs</b>'
+          f'</span>: {inputs_string}</li>'
+      )
+      update_string = self._render_single_value(
+          state.updates, element_id=f'{element_id}u'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'{element_id}u\')"><b>updates</b>'
+          f'</span>: {update_string}</li>'
+      )
+      lines.append('</ul>')
+    else:
+      # Default handling for arbitrary `state` types.
+      lines.append(
+          f'<div id="{element_id}" style="{content_block_style}">'
+          f'{repr(state)}</div>'
+      )
+
+    return '\n'.join(lines)
+
+  def _render_agent_state_list(
+      self, states: list[Any], *, element_id: str, levels_to_expand: int = 0
+  ) -> str:
+    """Returns a rendering of the states in <ul>...</ul> form."""
+    lines = []
+    lines.append(f'<ul id="{element_id}">')
+    for i, state in enumerate(states):
+      lines.append(
+          self._render_agent_state(
+              state,
+              element_id=f'{element_id}-{i}',
+              stage_number=i,
+              levels_to_expand=levels_to_expand,
+          )
+      )
+    lines.append('</ul>')
+    return '\n'.join(lines)
+
+  def _render_experiment_summary(self, summary: ExperimentSummary) -> str:
+    """Returns a rendering of the ExperimentSummary in <li>...</li>... form."""
+    # TODO: Shall we consider `self.levels_to_expand` here? For now
+    # we're ignoring it, and instead always rendering the individual sections
+    # initially in collapsed state when rendering an entire `ExperimentSummary`,
+    # as it tends to look rather overwhelming to have many different
+    # ExperimentResult objects expanded all at once.
+    lines = []
+    if summary.timing:
+      timing_string = self._render_single_value(
+          summary.timing, element_id='timing'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'timing\')"><b>timing</b></span>:'
+          f' {timing_string}</li>'
+      )
+    if summary.metrics:
+      metrics_string = self._render_single_value(
+          summary.metrics, element_id='metrics'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'metrics\')"><b>metrics</b>'
+          f'</span>: {metrics_string}</li>'
+      )
+    if summary.counters:
+      counters_string = self._render_single_value(
+          summary.counters, element_id='counters'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'counters\')"><b>counters</b>'
+          f'</span>: {counters_string}</li>'
+      )
+    if summary.results:
+      assert len(summary.results) == len(summary.example_keys)
+      results_list = [
+          summary.results[summary.example_keys[i]]
+          for i in sorted(summary.example_keys)
+      ]
+      lines.append(
+          '<li><span onClick="toggleElement(\'results\')"><b>results</b>'
+          f'</span>: {len(results_list)}</li>'
+      )
+      lines.append(
+          self._render_result_list(
+              results_list, element_id='results', levels_to_expand=0
+          )
+      )
+    if summary.results_debug:
+      assert len(summary.results_debug) == len(summary.example_keys)
+      results_debug_list = [
+          summary.results_debug[summary.example_keys[i]]
+          for i in sorted(summary.example_keys)
+      ]
+      lines.append(
+          '<li><span onClick="toggleElement(\'results_debug\')">'
+          f'<b>results_debug</b></span>: {len(results_debug_list)}</li>'
+      )
+      lines.append(
+          self._render_result_list(
+              results_debug_list, element_id='results_debug', levels_to_expand=0
+          )
+      )
+    if summary.final_states:
+      assert len(summary.final_states) == len(summary.example_keys)
+      final_state_list = [
+          summary.final_states[summary.example_keys[i]]
+          for i in sorted(summary.example_keys)
+      ]
+      lines.append(
+          '<li><span onClick="toggleElement(\'final_states\')">'
+          f'<b>final_states</b></span>: {len(final_state_list)}</li>'
+      )
+      lines.append(
+          self._render_agent_state_list(
+              final_state_list, element_id='final_states', levels_to_expand=0
+          )
+      )
+    return '\n'.join(lines)
+
   def render(
       self,
       object_to_render: ExecutionResult | Sequence[ExecutionResult],
@@ -696,6 +999,8 @@ class HTMLRenderer:
           element_id=element_id,
           levels_to_expand=self.levels_to_expand,
       )
+    elif isinstance(object_to_render, ExperimentSummary):
+      content_string = self._render_experiment_summary(object_to_render)
     else:
       raise ValueError(
           f'Unsupported type {type(object_to_render)}): {object_to_render}'

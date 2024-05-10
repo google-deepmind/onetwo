@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
 import copy
+import datetime
 import logging
 import pprint
 import textwrap
@@ -21,6 +23,7 @@ from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 import html5lib
+from onetwo.agents import agents_base
 from onetwo.core import results
 import termcolor
 
@@ -472,6 +475,246 @@ class ExperimentResultsTest(absltest.TestCase):
       )
 
 
+class ExperimentTimingTest(absltest.TestCase):
+
+  def test_time_elapsed(self):
+    start_time = datetime.datetime(2024, 5, 9, 12, 0, 0)
+    end_time = start_time + datetime.timedelta(seconds=3)
+    timing = results.ExperimentTiming(start_time=start_time, end_time=end_time)
+    self.assertEqual(datetime.timedelta(seconds=3), timing.time_elapsed)
+
+
+class ExperimentSummaryTest(parameterized.TestCase):
+
+  def test_iadd(self):
+    start_time = datetime.datetime(2024, 5, 9, 12, 0, 0)
+    summary1 = results.ExperimentSummary(
+        timing=results.ExperimentTiming(
+            start_time=start_time,
+            end_time=start_time + datetime.timedelta(seconds=3),
+        ),
+        metrics={'accuracy': 0.5},
+        counters=collections.Counter(
+            {results.COUNTER_TOTAL_EXAMPLES: 1, 'a': 1, 'b': 1}
+        ),
+        example_keys={1: 'example1'},
+        results={
+            'example1': results.ExperimentResult(inputs={'input': '1'}),
+        },
+        results_debug={
+            'example1': results.ExperimentResult(
+                inputs={'input': '1'},
+                stages=[results.ExecutionResult(stage_name='stage1_1')],
+            ),
+        },
+        final_states={
+            'example1': agents_base.UpdateListState(inputs='1', updates=['1'])
+        },
+    )
+    summary2 = results.ExperimentSummary(
+        timing=results.ExperimentTiming(
+            start_time=start_time + datetime.timedelta(seconds=6),
+            end_time=start_time + datetime.timedelta(seconds=9),
+        ),
+        metrics={'accuracy': 0.8},
+        counters=collections.Counter(
+            {results.COUNTER_TOTAL_EXAMPLES: 2, 'b': 1, 'c': 1}
+        ),
+        example_keys={2: 'example2', 3: 'example3'},
+        results={
+            'example2': results.ExperimentResult(inputs={'input': '2'}),
+            'example3': results.ExperimentResult(inputs={'input': '3'}),
+        },
+        results_debug={
+            'example2': results.ExperimentResult(
+                inputs={'input': '2'},
+                stages=[results.ExecutionResult(stage_name='stage2_1')],
+            ),
+            'example3': results.ExperimentResult(
+                inputs={'input': '3'},
+                stages=[results.ExecutionResult(stage_name='stage3_1')],
+            ),
+        },
+        final_states={
+            'example2': agents_base.UpdateListState(inputs='2', updates=['2']),
+            'example3': agents_base.UpdateListState(inputs='3', updates=['3']),
+        },
+    )
+
+    expected_sum = results.ExperimentSummary(
+        timing=results.ExperimentTiming(
+            start_time=start_time,
+            end_time=start_time + datetime.timedelta(seconds=9),
+        ),
+        metrics={'accuracy': 0.7},
+        counters=collections.Counter(
+            {results.COUNTER_TOTAL_EXAMPLES: 3, 'a': 1, 'b': 2, 'c': 1}
+        ),
+        example_keys={1: 'example1', 2: 'example2', 3: 'example3'},
+        results={
+            'example1': results.ExperimentResult(inputs={'input': '1'}),
+            'example2': results.ExperimentResult(inputs={'input': '2'}),
+            'example3': results.ExperimentResult(inputs={'input': '3'}),
+        },
+        results_debug={
+            'example1': results.ExperimentResult(
+                inputs={'input': '1'},
+                stages=[results.ExecutionResult(stage_name='stage1_1')],
+            ),
+            'example2': results.ExperimentResult(
+                inputs={'input': '2'},
+                stages=[results.ExecutionResult(stage_name='stage2_1')],
+            ),
+            'example3': results.ExperimentResult(
+                inputs={'input': '3'},
+                stages=[results.ExecutionResult(stage_name='stage3_1')],
+            ),
+        },
+        final_states={
+            'example1': agents_base.UpdateListState(inputs='1', updates=['1']),
+            'example2': agents_base.UpdateListState(inputs='2', updates=['2']),
+            'example3': agents_base.UpdateListState(inputs='3', updates=['3']),
+        },
+    )
+
+    summary1 += summary2
+    # Adjusting for potential double precision error.
+    summary1.metrics['accuracy'] = round(summary1.metrics['accuracy'], 8)
+
+    with self.subTest('should_update_result_in_place'):
+      self.assertEqual(expected_sum, summary1)
+
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'fully_populated_result',
+          'original': results.ExperimentSummary(
+              metrics={'accuracy': 0.5},
+              counters=collections.Counter(
+                  {results.COUNTER_TOTAL_EXAMPLES: 1, 'a': 1, 'b': 1}
+              ),
+              example_keys={0: 'placeholder'},
+              results={
+                  'placeholder': results.ExperimentResult(
+                      inputs={'input': '1'}
+                  ),
+              },
+              results_debug={
+                  'placeholder': results.ExperimentResult(
+                      inputs={'input': '1'},
+                      stages=[results.ExecutionResult(stage_name='stage1_1')],
+                  ),
+              },
+              final_states={
+                  'placeholder': agents_base.UpdateListState(
+                      inputs='1', updates=['1']
+                  )
+              },
+          ),
+          'expected': results.ExperimentSummary(
+              # Fields like metrics and counters are left as-is.
+              metrics={'accuracy': 0.5},
+              counters=collections.Counter(
+                  {results.COUNTER_TOTAL_EXAMPLES: 1, 'a': 1, 'b': 1}
+              ),
+              # Example_keys is replaced with the new index and key.
+              example_keys={1: 'example1'},
+              # Results, results_debug, and final_states have their keys
+              # replaced with the new key, but their values left as-is.
+              results={
+                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+              },
+              results_debug={
+                  'example1': results.ExperimentResult(
+                      inputs={'input': '1'},
+                      stages=[results.ExecutionResult(stage_name='stage1_1')],
+                  ),
+              },
+              final_states={
+                  'example1': agents_base.UpdateListState(
+                      inputs='1', updates=['1']
+                  )
+              },
+          ),
+      },
+      {
+          'testcase_name': 'minimal_result',
+          'original': results.ExperimentSummary(
+              example_keys={0: 'placeholder'},
+              results={
+                  'placeholder': results.ExperimentResult(
+                      inputs={'input': '1'}
+                  ),
+              },
+          ),
+          'expected': results.ExperimentSummary(
+              example_keys={1: 'example1'},
+              results={
+                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+              },
+          ),
+      },
+      {
+          'testcase_name': 'empty_summary',
+          'original': results.ExperimentSummary(),
+          'expected': results.ExperimentSummary(example_keys={1: 'example1'}),
+      },
+      {
+          'testcase_name': 'example_keys_not_present',
+          'original': results.ExperimentSummary(
+              results={
+                  'placeholder': results.ExperimentResult(
+                      inputs={'input': '1'}
+                  ),
+              },
+          ),
+          'expected': results.ExperimentSummary(
+              example_keys={1: 'example1'},
+              results={
+                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+              },
+          ),
+      },
+  )
+  def test_replace_example_index_and_key_success_cases(
+      self,
+      original: results.ExperimentSummary,
+      expected: results.ExperimentSummary,
+  ):
+    original.replace_example_index_and_key(1, 'example1')
+    self.assertEqual(expected, original, original)
+
+  @parameterized.named_parameters(
+      (
+          'multiple_keys',
+          results.ExperimentSummary(
+              example_keys={1: 'example1', 2: 'example2'},
+              results={
+                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+                  'example2': results.ExperimentResult(inputs={'input': '2'}),
+              },
+          ),
+          'Cannot replace example index and key .* with multiple examples.',
+      ),
+      (
+          'key_mismatch',
+          results.ExperimentSummary(
+              example_keys={0: 'placeholder'},
+              results={
+                  'some_other_key': results.ExperimentResult(
+                      inputs={'input': '1'}
+                  ),
+              },
+          ),
+          'Cannot replace example index and key .* with multiple examples.',
+      ),
+  )
+  def test_replace_example_index_and_key_error_cases(
+      self, summary: results.ExperimentSummary, expected_error_pattern: str
+  ):
+    with self.assertRaisesRegex(ValueError, expected_error_pattern):
+      summary.replace_example_index_and_key(3, 'example3')
+
+
 class HTMLRendererTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
@@ -509,6 +752,44 @@ class HTMLRendererTest(parameterized.TestCase):
               results.ExecutionResult(stage_name='result1'),
               results.ExperimentResult(stage_name='result2'),
           ],
+      ),
+      ('empty_experiment_summary', results.ExperimentSummary()),
+      (
+          'experiment_summary_with_single_element_in_each_container',
+          results.ExperimentSummary(
+              timing=results.ExperimentTiming(
+                  start_time=datetime.datetime(2024, 5, 9, 12, 0, 0),
+                  end_time=datetime.datetime(2024, 5, 9, 12, 0, 3),
+              ),
+              metrics={'m1': 0.1},
+              counters=collections.Counter({'c1': 0.1}),
+              example_keys={1: 'example1'},
+              results={
+                  'example1': results.ExperimentResult(
+                      inputs={'i1': 'i_v1'},
+                      outputs={'o1': 'o_v1'},
+                      stages=[],
+                      targets={'t1': 't_v1'},
+                      metrics={'m1': 0.1},
+                  ),
+              },
+              results_debug={
+                  'example1': results.ExperimentResult(
+                      inputs={'i1': 'i_v1'},
+                      outputs={'o1': 'o_v1'},
+                      stages=[
+                          results.ExecutionResult(stage_name='stage1'),
+                      ],
+                      targets={'t1': 't_v1'},
+                      metrics={'m1': 0.1},
+                  ),
+              },
+              final_states={
+                  'example1': agents_base.UpdateListState(
+                      inputs='a', updates=['a', 'b', 'c']
+                  )
+              },
+          ),
       ),
   )
   def test_render_returns_valid_html(self, object_to_render: Any):
