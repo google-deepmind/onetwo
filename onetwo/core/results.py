@@ -405,3 +405,308 @@ def experiment_result_from_dict(data: dict[str, Any]) -> ExperimentResult:
   # See note on `execution_result_from_dict` above for why this is needed.
   result.stages = list(execution_result_from_dict(s) for s in result.stages)
   return result
+
+
+@dataclasses.dataclass
+class HTMLRenderer:
+  """Renders an ExecutionResult or list of such in an interactive HTML format.
+
+  Attributes:
+    levels_to_expand: Number of levels in the hierarchy to expand by default.
+  """
+
+  # Public attributes.
+  levels_to_expand: int = 3
+
+  # =========================================================================
+  # Private attributes. (Not exposing them publicly yet, as they may change.)
+  # =========================================================================
+
+  # Maximum length of the single-line representation of a stage's content string
+  # to show when the stage is in collapsed state. If longer than this, it will
+  # be truncated, with '...'.
+  _max_stage_content_summary_length: int = 160
+
+  # Maximum length for displaying a single value (e.g., input or output) of dict
+  # or list type on a single line. If the value's string representation is
+  # within this length, then it will be shown on a single line; if longer, then
+  # it will be expanded into a separate line for each element in the list or
+  # dict.
+  _max_single_line_value_string_length: int = 80
+
+  def _render_llm_request_reply(
+      self, request: str, reply: str, element_id: str | None = None
+  ) -> str:
+    """Returns HTML rendering the request/reply as multi-line colored text."""
+    # TODO: Support roles and multi-modal requests/replies.
+    updated_request = request.replace('\n', '<br>')
+    updated_reply = reply.replace('\n', '<br>')
+    id_string = f' id="{element_id}"' if element_id is not None else ''
+    return (
+        f'<p{id_string} style="color:black;background-color:white"><span'
+        f' style="color:black">{updated_request}</span><span'
+        f' style="color:blue">{updated_reply}</span></p>'
+    )
+
+  def _render_single_value(
+      self, value: Any, *, element_id: str | None = None
+  ) -> str:
+    """Returns a rendering of the value as text or in ...<ul>...</ul> form."""
+    if not value:
+      return repr(value)
+
+    if (
+        isinstance(value, list)
+        and len(repr(value)) > self._max_single_line_value_string_length
+    ):
+      lines = []
+      lines.append(f'{type(value).__name__}({len(value)})')
+      lines.append('<ul id="{id}">')
+      for i, element in enumerate(value):
+        element_html = self._render_single_value(
+            element, element_id=f'{element_id}-{i}'
+        )
+        lines.append(f'<li>{element_html}</li>')
+      lines.append('</ul>')
+      return '\n'.join(lines)
+
+    if (
+        isinstance(value, dict)
+        and len(repr(value)) > self._max_single_line_value_string_length
+    ):
+      lines = []
+      lines.append(f'{type(value).__name__}({len(value)})')
+      lines.append(f'<ul id="{element_id}">')
+      for i, (key, value) in enumerate(value.items()):
+        element_html = self._render_single_value(
+            value, element_id=f'{element_id}-{i}'
+        )
+        lines.append(f'<li><b>{key}</b>: {element_html}</li>')
+      lines.append('</ul>')
+      return '\n'.join(lines)
+
+    # Default handling.
+    return repr(value)
+
+  def _render_result(
+      self,
+      result: ExecutionResult,
+      *,
+      element_id: str,
+      stage_number: int | None = None,
+      levels_to_expand: int = 0,
+  ) -> str:
+    """Returns a rendering of the ExecutionResult in ...<ul>...</ul> form."""
+    # Skip over redundant ExecutionResult objects that are simply empty wrappers
+    # for a single ExecutionResult stage that contains the actual content. This
+    # situation commonly occurs in the outermost layer of the ExecutionResult
+    # that is returned when `executing.run` is called with
+    # `enabled_tracing=True`.
+    if (
+        not result.stage_name
+        and not result.inputs
+        and not result.outputs
+        and len(result.stages) == 1
+    ):
+      return self._render_result(
+          result.stages[0],
+          # We still specify a different element_id, so that we can detect in
+          # the unit tests whether we skipped over the outer element or not.
+          element_id=f'{element_id}-0',
+          levels_to_expand=levels_to_expand,
+      )
+
+    # TODO: Remove the special treatment of the special outputs key
+    # 'output', once we support storing non-dict outputs directly in the
+    # ExecutionResult.
+    if isinstance(result.outputs, dict) and set(result.outputs.keys()) == {
+        'output'
+    }:
+      outputs = result.outputs.get('output')
+    else:
+      outputs = result.outputs
+    # TODO: Remove the special treatment of the special outputs key
+    # 'target', once we support storing non-dict targets directly in the
+    # ExperimentResult.
+    if isinstance(result, ExperimentResult):
+      if isinstance(result.targets, dict) and set(result.targets.keys()) == {
+          'target'
+      }:
+        targets = result.targets.get('target')
+      else:
+        targets = result.targets
+    else:
+      targets = {}
+
+    stage_number_str = (
+        f'[{stage_number+1}] ' if stage_number is not None else ''
+    )
+    stage_content_str = f'{result.inputs!r} <b>&rArr;</b> {outputs!r}'
+    if len(stage_content_str) > self._max_stage_content_summary_length:
+      stage_content_str = (
+          stage_content_str[:self._max_stage_content_summary_length] + '...'
+      )
+    expanded = levels_to_expand > 0
+    if expanded:
+      content_string_style = 'display:none'
+      content_block_style = 'display:block'
+    else:
+      content_string_style = 'display:inline'
+      content_block_style = 'display:none'
+    lines = []
+    lines.append(
+        f"<li onClick=\"toggleElements(['{element_id}', '{element_id}c'])\">"
+        f'<b>{stage_number_str}<u>{result.stage_name}</u></b>'
+        f' <div id="{element_id}c"'
+        f' style="{content_string_style}">{stage_content_str}</div></li>'
+    )
+    if result.stage_name == 'generate_text' and not result.stages:
+      # Special formatting for leaf-level LLM requests.
+      request = result.inputs.get('request', 'MISSING_REQUEST_FIELD')
+      reply = result.outputs.get('output', 'MISSING_OUTPUT_FIELD')
+      request_reply_string = self._render_llm_request_reply(
+          request=request, reply=reply
+      )
+      lines.append(
+          f'<div id="{element_id}"'
+          f' style="{content_block_style}">{request_reply_string}</div>'
+      )
+    else:
+      # Default formatting for arbitrary prompting stages.
+      lines.append(f'<ul id="{element_id}" style="{content_block_style}">')
+      lines.append(f'<!--<li><b>stage_name</b>: {result.stage_name}</li>-->')
+      inputs_string = self._render_single_value(
+          result.inputs, element_id=f'{element_id}i'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'{element_id}i\')"><b>inputs</b>'
+          f'</span>: {inputs_string}</li>'
+      )
+      outputs_string = self._render_single_value(
+          outputs, element_id=f'{element_id}o'
+      )
+      lines.append(
+          '<li><span onClick="toggleElement(\'{element_id}o\')">'
+          f'<b>outputs</b></span>: {outputs_string}</li>'
+      )
+      if result.error:
+        lines.append(f'<li><b>error</b>: {result.error}</li>')
+      if result.info:
+        lines.append(f'<li><b>info</b>: {result.info}</li>')
+      if isinstance(result, ExperimentResult):
+        if targets:
+          targets_string = self._render_single_value(
+              targets, element_id=f'{element_id}t'
+          )
+          lines.append(
+              '<li><span onClick="toggleElement(\'{element_id}t\')">'
+              f'<b>targets</b></span>: {targets_string}</li>'
+          )
+        if result.metrics:
+          metrics_string = self._render_single_value(
+              result.metrics, element_id=f'{element_id}m'
+          )
+          lines.append(
+              '<li><span onClick="toggleElement(\'{element_id}m\')">'
+              f'<b>metrics</b></span>: {metrics_string}</li>'
+          )
+      if result.stages:
+        for i, stage in enumerate(result.stages):
+          lines.append(
+              self._render_result(
+                  stage,
+                  element_id=f'{element_id}-{i}',
+                  stage_number=i if len(result.stages) > 1 else None,
+                  levels_to_expand=levels_to_expand - 1,
+              )
+          )
+      lines.append('</ul>')
+    return '\n'.join(lines)
+
+  def _render_result_list(
+      self,
+      result_list: Sequence[ExecutionResult],
+      *,
+      element_id: str,
+      levels_to_expand: int = 0,
+  ) -> str:
+    """Returns a rendering of the ExecutionResults in <ul>...</ul> form."""
+    lines = []
+    lines.append(f'<ul id="{element_id}">')
+    for i, result in enumerate(result_list):
+      lines.append(
+          self._render_result(
+              result,
+              element_id=f'{element_id}-{i}',
+              stage_number=i,
+              levels_to_expand=levels_to_expand,
+          )
+      )
+    lines.append('</ul>')
+    return '\n'.join(lines)
+
+  def render(
+      self,
+      object_to_render: ExecutionResult | Sequence[ExecutionResult],
+      *,
+      element_id: str = '0',
+  ) -> str:
+    """Returns a full HTML + JavaScript rendering of the given result(s).
+
+    Args:
+      object_to_render: The object to render.
+      element_id: The id to be used for the outermost HTML element returned by
+        this function. Ids for inner elements will be generated automatically by
+        appending suffixes to this id.
+
+    Returns:
+      An HTML block suitable for passing to `IPython.display.HTML(...)` for
+      displaying in colab.
+    """
+    javascript_string = textwrap.dedent("""\
+      <script>
+      function toggleElement(element_id) {
+        var element = document.getElementById(element_id);
+        if (element.style.display === 'none') {
+          if (element_id.endsWith('c')) {
+            element.style.display = 'inline';
+          } else {
+            element.style.display = 'block';
+          }
+        } else {
+          element.style.display = 'none';
+        }
+      }
+      function toggleElements(element_ids) {
+        for (element_id of element_ids) {
+          toggleElement(element_id);
+        }
+      }
+      </script>
+      """)
+    if isinstance(object_to_render, ExecutionResult):
+      content_string = self._render_result(
+          object_to_render,
+          element_id=element_id,
+          levels_to_expand=self.levels_to_expand,
+      )
+    elif isinstance(object_to_render, Sequence):
+      content_string = self._render_result_list(
+          object_to_render,
+          element_id=element_id,
+          levels_to_expand=self.levels_to_expand,
+      )
+    else:
+      raise ValueError(
+          f'Unsupported type {type(object_to_render)}): {object_to_render}'
+      )
+
+    rendered_html = f"""\
+{javascript_string}
+<div>
+  <ul>
+{textwrap.indent(content_string, '    ')}
+  </ul>
+</div>
+"""
+    return rendered_html

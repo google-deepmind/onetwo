@@ -13,10 +13,14 @@
 # limitations under the License.
 
 import copy
+import logging
 import pprint
 import textwrap
+from typing import Any
 
 from absl.testing import absltest
+from absl.testing import parameterized
+import html5lib
 from onetwo.core import results
 import termcolor
 
@@ -467,6 +471,112 @@ class ExperimentResultsTest(absltest.TestCase):
           results.get_short_values_tree(res),
       )
 
+
+class HTMLRendererTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('empty_result', results.ExecutionResult()),
+      (
+          'result_with_single_element_in_each_container',
+          results.ExperimentResult(
+              inputs={'i1': 'i_v1'},
+              outputs={'o1': 'o_v1'},
+              stages=[
+                  results.ExecutionResult(stage_name='stage1'),
+              ],
+              targets={'t1': 't_v1'},
+              metrics={'m1': 0.1},
+          ),
+      ),
+      (
+          'result_with_multiple_elements_in_each_container',
+          results.ExperimentResult(
+              inputs={'i1': 'i_v1', 'i2': 'i_v2'},
+              outputs={'o1': 'o_v1', 'o2': 'o_v2'},
+              stages=[
+                  results.ExecutionResult(stage_name='stage1'),
+                  results.ExecutionResult(stage_name='stage2'),
+              ],
+              targets={'t1': 't_v1', 't2': 't_v2'},
+              metrics={'m1': 0.1, 'm2': 0.2},
+          ),
+      ),
+      ('empty_list', []),
+      ('list_with_single_result', [results.ExecutionResult()]),
+      (
+          'list_with_multiple_results',
+          [
+              results.ExecutionResult(stage_name='result1'),
+              results.ExperimentResult(stage_name='result2'),
+          ],
+      ),
+  )
+  def test_render_returns_valid_html(self, object_to_render: Any):
+    renderer = results.HTMLRenderer()
+    html = renderer.render(object_to_render)
+    logging.info('Rendered HTML: %s', html)
+
+    # Here we create a minimal full HTML page containing the rendered content
+    # and verify that it is fully valid HTML (no mismatched HTML tags, etc.).
+    expanded_html = f'<!DOCTYPE html><html>{html}</html>'
+    parser = html5lib.HTMLParser()
+    parser.parse(expanded_html)
+    self.assertEmpty(parser.errors)
+
+  @parameterized.named_parameters(
+      (
+          'empty_outer_result_with_single_stage',
+          results.ExecutionResult(
+              stages=[results.ExecutionResult(stage_name='stage1')]
+          ),
+          True,
+      ),
+      (
+          'empty_outer_result_with_multiple_stages',
+          results.ExecutionResult(
+              stages=[
+                  results.ExecutionResult(stage_name='stage1'),
+                  results.ExecutionResult(stage_name='stage2'),
+              ]
+          ),
+          False,
+      ),
+      (
+          'outer_result_has_non_empty_name',
+          results.ExecutionResult(
+              stage_name='empty_outer_stage',
+              stages=[
+                  results.ExecutionResult(stage_name='stage1'),
+              ]
+          ),
+          False,
+      ),
+      (
+          'outer_result_has_non_empty_inputs',
+          results.ExecutionResult(
+              inputs={'i1': 'i_v1'},
+              stages=[results.ExecutionResult(stage_name='stage1')],
+          ),
+          False,
+      ),
+      (
+          'outer_result_has_non_empty_outputs',
+          results.ExecutionResult(
+              outputs={'o1': 'o_v1'},
+              stages=[results.ExecutionResult(stage_name='stage1')]
+          ),
+          False,
+      ),
+  )
+  def test_render_skips_empty_outer_result_placeholder(
+      self, object_to_render: Any, should_skip_outer_result: bool
+  ):
+    renderer = results.HTMLRenderer()
+    html = renderer.render(object_to_render, element_id='0')
+    logging.info('Rendered HTML: %s', html)
+
+    skipped_outer_result = 'id="0"' not in html
+    self.assertEqual(should_skip_outer_result, skipped_outer_result)
 
 if __name__ == '__main__':
   absltest.main()
