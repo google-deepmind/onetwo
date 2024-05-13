@@ -23,6 +23,7 @@ dependencies = [
     "gemma@git+https://github.com/google-deepmind/gemma.git",
     "google-cloud-aiplatform",
     "google-generativeai",
+    "html5lib",
     "immutabledict",
     "jinja2",
     "numpy",
