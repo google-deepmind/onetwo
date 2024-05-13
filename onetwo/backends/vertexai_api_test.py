@@ -21,12 +21,12 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from google.cloud.aiplatform import vertexai
-from google.cloud.aiplatform.aiplatform_v1beta1.types import (
+import vertexai
+from google.cloud.aiplatform_v1beta1.types import (
     prediction_service as gapic_prediction_service_types,
 )
-from google.cloud.aiplatform.vertexai import generative_models
-from google.cloud.aiplatform.vertexai import language_models
+from vertexai import generative_models
+from vertexai import language_models
 from onetwo.backends import vertexai_api
 from onetwo.builtins import llm
 from onetwo.core import caching

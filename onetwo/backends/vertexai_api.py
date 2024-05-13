@@ -24,9 +24,9 @@ import pprint
 from typing import Any, Final, Iterable, cast
 
 from absl import logging
-from google.cloud.aiplatform import vertexai
-from google.cloud.aiplatform.vertexai import generative_models
-from google.cloud.aiplatform.vertexai import language_models
+import vertexai
+from vertexai import generative_models
+from vertexai import language_models
 import immutabledict
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
