@@ -15,7 +15,6 @@
 """Tests for evaluation code."""
 
 from collections.abc import Iterator
-import dataclasses
 import datetime
 import functools
 import random
@@ -26,13 +25,11 @@ from typing import Any, Final, cast
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import evaluation
-from onetwo.backends import backends_base
+from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
-from onetwo.core import batching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import iterating
-from onetwo.core import utils
 
 
 _GROUND_TRUTH_KEY: Final[str] = 'answer'
@@ -111,42 +108,6 @@ async def simple_strategy(question: str, option: int, **kwargs) -> str:
   return f'{result} {option=}'
 
 
-# TODO: Unify with the corresponding class in backends/test_utils.py
-@batching.add_batching  # Methods of this class are batched.
-@dataclasses.dataclass
-class LanguageModelForTests(
-    backends_base.Backend,  # register method.
-):
-  """Fake LLM for testing.
-
-  Attributes:
-    batch_size: Number of separate requests that are sent simultaneously from
-      different threads. Fake LLM can handle any batch_size.
-    wait_before_reply_secs: Time that it takes LLM to answer a single query.
-  """
-
-  batch_size: int = 1
-  wait_before_reply_secs: datetime.timedelta = datetime.timedelta(seconds=1.0)
-
-  @batching.batch_method_with_threadpool(  # Batch this method using threads.
-      batch_size=utils.FromInstance('batch_size'),
-  )
-  def generate_text(
-      self,
-      prompt: str | content_lib.ChunkList,
-      **kwargs,  # Other optional arguments.
-  ) -> str:
-    """Implementation for llm.generate_text builtin that is meant for tests."""
-    del kwargs
-    time.sleep(self.wait_before_reply_secs.total_seconds())
-    return f'{prompt}_generated'
-
-  def register(self, name: str | None = None) -> None:
-    """See parent class."""
-    del name
-    llm.generate_text.configure(self.generate_text)
-
-
 class EvaluateTest(parameterized.TestCase):
 
   def setUp(self):
@@ -201,9 +162,10 @@ class EvaluateTest(parameterized.TestCase):
     """Verifies correct execution when running with batched LLMs."""
     examples = _EXAMPLES_WITH_ONE_OPTION
     # First, sequential slow execution.
-    fake_llm_model = LanguageModelForTests(
+    fake_llm_model = backends_test_utils.LLMForTest(
         batch_size=1,
-        wait_before_reply_secs=datetime.timedelta(seconds=1.0),
+        wait_time_before_reply=datetime.timedelta(seconds=1.0),
+        default_reply=lambda x: f'{x}_generated',
     )
     fake_llm_model.register()  # Configure llm.generate_text.
     # Runs in ~ 5sec.
@@ -218,9 +180,10 @@ class EvaluateTest(parameterized.TestCase):
       self.assertEqual(avg_metric, 1.0)
 
     # Second, parallel fast execution.
-    fake_llm_model = LanguageModelForTests(
+    fake_llm_model = backends_test_utils.LLMForTest(
         batch_size=len(examples),
-        wait_before_reply_secs=datetime.timedelta(seconds=1.0),
+        wait_time_before_reply=datetime.timedelta(seconds=1.0),
+        default_reply=lambda x: f'{x}_generated',
     )
     fake_llm_model.register()  # Configure llm.generate_text.
     # Runs in ~ 1sec.
