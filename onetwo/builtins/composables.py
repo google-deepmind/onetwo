@@ -51,10 +51,12 @@ def c(context: composing.Context, content: Any) -> content_lib.ChunkList:
 
 
 @composing.make_composable
-async def j(context: composing.Context, template: str) -> str:
+async def j(
+    context: composing.Context, template: str, name: str = 'JinjaTemplate'
+) -> str:
   """Composable version of a jinja formatted prompt using context vars."""
   result = await prompt_templating.JinjaTemplateWithCallbacks(
-      text=template
+      name=name, text=template
   ).render(**context.variables)
   # We extract the output variables from the template and store them into the
   # context.
