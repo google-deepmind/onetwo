@@ -400,7 +400,7 @@ def trace(
     inputs = copy.copy(
         utils.get_expanded_arguments(function, False, args, kwargs)
     )
-    if utils.is_method(function):
+    if utils.is_method(function) and 'self' in inputs:
       del inputs['self']
     if skip is not None:
       for param in skip:
