@@ -19,11 +19,11 @@ from onetwo import ot
 ```
 """
 
-from onetwo import evaluation
 from onetwo.core import composing
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import sampling
+from onetwo.evaluation import evaluation
 
 evaluate = evaluation.evaluate
 compare_with_critic = evaluation.compare_with_critic

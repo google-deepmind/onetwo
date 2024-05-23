@@ -24,12 +24,12 @@ from typing import Any, Final, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from onetwo import evaluation
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import iterating
+from onetwo.evaluation import evaluation
 
 
 _GROUND_TRUTH_KEY: Final[str] = 'answer'
