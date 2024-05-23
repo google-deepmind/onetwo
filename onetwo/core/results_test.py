@@ -494,9 +494,13 @@ class ExperimentSummaryTest(parameterized.TestCase):
             end_time=start_time + datetime.timedelta(seconds=3),
         ),
         metrics={'accuracy': 0.5},
-        counters=collections.Counter(
-            {results.COUNTER_TOTAL_EXAMPLES: 1, 'a': 1, 'b': 1}
-        ),
+        counters=collections.Counter({
+            results.COUNTER_TOTAL_EXAMPLES: 1,
+            'accuracy_count': 1,
+            'a': 1,
+            'b': 1,
+        }),
+        info={'arbitrary_key1': ['arbitrary_value1']},
         example_keys={1: 'example1'},
         results={
             'example1': results.ExperimentResult(inputs={'input': '1'}),
@@ -517,9 +521,13 @@ class ExperimentSummaryTest(parameterized.TestCase):
             end_time=start_time + datetime.timedelta(seconds=9),
         ),
         metrics={'accuracy': 0.8},
-        counters=collections.Counter(
-            {results.COUNTER_TOTAL_EXAMPLES: 2, 'b': 1, 'c': 1}
-        ),
+        counters=collections.Counter({
+            results.COUNTER_TOTAL_EXAMPLES: 2,
+            'accuracy_count': 2,
+            'b': 1,
+            'c': 1,
+        }),
+        info={'arbitrary_key2': 'arbitrary_value2'},
         example_keys={2: 'example2', 3: 'example3'},
         results={
             'example2': results.ExperimentResult(inputs={'input': '2'}),
@@ -547,9 +555,15 @@ class ExperimentSummaryTest(parameterized.TestCase):
             end_time=start_time + datetime.timedelta(seconds=9),
         ),
         metrics={'accuracy': 0.7},
-        counters=collections.Counter(
-            {results.COUNTER_TOTAL_EXAMPLES: 3, 'a': 1, 'b': 2, 'c': 1}
-        ),
+        counters=collections.Counter({
+            results.COUNTER_TOTAL_EXAMPLES: 3,
+            'accuracy_count': 3,
+            'a': 1,
+            'b': 2,
+            'c': 1,
+        }),
+        # The `info` field is expected to be left unchanged during addition.
+        info={'arbitrary_key1': ['arbitrary_value1']},
         example_keys={1: 'example1', 2: 'example2', 3: 'example3'},
         results={
             'example1': results.ExperimentResult(inputs={'input': '1'}),
@@ -579,10 +593,104 @@ class ExperimentSummaryTest(parameterized.TestCase):
 
     summary1 += summary2
     # Adjusting for potential double precision error.
-    summary1.metrics['accuracy'] = round(summary1.metrics['accuracy'], 8)
+    for metric_name in summary1.metrics:
+      summary1.metrics[metric_name] = round(summary1.metrics[metric_name], 8)
 
     with self.subTest('should_update_result_in_place'):
-      self.assertEqual(expected_sum, summary1)
+      self.assertMultiLineEqual(
+          pprint.pformat(expected_sum, width=160),
+          pprint.pformat(summary1, width=160),
+          f'Incorrect ExperimentSummary contents:\n{summary1}\n----\nDiff'
+      )
+
+  @parameterized.named_parameters(
+      (
+          'empty',
+          results.ExperimentSummary(),
+          results.ExperimentSummary(),
+          results.ExperimentSummary(),
+      ),
+      (
+          'single_counter_shared_by_all_metrics',
+          results.ExperimentSummary(
+              metrics={'accuracy': 0.5, 'bleu': 0.7},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 1.0, 'bleu': 0.9},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 4}),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 0.9, 'bleu': 0.86},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 5}),
+          ),
+      ),
+      (
+          'separate_counters_per_metric',
+          results.ExperimentSummary(
+              metrics={'accuracy': 0.5, 'bleu': 0.7},
+              counters=collections.Counter({
+                  results.COUNTER_TOTAL_EXAMPLES: 1,
+                  'accuracy_count': 1,
+                  'bleu_count': 1,
+              }),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 1.0, 'bleu': 0.9},
+              counters=collections.Counter({
+                  results.COUNTER_TOTAL_EXAMPLES: 4,
+                  'accuracy_count': 1,
+                  'bleu_count': 3,
+              }),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 0.75, 'bleu': 0.85},
+              counters=collections.Counter({
+                  results.COUNTER_TOTAL_EXAMPLES: 5,
+                  'accuracy_count': 2,
+                  'bleu_count': 4,
+              }),
+          ),
+      ),
+      (
+          'missing_value_not_counted',
+          results.ExperimentSummary(
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 1.0},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 4}),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 1.0},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 5}),
+          ),
+      ),
+      (
+          'missing_counter_treated_as_zero',
+          results.ExperimentSummary(
+              metrics={'accuracy': 0.5},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 1.0},
+          ),
+          results.ExperimentSummary(
+              metrics={'accuracy': 0.5},
+              counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
+          ),
+      ),
+  )
+  def test_iadd_metrics(self, summary1, summary2, expected_sum):
+    summary1 += summary2
+    # Adjusting for potential double precision error.
+    for metric_name in summary1.metrics:
+      summary1.metrics[metric_name] = round(summary1.metrics[metric_name], 8)
+    self.assertMultiLineEqual(
+        pprint.pformat(expected_sum, width=160),
+        pprint.pformat(summary1, width=160),
+        f'Incorrect ExperimentSummary contents:\n{summary1}\n----\nDiff'
+    )
 
   @parameterized.named_parameters(
       {

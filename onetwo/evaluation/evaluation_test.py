@@ -24,6 +24,7 @@ from typing import Any, Final, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import immutabledict
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
@@ -37,33 +38,33 @@ _GENERATE_TEXT_MAX_WAIT_SECS: Final[datetime.timedelta] = (
     datetime.timedelta(seconds=1.0)
 )
 _EXAMPLES_WITH_ONE_OPTION: Final[tuple[evaluation.Example, ...]] = tuple([
-    {
+    immutabledict.immutabledict({
         'question': 'bla',
         'option': num,
         _GROUND_TRUTH_KEY: f'bla_generated option={num}',
-    }
+    })
     for num in range(5)
 ])
 _EXAMPLES_WITH_TWO_OPTIONS: Final[tuple[evaluation.Example, ...]] = tuple([
-    {
+    immutabledict.immutabledict({
         'question': 'bla',
         'option': num,
         'another_option': 'something',
         _GROUND_TRUTH_KEY: (
             f'bla_generated option={num} another_option=something'
         ),
-    }
+    })
     for num in range(5)
 ])
 
 
 def _get_iterator_of_examples(total_num: int) -> Iterator[evaluation.Example]:
   for num in range(total_num):
-    yield {
+    yield immutabledict.immutabledict({
         'question': 'bla',
         'option': num,
         _GROUND_TRUTH_KEY: f'bla_generated option={num}',
-    }
+    })
 
 
 def _fake_generate_text(prompt: str | content_lib.ChunkList) -> str:

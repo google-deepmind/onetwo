@@ -19,6 +19,7 @@ dependencies = [
     "aenum",
     "dataclasses-json",
     "fastapi",
+    "freezegun",
     # Note: there is a PYPI `gemma` library, which is not what we want.
     "gemma@git+https://github.com/google-deepmind/gemma.git",
     "google-cloud-aiplatform",

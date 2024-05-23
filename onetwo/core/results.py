@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
 import datetime
+import logging
 import pprint
 import textwrap
 from typing import Any
@@ -65,6 +66,11 @@ COUNTER_ERRORS = 'error_count'
 def _exclude_empty(x: Any) -> bool:
   """Excludes empty values (when outputting dataclass_json.to_dict)."""
   return bool(not x)
+
+
+def get_metric_counter_name(metric_name: str) -> str:
+  """Returns the name of the counter tracking # data points for the metric."""
+  return f'{metric_name}_count'
 
 
 @dataclasses_json.dataclass_json
@@ -440,6 +446,13 @@ class ExperimentSummary:
     timing: Experiment timing information.
     metrics: Mapping of metric name to metric value.
     counters: Mapping of counter name to counter value.
+    info: Mapping that can be used for storing arbitrary aggregated information
+      about the evaluation results, beyond what is stored in `metrics` and
+      `counters`. Unlike `metrics` and `counters`, which are averaged or summmed
+      in a standard way when adding `ExperimentSummary` objects, the `info`
+      field is not updated automatically during addition of `ExperimentSummary`
+      objects; its management is instead left entirely up to the code that
+      constructs the `ExperimentSummary` objects.
     example_keys: Mapping of example index to example key.
     results: Mapping of example key to experiment result (w/o detailed trace).
     results_debug: Mapping of example key to experiment result (w/ detailed
@@ -451,12 +464,14 @@ class ExperimentSummary:
   metrics: dict[str, float] = dataclasses.field(default_factory=dict)
   counters: collections.Counter[str] = dataclasses.field(
       default_factory=collections.Counter)
+  info: dict[str, Any] = dataclasses.field(default_factory=dict)
   example_keys: dict[int, str|int] = dataclasses.field(default_factory=dict)
   results: dict[str|int, ExperimentResult] = dataclasses.field(
       default_factory=dict)
   results_debug: dict[str|int, ExperimentResult] = dataclasses.field(
       default_factory=dict)
   final_states: dict[str|int, Any] = dataclasses.field(default_factory=dict)
+  # TODO: Support storing traces output by custom tracers.
 
   def replace_example_index_and_key(
       self, example_index: int, example_key: str|int) -> None:
@@ -514,19 +529,45 @@ class ExperimentSummary:
         self.timing.end_time, other.timing.end_time)
 
     # Update the metrics as weighted averages based on number of examples.
-    self_count = self.counters[COUNTER_TOTAL_EXAMPLES]
-    other_count = other.counters[COUNTER_TOTAL_EXAMPLES]
-    if self_count and other_count:
-      if self.metrics.keys() != other.metrics.keys():
-        raise ValueError(
-            'Cannot add ExperimentSummary objects with inconsistent metric '
-            f'keys ({self.metrics.keys()}) != ({other.metrics.keys()})')
     for metric_name in self.metrics.keys() | other.metrics.keys():
-      self_value = self.metrics.get(metric_name, 0)
-      other_value = other.metrics.get(metric_name, 0)
+      self_value = self.metrics.get(metric_name, 0.0)
+      other_value = other.metrics.get(metric_name, 0.0)
+      # If the metric value is explicitly defined in an ExperimentSummary, then
+      # we expect the corresponding counter value to also be explicitly defined.
+      # The preferred approach is to define a separate counter for each metric,
+      # so that we can decide individually for each metric whether to include a
+      # given example in the computation of the metric or not. The alternative
+      # approach, which is simpler but less flexible, is to use
+      # COUNTER_TOTAL_EXAMPLES as the counter for all metrics.
+      metric_counter_name = get_metric_counter_name(metric_name)
+      if metric_name in self.metrics:
+        self_count = self.counters.get(
+            metric_counter_name, self.counters[COUNTER_TOTAL_EXAMPLES]
+        )
+      else:
+        self_count = self.counters.get(metric_counter_name, 0)
+      if metric_name in other.metrics:
+        other_count = other.counters.get(
+            metric_counter_name, other.counters[COUNTER_TOTAL_EXAMPLES]
+        )
+      else:
+        other_count = other.counters.get(metric_counter_name, 0)
+
       numerator = self_value * self_count + other_value * other_count
       denominator = self_count + other_count
-      self.metrics[metric_name] = numerator / denominator
+      if denominator:
+        self.metrics[metric_name] = numerator / denominator
+      else:
+        logging.warning(
+            'Attempting to add ExperimentSummary objects that have values'
+            ' defined for metric %r, but no corresponding counter: metrics1=%s,'
+            ' metrics2=%s, counters1=%s, counters2=%s',
+            metric_name,
+            self.metrics,
+            other.metrics,
+            self.counters,
+            other.counters,
+        )
 
     self.counters.update(other.counters)
     self.example_keys.update(other.example_keys)
@@ -902,7 +943,11 @@ class HTMLRenderer:
           f'</span>: {counters_string}</li>'
       )
     if summary.results:
-      assert len(summary.results) == len(summary.example_keys)
+      if len(summary.results) != len(summary.example_keys):
+        raise ValueError(
+            'Number of results and example keys must match, but got'
+            f' {len(summary.results)} vs {len(summary.example_keys)}.'
+        )
       results_list = [
           summary.results[summary.example_keys[i]]
           for i in sorted(summary.example_keys)
@@ -917,7 +962,11 @@ class HTMLRenderer:
           )
       )
     if summary.results_debug:
-      assert len(summary.results_debug) == len(summary.example_keys)
+      if len(summary.results_debug) != len(summary.example_keys):
+        raise ValueError(
+            'Number of results_debug and example keys must match, but got'
+            f' {len(summary.results_debug)} vs {len(summary.example_keys)}.'
+        )
       results_debug_list = [
           summary.results_debug[summary.example_keys[i]]
           for i in sorted(summary.example_keys)
@@ -932,7 +981,11 @@ class HTMLRenderer:
           )
       )
     if summary.final_states:
-      assert len(summary.final_states) == len(summary.example_keys)
+      if len(summary.final_states) != len(summary.example_keys):
+        raise ValueError(
+            'Number of final_states and example keys must match, but got'
+            f' {len(summary.final_states)} vs {len(summary.example_keys)}.'
+        )
       final_state_list = [
           summary.final_states[summary.example_keys[i]]
           for i in sorted(summary.example_keys)
