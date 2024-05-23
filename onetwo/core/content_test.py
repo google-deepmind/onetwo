@@ -171,7 +171,13 @@ class ContentTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (
-          'simple_strip_no_empty',
+          'strip_empty',
+          _ChunkList([]),
+          'abc',
+          _ChunkList([]),
+      ),
+      (
+          'strip_wo_prop_no_empty',
           _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc')]),
           'abc',
           _ChunkList(chunks=['12', b'13', _Chunk('test')]),
@@ -189,22 +195,58 @@ class ContentTest(parameterized.TestCase):
           _ChunkList(chunks=['12', b'13']),
       ),
       (
-          'no_strip_remove_all_empty',
+          'no_strip_all_empty',
           _ChunkList(chunks=['', b'', '', b'', PIL.Image.Image()]),
           'a',
           _ChunkList(chunks=[]),
       ),
       (
-          'strip_remove_empty',
+          'strip_wo_prop_remove_empty',
           _ChunkList(chunks=['12', b'13', _Chunk('testabbcbc'), '', b'']),
           'abc',
           _ChunkList(chunks=['12', b'13', _Chunk('test')]),
       ),
       (
-          'strip_remove_empty_dont_propagate_to_previous',
-          _ChunkList(chunks=['abcd', 'abc', '', b'']),
+          'strip_all_wo_prop_remove_empty',
+          _ChunkList(chunks=['abc', '', b'']),
           'abc',
-          _ChunkList(chunks=['abcd']),
+          _ChunkList([]),
+      ),
+      (
+          'strip_all_wo_prop_no_empty',
+          _ChunkList(chunks=['abc']),
+          'abc',
+          _ChunkList([]),
+      ),
+      (
+          'strip_all_with_prop_remove_empty',
+          _ChunkList(chunks=['abc', 'bc', 'c', '', '', b'']),
+          'abc',
+          _ChunkList([]),
+      ),
+      (
+          'strip_all_with_prop_no_empty',
+          _ChunkList(chunks=['abc', 'bc', 'c']),
+          'abc',
+          _ChunkList([]),
+      ),
+      (
+          'strip_with_prop_remove_empty',
+          _ChunkList(chunks=['dcba', 'abc', 'a', '', '', b'']),
+          'abc',
+          _ChunkList(chunks=['d']),
+      ),
+      (
+          'strip_with_prop_no_empty',
+          _ChunkList(chunks=['dcba', 'abc', 'a']),
+          'abc',
+          _ChunkList(chunks=['d']),
+      ),
+      (
+          'strip_with_prop_empty_interleaved',
+          _ChunkList(chunks=['dcba', 'abc', 'a', '', 'b', b'', 'a']),
+          'abc',
+          _ChunkList(chunks=['d']),
       ),
   )
   def test_chunk_list_rstrip(self, chunk_list, rstrip_arg, expected):

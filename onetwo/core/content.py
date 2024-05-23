@@ -339,13 +339,10 @@ class ChunkList:
   def rstrip(self, chars: str | None = None, /) -> ChunkList:
     """Remove trailing empty chunks, apply `rstrip` to the last non-empty one.
 
-    If the entire last non-empty chunk gets stripped, this implementation does
-    not propagate to the previous non-empty chunk, i.e.
+    If the entire last non-empty chunk gets stripped, this implementation
+    propagates to the previous non-empty chunk, i.e.
     ChunkList(['dabc', 'abc', '', '']).rstrip('abc') results in
-    ChunkList(['dabc']).
-
-    TODO: Propagate rstrip to the previous non-empty chunk (and
-      further) in case the entire chunk gets stripped.
+    ChunkList(['d']).
 
     Args:
       chars: String specifying the set of characters to be removed. When chars
@@ -353,29 +350,28 @@ class ChunkList:
 
     Returns:
       Copy of ChunkList, where `rstrip` is applied to its last non-empty chunk.
-      Trailing empty chunks are removed.
+      Trailing empty chunks are removed. If the last non-empty chunk gets
+      entirely stripped, the previous non-empty chunk is stripped and so on.
     """
-    # Find the last non-empty chunk.
+    if not self.chunks:
+      return ChunkList()
+
     last_nonempty_id = len(self.chunks) - 1
+
     while last_nonempty_id >= 0:
-      if not self.chunks[last_nonempty_id].is_empty():
+      if not self.chunks[last_nonempty_id].rstrip(chars).is_empty():
         break
-      # Empty chunk. Shift left.
+      # Last chunk is empty or we stripped it entirely. Shift left.
       last_nonempty_id -= 1
 
     if last_nonempty_id == -1:
-      # Chunk list is empty or all chunks are empty.
+      # We stripped all chunks.
       return ChunkList()
 
-    # Apply rstrip to the last non-empty chunk, remove the trailing empty ones.
-    result = (
+    return ChunkList(
         self.chunks[:last_nonempty_id]
         + [self.chunks[last_nonempty_id].rstrip(chars)]
     )
-    if result[-1].is_empty():
-      # If we the stripped the entire last chunk, remove it.
-      del result[-1]
-    return ChunkList(result)
 
   def startswith(
       self,
