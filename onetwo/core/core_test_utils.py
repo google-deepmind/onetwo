@@ -15,7 +15,10 @@
 """Utilities for OneTwo unit tests."""
 
 import collections
+from collections.abc import Mapping
+import json
 import pprint
+from typing import Any
 import unittest
 
 
@@ -34,4 +37,23 @@ class CounterAssertions(unittest.TestCase):
     message = f'A - B contains: {pprint.pformat(first - second)}\n'
     message += f'B - A contains: {pprint.pformat(second - first)}'
     return self.assertEqual(dict(first), dict(second), message)
+
+
+def maybe_read_file(filepath: str) -> str:
+  """Returns the contents of the file if it exists, or else empty string."""
+  try:
+    with open(filepath) as f:
+      file_contents = f.read()
+    return file_contents
+  except IOError:
+    return ''
+
+
+def maybe_read_json(filepath: str) -> Mapping[str, Any] | None:
+  """Returns the file contents as JSON, or None if there is a problem."""
+  file_contents = maybe_read_file(filepath)
+  try:
+    return json.loads(file_contents)
+  except json.JSONDecodeError:
+    return None
 

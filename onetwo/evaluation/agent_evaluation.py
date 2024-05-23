@@ -20,6 +20,9 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 import copy
 import datetime
 import functools
+import json
+import logging
+import os
 import pprint
 import traceback
 from typing import Any, ParamSpec, Protocol, TypeAlias, TypeVar
@@ -30,7 +33,10 @@ from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
+
 import tqdm
+
+
 
 _Args = ParamSpec('_Args')
 _I = TypeVar('_I')
@@ -499,3 +505,41 @@ def evaluate(
   # experiment summary too.
 
   return experiment_summary
+
+
+def write_experiment_summary_as_json(
+    summary: results.ExperimentSummary, output_dir: str
+) -> None:
+  """Writes experiment results as JSON files in the given directory.
+
+  Args:
+    summary: The experiment summary to write.
+    output_dir: The directory to write the results to.
+  """
+  logging.info('Writing experiment summary to: %s', output_dir)
+  os.makedirs(output_dir, exist_ok=True)
+
+  # Make sure that the contents of each file that we will write are sorted in a
+  # consistent order.
+  sorted_keys = [summary.example_keys[i] for i in sorted(summary.example_keys)]
+  results_list = [
+      summary.results[key] for key in sorted_keys if key in summary.results
+  ]
+  results_debug_list = [
+      summary.results_debug[key]
+      for key in sorted_keys
+      if key in summary.results_debug
+  ]
+
+  # Write json files.
+  object_by_file = {
+      'metrics.json': summary.metrics,
+      'counters.json': summary.counters,
+      'results.json': [x.to_dict() if x else {} for x in results_list],
+      'results_debug.json': [x.to_dict() for x in results_debug_list],
+      'final_states.json': summary.final_states,
+  }
+  for filename, data_object in object_by_file.items():
+    logging.info('Writing json file: %s', filename)
+    with open(os.path.join(output_dir, filename), 'w') as f:
+      json.dump(data_object, f, indent=4, default=str)

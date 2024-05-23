@@ -15,6 +15,7 @@
 import collections
 from collections.abc import Iterator
 import datetime
+import os
 import pprint
 import random
 import string
@@ -30,11 +31,15 @@ from onetwo.agents import agents_test_utils
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
+from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import iterating
 from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.evaluation import agent_evaluation
+
+
+
 
 
 _Example: TypeAlias = agent_evaluation.Example
@@ -172,6 +177,12 @@ class ExecutableAccuracyCallableTakingExampleAsArg:
 
 
 class AgentEvaluationTest(parameterized.TestCase):
+
+  def assertFileExists(self, filename: str):
+    self.assertTrue(
+        os.path.exists(filename),
+        f'File expected to exist but does not: {filename}',
+    )
 
   @parameterized.named_parameters(
       (
@@ -825,6 +836,70 @@ class AgentEvaluationTest(parameterized.TestCase):
       self.assertNotEqual(list(range(10)), summary.info['execution_order'])
     with self.subTest('evaluation_metrics_are_correct'):
       self.assertEqual(1.0, summary.metrics['accuracy'])
+
+  def test_write_experiment_summary_as_json(self):
+    tmp_dir = self.create_tempdir().full_path
+    output_dir = os.path.join(tmp_dir, 'test_write_experiment_summary_as_json')
+    os.makedirs(output_dir, exist_ok=True)
+
+    strategy = agents_test_utils.StringAgent(
+        max_length=3, sequence=list(string.ascii_lowercase)
+    )
+    examples = [
+        {'question': 'a', 'answer': 'a b c'},
+        {'question': 'c', 'answer': 'd e f'},
+    ]
+    now = datetime.datetime(2024, 5, 9, 12, 0, 0)
+    with freezegun.freeze_time(now):
+      summary = agent_evaluation.evaluate(
+          strategy=strategy,
+          examples=examples,
+          metric_functions={'accuracy': ordinary_accuracy_function},
+          output_results=True,
+          output_results_debug=True,
+          output_final_states=True,
+      )
+
+    agent_evaluation.write_experiment_summary_as_json(
+        summary=summary, output_dir=output_dir
+    )
+
+    # Assert that files were output successfully.
+    counters_path = os.path.join(output_dir, 'counters.json')
+    counters_json = core_test_utils.maybe_read_json(counters_path)
+    counters = counters_json if counters_json else {}
+    metrics_path = os.path.join(output_dir, 'metrics.json')
+    metrics_json = core_test_utils.maybe_read_json(metrics_path)
+    metrics = metrics_json if metrics_json else {}
+
+    with self.subTest('should_output_metrics'):
+      self.assertFileExists(metrics_path)
+
+    with self.subTest('should_output_results'):
+      self.assertFileExists(os.path.join(output_dir, 'results.json'))
+
+    with self.subTest('should_output_results_debug'):
+      self.assertFileExists(
+          os.path.join(output_dir, 'results_debug.json')
+      )
+
+    with self.subTest('should_output_final_states'):
+      self.assertFileExists(
+          os.path.join(output_dir, 'final_states.json')
+      )
+
+    with self.subTest('counters_should_be_valid_json'):
+      self.assertIsNotNone(counters_json)
+
+    with self.subTest('counters_should_reflect_expected_results'):
+      self.assertEqual(0, counters.get('error_count', None))
+      self.assertEqual(2, counters.get('total_count', None))
+
+    with self.subTest('metrics_should_be_valid_json'):
+      self.assertIsNotNone(metrics_json)
+
+    with self.subTest('metrics_should_reflect_expected_results'):
+      self.assertEqual(1.0, metrics.get('accuracy', None))
 
 
 if __name__ == '__main__':
