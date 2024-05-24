@@ -21,6 +21,7 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from google.auth import credentials as auth_credentials
 import vertexai
 from google.cloud.aiplatform_v1beta1.types import (
     prediction_service as gapic_prediction_service_types,
@@ -47,10 +48,13 @@ _BATCH_SIZE: Final[int] = 4
 _MOCK_COUNT_TOKENS_RETURN: Final[int] = 5
 
 
-def _get_and_register_backend() -> vertexai_api.VertexAIAPI:
+def _get_and_register_backend(**kwargs) -> vertexai_api.VertexAIAPI:
   """Get an instance of VertexAIAPI and register its methods."""
   backend = vertexai_api.VertexAIAPI(
-      project='some-project', location='some-location', batch_size=_BATCH_SIZE
+      project='some-project',
+      location='some-location',
+      batch_size=_BATCH_SIZE,
+      **kwargs,
   )
   backend.register()
   return backend
@@ -68,6 +72,7 @@ async def check_length_and_generate(
   res = await llm.generate_text(prompt=prompt_text, **other_args)
   return res
 
+
 mock_generate_model = mock.MagicMock(spec=generative_models.GenerativeModel)
 mock_embed_model = mock.MagicMock(
     spec=vertexai.language_models.TextEmbeddingModel
@@ -75,7 +80,6 @@ mock_embed_model = mock.MagicMock(
 
 
 # Patch the necessary modules and classes.
-@mock.patch.object(vertexai, 'init', return_value=None, autospec=True)
 @mock.patch.object(
     generative_models,
     'GenerativeModel',
@@ -91,6 +95,7 @@ mock_embed_model = mock.MagicMock(
 class VertexAIAPITest(
     parameterized.TestCase, core_test_utils.CounterAssertions
 ):
+
   def setUp(self):
     super().setUp()
 
@@ -126,6 +131,9 @@ class VertexAIAPITest(
     mock_embed_model.get_embeddings.return_value = [
         language_models.TextEmbedding(values=[0.0])
     ]
+    self._mock_vertexai_init = self.enter_context(
+        mock.patch.object(vertexai, 'init', return_value=None)
+    )
 
   def test_generate_and_count_tokens(
       self,
@@ -381,6 +389,13 @@ class VertexAIAPITest(
     content = content_lib.ChunkList(['something'])
     result = executing.run(llm.embed(content=content))
     self.assertEqual(result, [0.0])
+
+  def test_uses_credentials(self, *args, **kwargs):
+    credentials = auth_credentials.AnonymousCredentials()
+    _ = _get_and_register_backend(credentials=credentials)
+    self._mock_vertexai_init.assert_called_once()
+    _, mock_kwargs = self._mock_vertexai_init.call_args
+    self.assertEqual(mock_kwargs['credentials'], credentials)
 
 
 if __name__ == '__main__':

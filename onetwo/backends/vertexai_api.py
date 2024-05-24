@@ -24,6 +24,7 @@ import pprint
 from typing import Any, Final, Iterable, cast
 
 from absl import logging
+from google.auth import credentials as auth_credentials
 import vertexai
 from vertexai import generative_models
 from vertexai import language_models
@@ -117,6 +118,7 @@ class VertexAIAPI(
       default and can be overridden per request).
     top_k: Top-k parameter (int) for LLM text generation (can be set as a
       default and can be overridden per request).
+    credentials: Credentials used to access the endpoint. Omit to use ADCS.
   """
 
   batch_size: int = 1
@@ -127,6 +129,7 @@ class VertexAIAPI(
   embed_model_name: str = DEFAULT_EMBED_MODEL
   enable_streaming: bool = False
   max_qps: float | None = None
+  credentials: auth_credentials.Credentials | None = None
 
   # Generation parameters
   temperature: float | None = None
@@ -183,6 +186,7 @@ class VertexAIAPI(
     vertexai.init(
         project=self.project,
         location=self.location,
+        credentials=self.credentials,
     )
     self._generate_model = generative_models.GenerativeModel(
         self.generate_model_name
