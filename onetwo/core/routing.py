@@ -15,9 +15,9 @@
 """Registry implementation.
 
 The execution code emits various kinds of requests and they should be
-processed by different types of engines.
-An engine may process several kinds of requests (e.g. LanguageModelEngine
-can process both complete and score requests).
+processed by different types of backends.
+A backend may process several kinds of requests (e.g. LLM backends may process
+both `generate_text` and `score_text` requests).
 """
 
 from __future__ import annotations

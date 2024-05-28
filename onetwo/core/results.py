@@ -43,15 +43,11 @@ import termcolor
 # The request text to be sent to the engine.
 INPUT_KEY_REQUEST = 'request'
 
-# Reply text of the final reply in the exact form returned by the engine. Used
-# in the result of sending a `BaseRequest` to a `LanguageModelEngine`.
+# Constants used in legacy request/reply data structures.
 OUTPUT_KEY_REPLY_TEXT = 'reply_text'
-# Final reply text, with whitespace stripped. Used in the result of sending
-# a `BaseRequest` to a `LanguageModelEngine`.
 OUTPUT_KEY_REPLY_TEXT_STRIPPED = 'reply_text_stripped'
-# Raw value returned by the underlying engine for the final reply, from which
-# the reply text was extracted.
 OUTPUT_KEY_REPLY_OBJECT = 'reply_object'
+
 # Main output from a tool/callback/chain. This is used to indicate for example
 # which output value to pass as inputs to further steps of computation.
 MAIN_OUTPUT = 'output'

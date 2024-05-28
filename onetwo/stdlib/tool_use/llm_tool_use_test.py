@@ -24,10 +24,6 @@ from onetwo.stdlib.tool_use import llm_tool_use
 
 _ArgumentFormat = llm_tool_use.ArgumentFormat
 
-# Default reply for LanguageModelEngineForTest to return when it receives a
-# prompt that it was not expecting.
-DEFAULT_REPLY = 'UNKNOWN_PROMPT'
-
 
 def _add_sync(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2

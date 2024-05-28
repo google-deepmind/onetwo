@@ -29,8 +29,8 @@ from onetwo.core import sampling
 from onetwo.core import templating
 
 
-# Default reply for LanguageModelEngineForTest to return when it receives a
-# prompt that it was not expecting.
+# Default reply for LLMForTest to return when it receives a prompt that it was
+# not expecting.
 DEFAULT_REPLY = 'UNKNOWN_PROMPT'
 
 _DRY_RUN_PREFIX_VAR = templating._DRY_RUN_PREFIX_VAR
@@ -801,7 +801,7 @@ class PromptTemplatingTest(parameterized.TestCase):
             '': ' a',  # We return a reply starting with a space.
         },
         reply_by_prompt_target={
-            # LanguageModelEngineForTest looks up the key f'{prefix} {target}'.
+            # LLMForTest looks up the key f'{prefix} {target}'.
             ' 1': -4.0,
             ' 2': -3.0,
         },
