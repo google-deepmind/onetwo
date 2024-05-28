@@ -35,10 +35,9 @@ from onetwo.core import executing
 from onetwo.core import sampling
 
 
-Message: TypeAlias = content_lib.Message
-Chunk: TypeAlias = content_lib.Chunk
-ChunkList: TypeAlias = content_lib.ChunkList
-PredefinedRole: TypeAlias = content_lib.PredefinedRole
+_Message: TypeAlias = content_lib.Message
+_ChunkList: TypeAlias = content_lib.ChunkList
+_PredefinedRole: TypeAlias = content_lib.PredefinedRole
 
 
 _BATCH_SIZE: Final[int] = 4
@@ -136,6 +135,11 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     self.client = unittest.mock.MagicMock()
     client._client_manager.clients['generative'] = self.client
 
+    self.observed_generate_content_requests = []
+    self.observed_count_tokens_requests = []
+
+    self.generate_content_responses = []
+
     def add_client_method(f):
       name = f.__name__
       setattr(self.client, name, f)
@@ -144,18 +148,36 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     @add_client_method
     def generate_content(  # pylint: disable=unused-variable
         request: glm.GenerateContentRequest,
+        **kwargs,
     ) -> glm.GenerateContentResponse:
+      """Return contents of generate_content_responses or fake replies."""
+      del kwargs  # Not used.
+      self.observed_generate_content_requests.append(request)
       self.assertIsInstance(request, glm.GenerateContentRequest)
       prompt = request.contents
       candidate_count = request.generation_config.candidate_count
-      if prompt[0].parts[0].text.startswith('raise_exception'):
-        raise ValueError(
-            'GenAI.Model.generate_content raised err:\nFake error\n'
-            'for request:\nFake request.'
-        )
-      letters = [string.ascii_lowercase[i % 26] for i in range(candidate_count)]
+      if self.generate_content_responses:
+        # Return specified replies.
+        if len(self.generate_content_responses) < candidate_count:
+          raise ValueError(
+              'Not enough replies in generate_content_responses.'
+          )
+        replies = self.generate_content_responses[:candidate_count]
+        self.generate_content_responses.clear()
+      else:
+        # Return fake replies consisting of 10 letters each.
+        if prompt[0].parts[0].text.startswith('raise_exception'):
+          raise ValueError(
+              'GenAI.Model.generate_content raised err:\nFake error\n'
+              'for request:\nFake request.'
+          )
+        letters = [
+            string.ascii_lowercase[i % 26] for i in range(candidate_count)
+        ]
+        replies = [letter * 10 for letter in letters]
       candidates = [
-          {'content': {'parts': [{'text': letter * 10}]}} for letter in letters
+          {'content': {'parts': [{'text': reply}]}}
+          for reply in replies
       ]
       return glm.GenerateContentResponse(
           {'candidates': candidates}
@@ -164,7 +186,10 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     @add_client_method
     def count_tokens(  # pylint: disable=unused-variable
         request: glm.CountTokensRequest,
+        **kwargs,
     ) -> glm.CountTokensResponse:
+      del kwargs  # Not used.
+      self.observed_count_tokens_requests.append(request)
       self.assertIsInstance(request, glm.CountTokensRequest)
       return glm.CountTokensResponse(
           total_tokens=_MOCK_COUNT_TOKENS_RETURN
@@ -428,10 +453,11 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
   def test_chat(self):
     backend = _get_and_register_backend()
-    msg = Message(role=PredefinedRole.USER, content='Hello')
-    result = executing.run(llm.chat(messages=[msg]))
+    msg_user = _Message(role=_PredefinedRole.USER, content='Hello model')
+    msg_model = _Message(role=_PredefinedRole.MODEL, content='Hello user')
+    result = executing.run(llm.chat(messages=[msg_user]))
 
-    with self.subTest('returns_correct_result'):
+    with self.subTest('single_msg_returns_correct_result'):
       self.assertEqual(result, 'a' * 10)
 
     expected_backend_counters = collections.Counter({
@@ -439,7 +465,20 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         'chat_via_api_batches': 1,
     })
 
-    with self.subTest('sends_correct_number_of_api_calls'):
+    with self.subTest('single_msg_sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+    result = executing.run(llm.chat(messages=[msg_model, msg_user]))
+
+    with self.subTest('multiple_msg_returns_correct_result'):
+      self.assertEqual(result, 'a' * 10)
+
+    expected_backend_counters = collections.Counter({
+        'chat': 2,
+        'chat_via_api_batches': 2,
+    })
+
+    with self.subTest('multiple_msg_sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
 
   def test_truncation(self):
@@ -451,6 +490,126 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     self.assertEqual(result, ('a' * 6, {'text': 'a' * 10}))
 
+  @parameterized.named_parameters(
+      (
+          'no_healing',
+          'prompt',
+          'reply',
+          llm.TokenHealingOption.NONE,
+          'prompt',
+          'reply',
+      ),
+      (
+          'no_healing_ws',
+          'prompt ',
+          'reply',
+          llm.TokenHealingOption.NONE,
+          'prompt ',
+          'reply',
+      ),
+      (
+          'space_healing_prompt_wo_ws',
+          'prompt',
+          'reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          'reply',
+      ),
+      (
+          'space_healing_prompt_wo_ws_reply_with_leading_ws',
+          'prompt',
+          '  reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          '  reply',
+      ),
+      (
+          'space_healing_prompt_chunklist_wo_ws_reply_with_leading_ws',
+          _ChunkList(chunks=['prompt']),
+          '  reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          '  reply',
+      ),
+      (
+          'space_healing_prompt_w_ws_reply_wo_ws',
+          'prompt  ',
+          'reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          'reply',
+      ),
+      (
+          'space_healing_prompt_w_ws_reply_w_ws',
+          'prompt  ',
+          '   reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          'reply',
+      ),
+      (
+          'space_healing_prompt_chunklist_w_ws_reply_wo_ws',
+          _ChunkList(chunks=['prompt  ']),
+          'reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          'reply',
+      ),
+      (
+          'space_healing_prompt_chunklist_w_ws_reply_w_ws',
+          _ChunkList(chunks=['prompt  ']),
+          '   reply',
+          llm.TokenHealingOption.SPACE_HEALING,
+          'prompt',
+          'reply',
+      ),
+  )
+  def test_healing_with_generate_text_and_chat(
+      self, prompt, reply, healing_option, exp_healed_prompt, exp_healed_reply
+  ):
+    """Verifies that healing works as expected for generate_text."""
+    _ = _get_and_register_backend()
+
+    # Test llm.generate_text.
+    executable = llm.generate_text(
+        prompt=prompt,
+        healing_option=healing_option,
+    )
+    self.generate_content_responses.append(reply)
+    result = executing.run(executable)
+
+    with self.subTest('generate_text_prompt_healed_correctly'):
+      prompt_sent = (
+          self.observed_generate_content_requests[-1].contents[0].parts[0].text
+      )
+      self.assertEqual(prompt_sent, exp_healed_prompt)
+    with self.subTest('generate_text_reply_healed_correctly'):
+      self.assertEqual(result, exp_healed_reply)
+
+    # Test llm.chat.
+
+    # Default `llm.chat` for gemini api uses native `chat_via_api`, which in
+    # turn calls `generate_content` under the hood.
+
+    msg_user = _Message(role=_PredefinedRole.USER, content=prompt)
+    msg_model = _Message(role=_PredefinedRole.MODEL, content='I am model!')
+    executable = llm.chat(
+        messages=[msg_model, msg_user],
+        healing_option=healing_option,
+    )
+    self.generate_content_responses.append(reply)
+    result = executing.run(executable)
+
+    with self.subTest('chat_prompt_healed_correctly'):
+      # We have 2 messages (model, then user) and they appear as
+      # [content, content] in the request. We want to see the content of the
+      # last (i.e., user) message, which is why we use `contents[-1]`.
+      prompt_sent = (
+          self.observed_generate_content_requests[-1].contents[-1].parts[0].text
+      )
+      self.assertEqual(prompt_sent, exp_healed_prompt)
+    with self.subTest('chat_reply_healed_correctly'):
+      self.assertEqual(result, exp_healed_reply)
 
 if __name__ == '__main__':
   absltest.main()

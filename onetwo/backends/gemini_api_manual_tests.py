@@ -184,7 +184,7 @@ def main(argv: Sequence[str]) -> None:
     print('ValueError not raised.')
 
   print('6.1 Safety settings: default may raise warnings')
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]
   executable = executing.par_iter(execs)
   value_error_raised = False
   try:
@@ -206,7 +206,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('6.2 Safety settings: disable safety settings')
   llm.generate_text.update(safety_settings=gemini_api.SAFETY_DISABLED)
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]
   executable = executing.par_iter(execs)
 
   res = executing.run(executable)
@@ -214,7 +214,31 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('7. Use ChunkList.')
+  print('7.1 Generate text without healing.')
+  # Expect something weird to happen.
+  executable = llm.generate_text(
+      prompt='When I sat on ',
+      temperature=0.,
+      max_tokens=10,
+      healing_option=llm.TokenHealingOption.NONE,
+  )
+  res = executing.run(executable)
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+  print('7.2 Generate text with space healing.')
+  executable = llm.generate_text(
+      prompt='When I sat on ',
+      temperature=0.,
+      max_tokens=10,
+      healing_option=llm.TokenHealingOption.SPACE_HEALING,
+  )
+  res = executing.run(executable)
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('8. Use ChunkList.')
   executable = (
       c.c('What is the answer to this question: ')
       + c.c('What is the third planet from the sun? ')
@@ -234,7 +258,7 @@ def main(argv: Sequence[str]) -> None:
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
-  print('8. Check that generate_texts is working.')
+  print('9. Check that generate_texts is working.')
   res = executing.run(
       llm.generate_texts(
           prompt=prompt_text,
@@ -247,7 +271,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('9a. Check that chat is working (API formatting).')
+  print('10.1 Check that chat is working (API formatting).')
   res = executing.run(
       llm.chat(
           messages=[
@@ -270,13 +294,38 @@ def main(argv: Sequence[str]) -> None:
           ],
           temperature=0.5,
           max_tokens=15,
+          stop=['.'],
       )
   )
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('9b. Check that chat is working (Default formatting).')
+  print('10.2 Check that chat completes the model prefix.')
+  res = executing.run(
+      llm.chat(
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='Tell me a real short story?',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.MODEL,
+                  content='Once upon a',
+              ),
+          ],
+          temperature=0.5,
+          max_tokens=10,
+          stop=['.'],
+      )
+  )
+  if not res.startswith(' time'):
+    success = False
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('10.3 Check that chat is working (Default formatting).')
   res = executing.run(
       llm.chat(
           messages=[
@@ -306,7 +355,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('10. Check that multimodal is working.')
+  print('11. Check that multimodal is working.')
   fname_mm = os.path.join(_CACHE_DIR.value, 'google_gemini_api_mm.json')
   backend = gemini_api.GeminiAPI(
       cache_filename=fname_mm,

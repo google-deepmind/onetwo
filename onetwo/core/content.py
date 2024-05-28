@@ -12,15 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Definitions of built-in functions for the OneTwo Language Models API.
+"""Basic types used in the builtins.
 
-These built-in functions are mostly interfaces that need to be implemented.
-This is done by calling their `configure` method.
-
-Important: None is treated as a value that can be overridden by the default
-parameter values that have been set with `configure`. So calling
-generate('...', temperature=None) will use the default temperature (if one
-was provided), and would fail otherwise.
+Here we define `Chunk` and `ChunkList`, which are the basic types used in the
+builtins to describe the content of a (multimodal) prompt. `Message` is a
+named tuple to represent a message in a chat conversation.
 """
 
 from __future__ import annotations

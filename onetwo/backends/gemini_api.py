@@ -21,7 +21,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, cast, Final
+from typing import Any, cast, Final, TypeAlias
 
 from absl import logging
 import google.generativeai as genai
@@ -32,6 +32,7 @@ import immutabledict
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
+from onetwo.builtins import llm_utils
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
@@ -41,6 +42,9 @@ from onetwo.core import utils
 
 
 
+
+_ChunkList: TypeAlias = content_lib.ChunkList
+_TokenHealingOption: TypeAlias = llm.TokenHealingOption
 
 # Available models are listed at https://ai.google.dev/models/gemini.
 # input_token_limit=30720, output_token_limit=2048.
@@ -66,6 +70,30 @@ SAFETY_DISABLED: Final[Mapping[int, int]] = immutabledict.immutabledict({
         safety_types.HarmBlockThreshold.BLOCK_NONE
     ),
 })
+
+
+def _convert_chunk_list_to_contents_type(
+    prompt: str | _ChunkList
+) -> content_types.ContentsType:
+  """Convert ChunkList to the type compatible with Gemini API's ContentsType."""
+  if isinstance(prompt, content_lib.ChunkList):
+    converted = []
+    for c in prompt:
+      match c.content_type:
+        case 'str':
+          converted.append(c.content)
+        case 'bytes' | 'image/jpeg':
+          # If we have bytes we assume the image is in jpeg format.
+          # TODO: Support other formats.
+          converted.append(
+              content_types.BlobDict(
+                  mime_type='image/jpeg', data=cast(bytes, c.content)
+              )
+          )
+        case _:
+          converted.append(c.content)
+    prompt = converted
+  return prompt
 
 
 def _truncate(text: str, max_tokens: int | None = None) -> str:
@@ -176,17 +204,6 @@ class GeminiAPI(
         top_p=self.top_p,
         top_k=self.top_k,
     )
-    # TODO: Disabling generate_texts so that we fall back to the
-    # default implemetation calling multiple times generate_text. Indeed it
-    # seems that there is a limitation to num_candidates=1 in generate_content.
-    # llm.generate_texts.configure(
-    #     self.generate_texts,
-    #     temperature=self.temperature,
-    #     max_tokens=self.max_tokens,
-    #     stop=self.stop,
-    #     top_p=self.top_p,
-    #     top_k=self.top_k,
-    # )
     llm.embed.configure(self.embed)
     llm.chat.configure(
         self.chat, formatter=formatting.FormatterName.API
@@ -300,23 +317,7 @@ class GeminiAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> generation_types.GenerateContentResponse:
     """Generate content."""
-    if isinstance(prompt, content_lib.ChunkList):
-      converted = []
-      for c in prompt:
-        match c.content_type:
-          case 'str':
-            converted.append(c.content)
-          case 'bytes' | 'image/jpeg':
-            # If we have bytes we assume the image is in jpeg format.
-            # TODO: support other formats.
-            converted.append(
-                content_types.BlobDict(
-                    mime_type='image/jpeg', data=cast(bytes, c.content)
-                )
-            )
-          case _:
-            converted.append(c.content)
-      prompt = converted
+    prompt = _convert_chunk_list_to_contents_type(prompt)
 
     generation_config = genai.GenerationConfig(
         candidate_count=samples,
@@ -328,7 +329,9 @@ class GeminiAPI(
     )
     try:
       # TODO: Trace this external API call.
-      response = self._generate_model.generate_content(
+      response = cast(
+          genai.GenerativeModel, self._generate_model
+      ).generate_content(
           prompt,
           generation_config=generation_config,
           **kwargs,
@@ -370,13 +373,17 @@ class GeminiAPI(
       top_p: float | None = None,
       decoding_constraint: str | None = None,
       include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
       **kwargs,  # Optional genai specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_text'] += 1
     del decoding_constraint
+    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=prompt, healing_option=healing_option
+    )
     response = self._generate_content(
-        prompt=prompt,
+        prompt=healed_prompt,
         samples=1,
         temperature=temperature,
         stop=stop,
@@ -386,52 +393,12 @@ class GeminiAPI(
     )
     raw = response.text
     truncated = _truncate(raw, max_tokens)
-    return (truncated, {'text': raw}) if include_details else truncated
-
-  @caching.cache_method(  # Cache this method.
-      name='generate_texts',
-      is_sampled=True,  # Two calls with same args may return different replies.
-      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
-  )
-  @batching.batch_method_with_threadpool(
-      batch_size=utils.FromInstance('batch_size'),
-      wrapper=batching.add_logging,
-  )
-  def generate_texts(
-      self,
-      prompt: str | content_lib.ChunkList,
-      samples: int = 1,
-      *,
-      temperature: float | None = None,
-      max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      decoding_constraint: str | None = None,
-      include_details: bool = False,
-      **kwargs,  # Optional genai specific arguments.
-  ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
-    """See builtins.llm.generate_texts."""
-    self._counters['generate_texts'] += 1
-    del decoding_constraint
-    response = self._generate_content(
-        prompt=prompt,
-        samples=samples,
-        temperature=temperature,
-        stop=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
+    reply = llm_utils.maybe_heal_reply(
+        reply_text=truncated,
+        original_prompt=prompt,
+        healing_option=healing_option,
     )
-    results = []
-    for candidate in response.candidates:
-      if candidate and candidate.content.parts:
-        raw = candidate.content.parts[0].text
-        truncated = _truncate(raw, max_tokens)
-        results.append(
-            truncated if not include_details else (truncated, {'text': raw})
-        )
-    return results
+    return (reply, {'text': raw}) if include_details else reply
 
   async def chat(
       self,
@@ -461,38 +428,64 @@ class GeminiAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
-    # TODO: The send_message method does not support parameters
-    # like temperature, top_k, top_p, etc. so they are just ignored. We should
-    # issue a warning to the user if they are set.
-    del kwargs
     self._counters['chat'] += 1
 
-    last_message_index = len(messages)-1
-    if messages[last_message_index].role == content_lib.PredefinedRole.MODEL:
-      # If the last message is from the model, we remove it as there is no
-      # support for continuing a prefix.
-      last_message_index -= 1
+    # TODO: The send_message method does not support parameters
+    # like temperature, top_k, top_p, etc. So they are just ignored. We should
+    # issue a warning to the user if they are set.
+    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+
+    if len(messages) == 1:
+      if messages[0].role != content_lib.PredefinedRole.USER:
+        raise ValueError(
+            'When using the native Gemini API chat interface and passing a '
+            'single message, it must be a user message.'
+        )
 
     history = []
-    for msg in messages[:last_message_index]:
+    for msg in messages:
       if msg.role == content_lib.PredefinedRole.SYSTEM:
-        # TODO: Support SYSTEM messages.
         continue
-      role = 'user' if msg.role == content_lib.PredefinedRole.USER else 'model'
+      match msg.role:
+        case content_lib.PredefinedRole.USER:
+          role = 'user'
+        case content_lib.PredefinedRole.MODEL:
+          role = 'model'
+        case _:
+          raise ValueError(f'Unsupported role: {msg.role}')
       history.append(
-          content_types.to_content({'role': role, 'parts': [msg.content]})
+          content_types.to_content(
+              {
+                  'role': role,
+                  'parts': _convert_chunk_list_to_contents_type(msg.content),
+              }
+          )
       )
     generation_config = genai.GenerationConfig(
         candidate_count=1,
     )
+    healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    healed_content = _convert_chunk_list_to_contents_type(healed_content)
     # TODO: Trace this external API call.
-    chat = self._chat_model.start_chat(history=history)
+    chat = cast(
+        genai.GenerativeModel, self._chat_model
+    ).start_chat(history=history[:-1])
     response = chat.send_message(
-        content=messages[last_message_index].content,
+        content={
+            'role': history[-1].role,
+            'parts': healed_content,
+        },
         generation_config=generation_config,
     )
-
-    return response.text
+    reply = llm_utils.maybe_heal_reply(
+        reply_text=response.text,
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    return reply
 
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -528,7 +521,9 @@ class GeminiAPI(
 
     try:
       # TODO: Trace this external API call.
-      response = self._generate_model.count_tokens(content)
+      response = cast(
+          genai.GenerativeModel, self._generate_model
+      ).count_tokens(content)
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'GeminiAPI.count_tokens raised err:\n{err}\n'

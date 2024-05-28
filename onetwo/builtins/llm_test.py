@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Final, TypeAlias, TypeVar
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
+from onetwo.builtins import llm_utils
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -27,11 +28,40 @@ from onetwo.core import executing
 _T = TypeVar('_T')
 
 _Message: TypeAlias = content_lib.Message
+_TokenHealingOption: TypeAlias = llm.TokenHealingOption
 _Chunk = content_lib.Chunk
 _ChunkList = content_lib.ChunkList
 _PredefinedRole = content_lib.PredefinedRole
 
 _SEPARATOR: Final[str] = ' @@@ '
+
+
+def score_factory(score_by_prefix_suffix_pair: Mapping[tuple[str, str], float]):
+  """Utility method for constructing a scoring function."""
+  @executing.make_executable
+  def _score_text(
+      prompt: str | _ChunkList,
+      targets: Sequence[str],
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+  ) -> Sequence[float]:
+    healed_prompt, healed_targets = llm_utils.maybe_heal_prompt_and_targets(
+        original_prompt=prompt,
+        original_targets=targets,
+        healing_option=healing_option,
+    )
+    if isinstance(healed_prompt, _ChunkList):
+      healed_prompt = healed_prompt.to_simple_string()
+    for healed_target in healed_targets:
+      if (healed_prompt, healed_target) not in score_by_prefix_suffix_pair:
+        raise ValueError(
+            f'No score found for prompt={healed_prompt} '
+            f'and target={healed_target}'
+        )
+    return [
+        score_by_prefix_suffix_pair[(healed_prompt, healed_target)]
+        for healed_target in healed_targets
+    ]
+  return _score_text
 
 
 @executing.make_executable
@@ -114,7 +144,7 @@ class LlmTest(parameterized.TestCase):
       key = caching.context_sampling_key.get()
       return str(prompt) + ' done ' + key
 
-    # We configure the generate_text function to use `gen`.
+    # We configure the generate_text function to use `generate_test_function`.
     # By default generate_texts is configured to call generate_text multiple
     # times, so we do not need to configure it to use it.
     llm.generate_text.configure(generate_test_function)
@@ -143,73 +173,142 @@ class LlmTest(parameterized.TestCase):
     result = executing.run(llm.generate_object(prompt='hello', cls=int))
     self.assertEqual(1, result)
 
-  def test_select(self):
-    @executing.make_executable
-    def score(
-        prompt: str | _ChunkList, targets: Sequence[str]
-    ) -> Sequence[float]:
-      del prompt
-      return [float(i // 2) for i in range(len(targets))]
+  @parameterized.named_parameters(
+      (
+          'no_healing_no_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          False,
+          _TokenHealingOption.NONE,
+          'd',
+      ),
+      (
+          'no_healing_with_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          True,
+          _TokenHealingOption.NONE,
+          ('d', 3, [0.1, 0.2, 0.3, 0.4]),
+      ),
+      (
+          'space_healing_no_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          False,
+          _TokenHealingOption.SPACE_HEALING,
+          'a',
+      ),
+      (
+          'space_healing_with_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          True,
+          _TokenHealingOption.SPACE_HEALING,
+          ('a', 0, [1.4, 1.3, 1.2, 1.1]),
+      ),
+  )
+  def test_default_select(
+      self, prompt, targets, include_details, healing_option, expected_result
+  ):
+    score_by_prefix_suffix_pair = {
+        ('hello ', 'a'): 0.1,
+        ('hello ', 'b'): 0.2,
+        ('hello ', 'c'): 0.3,
+        ('hello ', 'd'): 0.4,
+        ('hello', ' a'): 1.4,
+        ('hello', ' b'): 1.3,
+        ('hello', ' c'): 1.2,
+        ('hello', ' d'): 1.1,
+    }
+    llm.score_text.configure(score_factory(score_by_prefix_suffix_pair))
 
-    llm.score_text.configure(score)
-    targets = ['a', 'b', 'c', 'd', 'e', 'f']
-    with self.subTest('score_returns_correct_results'):
-      scores = executing.run(llm.score_text(prompt='hello', targets=targets))
-      self.assertEqual([0.0, 0.0, 1.0, 1.0, 2.0, 2.0], scores)
+    exe = llm.select(
+        prompt=prompt,
+        options=targets,
+        include_details=include_details,
+        healing_option=healing_option,
+    )
+    result = executing.run(exe)
+    self.assertEqual(result, expected_result)
 
-    with self.subTest('select_picks_e_or_f'):
-      result = executing.run(
-          llm.select(prompt='choose from a to f:', options=targets)
-      )
-      self.assertIn(result, ['e', 'f'])
+  @parameterized.named_parameters(
+      (
+          'no_healing_no_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          3,
+          False,
+          _TokenHealingOption.NONE,
+          ['c', 'd', 'a'],
+      ),
+      (
+          'no_healing_with_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          3,
+          True,
+          _TokenHealingOption.NONE,
+          (['c', 'd', 'a'], [0.1, 0.1, 0.2, 0.2]),
+      ),
+      (
+          'no_healing_no_details_topk_0',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          0,
+          False,
+          _TokenHealingOption.NONE,
+          ['c', 'd', 'a', 'b'],
+      ),
+      (
+          'space_healing_no_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          3,
+          False,
+          _TokenHealingOption.SPACE_HEALING,
+          ['a', 'b', 'c'],
+      ),
+      (
+          'space_healing_with_details',
+          'hello ',
+          ['a', 'b', 'c', 'd'],
+          3,
+          True,
+          _TokenHealingOption.SPACE_HEALING,
+          (['a', 'b', 'c'], [1.2, 1.2, 1.1, 1.1]),
+      ),
+  )
+  def test_default_rank(
+      self,
+      prompt,
+      targets,
+      top_k,
+      include_details,
+      healing_option,
+      expected_result,
+  ):
 
-    with self.subTest('select_returns_details'):
-      result = executing.run(
-          llm.select(
-              prompt='choose from a to e:',
-              options=targets[:-1],
-              include_details=True,
-          )
-      )
-      self.assertEqual(result, ('e', 4, [0.0, 0.0, 1.0, 1.0, 2.0]))
+    score_by_prefix_suffix_pair = {
+        ('hello ', 'a'): 0.1,
+        ('hello ', 'b'): 0.1,
+        ('hello ', 'c'): 0.2,
+        ('hello ', 'd'): 0.2,
+        ('hello', ' a'): 1.2,
+        ('hello', ' b'): 1.2,
+        ('hello', ' c'): 1.1,
+        ('hello', ' d'): 1.1,
+    }
+    llm.score_text.configure(score_factory(score_by_prefix_suffix_pair))
 
-  def test_rank(self):
-    @executing.make_executable
-    def score(
-        prompt: str | _ChunkList, targets: Sequence[str]
-    ) -> Sequence[float]:
-      del prompt
-      return [float(i // 2) for i in range(len(targets))]
-
-    llm.score_text.configure(score)
-    targets = ['a', 'b', 'c', 'd', 'e', 'f']
-
-    with self.subTest('rank_picks_top3'):
-      result = executing.run(
-          llm.rank(prompt='choose from a to f:', options=targets, top_k=3)
-      )
-      self.assertListEqual(result, ['e', 'f', 'c'])
-
-    with self.subTest('rank_returns_all'):
-      result = executing.run(
-          llm.rank(prompt='choose from a to f:', options=targets, top_k=0)
-      )
-      # Note that we rank by decreasing score but identical scores are kept
-      # in the original order.
-      self.assertListEqual(result, ['e', 'f', 'c', 'd', 'a', 'b'])
-
-    with self.subTest('rank_returns_details'):
-      result = executing.run(
-          llm.rank(
-              prompt='choose from a to e:',
-              options=targets,
-              top_k=3,
-              include_details=True,
-          )
-      )
-      self.assertEqual(
-          result, (['e', 'f', 'c'], [0.0, 0.0, 1.0, 1.0, 2.0, 2.0])
-      )
+    exe = llm.rank(
+        prompt=prompt,
+        options=targets,
+        include_details=include_details,
+        healing_option=healing_option,
+        top_k=top_k,
+    )
+    result = executing.run(exe)
+    self.assertEqual(result, expected_result)
 
   def test_count_tokens(self):
     @executing.make_executable
@@ -327,12 +426,11 @@ class LlmTest(parameterized.TestCase):
         llm.instruct(
             prompt=prompt,
             assistant_prefix=assistant_prefix,
-            formatter=formatter
+            formatter=formatter,
         )
     )
     with self.subTest('prompt_formatted_as_expected'):
       self.assertEqual(result, expected_result)
-
 
 if __name__ == '__main__':
   absltest.main()
