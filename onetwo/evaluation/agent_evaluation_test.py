@@ -44,8 +44,9 @@ from onetwo.evaluation import agent_evaluation
 
 _Example: TypeAlias = agent_evaluation.Example
 _ExecutionResult: TypeAlias = results.ExecutionResult
-_ExperimentResult: TypeAlias = results.ExperimentResult
-_ExperimentSummary: TypeAlias = results.ExperimentSummary
+_EvaluationResult: TypeAlias = results.EvaluationResult
+_EvaluationSummary: TypeAlias = results.EvaluationSummary
+_EvaluationTiming: TypeAlias = results.EvaluationTiming
 _UpdateListState: TypeAlias = agents_base.UpdateListState
 
 
@@ -86,7 +87,7 @@ def _accuracy_function_that_returns_example_option(
 
 
 def _aggregate_via_dict_update(
-    aggregate_summary: _ExperimentSummary, example_summary: _ExperimentSummary
+    aggregate_summary: _EvaluationSummary, example_summary: _EvaluationSummary
 ) -> None:
   """Aggregation function matching default behavior of `evaluation.evaluate`."""
   aggregate_summary.info.update(example_summary.info)
@@ -223,9 +224,9 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_final_states=True,
       )
 
-    expected_timing = results.ExperimentTiming(start_time=now, end_time=now)
+    expected_timing = _EvaluationTiming(start_time=now, end_time=now)
     expected_results = {
-        0: _ExperimentResult(
+        0: _EvaluationResult(
             stage_name=expected_stage_name,
             inputs={'x': 'a'},
             outputs={'output': 'a'},
@@ -237,7 +238,7 @@ class AgentEvaluationTest(parameterized.TestCase):
                 'accuracy_count': 1,
             },
         ),
-        1: _ExperimentResult(
+        1: _EvaluationResult(
             stage_name=expected_stage_name,
             inputs={'x': 'c'},
             outputs={'output': 'c'},
@@ -250,7 +251,7 @@ class AgentEvaluationTest(parameterized.TestCase):
             },
         ),
     }
-    expected_summary = _ExperimentSummary(
+    expected_summary = _EvaluationSummary(
         metrics={'accuracy': 0.5},
         counters=collections.Counter(
             {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
@@ -274,7 +275,7 @@ class AgentEvaluationTest(parameterized.TestCase):
       self.assertMultiLineEqual(
           pprint.pformat(expected_summary, width=160),
           pprint.pformat(summary, width=160),
-          f'Incorrect ExperimentSummary contents:\n{summary}\n----\nDiff',
+          f'Incorrect EvaluationSummary contents:\n{summary}\n----\nDiff',
       )
 
   def test_evaluate_agent(self):
@@ -296,15 +297,15 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_final_states=True,
       )
 
-    expected_timing = results.ExperimentTiming(start_time=now, end_time=now)
-    expected_summary = _ExperimentSummary(
+    expected_timing = _EvaluationTiming(start_time=now, end_time=now)
+    expected_summary = _EvaluationSummary(
         metrics={'accuracy': 0.0},
         counters=collections.Counter(
             {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
         ),
         example_keys={0: 0, 1: 1},
         results={
-            0: _ExperimentResult(
+            0: _EvaluationResult(
                 stage_name='StringAgent',
                 inputs={
                     'inputs': 'a',
@@ -322,7 +323,7 @@ class AgentEvaluationTest(parameterized.TestCase):
                     'accuracy_count': 1,
                 },
             ),
-            1: _ExperimentResult(
+            1: _EvaluationResult(
                 stage_name='StringAgent',
                 inputs={
                     'inputs': 'c',
@@ -342,7 +343,7 @@ class AgentEvaluationTest(parameterized.TestCase):
             ),
         },
         results_debug={
-            0: _ExperimentResult(
+            0: _EvaluationResult(
                 stage_name='StringAgent',
                 inputs={
                     'inputs': 'a',
@@ -390,7 +391,7 @@ class AgentEvaluationTest(parameterized.TestCase):
                     'accuracy_count': 1,
                 },
             ),
-            1: _ExperimentResult(
+            1: _EvaluationResult(
                 stage_name='StringAgent',
                 inputs={
                     'inputs': 'c',
@@ -457,7 +458,7 @@ class AgentEvaluationTest(parameterized.TestCase):
       self.assertMultiLineEqual(
           pprint.pformat(expected_summary, width=160),
           pprint.pformat(summary, width=160),
-          f'Incorrect ExperimentSummary contents:\n{summary}\n----\nDiff',
+          f'Incorrect EvaluationSummary contents:\n{summary}\n----\nDiff',
       )
 
   def test_inputs_and_target_extractors(self):
@@ -518,7 +519,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           {0},
       ),
       (
-          'based_on_experiment_result',
+          'based_on_evaluation_result',
           lambda example, result: result.metrics['accuracy'] > 0.0,
           {1},
       ),
@@ -661,7 +662,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         output_results=True,
     )
 
-    expected_result = _ExperimentResult(
+    expected_result = _EvaluationResult(
         stage_name='strategy_taking_question_and_option_and_calling_llm',
         inputs={'args': ['Something'], 'kwargs': {}},
         error=TypeError(
@@ -690,7 +691,7 @@ class AgentEvaluationTest(parameterized.TestCase):
       self.assertMultiLineEqual(
           pprint.pformat(expected_result, width=160),
           pprint.pformat(summary.results[0], width=160),
-          f'Incorrect ExperimentResult contents:\n{summary}\n----\nDiff',
+          f'Incorrect EvaluationResult contents:\n{summary}\n----\nDiff',
       )
 
   @parameterized.named_parameters(
@@ -719,7 +720,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         aggregation_functions=[_aggregate_via_dict_update],
         output_results=True,
     )
-    timing: results.ExperimentTiming = summary.timing
+    timing: _EvaluationTiming = summary.timing
 
     with self.subTest('produces_plausible_timedelta'):
       self.assertGreater(timing.time_elapsed.total_seconds(), 0.0)
@@ -756,7 +757,7 @@ class AgentEvaluationTest(parameterized.TestCase):
             'accuracy': _accuracy_function_that_returns_example_option
         },
     )
-    timing_slow: results.ExperimentTiming = summary_slow.timing
+    timing_slow: _EvaluationTiming = summary_slow.timing
 
     with self.subTest('runs_correctly_with_batchsize_eq_1'):
       # We expect all answers to be correct by design.
@@ -778,7 +779,7 @@ class AgentEvaluationTest(parameterized.TestCase):
             'accuracy': _accuracy_function_that_returns_example_option
         },
     )
-    timing_fast: results.ExperimentTiming = summary_fast.timing
+    timing_fast: _EvaluationTiming = summary_fast.timing
 
     with self.subTest('runs_correctly_with_batchsize_gt_1'):
       # We expect all answers to be correct by design.
@@ -811,8 +812,8 @@ class AgentEvaluationTest(parameterized.TestCase):
       return f'{prompt}_generated'
 
     def _keep_track_of_execution_order(
-        aggregate_summary: _ExperimentSummary,
-        example_summary: _ExperimentSummary,
+        aggregate_summary: _EvaluationSummary,
+        example_summary: _EvaluationSummary,
     ) -> None:
       if 'execution_order' not in aggregate_summary.info:
         aggregate_summary.info['execution_order'] = []
@@ -837,9 +838,9 @@ class AgentEvaluationTest(parameterized.TestCase):
     with self.subTest('evaluation_metrics_are_correct'):
       self.assertEqual(1.0, summary.metrics['accuracy'])
 
-  def test_write_experiment_summary_as_json(self):
+  def test_write_evaluation_summary_as_json(self):
     tmp_dir = self.create_tempdir().full_path
-    output_dir = os.path.join(tmp_dir, 'test_write_experiment_summary_as_json')
+    output_dir = os.path.join(tmp_dir, 'test_write_evaluation_summary_as_json')
     os.makedirs(output_dir, exist_ok=True)
 
     strategy = agents_test_utils.StringAgent(
@@ -860,7 +861,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_final_states=True,
       )
 
-    agent_evaluation.write_experiment_summary_as_json(
+    agent_evaluation.write_evaluation_summary_as_json(
         summary=summary, output_dir=output_dir
     )
 

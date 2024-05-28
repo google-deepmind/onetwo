@@ -31,7 +31,7 @@ STAGE_DECOMP = 'decomp'
 STAGE_TRANSLATE = 'translate'
 
 
-class ExperimentResultsTest(absltest.TestCase):
+class EvaluationResultTest(absltest.TestCase):
 
   def test_get_leaf_results(self):
     leaf1 = results.ExecutionResult(
@@ -73,7 +73,7 @@ class ExperimentResultsTest(absltest.TestCase):
     self.assertEqual(expected_leaf_results, execution_result.get_leaf_results())
 
   def test_format(self):
-    execution_result = results.ExperimentResult(
+    execution_result = results.EvaluationResult(
         inputs={'question': 'q'},
         outputs={'answer': 'Wrong answer'},
         stages=[
@@ -170,7 +170,7 @@ class ExperimentResultsTest(absltest.TestCase):
       )
 
   def test_format_non_string(self):
-    execution_result = results.ExperimentResult(
+    execution_result = results.EvaluationResult(
         inputs={'request': '1+1'},
         outputs={'reply': '2'},
         stages=[],
@@ -211,7 +211,7 @@ class ExperimentResultsTest(absltest.TestCase):
       )
 
   def test_to_dict_and_from_dict(self):
-    experiment_result = results.ExperimentResult(
+    evaluation_result = results.EvaluationResult(
         inputs={'question': 'q'},
         outputs={'answer': 'Wrong answer'},
         stages=[
@@ -257,7 +257,7 @@ class ExperimentResultsTest(absltest.TestCase):
         metrics={'strict_accuracy': 0},
     )
 
-    results_dict = experiment_result.to_dict()
+    results_dict = evaluation_result.to_dict()
     expected_results_dict = {
         'inputs': {'question': 'q'},
         'outputs': {'answer': 'Wrong answer'},
@@ -295,13 +295,13 @@ class ExperimentResultsTest(absltest.TestCase):
     with self.subTest('to_dict_excludes_empty_fields'):
       self.assertDictEqual(expected_results_dict, results_dict)
 
-    recovered_results = results.experiment_result_from_dict(results_dict)
+    recovered_results = results.evaluation_result_from_dict(results_dict)
 
     with self.subTest('roundtrip_recovers_original_contents'):
-      self.assertEqual(experiment_result, recovered_results)
+      self.assertEqual(evaluation_result, recovered_results)
 
   def test_to_compact_record(self):
-    experiment_result = results.ExperimentResult(
+    evaluation_result = results.EvaluationResult(
         inputs={
             'question': 'q',
             'original': 'INPUT: q OUTPUT: a',
@@ -322,11 +322,11 @@ class ExperimentResultsTest(absltest.TestCase):
         metrics={'accuracy': 0.0},
     )
 
-    original_experiment_result = copy.deepcopy(experiment_result)
+    original_evaluation_result = copy.deepcopy(evaluation_result)
 
-    compact_record = experiment_result.to_compact_record()
+    compact_record = evaluation_result.to_compact_record()
 
-    expected_compact_record = results.ExperimentResult(
+    expected_compact_record = results.EvaluationResult(
         inputs={'question': 'q'},
         outputs={'answer': 'a1'},
         error='error',
@@ -354,7 +354,7 @@ class ExperimentResultsTest(absltest.TestCase):
       self.assertEqual(expected_compact_record, compact_record)
 
     with self.subTest('original_should_remain_unchanged'):
-      self.assertEqual(original_experiment_result, experiment_result)
+      self.assertEqual(original_evaluation_result, evaluation_result)
 
   def test_from_execution_result(self):
     # First we create an ExecutionResult with some nested structure.
@@ -371,19 +371,19 @@ class ExperimentResultsTest(absltest.TestCase):
         ],
     )
 
-    # Now we convert that to an ExperimentResult.
-    experiment_result = results.ExperimentResult.from_execution_result(
+    # Now we convert that to an EvaluationResult.
+    evaluation_result = results.EvaluationResult.from_execution_result(
         execution_result)
 
-    # Once we have converted it to an ExperimentResult, we can populate the
-    # experiment-specific fields.
-    experiment_result.info = {'record_id': 0}
-    experiment_result.targets = {'answer': 'a'}
-    experiment_result.metrics = {'accuracy': 0.0}
+    # Once we have converted it to an EvaluationResult, we can populate the
+    # evaluation-specific fields.
+    evaluation_result.info = {'record_id': 0}
+    evaluation_result.targets = {'answer': 'a'}
+    evaluation_result.metrics = {'accuracy': 0.0}
 
-    # The resulting ExperimentResult should have all the contents of the
+    # The resulting EvaluationResult should have all the contents of the
     # original ExecutionResult, plus the additional fields.
-    expected_experiment_result = results.ExperimentResult(
+    expected_evaluation_result = results.EvaluationResult(
         inputs={'question': 'q'},
         outputs={'answer': 'a1'},
         error='error',
@@ -399,9 +399,9 @@ class ExperimentResultsTest(absltest.TestCase):
         metrics={'accuracy': 0.0},
     )
     self.assertEqual(
-        expected_experiment_result,
-        experiment_result,
-        f'Actual result: {pprint.pformat(experiment_result)}',
+        expected_evaluation_result,
+        evaluation_result,
+        f'Actual result: {pprint.pformat(evaluation_result)}',
     )
 
   def test_apply_formatting(self):
@@ -475,21 +475,21 @@ class ExperimentResultsTest(absltest.TestCase):
       )
 
 
-class ExperimentTimingTest(absltest.TestCase):
+class EvaluationTimingTest(absltest.TestCase):
 
   def test_time_elapsed(self):
     start_time = datetime.datetime(2024, 5, 9, 12, 0, 0)
     end_time = start_time + datetime.timedelta(seconds=3)
-    timing = results.ExperimentTiming(start_time=start_time, end_time=end_time)
+    timing = results.EvaluationTiming(start_time=start_time, end_time=end_time)
     self.assertEqual(datetime.timedelta(seconds=3), timing.time_elapsed)
 
 
-class ExperimentSummaryTest(parameterized.TestCase):
+class EvaluationSummaryTest(parameterized.TestCase):
 
   def test_iadd(self):
     start_time = datetime.datetime(2024, 5, 9, 12, 0, 0)
-    summary1 = results.ExperimentSummary(
-        timing=results.ExperimentTiming(
+    summary1 = results.EvaluationSummary(
+        timing=results.EvaluationTiming(
             start_time=start_time,
             end_time=start_time + datetime.timedelta(seconds=3),
         ),
@@ -503,10 +503,10 @@ class ExperimentSummaryTest(parameterized.TestCase):
         info={'arbitrary_key1': ['arbitrary_value1']},
         example_keys={1: 'example1'},
         results={
-            'example1': results.ExperimentResult(inputs={'input': '1'}),
+            'example1': results.EvaluationResult(inputs={'input': '1'}),
         },
         results_debug={
-            'example1': results.ExperimentResult(
+            'example1': results.EvaluationResult(
                 inputs={'input': '1'},
                 stages=[results.ExecutionResult(stage_name='stage1_1')],
             ),
@@ -515,8 +515,8 @@ class ExperimentSummaryTest(parameterized.TestCase):
             'example1': agents_base.UpdateListState(inputs='1', updates=['1'])
         },
     )
-    summary2 = results.ExperimentSummary(
-        timing=results.ExperimentTiming(
+    summary2 = results.EvaluationSummary(
+        timing=results.EvaluationTiming(
             start_time=start_time + datetime.timedelta(seconds=6),
             end_time=start_time + datetime.timedelta(seconds=9),
         ),
@@ -530,15 +530,15 @@ class ExperimentSummaryTest(parameterized.TestCase):
         info={'arbitrary_key2': 'arbitrary_value2'},
         example_keys={2: 'example2', 3: 'example3'},
         results={
-            'example2': results.ExperimentResult(inputs={'input': '2'}),
-            'example3': results.ExperimentResult(inputs={'input': '3'}),
+            'example2': results.EvaluationResult(inputs={'input': '2'}),
+            'example3': results.EvaluationResult(inputs={'input': '3'}),
         },
         results_debug={
-            'example2': results.ExperimentResult(
+            'example2': results.EvaluationResult(
                 inputs={'input': '2'},
                 stages=[results.ExecutionResult(stage_name='stage2_1')],
             ),
-            'example3': results.ExperimentResult(
+            'example3': results.EvaluationResult(
                 inputs={'input': '3'},
                 stages=[results.ExecutionResult(stage_name='stage3_1')],
             ),
@@ -549,8 +549,8 @@ class ExperimentSummaryTest(parameterized.TestCase):
         },
     )
 
-    expected_sum = results.ExperimentSummary(
-        timing=results.ExperimentTiming(
+    expected_sum = results.EvaluationSummary(
+        timing=results.EvaluationTiming(
             start_time=start_time,
             end_time=start_time + datetime.timedelta(seconds=9),
         ),
@@ -566,20 +566,20 @@ class ExperimentSummaryTest(parameterized.TestCase):
         info={'arbitrary_key1': ['arbitrary_value1']},
         example_keys={1: 'example1', 2: 'example2', 3: 'example3'},
         results={
-            'example1': results.ExperimentResult(inputs={'input': '1'}),
-            'example2': results.ExperimentResult(inputs={'input': '2'}),
-            'example3': results.ExperimentResult(inputs={'input': '3'}),
+            'example1': results.EvaluationResult(inputs={'input': '1'}),
+            'example2': results.EvaluationResult(inputs={'input': '2'}),
+            'example3': results.EvaluationResult(inputs={'input': '3'}),
         },
         results_debug={
-            'example1': results.ExperimentResult(
+            'example1': results.EvaluationResult(
                 inputs={'input': '1'},
                 stages=[results.ExecutionResult(stage_name='stage1_1')],
             ),
-            'example2': results.ExperimentResult(
+            'example2': results.EvaluationResult(
                 inputs={'input': '2'},
                 stages=[results.ExecutionResult(stage_name='stage2_1')],
             ),
-            'example3': results.ExperimentResult(
+            'example3': results.EvaluationResult(
                 inputs={'input': '3'},
                 stages=[results.ExecutionResult(stage_name='stage3_1')],
             ),
@@ -600,34 +600,34 @@ class ExperimentSummaryTest(parameterized.TestCase):
       self.assertMultiLineEqual(
           pprint.pformat(expected_sum, width=160),
           pprint.pformat(summary1, width=160),
-          f'Incorrect ExperimentSummary contents:\n{summary1}\n----\nDiff'
+          f'Incorrect EvaluationSummary contents:\n{summary1}\n----\nDiff'
       )
 
   @parameterized.named_parameters(
       (
           'empty',
-          results.ExperimentSummary(),
-          results.ExperimentSummary(),
-          results.ExperimentSummary(),
+          results.EvaluationSummary(),
+          results.EvaluationSummary(),
+          results.EvaluationSummary(),
       ),
       (
           'single_counter_shared_by_all_metrics',
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 0.5, 'bleu': 0.7},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 1.0, 'bleu': 0.9},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 4}),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 0.9, 'bleu': 0.86},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 5}),
           ),
       ),
       (
           'separate_counters_per_metric',
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 0.5, 'bleu': 0.7},
               counters=collections.Counter({
                   results.COUNTER_TOTAL_EXAMPLES: 1,
@@ -635,7 +635,7 @@ class ExperimentSummaryTest(parameterized.TestCase):
                   'bleu_count': 1,
               }),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 1.0, 'bleu': 0.9},
               counters=collections.Counter({
                   results.COUNTER_TOTAL_EXAMPLES: 4,
@@ -643,7 +643,7 @@ class ExperimentSummaryTest(parameterized.TestCase):
                   'bleu_count': 3,
               }),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 0.75, 'bleu': 0.85},
               counters=collections.Counter({
                   results.COUNTER_TOTAL_EXAMPLES: 5,
@@ -654,28 +654,28 @@ class ExperimentSummaryTest(parameterized.TestCase):
       ),
       (
           'missing_value_not_counted',
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 1.0},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 4}),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 1.0},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 5}),
           ),
       ),
       (
           'missing_counter_treated_as_zero',
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 0.5},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 1.0},
           ),
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               metrics={'accuracy': 0.5},
               counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
           ),
@@ -689,25 +689,25 @@ class ExperimentSummaryTest(parameterized.TestCase):
     self.assertMultiLineEqual(
         pprint.pformat(expected_sum, width=160),
         pprint.pformat(summary1, width=160),
-        f'Incorrect ExperimentSummary contents:\n{summary1}\n----\nDiff'
+        f'Incorrect EvaluationSummary contents:\n{summary1}\n----\nDiff'
     )
 
   @parameterized.named_parameters(
       {
           'testcase_name': 'fully_populated_result',
-          'original': results.ExperimentSummary(
+          'original': results.EvaluationSummary(
               metrics={'accuracy': 0.5},
               counters=collections.Counter(
                   {results.COUNTER_TOTAL_EXAMPLES: 1, 'a': 1, 'b': 1}
               ),
               example_keys={0: 'placeholder'},
               results={
-                  'placeholder': results.ExperimentResult(
+                  'placeholder': results.EvaluationResult(
                       inputs={'input': '1'}
                   ),
               },
               results_debug={
-                  'placeholder': results.ExperimentResult(
+                  'placeholder': results.EvaluationResult(
                       inputs={'input': '1'},
                       stages=[results.ExecutionResult(stage_name='stage1_1')],
                   ),
@@ -718,7 +718,7 @@ class ExperimentSummaryTest(parameterized.TestCase):
                   )
               },
           ),
-          'expected': results.ExperimentSummary(
+          'expected': results.EvaluationSummary(
               # Fields like metrics and counters are left as-is.
               metrics={'accuracy': 0.5},
               counters=collections.Counter(
@@ -729,10 +729,10 @@ class ExperimentSummaryTest(parameterized.TestCase):
               # Results, results_debug, and final_states have their keys
               # replaced with the new key, but their values left as-is.
               results={
-                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+                  'example1': results.EvaluationResult(inputs={'input': '1'}),
               },
               results_debug={
-                  'example1': results.ExperimentResult(
+                  'example1': results.EvaluationResult(
                       inputs={'input': '1'},
                       stages=[results.ExecutionResult(stage_name='stage1_1')],
                   ),
@@ -746,47 +746,47 @@ class ExperimentSummaryTest(parameterized.TestCase):
       },
       {
           'testcase_name': 'minimal_result',
-          'original': results.ExperimentSummary(
+          'original': results.EvaluationSummary(
               example_keys={0: 'placeholder'},
               results={
-                  'placeholder': results.ExperimentResult(
+                  'placeholder': results.EvaluationResult(
                       inputs={'input': '1'}
                   ),
               },
           ),
-          'expected': results.ExperimentSummary(
+          'expected': results.EvaluationSummary(
               example_keys={1: 'example1'},
               results={
-                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+                  'example1': results.EvaluationResult(inputs={'input': '1'}),
               },
           ),
       },
       {
           'testcase_name': 'empty_summary',
-          'original': results.ExperimentSummary(),
-          'expected': results.ExperimentSummary(example_keys={1: 'example1'}),
+          'original': results.EvaluationSummary(),
+          'expected': results.EvaluationSummary(example_keys={1: 'example1'}),
       },
       {
           'testcase_name': 'example_keys_not_present',
-          'original': results.ExperimentSummary(
+          'original': results.EvaluationSummary(
               results={
-                  'placeholder': results.ExperimentResult(
+                  'placeholder': results.EvaluationResult(
                       inputs={'input': '1'}
                   ),
               },
           ),
-          'expected': results.ExperimentSummary(
+          'expected': results.EvaluationSummary(
               example_keys={1: 'example1'},
               results={
-                  'example1': results.ExperimentResult(inputs={'input': '1'}),
+                  'example1': results.EvaluationResult(inputs={'input': '1'}),
               },
           ),
       },
   )
   def test_replace_example_index_and_key_success_cases(
       self,
-      original: results.ExperimentSummary,
-      expected: results.ExperimentSummary,
+      original: results.EvaluationSummary,
+      expected: results.EvaluationSummary,
   ):
     original.replace_example_index_and_key(1, 'example1')
     self.assertEqual(expected, original, original)
@@ -794,21 +794,21 @@ class ExperimentSummaryTest(parameterized.TestCase):
   @parameterized.named_parameters(
       (
           'multiple_keys',
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               example_keys={1: 'example1', 2: 'example2'},
               results={
-                  'example1': results.ExperimentResult(inputs={'input': '1'}),
-                  'example2': results.ExperimentResult(inputs={'input': '2'}),
+                  'example1': results.EvaluationResult(inputs={'input': '1'}),
+                  'example2': results.EvaluationResult(inputs={'input': '2'}),
               },
           ),
           'Cannot replace example index and key .* with multiple examples.',
       ),
       (
           'key_mismatch',
-          results.ExperimentSummary(
+          results.EvaluationSummary(
               example_keys={0: 'placeholder'},
               results={
-                  'some_other_key': results.ExperimentResult(
+                  'some_other_key': results.EvaluationResult(
                       inputs={'input': '1'}
                   ),
               },
@@ -817,7 +817,7 @@ class ExperimentSummaryTest(parameterized.TestCase):
       ),
   )
   def test_replace_example_index_and_key_error_cases(
-      self, summary: results.ExperimentSummary, expected_error_pattern: str
+      self, summary: results.EvaluationSummary, expected_error_pattern: str
   ):
     with self.assertRaisesRegex(ValueError, expected_error_pattern):
       summary.replace_example_index_and_key(3, 'example3')
@@ -829,7 +829,7 @@ class HTMLRendererTest(parameterized.TestCase):
       ('empty_result', results.ExecutionResult()),
       (
           'result_with_single_element_in_each_container',
-          results.ExperimentResult(
+          results.EvaluationResult(
               inputs={'i1': 'i_v1'},
               outputs={'o1': 'o_v1'},
               stages=[
@@ -841,7 +841,7 @@ class HTMLRendererTest(parameterized.TestCase):
       ),
       (
           'result_with_multiple_elements_in_each_container',
-          results.ExperimentResult(
+          results.EvaluationResult(
               inputs={'i1': 'i_v1', 'i2': 'i_v2'},
               outputs={'o1': 'o_v1', 'o2': 'o_v2'},
               stages=[
@@ -858,14 +858,14 @@ class HTMLRendererTest(parameterized.TestCase):
           'list_with_multiple_results',
           [
               results.ExecutionResult(stage_name='result1'),
-              results.ExperimentResult(stage_name='result2'),
+              results.EvaluationResult(stage_name='result2'),
           ],
       ),
-      ('empty_experiment_summary', results.ExperimentSummary()),
+      ('empty_evaluation summary', results.EvaluationSummary()),
       (
-          'experiment_summary_with_single_element_in_each_container',
-          results.ExperimentSummary(
-              timing=results.ExperimentTiming(
+          'evaluation summary_with_single_element_in_each_container',
+          results.EvaluationSummary(
+              timing=results.EvaluationTiming(
                   start_time=datetime.datetime(2024, 5, 9, 12, 0, 0),
                   end_time=datetime.datetime(2024, 5, 9, 12, 0, 3),
               ),
@@ -873,7 +873,7 @@ class HTMLRendererTest(parameterized.TestCase):
               counters=collections.Counter({'c1': 0.1}),
               example_keys={1: 'example1'},
               results={
-                  'example1': results.ExperimentResult(
+                  'example1': results.EvaluationResult(
                       inputs={'i1': 'i_v1'},
                       outputs={'o1': 'o_v1'},
                       stages=[],
@@ -882,7 +882,7 @@ class HTMLRendererTest(parameterized.TestCase):
                   ),
               },
               results_debug={
-                  'example1': results.ExperimentResult(
+                  'example1': results.EvaluationResult(
                       inputs={'i1': 'i_v1'},
                       outputs={'o1': 'o_v1'},
                       stages=[

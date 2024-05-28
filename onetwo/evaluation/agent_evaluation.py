@@ -79,8 +79,8 @@ class MetricFunctionWithExampleArg(Protocol[_O]):
     about the example that is not necessarily represented as a float (e.g., in
     the case of an AI rater that internally uses chain-of-thought prompting, the
     extra info could include the AI rater's rationale). If provided, the extra
-    info will be included in the `info` field of the `ExperimentResult` and
-    `ExperimentSummary` for the example.
+    info will be included in the `info` field of the `EvaluationResult` and
+    `EvaluationSummary` for the example.
   """
 
   def __call__(
@@ -111,12 +111,12 @@ MetricFunction: TypeAlias = (
 
 
 class AggregationFunction(Protocol):
-  """Function for performing custom aggregation of experiment result info."""
+  """Function for performing custom aggregation of evaluation result info."""
 
   def __call__(
       self,
-      aggregate_summary: results.ExperimentSummary,
-      example_summary: results.ExperimentSummary,
+      aggregate_summary: results.EvaluationSummary,
+      example_summary: results.EvaluationSummary,
   ) -> None:
     """Updates `aggregate_summary.info` based on `example_summary.info`.
 
@@ -222,7 +222,7 @@ async def _evaluate_example(
     target_extractor: Callable[[Example], _O] = lambda x: x['answer'],
     metric_functions: dict[str, MetricFunction] | None = None,
     output_final_states: bool = False,
-) -> tuple[Example, results.ExperimentSummary]:
+) -> tuple[Example, results.EvaluationSummary]:
   """Evaluates the given strategy on the given example.
 
   Args:
@@ -234,17 +234,17 @@ async def _evaluate_example(
       (if any) to which the prediction can be compared for determining accuracy.
     metric_functions: Mapping of metric name to a function that calculates the
       value of that metric for a single example. For each entry in this mapping,
-      a corresponding entry will be added in `ExperimentSummary.metrics`,
+      a corresponding entry will be added in `EvaluationSummary.metrics`,
       containing the average of that metric's values across all examples.
     output_final_states: Whether to populate `final_states` field in
-      `ExperimentSummary`. Only applicable to agent strategies.
+      `EvaluationSummary`. Only applicable to agent strategies.
 
   Returns:
-    A tuple of the example and an experiment summary containing the results for
+    A tuple of the example and an evaluation summary containing the results for
     just that example.
   """
-  summary = results.ExperimentSummary(
-      timing=results.ExperimentTiming(
+  summary = results.EvaluationSummary(
+      timing=results.EvaluationTiming(
           start_time=datetime.datetime.now(), end_time=datetime.datetime.now()
       ),
   )
@@ -309,14 +309,14 @@ async def _evaluate_example(
   # Results and results debug
   if execution_result is None:
     # Error occurred during strategy execution. Output just a minimal summary.
-    experiment_debug = results.ExperimentResult(
+    evaluation_debug = results.EvaluationResult(
         stage_name=strategy.__name__,
         inputs={'args': args, 'kwargs': kwargs},
         error=error,
     )
   else:
     # Strategy executed without error. Output a full summary.
-    experiment_debug = results.ExperimentResult.from_execution_result(
+    evaluation_debug = results.EvaluationResult.from_execution_result(
         execution_result
     )
 
@@ -327,14 +327,14 @@ async def _evaluate_example(
     # rather than simply `answer`. We clean this up manually here, so that
     # final_state appears only in `summary.final_states`, not in the `outputs`
     # of `summary.results` or `summary.results_debug`.
-    if not isinstance(experiment_debug.outputs, dict) or set(
-        experiment_debug.outputs.keys()
+    if not isinstance(evaluation_debug.outputs, dict) or set(
+        evaluation_debug.outputs.keys()
     ) != {'output'}:
       raise ValueError(
           'Expected agent outputs to be a dict with a single key `output`,'
-          f' but got: {pprint.pformat(experiment_debug.outputs)}'
+          f' but got: {pprint.pformat(evaluation_debug.outputs)}'
       )
-    output = experiment_debug.outputs['output']
+    output = evaluation_debug.outputs['output']
     if (
         not isinstance(output, tuple)
         or len(output) != 2
@@ -344,25 +344,25 @@ async def _evaluate_example(
           'Expected agent output to be a tuple of length 2, where the 2nd'
           f' element is the final_state, but got: {pprint.pformat(output)}'
       )
-    experiment_debug.outputs['output'] = output[0]
+    evaluation_debug.outputs['output'] = output[0]
 
-  if error and not experiment_debug.error:
-    experiment_debug.error = error
-  experiment_debug.counters = summary.counters
-  # TODO: Modify `ExperimentResult.targets` to accept `Any`, and
+  if error and not evaluation_debug.error:
+    evaluation_debug.error = error
+  evaluation_debug.counters = summary.counters
+  # TODO: Modify `EvaluationResult.targets` to accept `Any`, and
   # then store the target value there directly rather than wrapping as a dict.
-  experiment_debug.targets = {'target': target}
-  # TODO: Modify `ExperimentResult` to separate `counters` from
+  evaluation_debug.targets = {'target': target}
+  # TODO: Modify `EvaluationResult` to separate `counters` from
   # `metrics`.
-  experiment_debug.metrics = {}
-  experiment_debug.metrics.update(summary.counters)
-  experiment_debug.metrics.update(summary.metrics)
+  evaluation_debug.metrics = {}
+  evaluation_debug.metrics.update(summary.counters)
+  evaluation_debug.metrics.update(summary.metrics)
   if extra_info:
-    experiment_debug.info.update(extra_info)
-  experiment_result = copy.deepcopy(experiment_debug)
-  experiment_result.stages = []
-  summary.results[example_key] = experiment_result
-  summary.results_debug[example_key] = experiment_debug
+    evaluation_debug.info.update(extra_info)
+  evaluation_result = copy.deepcopy(evaluation_debug)
+  evaluation_result.stages = []
+  summary.results[example_key] = evaluation_result
+  summary.results_debug[example_key] = evaluation_debug
 
   # Final states
   if output_final_states and final_state is not None:
@@ -386,10 +386,10 @@ def evaluate(
     output_results_debug: bool = False,
     output_final_states: bool = False,
     output_filter: (
-        Callable[[Example, results.ExperimentResult], bool] | None
+        Callable[[Example, results.EvaluationResult], bool] | None
     ) = None,
     example_key_function: Callable[[int, Example], str | int] | None = None,
-) -> results.ExperimentSummary:
+) -> results.EvaluationSummary:
   """Evaluates the given strategy on the given examples.
 
   Args:
@@ -403,7 +403,7 @@ def evaluate(
       (if any) to which the prediction can be compared for determining accuracy.
     metric_functions: Mapping of metric name to a function that calculates the
       value of that metric for a single example. For each entry in this mapping,
-      a corresponding entry will be added in `ExperimentSummary.metrics`,
+      a corresponding entry will be added in `EvaluationSummary.metrics`,
       containing the average of that metric's value across all examples.
     aggregation_functions: Functions for performing custom aggregation of
       example-level information across a dataset.
@@ -411,11 +411,11 @@ def evaluate(
       (examples could be a generator function with `yield`) user may still know
       (and provide) its exact length. This value is used only for logging the
       progress of evaluation.
-    output_results: Whether to populate `results` field in `ExperimentSummary`.
+    output_results: Whether to populate `results` field in `EvaluationSummary`.
     output_results_debug: Whether to populate `results_debug` field in
-      `ExperimentSummary`.
+      `EvaluationSummary`.
     output_final_states: Whether to populate `final_states` field in
-      `ExperimentSummary`. Only applicable to agent strategies.
+      `EvaluationSummary`. Only applicable to agent strategies.
     output_filter: Function to indicate whether a given example should have its
       details included in the results/traces/final_states. If not specified,
       then all examples will be included.
@@ -424,7 +424,7 @@ def evaluate(
       will use the example index as the key.
 
   Returns:
-    ExperimentSummary containing the evaluation results.
+    EvaluationSummary containing the evaluation results.
   """
   if hasattr(examples, '__len__'):
     examples_len = len(examples)
@@ -434,8 +434,8 @@ def evaluate(
     # In this case tqdm will only print progress without progressbar and ETA.
     examples_len = None
 
-  experiment_summary = results.ExperimentSummary(
-      timing=results.ExperimentTiming(
+  evaluation_summary = results.EvaluationSummary(
+      timing=results.EvaluationTiming(
           start_time=datetime.datetime.now(), end_time=datetime.datetime.now()
       ),
   )
@@ -462,61 +462,61 @@ def evaluate(
         )
       # Payload contains a single element of the form
       # (critic_result, example_id).
-      (example, example_experiment_summary), example_index = update.payload[0]
+      (example, example_evaluation_summary), example_index = update.payload[0]
       if example_key_function:
         example_key = example_key_function(example_index, example)
       else:
         example_key = example_index
-      example_experiment_summary.replace_example_index_and_key(
+      example_evaluation_summary.replace_example_index_and_key(
           example_index=example_index, example_key=example_key
       )
 
-      if len(example_experiment_summary.results) != 1:
+      if len(example_evaluation_summary.results) != 1:
         raise ValueError(
-            'Expected exactly one result in ExperimentSummary.results when'
+            'Expected exactly one result in EvaluationSummary.results when'
             ' evaluating on a single example. Got'
-            f' {pprint.pformat(example_experiment_summary.results)}.\nFull'
-            f' summary: {pprint.pformat(example_experiment_summary)}'
+            f' {pprint.pformat(example_evaluation_summary.results)}.\nFull'
+            f' summary: {pprint.pformat(example_evaluation_summary)}'
         )
-      experiment_result = list(example_experiment_summary.results.values())[0]
-      example_experiment_summary.info = experiment_result.info
+      evaluation_result = list(example_evaluation_summary.results.values())[0]
+      example_evaluation_summary.info = evaluation_result.info
       # TODO: Support storing traces output by custom tracers.
 
       if output_filter:
-        include_outputs_for_example = output_filter(example, experiment_result)
+        include_outputs_for_example = output_filter(example, evaluation_result)
       else:
         include_outputs_for_example = True
 
       if not include_outputs_for_example:
-        example_experiment_summary.example_keys = {}
+        example_evaluation_summary.example_keys = {}
       if not output_results or not include_outputs_for_example:
-        example_experiment_summary.results = {}
+        example_evaluation_summary.results = {}
       if not output_results_debug or not include_outputs_for_example:
-        example_experiment_summary.results_debug = {}
+        example_evaluation_summary.results_debug = {}
       if not output_final_states or not include_outputs_for_example:
-        example_experiment_summary.final_states = {}
+        example_evaluation_summary.final_states = {}
 
-      experiment_summary += example_experiment_summary
+      evaluation_summary += example_evaluation_summary
       if aggregation_functions:
         for aggregation_function in aggregation_functions:
-          aggregation_function(experiment_summary, example_experiment_summary)
+          aggregation_function(evaluation_summary, example_evaluation_summary)
 
   # TODO: Capture the backend and tool caches and store them in the
-  # experiment summary too.
+  # evaluation summary too.
 
-  return experiment_summary
+  return evaluation_summary
 
 
-def write_experiment_summary_as_json(
-    summary: results.ExperimentSummary, output_dir: str
+def write_evaluation_summary_as_json(
+    summary: results.EvaluationSummary, output_dir: str
 ) -> None:
-  """Writes experiment results as JSON files in the given directory.
+  """Writes evaluation results as JSON files in the given directory.
 
   Args:
-    summary: The experiment summary to write.
+    summary: The evaluation summary to write.
     output_dir: The directory to write the results to.
   """
-  logging.info('Writing experiment summary to: %s', output_dir)
+  logging.info('Writing evaluation summary to: %s', output_dir)
   os.makedirs(output_dir, exist_ok=True)
 
   # Make sure that the contents of each file that we will write are sorted in a

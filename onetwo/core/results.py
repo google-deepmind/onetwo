@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data structures for storing results of prompting and experiment execution."""
+"""Data structures for storing results of prompting and evaluation."""
 
 from __future__ import annotations
 
@@ -135,7 +135,7 @@ class ExecutionResult:
   # Fields currently relevant only at the top level.
   # TODO: We should revisit whether it makes sense to use
   # an info data structure like this in lower levels of the execution hierarchy
-  # as well; if not, it may be cleaner to move this into `ExperimentResult`.
+  # as well; if not, it may be cleaner to move this into `EvaluationResult`.
   info: dict[str, Any] = dataclasses.field(
       default_factory=dict,
       metadata=dataclasses_json.config(exclude=_exclude_empty),
@@ -340,11 +340,11 @@ def get_short_values_tree(result: ExecutionResult) -> str:
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass
-class ExperimentResult(ExecutionResult):
-  """Full results of an experiment run on a given example, with metrics.
+class EvaluationResult(ExecutionResult):
+  """Full results of an evaluation run on a given example, with metrics.
 
   Corresponds more or less one-to-one to the contents of a single record of the
-  'results_debug.json' file that is output at the end of each experiment run.
+  'results_debug.json' file that is output at the end of each evaluation run.
   The 'results.json' file  contains the same content, but with the 'stages'
   field and a few keys of the other mappings omitted.
 
@@ -367,7 +367,7 @@ class ExperimentResult(ExecutionResult):
   )
   # pytype: enable=wrong-arg-types
 
-  def to_compact_record(self) -> 'ExperimentResult':
+  def to_compact_record(self) -> 'EvaluationResult':
     """Returns a compact version of self for writing to `results.json`."""
     record_compact = copy.deepcopy(self)
     record_compact.stages = []
@@ -391,14 +391,18 @@ class ExperimentResult(ExecutionResult):
   @classmethod
   def from_execution_result(
       cls, execution_result: ExecutionResult
-  ) -> 'ExperimentResult':
-    """Returns an ExperimentResult with the same content as execution_result."""
-    experiment_result = ExperimentResult()
+  ) -> 'EvaluationResult':
+    """Returns an EvaluationResult with the same content as execution_result."""
+    evaluation_result = EvaluationResult()
     for field in dataclasses.fields(ExecutionResult):
       setattr(
-          experiment_result, field.name, getattr(execution_result, field.name)
+          evaluation_result, field.name, getattr(execution_result, field.name)
       )
-    return experiment_result
+    return evaluation_result
+
+
+# Deprecated alias, kept temporarily for backwards compatibility.
+ExperimentResult = EvaluationResult
 
 
 def execution_result_from_dict(data: dict[str, Any]) -> ExecutionResult:
@@ -413,22 +417,22 @@ def execution_result_from_dict(data: dict[str, Any]) -> ExecutionResult:
   return result
 
 
-def experiment_result_from_dict(data: dict[str, Any]) -> ExperimentResult:
-  """Returns an ExperimentResult restored from structure created by to_dict."""
-  result = ExperimentResult.from_dict(data)
+def evaluation_result_from_dict(data: dict[str, Any]) -> EvaluationResult:
+  """Returns an EvaluationResult restored from structure created by to_dict."""
+  result = EvaluationResult.from_dict(data)
   # See note on `execution_result_from_dict` above for why this is needed.
   result.stages = list(execution_result_from_dict(s) for s in result.stages)
   return result
 
 
 @dataclasses.dataclass
-class ExperimentTiming:
-  """Timing information for an experiment.
+class EvaluationTiming:
+  """Timing information for an evaluation run.
 
   Attributes:
-    start_time: The start time of the experiment.
-    end_time: The start time of the experiment.
-    time_elapsed: The time elapsed from beginning to end of the experiment.
+    start_time: The start time of the evaluation.
+    end_time: The end time of the evaluation.
+    time_elapsed: The time elapsed from beginning to end of the evaluation.
   """
   start_time: datetime.datetime = datetime.datetime.now()
   end_time: datetime.datetime = datetime.datetime.now()
@@ -439,36 +443,36 @@ class ExperimentTiming:
 
 
 @dataclasses.dataclass
-class ExperimentSummary:
-  """Summary of the results of an experiment.
+class EvaluationSummary:
+  """Summary of the results of an evaluation run.
 
   Attributes:
-    timing: Experiment timing information.
+    timing: Evaluation timing information.
     metrics: Mapping of metric name to metric value.
     counters: Mapping of counter name to counter value.
     info: Mapping that can be used for storing arbitrary aggregated information
       about the evaluation results, beyond what is stored in `metrics` and
       `counters`. Unlike `metrics` and `counters`, which are averaged or summmed
-      in a standard way when adding `ExperimentSummary` objects, the `info`
-      field is not updated automatically during addition of `ExperimentSummary`
+      in a standard way when adding `EvaluationSummary` objects, the `info`
+      field is not updated automatically during addition of `EvaluationSummary`
       objects; its management is instead left entirely up to the code that
-      constructs the `ExperimentSummary` objects.
+      constructs the `EvaluationSummary` objects.
     example_keys: Mapping of example index to example key.
-    results: Mapping of example key to experiment result (w/o detailed trace).
-    results_debug: Mapping of example key to experiment result (w/ detailed
+    results: Mapping of example key to evaluation result (w/o detailed trace).
+    results_debug: Mapping of example key to evaluation result (w/ detailed
       trace).
     final_states: Mapping of example key to final state of agent. Only relevant
       when the strategy is a subclass of `Agent`.
   """
-  timing: ExperimentTiming = dataclasses.field(default_factory=ExperimentTiming)
+  timing: EvaluationTiming = dataclasses.field(default_factory=EvaluationTiming)
   metrics: dict[str, float] = dataclasses.field(default_factory=dict)
   counters: collections.Counter[str] = dataclasses.field(
       default_factory=collections.Counter)
   info: dict[str, Any] = dataclasses.field(default_factory=dict)
   example_keys: dict[int, str|int] = dataclasses.field(default_factory=dict)
-  results: dict[str|int, ExperimentResult] = dataclasses.field(
+  results: dict[str|int, EvaluationResult] = dataclasses.field(
       default_factory=dict)
-  results_debug: dict[str|int, ExperimentResult] = dataclasses.field(
+  results_debug: dict[str|int, EvaluationResult] = dataclasses.field(
       default_factory=dict)
   final_states: dict[str|int, Any] = dataclasses.field(default_factory=dict)
   # TODO: Support storing traces output by custom tracers.
@@ -477,7 +481,7 @@ class ExperimentSummary:
       self, example_index: int, example_key: str|int) -> None:
     """Replaces the example index and keys in the summary with the given ones.
 
-    This is intended to be used only in the case where the ExperimentSummary
+    This is intended to be used only in the case where the EvaluationSummary
     contains the results of just a single example.
 
     Args:
@@ -492,7 +496,7 @@ class ExperimentSummary:
     )
     if (len(current_example_keys) > 1):
       raise ValueError(
-          'Cannot replace example index and key in ExperimentSummary with '
+          'Cannot replace example index and key in EvaluationSummary with '
           'multiple examples.')
     self.example_keys = {example_index: example_key}
     if self.results:
@@ -504,21 +508,21 @@ class ExperimentSummary:
       self.final_states[example_key] = self.final_states.pop(
           list(self.final_states.keys())[0])
 
-  def __iadd__(self, other: ExperimentSummary) -> ExperimentSummary:
-    """Adds the contents of the given experiment summary to the current one.
+  def __iadd__(self, other: EvaluationSummary) -> EvaluationSummary:
+    """Adds the contents of the given evaluation summary to the current one.
 
     Updates all attributes in-place.
 
     Note that we intentionally do not provide an implementation for ordinary
-    `__add__`, as normally when adding experiment summary objects the typical
-    pattern is to have one summary representing the experiment as a whole and
-    then to add it summaries representing the incremental results from
-    evaluation of individual examples in the experiment. In such cases, it is
-    much more efficient to use `__iadd__`, so as to avoid unnecessary copying
-    of the increasingly large summary object of the full experiment.
+    `__add__`, as normally when adding evaluation summary objects the typical
+    pattern is to have one summary representing the evaluation run as a whole
+    and then to add it summaries representing the incremental results from
+    evaluation of individual examples in the evaluation run. In such cases, it
+    is much more efficient to use `__iadd__`, so as to avoid unnecessary copying
+    of the increasingly large summary object of the full evaluation run.
 
     Args:
-      other: The other experiment summary to add.
+      other: The other evaluation summary to add.
 
     Returns:
       Self (after updating with the contents of `other`).
@@ -532,7 +536,7 @@ class ExperimentSummary:
     for metric_name in self.metrics.keys() | other.metrics.keys():
       self_value = self.metrics.get(metric_name, 0.0)
       other_value = other.metrics.get(metric_name, 0.0)
-      # If the metric value is explicitly defined in an ExperimentSummary, then
+      # If the metric value is explicitly defined in an EvaluationSummary, then
       # we expect the corresponding counter value to also be explicitly defined.
       # The preferred approach is to define a separate counter for each metric,
       # so that we can decide individually for each metric whether to include a
@@ -559,7 +563,7 @@ class ExperimentSummary:
         self.metrics[metric_name] = numerator / denominator
       else:
         logging.warning(
-            'Attempting to add ExperimentSummary objects that have values'
+            'Attempting to add EvaluationSummary objects that have values'
             ' defined for metric %r, but no corresponding counter: metrics1=%s,'
             ' metrics2=%s, counters1=%s, counters2=%s',
             metric_name,
@@ -579,12 +583,12 @@ class ExperimentSummary:
 
 @dataclasses.dataclass
 class HTMLRenderer:
-  """Renders ExecutionResult(s) or ExperimentSummary in HTML format.
+  """Renders ExecutionResult(s) or EvaluationSummary in HTML format.
 
   Attributes:
     levels_to_expand: Number of levels in the hierarchy to expand by default,
       when rendering a single result or list of results. (When rendering an
-      entire ExperimentSummary, we display only the top level initially.)
+      entire EvaluationSummary, we display only the top level initially.)
   """
 
   # Public attributes.
@@ -699,8 +703,8 @@ class HTMLRenderer:
       outputs = result.outputs
     # TODO: Remove the special treatment of the special outputs key
     # 'target', once we support storing non-dict targets directly in the
-    # ExperimentResult.
-    if isinstance(result, ExperimentResult):
+    # EvaluationResult.
+    if isinstance(result, EvaluationResult):
       if isinstance(result.targets, dict) and set(result.targets.keys()) == {
           'target'
       }:
@@ -765,7 +769,7 @@ class HTMLRenderer:
         lines.append(f'<li><b>error</b>: {result.error}</li>')
       if result.info:
         lines.append(f'<li><b>info</b>: {result.info}</li>')
-      if isinstance(result, ExperimentResult):
+      if isinstance(result, EvaluationResult):
         if targets:
           targets_string = self._render_single_value(
               targets, element_id=f'{element_id}t'
@@ -910,13 +914,13 @@ class HTMLRenderer:
     lines.append('</ul>')
     return '\n'.join(lines)
 
-  def _render_experiment_summary(self, summary: ExperimentSummary) -> str:
-    """Returns a rendering of the ExperimentSummary in <li>...</li>... form."""
+  def _render_evaluation_summary(self, summary: EvaluationSummary) -> str:
+    """Returns a rendering of the EvaluationSummary in <li>...</li>... form."""
     # TODO: Shall we consider `self.levels_to_expand` here? For now
     # we're ignoring it, and instead always rendering the individual sections
-    # initially in collapsed state when rendering an entire `ExperimentSummary`,
+    # initially in collapsed state when rendering an entire `EvaluationSummary`,
     # as it tends to look rather overwhelming to have many different
-    # ExperimentResult objects expanded all at once.
+    # EvaluationResult objects expanded all at once.
     lines = []
     if summary.timing:
       timing_string = self._render_single_value(
@@ -1052,8 +1056,8 @@ class HTMLRenderer:
           element_id=element_id,
           levels_to_expand=self.levels_to_expand,
       )
-    elif isinstance(object_to_render, ExperimentSummary):
-      content_string = self._render_experiment_summary(object_to_render)
+    elif isinstance(object_to_render, EvaluationSummary):
+      content_string = self._render_evaluation_summary(object_to_render)
     else:
       raise ValueError(
           f'Unsupported type {type(object_to_render)}): {object_to_render}'
@@ -1068,3 +1072,4 @@ class HTMLRenderer:
 </div>
 """
     return rendered_html
+
