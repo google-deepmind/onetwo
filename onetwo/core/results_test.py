@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import collections
+from collections.abc import Sequence
 import copy
 import datetime
 import logging
@@ -29,6 +30,25 @@ import termcolor
 
 STAGE_DECOMP = 'decomp'
 STAGE_TRANSLATE = 'translate'
+
+
+def _get_html_parse_error_string(
+    parse_errors: Sequence[tuple[tuple[int, int], str, dict[str, Any]]],
+    html: str,
+) -> str:
+  """Returns a readable representation of the html5lib.HTMLParser errors."""
+  expanded_html_lines = html.splitlines()
+  result_lines = []
+  for pos, error_name, datavars in parse_errors:
+    del datavars
+    error_row = pos[0] - 1
+    error_col = pos[1] - 1
+    # Print the error message.
+    result_lines.append(error_name)
+    # Print the problematic line.
+    result_lines.append(expanded_html_lines[error_row])
+    result_lines.append(' ' * error_col + '^')
+  return '\n'.join(result_lines)
 
 
 class EvaluationResultTest(absltest.TestCase):
@@ -899,6 +919,7 @@ class HTMLRendererTest(parameterized.TestCase):
               },
           ),
       ),
+      ('list_with_single_summary', [results.EvaluationSummary()]),
   )
   def test_render_returns_valid_html(self, object_to_render: Any):
     renderer = results.HTMLRenderer()
@@ -910,62 +931,214 @@ class HTMLRendererTest(parameterized.TestCase):
     expanded_html = f'<!DOCTYPE html><html>{html}</html>'
     parser = html5lib.HTMLParser()
     parser.parse(expanded_html)
-    self.assertEmpty(parser.errors)
+    self.assertEmpty(
+        parser.errors,
+        _get_html_parse_error_string(parser.errors, expanded_html),
+    )
 
   @parameterized.named_parameters(
       (
-          'empty_outer_result_with_single_stage',
+          'should_skip_empty_outer_result_with_single_stage',
           results.ExecutionResult(
-              stages=[results.ExecutionResult(stage_name='stage1')]
+              stages=[
+                  results.ExecutionResult(
+                      stage_name='stage1',
+                      inputs={'i1': 'i_v1'},
+                      outputs={'output': 'y'},
+                  )
+              ]
           ),
-          True,
+          1,
       ),
       (
-          'empty_outer_result_with_multiple_stages',
+          'should_not_skip_empty_outer_result_with_multiple_stages',
           results.ExecutionResult(
               stages=[
                   results.ExecutionResult(stage_name='stage1'),
                   results.ExecutionResult(stage_name='stage2'),
               ]
           ),
-          False,
+          3,
       ),
       (
-          'outer_result_has_non_empty_name',
+          'should_not_skip_outer_result_with_non_empty_name',
           results.ExecutionResult(
               stage_name='empty_outer_stage',
               stages=[
                   results.ExecutionResult(stage_name='stage1'),
-              ]
+              ],
           ),
-          False,
+          2,
       ),
       (
-          'outer_result_has_non_empty_inputs',
+          'should_not_skip_outer_result_with_non_empty_inputs',
           results.ExecutionResult(
               inputs={'i1': 'i_v1'},
               stages=[results.ExecutionResult(stage_name='stage1')],
           ),
-          False,
+          2,
       ),
       (
-          'outer_result_has_non_empty_outputs',
+          'should_not_skip_outer_result_with_non_empty_outputs',
           results.ExecutionResult(
               outputs={'o1': 'o_v1'},
-              stages=[results.ExecutionResult(stage_name='stage1')]
+              stages=[results.ExecutionResult(stage_name='stage1')],
           ),
-          False,
+          2,
       ),
   )
   def test_render_skips_empty_outer_result_placeholder(
-      self, object_to_render: Any, should_skip_outer_result: bool
+      self, object_to_render: Any, expected_number_of_result_blocks: bool
   ):
+    # Note that we wrap the `object_to_render` in a list, as this will cause
+    # the renderer to attempt to render the object in a collapsible form (via
+    # referencing to the element_id), which allows us to more easily verify
+    # whether the outer result element was skipped or not.
     renderer = results.HTMLRenderer()
-    html = renderer.render(object_to_render, element_id='0')
+    html = renderer.render([object_to_render], element_id='0')
     logging.info('Rendered HTML: %s', html)
 
-    skipped_outer_result = 'id="0"' not in html
-    self.assertEqual(should_skip_outer_result, skipped_outer_result)
+    # We expect there to be exactly one `toggle_element` directive for each
+    # result object that was actually displayed.
+    self.assertEqual(
+        expected_number_of_result_blocks,
+        html.count('onClick="toggleElements'),
+        f'Full html:\n{html}',
+    )
+
+  def test_render_generates_correct_content(self):
+    object_to_render = results.EvaluationResult(
+        stage_name='MyStrategy',
+        inputs={'i1': 'i_v1'},
+        outputs={
+            'o_very_long_key1': 'o_very_long_value1',
+            'o_very_long_key2': 'o_very_long_value2',
+            'o_very_long_key3': 'o_very_long_value3',
+        },
+        stages=[
+            results.ExecutionResult(
+                stage_name='stage1',
+                inputs={'i2': 'i_v2'},
+                outputs={'o2': 'o_v2'},
+            ),
+        ],
+        targets={'t1': 't_v1'},
+        metrics={'m1': 0.1},
+    )
+
+    renderer = results.HTMLRenderer()
+    html = renderer.render(object_to_render)
+    logging.info('Rendered HTML: %s', html)
+
+    with self.subTest('javascript_appears_exactly_once'):
+      self.assertEqual(
+          1,
+          html.count('function toggleElement(element_id)'),
+          f'\nFull html:\n{html}',
+      )
+
+    with self.subTest('element_ids_are_correctly_paired_with_toggle_commands'):
+      self.assertEqual(
+          1,
+          html.count("toggleElements(['0o', '0oc'])"),
+          f'\nFull html:\n{html}',
+      )
+      self.assertEqual(1, html.count('id="0o"'), f'\nFull html:\n{html}')
+      self.assertEqual(1, html.count('id="0oc"'), f'\nFull html:\n{html}')
+
+    with self.subTest('top_level_stage_name'):
+      self.assertIn(
+          '<b><u>MyStrategy</u></b> ', html, f'\nFull html:\n{html}'
+      )
+
+    with self.subTest('inner_stage_names'):
+      self.assertIn('<b><u>stage1</u></b> ', html, f'\nFull html:\n{html}')
+
+    with self.subTest('result_keys'):
+      self.assertIn('<b>inputs:</b> ', html, f'\nFull html:\n{html}')
+
+    with self.subTest('result_collapsed_html'):
+      self.assertIn(
+          "{'i2': 'i_v2'} <b>&rArr;</b> {'o2': 'o_v2'}",
+          html,
+          f'\nFull html:\n{html}',
+      )
+
+    with self.subTest('long_dicts_displayed_in_multiple_lines'):
+      self.assertIn('<b>o_very_long_key1:</b> ', html, f'\nFull html:\n{html}')
+
+    with self.subTest('long_dicts_include_data_type_and_size_on_first_line'):
+      self.assertIn('dict(3)', html, f'\nFull html:\n{html}')
+
+    with self.subTest('short_dicts_displayed_inline'):
+      self.assertIn(
+          "<li><b>inputs:</b> {'i1': 'i_v1'}</li>",
+          html,
+          f'\nFull html:\n{html}',
+      )
+      self.assertNotIn('<b>i1:</b> ', html, f'\nFull html:\n{html}')
+
+  def test_custom_renderer(self):
+    def dict_renderer(
+        renderer: results.HTMLRenderer,
+        object_to_render: Any,
+        *,
+        element_id: str,
+        levels_to_expand: int,
+    ) -> results.HTMLObjectRendering | None:
+      """Renders a dict as a string of the form 'dict_renderer(keys=[...])'."""
+      if not isinstance(object_to_render, dict):
+        return None
+      rendered_keys = [
+          renderer.render_object(
+              k,
+              element_id=f'{element_id}-{i}',
+              levels_to_expand=levels_to_expand - 1,
+          ).html
+          for i, k in enumerate(object_to_render.keys())
+      ]
+      return results.HTMLObjectRendering(
+          html=f'dict_renderer(keys={rendered_keys})', collapsible=False
+      )
+
+    renderer = results.HTMLRenderer(custom_renderers=[dict_renderer])
+
+    object_to_render = results.EvaluationResult(
+        stage_name='MyStrategy',
+        inputs={'i1': 'i_v1'},
+        outputs={'o1': 'o_v1'},
+        stages=[
+            results.ExecutionResult(
+                stage_name='stage1',
+                inputs={'i2': 'i_v2'},
+                outputs={'o2': 'o_v2'},
+            ),
+        ],
+        targets={'t1': 't_v1'},
+        metrics={'m1': 0.1},
+    )
+
+    html = renderer.render(object_to_render)
+    logging.info('Rendered HTML: %s', html)
+
+    with self.subTest('should_render_custom_content_for_dict'):
+      self.assertIn(
+          '<b>inputs:</b> dict_renderer(keys=["\'i1\'"])',
+          html,
+          f'\nFull html:\n{html}',
+      )
+      self.assertIn(
+          '<b>outputs:</b> dict_renderer(keys=["\'o1\'"])',
+          html,
+          f'\nFull html:\n{html}',
+      )
+
+    with self.subTest('should_render_standard_content_for_other_types'):
+      self.assertIn(
+          "{'i2': 'i_v2'} <b>&rArr;</b> {'o2': 'o_v2'}",
+          html,
+          f'\nFull html:\n{html}',
+      )
 
 if __name__ == '__main__':
   absltest.main()

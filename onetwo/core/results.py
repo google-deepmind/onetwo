@@ -21,10 +21,11 @@ from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
 import datetime
+import itertools
 import logging
 import pprint
 import textwrap
-from typing import Any
+from typing import Any, Protocol
 
 import dataclasses_json
 import termcolor
@@ -578,26 +579,114 @@ class EvaluationSummary:
 
 
 @dataclasses.dataclass
+class HTMLObjectRendering:
+  """Reply from an HTMLObjectRenderer.
+
+  Attributes:
+    html: The full HTML rendering of the object. In cases where the object is to
+      be rendered in a collapsible form, this is the rendering that is to be
+      used when it is in expanded state.
+    collapsed_html: The HTML rendering of the object to use when it is in
+      collapsed state. If `None`, then it will fall back to the default. Only
+      relevant when `collapsible` is True.
+    title: The title to be shown in boldface contually (both when collapsed
+      and when expanded), in cases where the object is rendered in a collapsible
+      form. If `None`, then falls back to the default.
+    expanded: Whether the object should be rendered in expanded state by
+      default. Only relevant when `collapsible` is True.
+    collapsible: Whether to render the object in a collapsible form (in cases
+      where such an option is available).
+  """
+  html: str = ''
+  collapsed_html: str | None = dataclasses.field(default=None, kw_only=True)
+  title: str | None = dataclasses.field(default=None, kw_only=True)
+  expanded: bool = dataclasses.field(default=False, kw_only=True)
+  collapsible: bool = dataclasses.field(default=True, kw_only=True)
+
+
+class HTMLObjectRenderer(Protocol):
+  """Callable for rendering a specific type of object as HTML."""
+
+  def __call__(
+      self,
+      renderer: HTMLRenderer,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+  ) -> HTMLObjectRendering | None:
+    """Returns an HTML rendering of the given object, or `None` to punt.
+
+    The typical use case is for registering a list of custom renderers, each
+    of which is intended to handle a specific type of object. The renderers are
+    called in order of registration, and the first renderer to return a non-None
+    value is the one that is used to render the object.
+
+    Args:
+      renderer: The original renderer that is calling this custom renderer. The
+        custom renderer can make recursive calls to `renderer.render_object` to
+        delegate the rendering of child nodes to the original renderer
+        (including the full list of registered custom renderers).
+      object_to_render: The object to render.
+      element_id: The id to be used for the outermost HTML element returned by
+        this function. Ids for inner elements are expected to be constructed by
+        appending suffixes to this id.
+      levels_to_expand: The number of levels in the hierarchy below this one to
+        expand by default, for elements that are capable of
+        expanding/collapsing. When making recursive calls for rendering child
+        nodes, levels_to_expand should be reduced by 1. If levels_to_expand
+        <= 0, then the element should be rendered in collapsed state, and no
+        calls should be made for rendering child nodes.
+    """
+    ...
+
+
+def _is_update_list_state(object_to_render: Any) -> bool:
+  """Returns whether the given object is an `UpdateListState` object."""
+  # We detect this case by inspecting the object's attributes rather than
+  # via `instanceof` to avoid a circular dependency on `agents_base.py`.
+  # TODO: Come up with a cleaner way of configuring a default set of
+  # agent-specific renderers, without introducing dependencies from the core
+  # code to the individual agent modules.
+  return hasattr(object_to_render, 'inputs') and hasattr(
+      object_to_render, 'updates'
+  )
+
+
+@dataclasses.dataclass
 class HTMLRenderer:
-  """Renders ExecutionResult(s) or EvaluationSummary in HTML format.
+  """Renders Execution[Result|Summary] and related objects in HTML format.
 
   Attributes:
     levels_to_expand: Number of levels in the hierarchy to expand by default,
       when rendering a single result or list of results. (When rendering an
       entire EvaluationSummary, we display only the top level initially.)
+    custom_renderers: List of custom renderers to use for rendering specific
+      types of objects. The function should return a string containing the
+      rendered HTML (if the object is of the type that the renderer is intended
+      to handle), or None (to defer to  the next renderer in the list).
   """
 
   # Public attributes.
   levels_to_expand: int = 3
+  custom_renderers: list[HTMLObjectRenderer] = dataclasses.field(
+      default_factory=list
+  )
 
   # =========================================================================
   # Private attributes. (Not exposing them publicly yet, as they may change.)
   # =========================================================================
 
-  # Maximum length of the single-line representation of a stage's content string
-  # to show when the stage is in collapsed state. If longer than this, it will
-  # be truncated, with '...'.
-  _max_stage_content_summary_length: int = 160
+  # Number of additional levels (beyond `levels_to_expand`) to render upfront
+  # in HTML (in collapsed state) so that they can be expanded later. Setting
+  # some limit here is useful, among other things, in helping avoid the risk of
+  # infinite recursion in the case of a bug in the rendering code.
+  _additional_levels_to_make_expandable: int = 20
+
+  # Maximum length of the single-line representation of an object to show when
+  # it is in collapsed state. If longer than this, it will be truncated, with
+  # '...'.
+  _max_collapsed_rendering_length: int = 160
 
   # Maximum length for displaying a single value (e.g., input or output) of dict
   # or list type on a single line. If the value's string representation is
@@ -607,80 +696,70 @@ class HTMLRenderer:
   _max_single_line_value_string_length: int = 80
 
   def _render_llm_request_reply(
-      self, request: str, reply: str, element_id: str | None = None
+      self, request: str, reply: str, element_id: str, levels_to_expand: int
   ) -> str:
     """Returns HTML rendering the request/reply as multi-line colored text."""
     # TODO: Support roles and multi-modal requests/replies.
+    del element_id, levels_to_expand
     updated_request = request.replace('\n', '<br>')
     updated_reply = reply.replace('\n', '<br>')
-    id_string = f' id="{element_id}"' if element_id is not None else ''
     return (
-        f'<p{id_string} style="color:black;background-color:white"><span'
-        f' style="color:black">{updated_request}</span><span'
-        f' style="color:blue">{updated_reply}</span></p>'
+        '<p style="color:black;background-color:white">'
+        f'<span style="color:black">{updated_request}</span>'
+        f'<span style="color:blue">{updated_reply}</span></p>'
     )
 
-  def _render_single_value(
-      self, value: Any, *, element_id: str | None = None
-  ) -> str:
-    """Returns a rendering of the value as text or in ...<ul>...</ul> form."""
-    if not value:
-      return repr(value)
+  def _render_dict(
+      self, object_to_render: Any, *, element_id: str, levels_to_expand: int
+  ) -> HTMLObjectRendering | None:
+    """Returns a rendering of a dict as text or in ...<ul>...</ul> form."""
+    if not isinstance(object_to_render, dict):
+      return None
+    if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
+      return None
 
-    if (
-        isinstance(value, list)
-        and len(repr(value)) > self._max_single_line_value_string_length
-    ):
-      lines = []
-      lines.append(f'{type(value).__name__}({len(value)})')
-      lines.append('<ul id="{id}">')
-      for i, element in enumerate(value):
-        element_html = self._render_single_value(
-            element, element_id=f'{element_id}-{i}'
-        )
-        lines.append(f'<li>{element_html}</li>')
-      lines.append('</ul>')
-      return '\n'.join(lines)
+    lines = []
+    lines.append(f'{type(object_to_render).__name__}({len(object_to_render)})')
+    lines.append('<ul>')
+    for i, (key, value) in enumerate(object_to_render.items()):
+      lines.append(
+          self.render_object_as_collapsible_list_element(
+              value,
+              title=f'{key}:',
+              element_id=f'{element_id}-{i}',
+              levels_to_expand=levels_to_expand-1,
+          )
+      )
+    lines.append('</ul>')
 
-    if (
-        isinstance(value, dict)
-        and len(repr(value)) > self._max_single_line_value_string_length
-    ):
-      lines = []
-      lines.append(f'{type(value).__name__}({len(value)})')
-      lines.append(f'<ul id="{element_id}">')
-      for i, (key, value) in enumerate(value.items()):
-        element_html = self._render_single_value(
-            value, element_id=f'{element_id}-{i}'
-        )
-        lines.append(f'<li><b>{key}</b>: {element_html}</li>')
-      lines.append('</ul>')
-      return '\n'.join(lines)
-
-    # Default handling.
-    return repr(value)
+    return HTMLObjectRendering(
+        html='\n'.join(lines),
+        expanded=(levels_to_expand > 0),
+    )
 
   def _render_result(
-      self,
-      result: ExecutionResult,
-      *,
-      element_id: str,
-      stage_number: int | None = None,
-      levels_to_expand: int = 0,
-  ) -> str:
-    """Returns a rendering of the ExecutionResult in <li>...</li>... form."""
+      self, object_to_render: Any, *, element_id: str, levels_to_expand: int
+  ) -> HTMLObjectRendering | None:
+    """Returns a rendering of an ExecutionResult in ...<ul>...</ul> form."""
+    if not isinstance(object_to_render, ExecutionResult):
+      return None
+    result = object_to_render
+
     # Skip over redundant ExecutionResult objects that are simply empty wrappers
     # for a single ExecutionResult stage that contains the actual content. This
     # situation commonly occurs in the outermost layer of the ExecutionResult
     # that is returned when `executing.run` is called with
     # `enabled_tracing=True`.
+    # TODO: Make the redundancy check more robust -- e.g., consider
+    # whether the result may be an `EvaluationResult` with metrics or targets
+    # populated.
     if (
         not result.stage_name
         and not result.inputs
         and not result.outputs
         and len(result.stages) == 1
     ):
-      return self._render_result(
+      return self.render_object(
           result.stages[0],
           # We still specify a different element_id, so that we can detect in
           # the unit tests whether we skipped over the outer element or not.
@@ -697,6 +776,9 @@ class HTMLRenderer:
       outputs = result.outputs.get('output')
     else:
       outputs = result.outputs
+
+    collapsed_html = f'{result.inputs!r} <b>&rArr;</b> {outputs!r}'
+
     # TODO: Remove the special treatment of the special outputs key
     # 'target', once we support storing non-dict targets directly in the
     # EvaluationResult.
@@ -710,237 +792,210 @@ class HTMLRenderer:
     else:
       targets = {}
 
-    stage_number_str = (
-        f'[{stage_number+1}] ' if stage_number is not None else ''
-    )
-    stage_content_str = f'{result.inputs!r} <b>&rArr;</b> {outputs!r}'
-    if len(stage_content_str) > self._max_stage_content_summary_length:
-      stage_content_str = (
-          stage_content_str[:self._max_stage_content_summary_length] + '...'
-      )
-    expanded = levels_to_expand > 0
-    if expanded:
-      content_string_style = 'display:none'
-      content_block_style = 'display:block'
-    else:
-      content_string_style = 'display:inline'
-      content_block_style = 'display:none'
-    lines = []
-    lines.append(
-        f"<li onClick=\"toggleElements(['{element_id}', '{element_id}c'])\">"
-        f'<b>{stage_number_str}<u>{result.stage_name}</u></b>'
-        f' <div id="{element_id}c"'
-        f' style="{content_string_style}">{stage_content_str}</div></li>'
-    )
+    # Special formatting for leaf-level LLM requests.
     if result.stage_name == 'generate_text' and not result.stages:
-      # Special formatting for leaf-level LLM requests.
       request = result.inputs.get('request', 'MISSING_REQUEST_FIELD')
       reply = result.outputs.get('output', 'MISSING_OUTPUT_FIELD')
       request_reply_string = self._render_llm_request_reply(
-          request=request, reply=reply
+          request=request,
+          reply=reply,
+          element_id=f'{element_id}rr',
+          levels_to_expand=levels_to_expand - 1,
       )
-      lines.append(
-          f'<div id="{element_id}"'
-          f' style="{content_block_style}">{request_reply_string}</div>'
+      return HTMLObjectRendering(
+          html=request_reply_string,
+          collapsed_html=collapsed_html,
+          expanded=(levels_to_expand > 0),
       )
-    else:
-      # Default formatting for arbitrary prompting stages.
-      lines.append(f'<ul id="{element_id}" style="{content_block_style}">')
-      lines.append(f'<!--<li><b>stage_name</b>: {result.stage_name}</li>-->')
-      inputs_string = self._render_single_value(
-          result.inputs, element_id=f'{element_id}i'
-      )
-      lines.append(
-          '<li><span onClick="toggleElement(\'{element_id}i\')"><b>inputs</b>'
-          f'</span>: {inputs_string}</li>'
-      )
-      outputs_string = self._render_single_value(
-          outputs, element_id=f'{element_id}o'
-      )
-      lines.append(
-          '<li><span onClick="toggleElement(\'{element_id}o\')">'
-          f'<b>outputs</b></span>: {outputs_string}</li>'
-      )
-      if result.error:
-        lines.append(f'<li><b>error</b>: {result.error}</li>')
-      if result.info:
-        lines.append(f'<li><b>info</b>: {result.info}</li>')
-      if isinstance(result, EvaluationResult):
-        if targets:
-          targets_string = self._render_single_value(
-              targets, element_id=f'{element_id}t'
-          )
-          lines.append(
-              '<li><span onClick="toggleElement(\'{element_id}t\')">'
-              f'<b>targets</b></span>: {targets_string}</li>'
-          )
-        if result.metrics:
-          metrics_string = self._render_single_value(
-              result.metrics, element_id=f'{element_id}m'
-          )
-          lines.append(
-              '<li><span onClick="toggleElement(\'{element_id}m\')">'
-              f'<b>metrics</b></span>: {metrics_string}</li>'
-          )
-      if result.stages:
-        for i, stage in enumerate(result.stages):
-          lines.append(
-              self._render_result(
-                  stage,
-                  element_id=f'{element_id}-{i}',
-                  stage_number=i if len(result.stages) > 1 else None,
-                  levels_to_expand=levels_to_expand - 1,
-              )
-          )
-      lines.append('</ul>')
-    return '\n'.join(lines)
 
-  def _render_result_list(
-      self,
-      result_list: Sequence[ExecutionResult],
-      *,
-      element_id: str,
-      levels_to_expand: int = 0,
-  ) -> str:
-    """Returns a rendering of the ExecutionResults in <ul>...</ul> form."""
+    # Default formatting for arbitrary prompting stages.
     lines = []
-    lines.append(f'<ul id="{element_id}">')
-    for i, result in enumerate(result_list):
+    lines.append('<ul>')
+    lines.append(
+        self.render_object_as_collapsible_list_element(
+            result.inputs,
+            title='inputs:',
+            element_id=f'{element_id}i',
+            levels_to_expand=levels_to_expand - 1,
+        )
+    )
+    lines.append(
+        self.render_object_as_collapsible_list_element(
+            outputs,
+            title='outputs:',
+            element_id=f'{element_id}o',
+            levels_to_expand=levels_to_expand - 1,
+        )
+    )
+    if result.error:
       lines.append(
-          self._render_result(
-              result,
-              element_id=f'{element_id}-{i}',
-              stage_number=i,
-              levels_to_expand=levels_to_expand,
+          self.render_object_as_collapsible_list_element(
+              result.error,
+              title='error:',
+              element_id=f'{element_id}-error',
+              levels_to_expand=levels_to_expand - 1,
           )
       )
+    if result.info:
+      lines.append(
+          self.render_object_as_collapsible_list_element(
+              result.info,
+              title='info:',
+              element_id=f'{element_id}-info',
+              levels_to_expand=levels_to_expand - 1,
+          )
+      )
+    if isinstance(result, EvaluationResult):
+      if targets:
+        lines.append(
+            self.render_object_as_collapsible_list_element(
+                targets,
+                title='targets:',
+                element_id=f'{element_id}t',
+                levels_to_expand=levels_to_expand - 1,
+            )
+        )
+      if result.metrics:
+        lines.append(
+            self.render_object_as_collapsible_list_element(
+                result.metrics,
+                title='metrics:',
+                element_id=f'{element_id}m',
+                levels_to_expand=levels_to_expand - 1,
+            )
+        )
+    if result.stages:
+      for i, stage in enumerate(result.stages):
+        lines.append(
+            self.render_object_as_collapsible_list_element(
+                stage,
+                element_id=f'{element_id}-{i}',
+                index_within_list=i if len(result.stages) > 1 else None,
+                levels_to_expand=levels_to_expand - 1,
+            )
+        )
     lines.append('</ul>')
-    return '\n'.join(lines)
+
+    return HTMLObjectRendering(
+        html='\n'.join(lines),
+        collapsed_html=collapsed_html,
+        title=f'<u>{result.stage_name}</u>' if result.stage_name else None,
+        expanded=(levels_to_expand > 0),
+    )
 
   def _render_agent_state(
-      self,
-      state: Any,
-      *,
-      element_id: str,
-      stage_number: int | None = None,
-      levels_to_expand: int = 0,
-  ) -> str:
+      self, object_to_render: Any, *, element_id: str, levels_to_expand: int = 0
+  ) -> HTMLObjectRendering | None:
     """Returns a rendering of the state as text or in ...<ul>...</ul> form."""
-    if stage_number is None:
-      stage_number_str = ''
-    else:
-      stage_number_str = f'[{stage_number+1}] '
-
-    type_string = f'{type(state).__name__}'
-    try:
-      # Special handling for the common case of `UpdateListState`.
-      # We detect this case via `try...except` because `UpdateListState` is a
-      # generic and does not `instanceof`.
-      content_str = (
-          f'{state.inputs!r} <b>&rArr;</b> {len(state.updates)} updates'
-      )
-      # If we get this far, then `state` must be an instance of
-      # `UpdateListState`, or at least something that looks and acts like one.
-      is_update_list_state = True
-    except TypeError:
-      # Default handling where `state` is not an `UpdateListState`.
-      content_str = repr(state)
-      is_update_list_state = False
-
-    expanded = (levels_to_expand > 0)
-    if expanded:
-      content_string_style = 'display:none'
-      content_block_style = 'display:block'
-    else:
-      content_string_style = 'display:inline'
-      content_block_style = 'display:none'
-
-    if len(content_str) > self._max_stage_content_summary_length:
-      content_str = content_str[:self._max_stage_content_summary_length] + '...'
+    if not _is_update_list_state(object_to_render):
+      return None
+    if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
+      return None
+    state = object_to_render
 
     lines = []
+    lines.append('<ul>')
     lines.append(
-        f"<li onClick=\"toggleElements(['{element_id}', '{element_id}c'])\">"
-        f'<b>{stage_number_str}<u>{type_string}</u></b> '
-        f'<div id="{element_id}c" style="{content_string_style}">{content_str}'
-        f'</div></li>'
+        self.render_object_as_collapsible_list_element(
+            state.inputs,
+            title='inputs:',
+            element_id=f'{element_id}i',
+            # Note that we purposefully don't decrement levels_to_expand here,
+            # as it is usually more intuitive to either fully expand the inputs
+            # and updates, or to not expand them at all (rather than halfway).
+            levels_to_expand=levels_to_expand,
+        )
     )
-    if is_update_list_state:
-      # Special handling for the common case of `UpdateListState`.
-      lines.append(f'<ul id="{element_id}" style="{content_block_style}">')
-      inputs_string = self._render_single_value(
-          state.inputs, element_id=f'{element_id}i'
-      )
-      lines.append(
-          '<li><span onClick="toggleElement(\'{element_id}i\')"><b>inputs</b>'
-          f'</span>: {inputs_string}</li>'
-      )
-      update_string = self._render_single_value(
-          state.updates, element_id=f'{element_id}u'
-      )
-      lines.append(
-          '<li><span onClick="toggleElement(\'{element_id}u\')"><b>updates</b>'
-          f'</span>: {update_string}</li>'
-      )
-      lines.append('</ul>')
-    else:
-      # Default handling for arbitrary `state` types.
-      lines.append(
-          f'<div id="{element_id}" style="{content_block_style}">'
-          f'{repr(state)}</div>'
-      )
+    lines.append(
+        self.render_object_as_collapsible_list_element(
+            state.updates,
+            title='updates:',
+            element_id=f'{element_id}u',
+            # Note that we purposefully don't decrement levels_to_expand here,
+            # as it is usually more intuitive to either fully expand the inputs
+            # and updates, or to not expand them at all (rather than halfway).
+            levels_to_expand=levels_to_expand,
+        )
+    )
+    lines.append('</ul>')
 
-    return '\n'.join(lines)
+    return HTMLObjectRendering(
+        html='\n'.join(lines),
+        collapsed_html=(
+            f'{state.inputs!r} <b>&rArr;</b> {len(state.updates)} updates'
+        ),
+        expanded=(levels_to_expand > 0),
+    )
 
-  def _render_agent_state_list(
-      self, states: list[Any], *, element_id: str, levels_to_expand: int = 0
-  ) -> str:
-    """Returns a rendering of the states in <ul>...</ul> form."""
+  def _render_list(
+      self, object_to_render: Any, *, element_id: str, levels_to_expand: int = 0
+  ) -> HTMLObjectRendering | None:
+    """Returns a rendering of a seqeuence of elements in <ul>...</ul> form."""
+    if not isinstance(object_to_render, list) and not isinstance(
+        object_to_render, tuple
+    ):
+      return None
+    if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
+      return None
+
     lines = []
-    lines.append(f'<ul id="{element_id}">')
-    for i, state in enumerate(states):
+    lines.append(f'{type(object_to_render).__name__}({len(object_to_render)})')
+    lines.append('<ul>')
+    for i, element in enumerate(object_to_render):
       lines.append(
-          self._render_agent_state(
-              state,
+          self.render_object_as_collapsible_list_element(
+              element,
               element_id=f'{element_id}-{i}',
-              stage_number=i,
-              levels_to_expand=levels_to_expand,
+              index_within_list=i,
+              levels_to_expand=levels_to_expand-1,
           )
       )
     lines.append('</ul>')
-    return '\n'.join(lines)
 
-  def _render_evaluation_summary(self, summary: EvaluationSummary) -> str:
-    """Returns a rendering of the EvaluationSummary in <li>...</li>... form."""
-    # TODO: Shall we consider `self.levels_to_expand` here? For now
-    # we're ignoring it, and instead always rendering the individual sections
-    # initially in collapsed state when rendering an entire `EvaluationSummary`,
-    # as it tends to look rather overwhelming to have many different
-    # EvaluationResult objects expanded all at once.
+    return HTMLObjectRendering(
+        html='\n'.join(lines),
+        collapsed_html=(
+            f'{type(object_to_render).__name__}({len(object_to_render)})'
+        ),
+        expanded=(levels_to_expand > 0),
+    )
+
+  def _render_evaluation_summary(
+      self, object_to_render: Any, *, element_id: str, levels_to_expand: int
+  ) -> HTMLObjectRendering | None:
+    """Returns a rendering of an EvaluationSummary in <ul>...</ul>... form."""
+    if not isinstance(object_to_render, EvaluationSummary):
+      return None
+    summary = object_to_render
+
     lines = []
+    lines.append('<ul>')
     if summary.timing:
-      timing_string = self._render_single_value(
-          summary.timing, element_id='timing'
-      )
       lines.append(
-          '<li><span onClick="toggleElement(\'timing\')"><b>timing</b></span>:'
-          f' {timing_string}</li>'
+          self.render_object_as_collapsible_list_element(
+              summary.timing,
+              title='timing:',
+              element_id=f'{element_id}-timing',
+              levels_to_expand=levels_to_expand - 1,
+          )
       )
     if summary.metrics:
-      metrics_string = self._render_single_value(
-          summary.metrics, element_id='metrics'
-      )
       lines.append(
-          '<li><span onClick="toggleElement(\'metrics\')"><b>metrics</b>'
-          f'</span>: {metrics_string}</li>'
+          self.render_object_as_collapsible_list_element(
+              summary.metrics,
+              title='metrics:',
+              element_id=f'{element_id}-metrics',
+              levels_to_expand=levels_to_expand - 1,
+          )
       )
     if summary.counters:
-      counters_string = self._render_single_value(
-          summary.counters, element_id='counters'
-      )
       lines.append(
-          '<li><span onClick="toggleElement(\'counters\')"><b>counters</b>'
-          f'</span>: {counters_string}</li>'
+          self.render_object_as_collapsible_list_element(
+              summary.counters,
+              title='counters:',
+              element_id=f'{element_id}-counters',
+              levels_to_expand=levels_to_expand - 1,
+          )
       )
     if summary.results:
       if len(summary.results) != len(summary.example_keys):
@@ -953,12 +1008,11 @@ class HTMLRenderer:
           for i in sorted(summary.example_keys)
       ]
       lines.append(
-          '<li><span onClick="toggleElement(\'results\')"><b>results</b>'
-          f'</span>: {len(results_list)}</li>'
-      )
-      lines.append(
-          self._render_result_list(
-              results_list, element_id='results', levels_to_expand=0
+          self.render_object_as_collapsible_list_element(
+              results_list,
+              title='results:',
+              element_id=f'{element_id}-results',
+              levels_to_expand=levels_to_expand - 1,
           )
       )
     if summary.results_debug:
@@ -971,13 +1025,17 @@ class HTMLRenderer:
           summary.results_debug[summary.example_keys[i]]
           for i in sorted(summary.example_keys)
       ]
+      # Note that we ignore `self.levels_to_expand` here, and instead always
+      # render the individual sections initially in collapsed state when
+      # rendering an entire `EvaluationSummary`, as it tends to look rather
+      # overwhelming to have many different detailed EvaluationResult traces
+      # expanded all at once.
       lines.append(
-          '<li><span onClick="toggleElement(\'results_debug\')">'
-          f'<b>results_debug</b></span>: {len(results_debug_list)}</li>'
-      )
-      lines.append(
-          self._render_result_list(
-              results_debug_list, element_id='results_debug', levels_to_expand=0
+          self.render_object_as_collapsible_list_element(
+              results_debug_list,
+              title='results_debug:',
+              element_id=f'{element_id}-results_debug',
+              levels_to_expand=0,
           )
       )
     if summary.final_states:
@@ -991,15 +1049,169 @@ class HTMLRenderer:
           for i in sorted(summary.example_keys)
       ]
       lines.append(
-          '<li><span onClick="toggleElement(\'final_states\')">'
-          f'<b>final_states</b></span>: {len(final_state_list)}</li>'
-      )
-      lines.append(
-          self._render_agent_state_list(
-              final_state_list, element_id='final_states', levels_to_expand=0
+          self.render_object_as_collapsible_list_element(
+              final_state_list,
+              title='final_states:',
+              element_id=f'{element_id}-final_states',
+              levels_to_expand=levels_to_expand - 1,
           )
       )
-    return '\n'.join(lines)
+    lines.append('</ul>')
+    return HTMLObjectRendering(
+        html='\n'.join(lines),
+        expanded=(levels_to_expand > 0),
+    )
+
+  def render_object(
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+  ) -> HTMLObjectRendering:
+    """Returns an HTML rendering of the given object (without JavaScript, etc.).
+
+    Can be called recursively to render nested objects.
+
+    Args:
+      object_to_render: The object to render.
+      element_id: The id to be used for the outermost HTML element returned by
+        this function. Ids for inner elements are expected to be constructed
+        by appending suffixes to this id.
+      levels_to_expand: The number of levels in the hierarchy below this one to
+        expand by default, for elements that are capable of
+        expanding/collapsing. When making recursive calls for rendering child
+        nodes, levels_to_expand is expected to be reduced by 1.
+    """
+    if levels_to_expand < -self._additional_levels_to_make_expandable:
+      # Too deep in the hierarchy to expand. At this point, we simply render
+      # the object as a string, without any additional HTML formatting, to
+      # avoid any risk of infinite recursion.
+      return HTMLObjectRendering(html=repr(object_to_render))
+
+    default_renderers = [
+        HTMLRenderer._render_result,
+        HTMLRenderer._render_evaluation_summary,
+        HTMLRenderer._render_agent_state,
+        HTMLRenderer._render_list,
+        HTMLRenderer._render_dict,
+    ]
+    all_renderers = itertools.chain(self.custom_renderers, default_renderers)
+    for renderer in all_renderers:
+      rendering = renderer(
+          self,
+          object_to_render,
+          element_id=element_id,
+          levels_to_expand=levels_to_expand,
+      )
+      if rendering is not None:
+        return rendering
+
+    return HTMLObjectRendering(html=repr(object_to_render), collapsible=False)
+
+  def render_object_as_collapsible_list_element(
+      self,
+      object_to_render: Any,
+      *,
+      title: str | None = None,
+      element_id: str,
+      levels_to_expand: int,
+      index_within_list: int | None = None,
+  ) -> str:
+    """Returns a rendering of an object as HTML string in <li>...</li>... form.
+
+    The returned HTML string is suitable for repeated insertion within a
+    <ul>...</ul> block.
+
+    Delegates most of the object-specific rendering logic to `render_object`.
+    If the `HTMLObjectRendering` returned by `render_object` has
+    `collapsible == True`, then (with the exception of a few trivial cases) the 
+    object will be rendered as a collapsible line, in which the user can toggle
+    between the longer `html` representation and the shorter `collapsed_html`
+    representation by clicking on the "title" portion of the line.
+
+    Args:
+      object_to_render: The object to render.
+      title: The title to be shown in boldface contually (both when collapsed
+        and when expanded). If `None`, then falls back to the title from the
+        rendering returned by `render_object`.
+      element_id: The id to be used for the outermost HTML element returned by
+        this function. Ids for inner elements are expected to be constructed by
+        appending suffixes to this id.
+      levels_to_expand: The number of levels in the hierarchy below this one to
+        expand by default, for elements that are capable of
+        expanding/collapsing. When making recursive calls for rendering child
+        nodes, levels_to_expand is expected to be reduced by 1.
+      index_within_list: The index of the element within the list, if the
+        element is to be displayed as part of a numbered list.
+    """
+    object_rendering = self.render_object(
+        object_to_render,
+        element_id=element_id,
+        levels_to_expand=levels_to_expand,
+    )
+
+    # State of expansion.
+    # Note that a visible `span` is style `display:inline`, while a visible
+    # `div` is style `display:block`.
+    if object_rendering.expanded:
+      collapsed_style = 'display:none'
+      expanded_style = 'display:inline'
+    else:
+      collapsed_style = 'display:inline'
+      expanded_style = 'display:none'
+
+    lines = []
+
+    # Title to show both when collapsed and when expanded.
+    if title is None:
+      title = object_rendering.title
+    if title is None:
+      title = f'{type(object_to_render).__name__}'
+
+    # Optional display of index number at the beginning of the title.
+    title_pieces = []
+    if index_within_list is not None:
+      title_pieces.append(f'[{index_within_list+1}]')
+    if title:
+      title_pieces.append(title)
+    full_title = ' '.join(title_pieces)
+    if full_title:
+      full_title = f'<b>{full_title}</b> '
+
+    # Content to show when collapsed.
+    collapsed_html = object_rendering.collapsed_html
+    if collapsed_html is None:
+      collapsed_html = repr(object_to_render)
+    if len(collapsed_html) > self._max_collapsed_rendering_length:
+      collapsed_html = (
+          collapsed_html[: self._max_collapsed_rendering_length] + '...'
+      )
+
+    # If the entire content can be shown in collapsed state, then don't
+    # bother with the expandable behavior.
+    collapsible = object_rendering.collapsible and (
+        collapsed_html != object_rendering.html
+    )
+    if collapsible:
+      # Collapsible display.
+      lines.append(
+          '<li><span onClick="toggleElements('
+          f"['{element_id}', '{element_id}c'])\">"
+          f'{full_title}</span>'
+          f'<span id="{element_id}c" style="{collapsed_style}">'
+          f'{collapsed_html}</span>'
+      )
+      lines.append(
+          f'<span id="{element_id}"'
+          f' style="{expanded_style}">{object_rendering.html}</span>'
+      )
+      lines.append('</li>')
+    else:
+      # Simple display.
+      lines.append(f'<li>{full_title}{object_rendering.html}</li>')
+
+    return'\n'.join(lines)
 
   def render(
       self,
@@ -1008,6 +1220,10 @@ class HTMLRenderer:
       element_id: str = '0',
   ) -> str:
     """Returns a full HTML + JavaScript rendering of the given result(s).
+
+    Should not be called recursively, as this would lead to repetition of the
+    JavaScript code and other outer boilerplate. For recursive calls, use
+    `render_object` instead.
 
     Args:
       object_to_render: The object to render.
@@ -1023,8 +1239,8 @@ class HTMLRenderer:
       <script>
       function toggleElement(element_id) {
         var element = document.getElementById(element_id);
-        if (element.style.display === 'none') {
-          if (element_id.endsWith('c')) {
+        if (element.style.display == 'none') {
+          if (element.tagName.toUpperCase() == 'SPAN') {
             element.style.display = 'inline';
           } else {
             element.style.display = 'block';
@@ -1041,31 +1257,28 @@ class HTMLRenderer:
       </script>
       """)
     if isinstance(object_to_render, ExecutionResult):
-      content_string = self._render_result(
+      # We display `ExecutionResult` objects as a list element, so as to ensure
+      # that the top-level stage name is displayed.
+      object_html = self.render_object_as_collapsible_list_element(
           object_to_render,
           element_id=element_id,
           levels_to_expand=self.levels_to_expand,
       )
-    elif isinstance(object_to_render, Sequence):
-      content_string = self._render_result_list(
-          object_to_render,
-          element_id=element_id,
-          levels_to_expand=self.levels_to_expand,
-      )
-    elif isinstance(object_to_render, EvaluationSummary):
-      content_string = self._render_evaluation_summary(object_to_render)
-    else:
-      raise ValueError(
-          f'Unsupported type {type(object_to_render)}): {object_to_render}'
-      )
-
-    rendered_html = f"""\
+      rendered_html = f"""\
 {javascript_string}
 <div>
   <ul>
-{textwrap.indent(content_string, '    ')}
+{textwrap.indent(object_html, '    ')}
   </ul>
 </div>
 """
+    else:
+      # For objects other than `ExecutionResult`, we display them directly, so
+      # as to avoid any redundant extra bulletpoint at the top.
+      object_rendering = self.render_object(
+          object_to_render,
+          element_id=element_id,
+          levels_to_expand=self.levels_to_expand,
+      )
+      rendered_html = f'{javascript_string}\n{object_rendering.html}'
     return rendered_html
-
