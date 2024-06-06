@@ -497,12 +497,12 @@ async def naive_evaluation_critic(
   critic_prompt += 'Answer 1 (correct): ' + example[golden_answer_key] + '\n'
   critic_prompt += 'Answer 2: ' + answer + '\n'
   critic_prompt += 'Is Answer 2 also correct? (yes/no):'
-  res = (
+  res = cast(str, (
       await llm.generate_text(
           prompt=critic_prompt,
           stop=['Question:'],
       )
-  ).strip()
+  )).strip()
   # TODO: Implement the following as a builtin. It's fairly common.
   if res.startswith('yes'):
     is_correct = 1.0
