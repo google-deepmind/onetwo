@@ -82,7 +82,7 @@ class _ComparisonCritic(Protocol[_Result]):
     ...
 
 
-def _compile_strategies(
+def compile_strategies(
     strategies: Sequence[Callable[..., executing.Executable[_Result]]],
     examples: Iterable[Example],
 ) -> Iterator[Sequence[executing.Executable[tuple[_Result, Example]]]]:
@@ -241,7 +241,7 @@ async def naive_comparison_critic(
   }
 
 
-def _apply_critic_to_answers(
+def apply_critic_to_answers(
     stream_of_exec_seq: Iterator[
         Sequence[executing.Executable[tuple[_Result, Example]]]
     ],
@@ -384,9 +384,9 @@ def compare_with_critic(
   start_time = time.monotonic()
 
   # -> Iterable[Sequence[Executable[tuple[_Result, Example]]]].
-  strategies_exec_per_example = _compile_strategies(strategies, examples)
+  strategies_exec_per_example = compile_strategies(strategies, examples)
   # -> Iterable[Executable[tuple[ComparisonResult, Example]]].
-  critics_exec_per_example = _apply_critic_to_answers(
+  critics_exec_per_example = apply_critic_to_answers(
       stream_of_exec_seq=strategies_exec_per_example,
       critic=critic,
   )
@@ -597,9 +597,9 @@ def evaluate(
   start_time = time.monotonic()
 
   # -> Iterable[Sequence[Executable[tuple[_Result, Example]]]].
-  strategy_exec_per_example = _compile_strategies([strategy], examples)
+  strategy_exec_per_example = compile_strategies([strategy], examples)
   # -> Iterable[Executable[tuple[MetricResult, Example]]].
-  critics_exec_per_example = _apply_critic_to_answers(
+  critics_exec_per_example = apply_critic_to_answers(
       stream_of_exec_seq=strategy_exec_per_example,
       critic=critic,
       critic_takes_single_answer=True,  # Because we use _EvaluationCritic.

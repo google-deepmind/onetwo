@@ -122,7 +122,7 @@ class EvaluateTest(parameterized.TestCase):
     llm.reset_defaults()
 
   def test_strategy_arg_mismatch(self):
-    executables = evaluation._compile_strategies(
+    executables = evaluation.compile_strategies(
         strategies=[simple_strategy],
         examples=[{'question': 'Something'}],
     )
@@ -340,7 +340,7 @@ class CompareWithCriticTest(parameterized.TestCase):
           executables.append(some_executable(example, executable))
         yield executables
 
-    critic_values_generator = evaluation._apply_critic_to_answers(
+    critic_values_generator = evaluation.apply_critic_to_answers(
         stream_of_exec_seq=exec_seq_generator(),
         critic=some_comparison_critic,
     )
@@ -349,7 +349,7 @@ class CompareWithCriticTest(parameterized.TestCase):
         expected_value = (f'{el_id}_0+{el_id}_1+{el_id}_2', fake_example)
         self.assertEqual(executing.run(el), expected_value)
 
-    critic_values_generator = evaluation._apply_critic_to_answers(
+    critic_values_generator = evaluation.apply_critic_to_answers(
         stream_of_exec_seq=exec_seq_generator(num_execs=1),
         critic=some_evaluation_critic,
         critic_takes_single_answer=True,
@@ -359,7 +359,7 @@ class CompareWithCriticTest(parameterized.TestCase):
         expected_value = (f'{el_id}_0', fake_example)
         self.assertEqual(executing.run(el), expected_value)
 
-    critic_values_generator = evaluation._apply_critic_to_answers(
+    critic_values_generator = evaluation.apply_critic_to_answers(
         stream_of_exec_seq=exec_seq_generator(num_execs=3),
         critic=some_evaluation_critic,
         critic_takes_single_answer=True,
