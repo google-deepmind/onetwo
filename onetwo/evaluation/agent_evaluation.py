@@ -381,6 +381,9 @@ def evaluate(
     target_extractor: Callable[[Example], _O] = lambda x: x['answer'],
     metric_functions: Mapping[str, MetricFunction] | None = None,
     aggregation_functions: Sequence[AggregationFunction] | None = None,
+    callback: (
+        Callable[[int, Example, results.EvaluationSummary], None] | None
+    ) = None,
     examples_total_num: int | None = None,
     output_results: bool = False,
     output_results_debug: bool = False,
@@ -389,6 +392,7 @@ def evaluate(
         Callable[[Example, results.EvaluationResult], bool] | None
     ) = None,
     example_key_function: Callable[[int, Example], str | int] | None = None,
+    chunk_size: int = 100,
 ) -> results.EvaluationSummary:
   """Evaluates the given strategy on the given examples.
 
@@ -407,6 +411,11 @@ def evaluate(
       containing the average of that metric's value across all examples.
     aggregation_functions: Functions for performing custom aggregation of
       example-level information across a dataset.
+    callback: Function to call after each example is evaluated. The function
+      will be called with the following arguments:
+      * The index of the example in the input `examples` iterable.
+      * The example itself.
+      * The `EvaluationSummary` containing the results for that example.
     examples_total_num: Even if examples object has no implementation of __len__
       (examples could be a generator function with `yield`) user may still know
       (and provide) its exact length. This value is used only for logging the
@@ -422,6 +431,8 @@ def evaluate(
     example_key_function: Function to determine the key for a given example, for
       use in the results/traces/final_states mappings. If not specified, then
       will use the example index as the key.
+    chunk_size: Number of examples to extract at a time for parallel evaluation
+      while iterating through `examples`.
 
   Returns:
     EvaluationSummary containing the evaluation results.
@@ -439,7 +450,7 @@ def evaluate(
           start_time=datetime.datetime.now(), end_time=datetime.datetime.now()
       ),
   )
-  eval_executable = executing.par_iter(
+  executables = (
       _evaluate_example(
           strategy=strategy,
           example=example,
@@ -449,6 +460,9 @@ def evaluate(
           output_final_states=output_final_states,
       )
       for example in examples
+  )
+  eval_executable = executing.par_iter(
+      executables=executables, chunk_size=chunk_size
   )
 
   with executing.safe_stream(eval_executable, iteration_depth=1) as iterator:
@@ -461,7 +475,7 @@ def evaluate(
             f'exactly one element in its payload. Got {pprint.pformat(update)}'
         )
       # Payload contains a single element of the form
-      # (critic_result, example_id).
+      # (critic_result, example_index).
       (example, example_evaluation_summary), example_index = update.payload[0]
       if example_key_function:
         example_key = example_key_function(example_index, example)
@@ -500,6 +514,8 @@ def evaluate(
       if aggregation_functions:
         for aggregation_function in aggregation_functions:
           aggregation_function(evaluation_summary, example_evaluation_summary)
+      if callback:
+        callback(example_index, example, example_evaluation_summary)
 
   # TODO: Capture the backend and tool caches and store them in the
   # evaluation summary too.

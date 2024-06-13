@@ -838,6 +838,40 @@ class AgentEvaluationTest(parameterized.TestCase):
     with self.subTest('evaluation_metrics_are_correct'):
       self.assertEqual(1.0, summary.metrics['accuracy'])
 
+  def test_callback(self):
+    strategy = agents_test_utils.StringAgent(
+        max_length=3, sequence=list(string.ascii_lowercase)
+    )
+    examples = [
+        {'question': 'a', 'answer': 'wrong'},  # This will be wrong.
+        {'question': 'c', 'answer': 'd e f'},  # This will be correct.
+    ]
+
+    # Here we illustrate how to use a callback to do some kind of custom
+    # processing of the results (in this case, just logging).
+    log_messages = []
+    def callback(
+        example_index: int, example: _Example, summary: _EvaluationSummary
+    ) -> None:
+      log_messages.append(
+          f"{example_index}: {example['question']} =>"
+          f" {summary.metrics['accuracy']}"
+      )
+
+    _ = agent_evaluation.evaluate(
+        strategy=strategy,
+        examples=examples,
+        metric_functions={'accuracy': ordinary_accuracy_function},
+        callback=callback,
+    )
+    log_messages.sort()
+
+    with self.subTest('callback_was_called_once_per_example'):
+      self.assertLen(log_messages, 2)
+
+    with self.subTest('log_messages_from_callback_reflect_correct_args'):
+      self.assertSequenceEqual(['0: a => 0.0', '1: c => 1.0'], log_messages)
+
   def test_write_evaluation_summary_as_json(self):
     tmp_dir = self.create_tempdir().full_path
     output_dir = os.path.join(tmp_dir, 'test_write_evaluation_summary_as_json')
