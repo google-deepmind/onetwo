@@ -702,6 +702,74 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           'value_2',
       )
 
+  def test_load_and_merge_two_cache_files(self):
+    # This test follows a similar pattern as `CacheDataTest.test_iadd`,
+    # but the cache files are used instead of the `_CacheData` objects.
+    cache_dir = self.create_tempdir()
+
+    cache_filename1 = os.path.join(cache_dir.full_path, 'cache1.json')
+    cache1 = caching.SimpleFunctionCache(cache_filename=cache_filename1)
+    cache1.cache_value('key1', 'sampling_key_1', 'val1')
+    cache1.cache_value('key1', 'sampling_key_2', 'val2')
+    cache1.cache_value('key2', 'sampling_key_1', 'val3')
+    cache1.cache_value('key2', 'sampling_key_2', 'val4')
+    cache1.cache_value('key3', 'sampling_key_1', 'val5')
+    cache1.cache_value('key3', 'sampling_key_2', 'val6')
+    cache1.save()
+
+    # Note that the sampling keys from cache2 are expected to be ignored when
+    # loading from the second cache file. We verify this by changing or
+    # shuffling the sampling keys in some of the cases.
+    cache_filename2 = os.path.join(cache_dir.full_path, 'cache2.json')
+    cache2 = caching.SimpleFunctionCache(cache_filename=cache_filename2)
+    cache2.cache_value('key1', 'sampling_key_1', 'val7')
+    cache2.cache_value('key1', 'sampling_key_4', 'val8')
+    cache2.cache_value('key1', 'sampling_key_2', 'val9')
+    cache2.cache_value('key1', 'sampling_key_3', 'val10')
+    cache2.cache_value('key2', 'other_sampling_key_1', 'val11')
+    cache2.cache_value('key4', 'sampling_key_1', 'val12')
+    cache2.cache_value('key4', 'sampling_key_2', 'val13')
+    cache2.save()
+
+    # We restore the sample id mappings only when loading from the first cache
+    # file (when `overwrite=True`), not the second cache file (when
+    # `overwrite=False`), which leads to sampling_key=`None`.
+    expected_merged_cache = caching.SimpleFunctionCache(
+        cache_filename=cache_filename1)
+    expected_merged_cache.cache_value('key1', 'sampling_key_1', 'val1')
+    expected_merged_cache.cache_value('key1', 'sampling_key_2', 'val2')
+    expected_merged_cache.cache_value('key1', None, 'val9')
+    expected_merged_cache.cache_value('key1', None, 'val10')
+    expected_merged_cache.cache_value('key2', 'sampling_key_1', 'val3')
+    expected_merged_cache.cache_value('key2', 'sampling_key_2', 'val4')
+    expected_merged_cache.cache_value('key3', 'sampling_key_1', 'val5')
+    expected_merged_cache.cache_value('key3', 'sampling_key_2', 'val6')
+    expected_merged_cache.cache_value('key4', None, 'val12')
+    expected_merged_cache.cache_value('key4', None, 'val13')
+
+    overwritten_cache = caching.SimpleFunctionCache(
+        cache_filename=cache_filename1)
+    overwritten_cache.load(restore_mapping=True)
+    overwritten_cache.load(overwrite=True, cache_filename=cache_filename2)
+
+    merged_cache = caching.SimpleFunctionCache(cache_filename=cache_filename1)
+    merged_cache.load(restore_mapping=True)
+    merged_cache.load(overwrite=False, cache_filename=cache_filename2)
+
+    with self.subTest('overwrites_cache_when_overwrite_is_true'):
+      self.assertEqual(
+          cache2._cache_data.values_by_key,
+          overwritten_cache._cache_data.values_by_key,
+          f'\nActual: {overwritten_cache._cache_data.values_by_key}',
+      )
+
+    with self.subTest('merges_caches_when_overwrite_is_false'):
+      self.assertEqual(
+          expected_merged_cache._cache_data.values_by_key,
+          merged_cache._cache_data.values_by_key,
+          f'\nActual: {merged_cache._cache_data.values_by_key}',
+      )
+
 
 class CacheDataTest(parameterized.TestCase):
   """Tests _CacheData class."""
@@ -725,6 +793,32 @@ class CacheDataTest(parameterized.TestCase):
         infer_missing=True,
     )
     self.assertEqual(decoded.values_by_key, values_by_key)
+
+  def test_iadd(self):
+    cache1 = caching._CacheData(
+        values_by_key={
+            'key1': ['val1', 'val2'],
+            'key2': ['val3', 'val4'],
+            'key3': ['val5', 'val6'],
+        }
+    )
+    cache2 = caching._CacheData(
+        values_by_key={
+            'key1': ['val7', 'val8', 'val9', 'val10'],
+            'key2': ['val11'],
+            'key4': ['val12', 'val13'],
+        }
+    )
+    expected_result = caching._CacheData(
+        values_by_key={
+            'key1': ['val1', 'val2', 'val9', 'val10'],
+            'key2': ['val3', 'val4'],
+            'key3': ['val5', 'val6'],
+            'key4': ['val12', 'val13'],
+        }
+    )
+    cache1 += cache2
+    self.assertEqual(expected_result, cache1, cache1)
 
 if __name__ == '__main__':
   absltest.main()

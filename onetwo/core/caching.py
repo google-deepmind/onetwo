@@ -204,8 +204,26 @@ class SimpleFileCache(
   cache_filename: str | None = None
 
   @abc.abstractmethod
-  def load(self, restore_mapping: bool = False):
-    """Loads the cache from file."""
+  def load(
+      self,
+      *,
+      restore_mapping: bool = False,
+      overwrite: bool = True,
+      cache_filename: str | None = None,
+  ):
+    """Loads the cache from file.
+
+    Args:
+      restore_mapping: If True, will try and restore the mapping between
+        sampling_key and sample_ids from disk, otherwise creates a new one.
+        Only relevant if `overwrite=True` (otherwise nevers restores mapping).
+      overwrite: If True, then any existing cache contents will be discarded
+        and completely overwritten by the contents of the cache file. If False,
+        then the existing cache contents will be preserved and the contents of
+        the cache file will be merged into it.
+      cache_filename: If specified, then will load from the given file path;
+        otherwise, by default will load from `self.cache_filename`.
+    """
 
   @abc.abstractmethod
   def save(self, overwrite: bool = False):
@@ -251,10 +269,33 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
       default=None,
   )
 
-  def load_cache(self, restore_mapping: bool = False):
+  def load_cache(
+      self,
+      *,
+      restore_mapping: bool = False,
+      overwrite: bool = True,
+      cache_filename: str | None = None,
+  ):
+    """Loads the cache from file.
+
+    Args:
+      restore_mapping: If True, will try and restore the mapping between
+        sampling_key and sample_ids from disk, otherwise creates a new one.
+        Only relevant if `overwrite=True` (otherwise nevers restores mapping).
+      overwrite: If True, then any existing cache contents will be discarded
+        and completely overwritten by the contents of the cache file. If False,
+        then the existing cache contents will be preserved and the contents of
+        the cache file will be merged into it.
+      cache_filename: If specified, then will load from the given file path;
+        otherwise, by default will load from `self.cache_filename`.
+    """
     if self._cache_handler is None:
       raise ValueError('Cache handler is not initialized.')
-    self._cache_handler.load(restore_mapping=restore_mapping)  # pytype: disable=attribute-error
+    self._cache_handler.load(
+        restore_mapping=restore_mapping,
+        overwrite=overwrite,
+        cache_filename=cache_filename,
+    )  # pytype: disable=attribute-error
 
   def save_cache(self, overwrite: bool = False):
     if self._cache_handler is None:
@@ -530,7 +571,7 @@ def cache_method(
     # name will be used to separate between different cached methods. Make sure
     # it is not empty.
     if name is None:
-      name = method.__name__
+      name = method.__name__  # pytype: disable=attribute-error
     # Check that the wrapped object is a method.
     if not utils.is_method(method):
       raise ValueError(
@@ -677,7 +718,7 @@ def cache_method(
       ).value()
       if do_cache_extra:
         # Method returns a Sequence of CachedType elements. Handle this case.
-        logging.info('Caching extra replies for method %s.', method.__name__)
+        logging.info('Caching extra replies for method %s.', method.__name__)  # pytype: disable=attribute-error
         value = return_first_and_cache_remaining(
             values=value,
             disable_caching=self.disable_caching,
@@ -1009,6 +1050,28 @@ class _CacheData(
       logging.info('Key not found: %s', key_for_logging)
       return None
 
+  def __iadd__(self, other: _CacheData[CachedType]) -> _CacheData[CachedType]:
+    """Merges the contents of the given cache into this one.
+
+    In case of a key collision, the values for the given key will be merged,
+    preserving the value indices, and giving precedence to the existing value
+    for any given index, where present.
+
+    Args:
+      other: The cache to merge into this one. Only the values_by_key will be
+        merged in, not the mapping of sample_id and sample_key.
+
+    Returns:
+      This cache object, with the merged values.
+    """
+    for key_hash, cached_values in other.values_by_key.items():
+      if key_hash not in self.values_by_key:
+        self.values_by_key[key_hash] = []
+      for i, cached_value in enumerate(cached_values):
+        if i >= len(self.values_by_key[key_hash]):
+          self.values_by_key[key_hash].append(cached_value)
+    return self
+
 
 @dataclasses.dataclass
 class SimpleFunctionCache(
@@ -1109,16 +1172,41 @@ class SimpleFunctionCache(
           key_hash, sampling_key, key_for_logging
       )
 
-  def load(self, restore_mapping: bool = False):
-    if not self.cache_filename:
+  def load(
+      self,
+      *,
+      restore_mapping: bool = False,
+      overwrite: bool = True,
+      cache_filename: str | None = None,
+  ):
+    """Loads the cache from file.
+
+    Args:
+      restore_mapping: If True, will try and restore the mapping between
+        sampling_key and sample_ids from disk, otherwise creates a new one.
+        Only relevant if `overwrite=True` (otherwise nevers restores mapping).
+      overwrite: If True, then any existing cache contents will be discarded
+        and completely overwritten by the contents of the cache file. If False,
+        then the existing cache contents will be preserved and the contents of
+        the cache file will be merged into it.
+      cache_filename: If specified, then will load from the given file path;
+        otherwise, by default will load from `self.cache_filename`.
+    """
+    if not cache_filename:
+      cache_filename = self.cache_filename
+    if not cache_filename:
       raise ValueError(
           'Cache filename must be provided when loading from disk.'
       )
-    self._cache_data = _CacheData.create_from_file(
-        self.cache_filename,
+    new_cache_data = _CacheData.create_from_file(
+        cache_filename,
         restore_mapping=restore_mapping,
         cached_value_decoder=self.cached_value_decoder,
     )
+    if overwrite:
+      self._cache_data = new_cache_data
+    else:
+      self._cache_data += new_cache_data
 
   def save(self, overwrite: bool = False) -> None:
     """Writes the contents of the cache to the given directory.
@@ -1144,4 +1232,3 @@ class SimpleFunctionCache(
       # method in particular applies all the custom encoder transofrmations to
       # the individual fields provided via `metadata`.
       f.write(self._cache_data.to_json())
-
