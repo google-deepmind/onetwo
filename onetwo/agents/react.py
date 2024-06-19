@@ -192,10 +192,10 @@ REACT_FEWSHOTS = [
             ReActStep(
                 thought=(
                     'Now we need to subtract their heights. We can use the'
-                    ' Python tool for that.'
+                    ' tool_code for that.'
                 ),
                 action=llm_tool_use.FunctionCall(
-                    function_name='Python', args=('8849 - 8611',), kwargs={}
+                    function_name='tool_code', args=('8849 - 8611',), kwargs={}
                 ),
                 observation='238',
                 fmt=llm_tool_use.ArgumentFormat.PYTHON,
@@ -231,23 +231,22 @@ REACT_FEWSHOTS = [
             ),
             ReActStep(
                 thought=(
-                    'Now we can use the Python tool to spell it backwards. We'
+                    'Now we can use tool_code to spell it backwards. We'
                     ' need to write a function that inverts the letters of its'
                     ' input and then apply it to the name retrieved above:'
                 ),
                 action=llm_tool_use.FunctionCall(
-                    function_name='Python',
-                    args=(),
-                    kwargs={
-                        'request': (
+                    function_name='tool_code',
+                    args=(
+                        (
                             'def invert_letters(input_str):\n  return'
                             ' input_str[::-1]\nresult = invert_letters("Albert'
                             ' Einstein")'
-                        )
-                    },
+                        ),
+                    ),
                 ),
                 observation='nietsniE treblA',
-                fmt=llm_tool_use.ArgumentFormat.YAML_CODE,
+                fmt=llm_tool_use.ArgumentFormat.MARKDOWN,
             ),
             ReActStep(
                 is_finished=True,

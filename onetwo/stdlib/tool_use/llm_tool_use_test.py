@@ -38,6 +38,20 @@ def _add_executable(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 
 
+ARG_LIST = (1, 'a', [1, 2], {'a': 1})
+ARG_DICT = {
+    'a': 1,
+    'b': 'f ',
+    'c': [1, 2],
+    'd': {'a': 1},
+    'code': """\
+def my_f():
+  return 1
+""",
+}
+ARG_LIST_MD = ('1', 'a', '[1, 2]', "{'a': 1}", 'def my_f():\n  return 1')
+
+
 class LlmToolUseTest(parameterized.TestCase):
 
   def setUp(self):
@@ -84,83 +98,136 @@ class LlmToolUseTest(parameterized.TestCase):
         """),
     }
     rendered = llm_tool_use._render_call_content(fmt, 'run', **kwargs)
-    self.assertEqual(rendered, expected, pprint.pformat(rendered))
+    self.assertEqual(
+        rendered,
+        expected,
+        pprint.pformat(rendered) + '\n' + pprint.pformat(expected),
+    )
 
-  def test_render_parse_roundtrip(self):
-    arg_list = (1, 'a', [1, 2], {'a': 1})
-    arg_dict = {
-        'a': 1,
-        'b': 'f ',
-        'c': [1, 2],
-        'd': {'a': 1},
-        'code': """\
-    def my_f():
-      return 1
-    """,
-    }
-    for fmt in _ArgumentFormat:
-      rendered = llm_tool_use._render_call_content(
-          fmt, 'f', *arg_list, **arg_dict
+  def test_render_markdown(self):
+    code = textwrap.dedent("""\
+        def fn(x):
+          return x + 1
+        result = fn(10)
+        """).rstrip()
+    rendered = llm_tool_use._render_call_content(
+        _ArgumentFormat.MARKDOWN, 'tool_code', code
+    )
+    self.assertEqual(rendered, f'tool_code\n{code}\n')
+
+  # Only formats that support both positional and keyword arguments
+  # (i.e., not `MARKDOWN`).
+  @parameterized.named_parameters(
+      ('PYTHON', _ArgumentFormat.PYTHON),
+      ('YAML', _ArgumentFormat.YAML),
+      ('YAML_CODE', _ArgumentFormat.YAML_CODE),
+      ('JSON', _ArgumentFormat.JSON),
+      ('JSON_SINGLE', _ArgumentFormat.JSON_SINGLE),
+  )
+  def test_render_call_content_roundtrip(self, fmt):
+
+    rendered_call_content = llm_tool_use._render_call_content(
+        fmt, 'f', *ARG_LIST, **ARG_DICT
+    )
+    (_, fn, args, kwargs) = llm_tool_use._parse_call_content(
+        fmt, rendered_call_content, {}
+    )
+
+    with self.subTest('parse_call_correctly'):
+      self.assertEqual(fn, 'f')
+      self.assertEqual(args, ARG_LIST)
+      self.assertEqual(kwargs, ARG_DICT)
+
+    re_rendered_call_content = llm_tool_use._render_call_content(
+        fmt, fn, *args, **kwargs
+    )
+    self.assertEqual(rendered_call_content, re_rendered_call_content)
+
+  # Only formats that support both positional and keyword arguments
+  # (i.e., not `MARKDOWN`).
+  @parameterized.named_parameters(
+      ('PYTHON', _ArgumentFormat.PYTHON, _ArgumentFormat.PYTHON),
+      ('YAML', _ArgumentFormat.YAML, _ArgumentFormat.YAML),
+      ('YAML_CODE', _ArgumentFormat.YAML_CODE, _ArgumentFormat.YAML),
+      ('JSON', _ArgumentFormat.JSON, _ArgumentFormat.JSON),
+      ('JSON_SINGLE', _ArgumentFormat.JSON_SINGLE, _ArgumentFormat.JSON_SINGLE),
+  )
+  def test_render_call_roundtrip(self, fmt, parse_by_rendered):
+
+    expected_remainder = '\nSome continuation'
+    rendered_call = llm_tool_use.render_call(
+        fmt, 'my_function', *ARG_LIST, **ARG_DICT
+    )
+    rendered_call += expected_remainder
+    _, fn, args, kwargs, inferred_fmt, index = (
+        llm_tool_use.parse_and_consume_call(rendered_call, context_vars={})
+    )
+    remainder = rendered_call[index:]
+    with self.subTest('parse_and_consume'):
+      self.assertEqual(fn, 'my_function')
+      self.assertEqual(args, ARG_LIST)
+      self.assertEqual(kwargs, ARG_DICT)
+      self.assertEqual(remainder, expected_remainder)
+      self.assertEqual(inferred_fmt, parse_by_rendered)
+
+    if fmt == inferred_fmt:
+      # We only check for formats that can be fully determined automatically.
+      re_rendered_call = llm_tool_use.render_call(
+          inferred_fmt, fn, *args, **kwargs
       )
-      (_, fn, args, kwargs) = llm_tool_use._parse_call_content(
-          fmt, rendered, {}
-      )
+      re_rendered_call += expected_remainder
+      self.assertEqual(rendered_call, re_rendered_call)
 
-      with self.subTest(f'parse_call_correctly_{fmt.value}'):
-        self.assertEqual(fn, 'f')
-        self.assertEqual(args, arg_list)
-        self.assertEqual(kwargs, arg_dict)
+  # Similar to the previous test, but specifically for markdown, which only
+  # supports one positional argument.
+  @parameterized.parameters(*ARG_LIST_MD)
+  def test_render_call_content_roundtrip_markdown(
+      self, arg, fmt=_ArgumentFormat.MARKDOWN
+  ):
 
-      with self.subTest(f'roundtrip_consistent_{fmt.value}'):
-        re_rendered = llm_tool_use._render_call_content(
-            fmt, fn, *args, **kwargs
-        )
-        self.assertEqual(rendered, re_rendered)
+    rendered = llm_tool_use._render_call_content(fmt, 'f', arg)
+    (_, fn, roundtrip_arg, _) = llm_tool_use._parse_call_content(
+        fmt, rendered, {}
+    )
 
-      parse_by_rendered = {
-          _ArgumentFormat.PYTHON: _ArgumentFormat.PYTHON,
-          _ArgumentFormat.YAML: _ArgumentFormat.YAML,
-          _ArgumentFormat.YAML_CODE: _ArgumentFormat.YAML,
-          _ArgumentFormat.JSON: _ArgumentFormat.JSON,
-          _ArgumentFormat.JSON_SINGLE: _ArgumentFormat.JSON_SINGLE,
-      }
+    with self.subTest('parse_call_correctly'):
+      self.assertEqual(fn, 'f')
+      self.assertEqual(roundtrip_arg, (arg,))
 
-      expected_remainder = '\nSome continuation'
-      with self.subTest(f'parse_and_consume_{fmt.value}'):
-        rendered = llm_tool_use.render_call(
-            fmt, 'my_function', *arg_list, **arg_dict
-        )
-        rendered += expected_remainder
-        _, fn, args, kwargs, inferred_fmt, index = (
-            llm_tool_use.parse_and_consume_call(  # pylint: disable=line-too-long
-                rendered, context_vars={}
-            )
-        )
-        remainder = rendered[index:]
-        self.assertEqual(fn, 'my_function')
-        self.assertEqual(args, arg_list)
-        self.assertEqual(kwargs, arg_dict)
-        self.assertEqual(remainder, expected_remainder)
-        self.assertEqual(inferred_fmt, parse_by_rendered[fmt])
+    re_rendered = llm_tool_use._render_call_content(fmt, fn, arg)
+    self.assertEqual(rendered, re_rendered)
 
-      with self.subTest(f'full_roundtrip_consistent_{fmt.value}'):
-        # We only check for formats that can be fully determined automatically.
-        if fmt == inferred_fmt:
-          re_rendered = llm_tool_use.render_call(
-              inferred_fmt, fn, *args, **kwargs
-          )
-          re_rendered += expected_remainder
-          self.assertEqual(rendered, re_rendered)
+  @parameterized.parameters(*ARG_LIST_MD)
+  def test_render_call_roundtrip_markdown(
+      self, arg, fmt=_ArgumentFormat.MARKDOWN
+  ):
+
+    expected_remainder = '\nSome continuation'
+    rendered = llm_tool_use.render_call(fmt, 'my_function', arg)
+    rendered += expected_remainder
+    _, fn, args, _, inferred_fmt, index = llm_tool_use.parse_and_consume_call(
+        rendered, context_vars={}
+    )
+    remainder = rendered[index:]
+    with self.subTest('parse_and_consume'):
+      self.assertEqual(fn, 'my_function')
+      self.assertEqual(args, (arg,))
+      self.assertEqual(remainder, expected_remainder)
+      self.assertEqual(inferred_fmt, _ArgumentFormat.MARKDOWN)
+
+    re_rendered = llm_tool_use.render_call(inferred_fmt, fn, arg)
+    re_rendered += expected_remainder
+    self.assertEqual(rendered, re_rendered)
 
   @parameterized.named_parameters(
-      ('positional', 'Python(1)', (1,), {}),
-      ('keyword', 'Python(a=1, b="a")', tuple(), {'a': 1, 'b': 'a'}),
+      ('positional', 'tool_code(1)', (1,), {}),
+      ('keyword', 'tool_code(a=1, b="a")', tuple(), {'a': 1, 'b': 'a'}),
   )
   def test_parse_python_format(self, act_text, expected_args, expected_kwargs):
     _, fn, args, kwargs, fmt, index = llm_tool_use.parse_and_consume_call(
         act_text, context_vars={}
     )
-    self.assertEqual(fn, 'Python')
+    self.assertEqual(fn, 'tool_code')
     self.assertEqual(args, expected_args)
     self.assertEqual(kwargs, expected_kwargs)
     self.assertEqual(fmt, _ArgumentFormat.PYTHON)
@@ -280,6 +347,7 @@ class ToolTest(parameterized.TestCase):
 
     with self.subTest('kwargs_args'):
       self.assertEqual(5, executing.run(tool(arg1=2, arg2=3)))
+
 
 if __name__ == '__main__':
   absltest.main()

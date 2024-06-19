@@ -20,6 +20,7 @@ import dataclasses
 import enum
 import itertools
 import json
+import re
 from typing import Any
 
 from onetwo.core import routing
@@ -30,6 +31,7 @@ import yaml
 @enum.unique
 class ArgumentFormat(enum.Enum):
   """Format for specifying the arguments of a tool invocation."""
+
   # Single line python format.
   # E.g.
   # `FlightSearch(origin="ZRH", destination="NRT")`
@@ -75,6 +77,15 @@ class ArgumentFormat(enum.Enum):
   # { "FlightSearch": { "origin": "ZRH", "destination": "NRT" } }
   JSON_SINGLE = 'json_single_args_syntax'
 
+  # Markdown-like format.
+  # E.g.
+  # ```tool_code
+  # def fn():
+  #   return 0
+  # ```
+  MARKDOWN = 'markdown_args_syntax'
+
+
 # Special field name for arguments to a function that are not named but
 # provided positionally.
 VAR_POS = '_VAR_POS'
@@ -91,21 +102,34 @@ def _render_call_content(
   elif fmt == ArgumentFormat.YAML_CODE:
     if args:
       kwargs[VAR_POS] = list(args)
+
     # We override the default representer for strings so that strings
     # that span multiple lines are rendered over multiple lines.
     # This means the LLM sees the newlines as actual newline tokens instead
     # of \n or such.
     def default_representer(dumper, data):
       return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
     def multiline_representer(dumper, data):
       if '\n' in data:
         return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
       else:
         return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
     yaml.add_representer(str, multiline_representer)
     result = yaml.dump({function_name: kwargs})
     yaml.add_representer(str, default_representer)
     return result
+  elif fmt == ArgumentFormat.MARKDOWN:
+    # if args has multiple values, we just concatenate them across multiple
+    # lines.
+    if not args:
+      raise ValueError('args should not be empty for markdown format')
+    if kwargs:
+      raise ValueError('kwargs are not supported for markdown format')
+    if len(args) > 1:
+      raise ValueError('multiple args are not supported for markdown format')
+    return f'{function_name}\n{args[0]}\n'
   elif fmt in [ArgumentFormat.JSON, ArgumentFormat.JSON_SINGLE]:
     if args:
       kwargs[VAR_POS] = list(args)
@@ -124,9 +148,7 @@ def _render_call_content(
     return f'{function_name}({rendered_args})'
 
 
-def _render_response_content(
-    fmt: ArgumentFormat | None, value: Any
-) -> str:
+def _render_response_content(fmt: ArgumentFormat | None, value: Any) -> str:
   """Renders the call of a function in the desired format."""
   if fmt == ArgumentFormat.YAML:
     return yaml.dump(value)
@@ -137,6 +159,8 @@ def _render_response_content(
       return json.dumps(value)
     else:
       return json.dumps(value, indent=2)
+  elif fmt == ArgumentFormat.MARKDOWN:
+    return f'tool_outputs\n{value}'
   else:
     # By default we use the raw repr of the value.
     return repr(value)
@@ -210,7 +234,8 @@ def _parse_call_content(
           raise ValueError(
               f'Positional argument {arg.id} of {text} references a variable'
               ' which does not exist in context variables of the prompt'
-              ' template.')
+              ' template.'
+          )
         args += (context_vars[arg.id],)
         continue
       # Otherwise the arg should be a constant.
@@ -239,13 +264,17 @@ def _parse_call_content(
     args = contents[fn].get(VAR_POS, [])
     contents[fn].pop(VAR_POS, None)
     return ([], fn, tuple(args), contents[fn])
+  elif fmt == ArgumentFormat.MARKDOWN:
+    # This is a string of the form "tool_name\ncode".
+    delimiter = text.find('\n')
+    fn = text[:delimiter]
+    contents = text[delimiter + 1 :].rstrip()
+    return ([], fn, (contents,), dict())
   else:
     raise ValueError(f'Unknown format {fmt.value}')
 
 
-def _parse_response_content(
-    fmt: ArgumentFormat, text: str
-) -> Any:
+def _parse_response_content(fmt: ArgumentFormat, text: str) -> Any:
   """Parses a response in the desired format."""
   if fmt == ArgumentFormat.PYTHON:
     try:
@@ -303,8 +332,14 @@ def _parse_and_consume(
       stripped = stripped[7:].lstrip()
       fmt = ArgumentFormat.JSON
     else:
-      stripped = stripped[3:].lstrip()
-      fmt = ArgumentFormat.JSON
+      # Match the string to ```${function_name}.
+      pattern = r'```(\w+)\n'
+      function_name = re.search(pattern, stripped)
+      if function_name is not None:
+        stripped = stripped[3:]
+        fmt = ArgumentFormat.MARKDOWN
+      else:
+        raise ValueError(f'Could not detect the format of {stripped}')
     expected_end = '```'
   elif stripped.startswith('`'):
     # Move past the backtick.
@@ -338,7 +373,9 @@ def _parse_and_consume(
 def parse_and_consume_call(
     text: str,
     context_vars: Mapping[str, Any],
-) -> tuple[list[str], str, tuple[Any, ...], dict[str, Any], ArgumentFormat, int]:  # pylint: disable=line-too-long
+) -> tuple[
+    list[str], str, tuple[Any, ...], dict[str, Any], ArgumentFormat, int
+]:  # pylint: disable=line-too-long
   """Determines the format and parses a function call.
 
   Args:
@@ -376,6 +413,8 @@ def _render(fmt: ArgumentFormat | None, contents: str) -> str:
     return f'```yaml\n{contents}\n```'
   elif fmt == ArgumentFormat.JSON:
     return f'```json\n{contents}\n```'
+  elif fmt == ArgumentFormat.MARKDOWN:
+    return f'```{contents}```'
   else:
     # By default we use the Python format without backticks.
     return f'{contents}'
@@ -389,9 +428,7 @@ def render_call(
   return _render(fmt, contents)
 
 
-def render_response(
-    fmt: ArgumentFormat | None, value: Any
-) -> str:
+def render_response(fmt: ArgumentFormat | None, value: Any) -> str:
   """Renders a response in the desired format with backticks delimiters."""
   contents = _render_response_content(fmt, value)
   return _render(fmt, contents)
@@ -419,6 +456,7 @@ class FunctionCall:
     args: The arguments of the function.
     kwargs: The keyword arguments of the function.
   """
+
   function_name: str = ''
   args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
   kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
@@ -436,6 +474,7 @@ class ToolExample:
     response: Expected response from the tool.
     rendering_format: Format to use to render the example.
   """
+
   function_call: FunctionCall = dataclasses.field(default_factory=FunctionCall)
   response: Any = None
   rendering_format: ArgumentFormat | None = None

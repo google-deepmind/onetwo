@@ -35,10 +35,10 @@ def _get_environment_config_with_python() -> (
   return python_tool_use.PythonToolUseEnvironmentConfig(
       tools=[
           llm_tool_use.Tool(
-              name='Python',
+              name='tool_code',
               function=python_execution_safe_subset.arithmetic_eval,
-              description='Python description.',
-              example='Python("1 + 1") returns `2`.',
+              description='Evaluates python code.',
+              example='tool_code("1 + 1") returns `2`.',
               color='magenta',
           )
       ]
@@ -114,7 +114,7 @@ class ReactTest(parameterized.TestCase):
     llm_reply = (
         '[Thought]: Now we need to add the populations of Tuebingen and'
         ' Zuerich. We can use the Python tool for that.\n[Act]:'
-        " `Python('91877 + 402762')`\nBla bla"
+        " `tool_code('91877 + 402762')`\nBla bla"
     )
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={'': [llm_reply]},
@@ -250,7 +250,7 @@ class ReactTest(parameterized.TestCase):
         reply_by_prompt_regex={
             r'What is larger, 10 or 15, and by how much\?$': (
                 '[Thought]: We can use the Python tool to subtract one from '
-                'another.\n[Act]: Python("10 - 15")\n[Observe]: Bla bla bla.'
+                'another.\n[Act]: tool_code("10 - 15")\n[Observe]: Bla bla bla.'
             ),
         },
         default_reply=DEFAULT_REPLY,
@@ -276,7 +276,7 @@ class ReactTest(parameterized.TestCase):
         is_finished=False,
         thought='We can use the Python tool to subtract one from another.',
         action=llm_tool_use.FunctionCall(
-            function_name='Python', args=('10 - 15',), kwargs={}
+            function_name='tool_code', args=('10 - 15',), kwargs={}
         ),
         observation=-5,
         fmt=llm_tool_use.ArgumentFormat.PYTHON,
@@ -301,11 +301,11 @@ class ReactTest(parameterized.TestCase):
     # the sequence of replies to return, regardless of the request.
     llm_reply_0 = (
         '[Thought]: We can use the Python tool to subtract one from '
-        "another.\n[Act]: Python('10 - 15')\n[Observe]: Bla bla bla."
+        "another.\n[Act]: tool_code('10 - 15')\n[Observe]: Bla bla bla."
     )
     llm_reply_0_trimmed = (
         '[Thought]: We can use the Python tool to subtract one from '
-        "another.\n[Act]: Python('10 - 15')\n"
+        "another.\n[Act]: tool_code('10 - 15')\n"
     )
     llm_reply_1 = '[Finish]: 15 is larger than 10 by 5.\n'
     llm_backend = backends_test_utils.LLMForTest(
@@ -336,7 +336,7 @@ class ReactTest(parameterized.TestCase):
                     'We can use the Python tool to subtract one from another.'
                 ),
                 action=llm_tool_use.FunctionCall(
-                    function_name='Python', args=('10 - 15',), kwargs={}
+                    function_name='tool_code', args=('10 - 15',), kwargs={}
                 ),
                 observation=-5,
                 fmt=llm_tool_use.ArgumentFormat.PYTHON,
@@ -375,7 +375,11 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('leaf_result_1_should_be_tool_call_for_step_1'):
       self.assertEqual('run_tool', leaf_results[1].stage_name)
       self.assertEqual(
-          {'tool_args': ('10 - 15',), 'tool_kwargs': {}, 'tool_name': 'Python'},
+          {
+              'tool_args': ('10 - 15',),
+              'tool_kwargs': {},
+              'tool_name': 'tool_code',
+          },
           leaf_results[1].inputs,
       )
       self.assertEqual({'output': -5}, leaf_results[1].outputs)
@@ -402,7 +406,7 @@ class ReactTest(parameterized.TestCase):
                 # LLM reply for step 1.
                 (
                     '[Thought]: We can use the Python tool to subtract one from'
-                    ' another.\n[Act]: Python("10 - 15")\n[Observe]: Bla bla'
+                    ' another.\n[Act]: tool_code("10 - 15")\n[Observe]: Bla bla'
                     ' bla.'
                 ),
                 # LLM reply for force-finish.
@@ -461,7 +465,7 @@ class ReactTest(parameterized.TestCase):
                 # LLM reply for step 1.
                 (
                     '[Thought]: We can use the Python tool to subtract one from'
-                    ' another.\n[Act]: Python("10 - 15")\n[Observe]: Bla bla'
+                    ' another.\n[Act]: tool_code("10 - 15")\n[Observe]: Bla bla'
                     ' bla.'
                 ),
                 # LLM reply for step 2 (empty reply).
