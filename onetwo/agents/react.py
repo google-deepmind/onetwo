@@ -163,106 +163,141 @@ Here are examples of how different tasks can be solved with these tools:
 {%- endrole -%}
 """
 
+
+def default_react_exemplars(
+    *,
+    python_tool_name: str,
+    search_tool_name: str,
+    finish_tool_name: str,
+) -> list[ReActState]:
+  """Returns a default set of exemplars for the ReAct prompt.
+
+  Args:
+    python_tool_name: Name of the Python tool.
+    search_tool_name: Name of the Search tool.
+    finish_tool_name: Name of the Finish tool.
+
+  Returns:
+    A list of exemplars.
+  """
+  if not python_tool_name or not search_tool_name or not finish_tool_name:
+    raise ValueError(
+        'Tool names must be specified for the default ReAct exemplars.'
+    )
+  exemplar_subtract = ReActState(
+      inputs='How much taller is Everest than K2?',
+      updates=[
+          ReActStep(
+              thought=(
+                  'First we need to find out how tall are Everest and K2. We'
+                  ' can use the Search tool for that.'
+              ),
+              action=llm_tool_use.FunctionCall(
+                  function_name=search_tool_name,
+                  args=('how tall is Everest?',),
+                  kwargs={},
+              ),
+              observation='8,849 m',
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+          ReActStep(
+              action=llm_tool_use.FunctionCall(
+                  function_name=search_tool_name,
+                  args=('how tall is K2?',),
+                  kwargs={},
+              ),
+              observation='8,611 m',
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+          ReActStep(
+              thought=(
+                  'Now we need to subtract their heights. We can use the'
+                  ' tool_code for that.'
+              ),
+              action=llm_tool_use.FunctionCall(
+                  function_name=python_tool_name,
+                  args=('8849 - 8611',),
+                  kwargs={},
+              ),
+              observation='238',
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+          ReActStep(
+              is_finished=True,
+              thought='Everest is 238 meters taller than K2.',
+              action=llm_tool_use.FunctionCall(
+                  function_name=finish_tool_name,
+                  args=('238 meters',),
+                  kwargs={},
+              ),
+              observation='238 meters',
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ],
+  )
+  exemplar_reverse = ReActState(
+      inputs=(
+          'Spell the name of the scientist who invented relativity backwards.'
+      ),
+      updates=[
+          ReActStep(
+              thought=(
+                  'First we need to find out who invented relativity. We'
+                  ' can use the Search tool for that.'
+              ),
+              action=llm_tool_use.FunctionCall(
+                  function_name=search_tool_name,
+                  args=('who invented relativity?',),
+                  kwargs={},
+              ),
+              observation='Albert Einstein',
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+          ReActStep(
+              thought=(
+                  'Now we can use tool_code to spell it backwards. We need'
+                  ' to write a function that inverts the letters of its'
+                  ' input and then apply it to the name retrieved above:'
+              ),
+              action=llm_tool_use.FunctionCall(
+                  function_name=python_tool_name,
+                  args=(
+                      (
+                          'def invert_letters(input_str):\n  return'
+                          ' input_str[::-1]\nresult ='
+                          ' invert_letters("Albert Einstein")'
+                      ),
+                  ),
+              ),
+              observation='nietsniE treblA',
+              fmt=llm_tool_use.ArgumentFormat.MARKDOWN,
+          ),
+          ReActStep(
+              is_finished=True,
+              thought=(
+                  'Albert Einstein invented relativity and his name'
+                  ' backwards is nietsniE treblA.'
+              ),
+              action=llm_tool_use.FunctionCall(
+                  function_name=finish_tool_name,
+                  args=('nietsniE treblA',),
+                  kwargs={},
+              ),
+              observation='nietsniE treblA',
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ],
+  )
+  return [exemplar_subtract, exemplar_reverse]
+
+
 # Default set of exemplars that can be used as the `exemplars` for calls
 # to a ReAct prompt.
-REACT_FEWSHOTS = [
-    ReActState(
-        inputs='How much taller is Everest than K2?',
-        updates=[
-            ReActStep(
-                thought=(
-                    'First we need to find out how tall are Everest and K2. We'
-                    ' can use the Search tool for that.'
-                ),
-                action=llm_tool_use.FunctionCall(
-                    function_name='Search',
-                    args=('how tall is Everest?',),
-                    kwargs={},
-                ),
-                observation='8,849 m',
-                fmt=llm_tool_use.ArgumentFormat.PYTHON,
-            ),
-            ReActStep(
-                action=llm_tool_use.FunctionCall(
-                    function_name='Search', args=('how tall is K2?',), kwargs={}
-                ),
-                observation='8,611 m',
-                fmt=llm_tool_use.ArgumentFormat.PYTHON,
-            ),
-            ReActStep(
-                thought=(
-                    'Now we need to subtract their heights. We can use the'
-                    ' tool_code for that.'
-                ),
-                action=llm_tool_use.FunctionCall(
-                    function_name='tool_code', args=('8849 - 8611',), kwargs={}
-                ),
-                observation='238',
-                fmt=llm_tool_use.ArgumentFormat.PYTHON,
-            ),
-            ReActStep(
-                is_finished=True,
-                thought='Everest is 238 meters taller than K2.',
-                action=llm_tool_use.FunctionCall(
-                    function_name='Finish', args=('238 meters',), kwargs={}
-                ),
-                observation='238 meters',
-                fmt=llm_tool_use.ArgumentFormat.PYTHON,
-            ),
-        ],
-    ),
-    ReActState(
-        inputs=(
-            'Spell the name of the scientist who invented relativity backwards.'
-        ),
-        updates=[
-            ReActStep(
-                thought=(
-                    'First we need to find out who invented relativity. We can'
-                    ' use the Search tool for that.'
-                ),
-                action=llm_tool_use.FunctionCall(
-                    function_name='Search',
-                    args=('who invented relativity?',),
-                    kwargs={},
-                ),
-                observation='Albert Einstein',
-                fmt=llm_tool_use.ArgumentFormat.PYTHON,
-            ),
-            ReActStep(
-                thought=(
-                    'Now we can use tool_code to spell it backwards. We'
-                    ' need to write a function that inverts the letters of its'
-                    ' input and then apply it to the name retrieved above:'
-                ),
-                action=llm_tool_use.FunctionCall(
-                    function_name='tool_code',
-                    args=(
-                        (
-                            'def invert_letters(input_str):\n  return'
-                            ' input_str[::-1]\nresult = invert_letters("Albert'
-                            ' Einstein")'
-                        ),
-                    ),
-                ),
-                observation='nietsniE treblA',
-                fmt=llm_tool_use.ArgumentFormat.MARKDOWN,
-            ),
-            ReActStep(
-                is_finished=True,
-                thought=(
-                    'Albert Einstein invented relativity and his name backwards'
-                    ' is nietsniE treblA.'
-                ),
-                action=llm_tool_use.FunctionCall(
-                    function_name='Finish', args=('nietsniE treblA',), kwargs={}
-                ),
-                observation='nietsniE treblA',
-                fmt=llm_tool_use.ArgumentFormat.PYTHON,
-            ),
-        ],
-    ),
-]
+REACT_FEWSHOTS = default_react_exemplars(
+    python_tool_name='Python',
+    search_tool_name='Search',
+    finish_tool_name='Finish',
+)
 
 
 class ReActPromptProtocol(Protocol):
