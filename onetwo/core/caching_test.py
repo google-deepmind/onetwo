@@ -432,6 +432,14 @@ class ClassCachedWithSimpleFunctionCache(caching.CacheEnabled[str]):
       raise ValueError('We raise error.')
     return f'{a} result'
 
+  @caching.cache_method(is_sampled=False)
+  def method_that_raises_keyboard_interrupt(
+      self,
+      a: str,
+  ) -> str:
+    del a
+    raise KeyboardInterrupt('Interrupt execution')
+
   @executing.make_executable(copy_self=False)
   @caching.cache_method(is_sampled=False)
   @batching.batch_method_with_threadpool(
@@ -628,7 +636,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           'value_1',
       )
 
-  def test_decorated_methods_raise_errors(self):
+  def test_decorated_method_raises_error(self):
     backend = ClassCachedWithSimpleFunctionCache()
     with self.subTest('cache_decorator_properly_handles_exceptions'):
       with self.assertRaisesRegex(ValueError, 'We raise error*'):
@@ -637,7 +645,23 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
         )
     # pytype hint.
     handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
-    with self.subTest('calls_in_progress_cleared_after_exception'):
+
+    with self.subTest('should_clear_calls_in_progress'):
+      self.assertEqual(handler._calls_in_progress, set())
+
+  def test_keyboard_interrupt(self):
+    # Note that KeyboardInterrupt is not a subclass of Exception, so additional
+    # care is needed to make sure it is handled.
+    backend = ClassCachedWithSimpleFunctionCache()
+    with self.subTest('cache_decorator_properly_handles_exceptions'):
+      with self.assertRaises(KeyboardInterrupt):
+        _ = asyncio.run(
+            backend.method_that_raises_keyboard_interrupt(a='some')
+        )
+    # pytype hint.
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    with self.subTest('should_clear_calls_in_progress'):
       self.assertEqual(handler._calls_in_progress, set())
 
   def test_does_not_repeat_calls_in_progress(self):

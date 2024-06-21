@@ -705,36 +705,40 @@ def cache_method(
         else:
           value = method(*((self,) + args), **kwargs)
       except Exception as err:  # pylint: disable=broad-except
-        if hasattr(self._cache_handler, '_calls_in_progress'):
-          # We failed to process the call. Unblock other coroutines waiting for
-          # the value.
-          self._cache_handler._calls_in_progress -= {(key, sampling_key)}
         raise ValueError(
             f'Error raised while executing method {method}:\n{err}\n'
         ) from err
-      # We may need to resolve cache_extra_replies's value at runtime.
-      do_cache_extra = utils.RuntimeParameter[bool](
-          cache_extra_replies, self
-      ).value()
-      if do_cache_extra:
-        # Method returns a Sequence of CachedType elements. Handle this case.
-        logging.info('Caching extra replies for method %s.', method.__name__)  # pytype: disable=attribute-error
-        value = return_first_and_cache_remaining(
-            values=value,
-            disable_caching=self.disable_caching,
-            cache_value_callback=functools.partial(
-                self._cache_handler.cache_value,  # pytype: disable=attribute-error
-                key,
-                None,  # No sampling_key set.
-            )
-        )
-      result = store(self, value, key, sampling_key)
-      # Finally indicate that we have processed the call and cached the value.
-      if hasattr(self._cache_handler, '_calls_in_progress'):
-        self._cache_handler._calls_in_progress -= {(key, sampling_key)}
-
-      # pylint: enable=protected-access
-      return result
+      except KeyboardInterrupt as err:
+        # Note that KeyboardInterrupt is not a subclass of Exception, so we need
+        # to handle it separately.
+        raise err
+      else:
+        # We may need to resolve cache_extra_replies's value at runtime.
+        do_cache_extra = utils.RuntimeParameter[bool](
+            cache_extra_replies, self
+        ).value()
+        if do_cache_extra:
+          # Method returns a Sequence of CachedType elements. Handle this case.
+          logging.info('Caching extra replies for method %s.', method.__name__)  # pytype: disable=attribute-error
+          value = return_first_and_cache_remaining(
+              values=value,
+              disable_caching=self.disable_caching,
+              cache_value_callback=functools.partial(
+                  self._cache_handler.cache_value,  # pytype: disable=attribute-error
+                  key,
+                  None,  # No sampling_key set.
+              )
+          )
+        result = store(self, value, key, sampling_key)
+        return result
+      finally:
+        # Finally remove the call from `_calls_in_progress` to unblock other
+        # coroutines waiting for the value. Note that we do this both in the
+        # success case (after the call has been fully processed and the value
+        # cached) and the failure case (to avoid leaving orphaned calls in
+        # `_calls_in_progress` if execution is unexpectedly interrupted).
+        if hasattr(self._cache_handler, '_calls_in_progress'):
+          self._cache_handler._calls_in_progress -= {(key, sampling_key)}
 
     return ainner
     # pylint: enable=protected-access

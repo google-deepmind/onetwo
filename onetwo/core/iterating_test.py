@@ -89,17 +89,38 @@ class IteratingTest(parameterized.TestCase):
         for i in iterator:
           result.append(i)
 
-  def test_async_iterator_to_sync_with_error_in_loop(self):
+  @parameterized.named_parameters(
+      # Note that KeyboardInterrupt is not a subclass of Exception, so
+      # additional care is needed to make sure it is handled.
+      ('KeyboardInterrupt', KeyboardInterrupt),
+      ('ValueError', ValueError),
+  )
+  def test_async_iterator_to_sync_with_error_in_loop(self, exception_type):
     # We make sure that the context manager that produces the iterator properly
-    # handles exceptions and terminates the thread that it started cleanly.
+    # handles the exception and promptly and cleanly terminates the thread
+    # that it started.
+    iteration_when_terminated = -2
+    max_iterations = 100
     async def wrap():
-      for i in range(5):
-        yield i
+      nonlocal iteration_when_terminated
+      i = -1
+      try:
+        for i in range(max_iterations):
+          yield i
+      finally:
+        iteration_when_terminated = i
 
-    with self.assertRaises(ValueError):
+    with self.assertRaises(exception_type):
       with  iterating.async_iterator_to_sync(wrap()) as iterator:
         for _ in iterator:
-          raise ValueError()
+          raise exception_type()
+
+    with self.subTest('child_thread_is_terminated_promptly'):
+      # Since the stop signal is sent to the child thread asynchronously, we
+      # cannot guarantee the exact iteration at which the child thread will be
+      # terminated, but it should be very near to the beginning (i.e., long
+      # before the halfway point).
+      self.assertLess(iteration_when_terminated, max_iterations / 2)
 
   def test_function_with_callback_to_async_iterator(self):
     def f(cb):

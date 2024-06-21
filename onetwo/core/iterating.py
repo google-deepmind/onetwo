@@ -392,9 +392,10 @@ def _start_queue_and_thread(
   t.start()
   try:
     yield q, job_done
-  except Exception as e:
+  except (Exception, KeyboardInterrupt) as e:
     # An exception was raised in the main code (e.g. in the body of the stream
     # loop).
+    logging.info('Shutting down queue thread due to exception: %s', e)
     shutdown.set()
     t.join()  # Wait for the end of the thread, but don't wait for the queue.
     raise e
