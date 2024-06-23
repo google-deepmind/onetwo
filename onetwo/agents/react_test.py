@@ -212,6 +212,46 @@ class ReactTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (
+          'call_arbitrary_function',
+          "[Act]: some_tool('a', b=1)",
+          {},
+          react.ReActStep(
+              is_finished=False,
+              action=llm_tool_use.FunctionCall(
+                  function_name='some_tool',
+                  args=('a',),
+                  kwargs={'b': 1},
+              ),
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ),
+      (
+          'call_finish_function_uppercase',
+          "[Act]: Finish('final_answer')",
+          {},
+          react.ReActStep(
+              is_finished=True,
+              action=llm_tool_use.FunctionCall(
+                  function_name='Finish',
+                  args=('final_answer',),
+              ),
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ),
+      (
+          'call_finish_function_lowercase',
+          "[Act]: finish('final_answer')",
+          {},
+          react.ReActStep(
+              is_finished=True,
+              action=llm_tool_use.FunctionCall(
+                  function_name='finish',
+                  args=('final_answer',),
+              ),
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ),
+      (
           'finish_default_final_stop_sequence',
           '[Finish]: These are some answers:\n\n- Option one\n- Option two',
           {},

@@ -468,7 +468,10 @@ def react_parse(
       _, fn, args, kwargs, fmt, _ = llm_tool_use.parse_and_consume_call(
           text=part_after_act, context_vars=prompt_context.context_variables
       )
-      is_finished = fn == 'Finish'
+      # TODO: Come up with a more robust way of detecting whether the
+      # LLM has chosen to finish without depending on the name under which the
+      # Finish tool is registered.
+      is_finished = (fn.lower() == 'finish')
       action = llm_tool_use.FunctionCall(
           function_name=fn, args=args, kwargs=kwargs
       )
