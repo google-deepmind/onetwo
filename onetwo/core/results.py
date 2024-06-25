@@ -709,19 +709,28 @@ class HTMLRenderer:
         f'<span style="color:blue">{updated_reply}</span></p>'
     )
 
-  def _render_dict(
+  def _render_dict_like_object(
       self, object_to_render: Any, *, element_id: str, levels_to_expand: int
   ) -> HTMLObjectRendering | None:
     """Returns a rendering of a dict as text or in ...<ul>...</ul> form."""
-    if not isinstance(object_to_render, dict):
-      return None
+    if isinstance(object_to_render, dict):
+      object_as_dict = object_to_render
+      title = f'{type(object_to_render).__name__}({len(object_to_render)})'
+    else:
+      try:
+        object_as_dict = vars(object_to_render)
+        title = f'{type(object_to_render).__name__}'
+      except TypeError:
+        # Type cannot be converted to a dict.
+        return None
+
     if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
       return None
 
     lines = []
-    lines.append(f'{type(object_to_render).__name__}({len(object_to_render)})')
+    lines.append(title)
     lines.append('<ul>')
-    for i, (key, value) in enumerate(object_to_render.items()):
+    for i, (key, value) in enumerate(object_as_dict.items()):
       lines.append(
           self.render_object_as_collapsible_list_element(
               value,
@@ -1062,6 +1071,16 @@ class HTMLRenderer:
         expanded=(levels_to_expand > 0),
     )
 
+  def _get_default_renderers(self) -> Sequence[HTMLObjectRenderer]:
+    """Returns a list of default renderers for various object types."""
+    return [
+        HTMLRenderer._render_result,
+        HTMLRenderer._render_evaluation_summary,
+        HTMLRenderer._render_agent_state,
+        HTMLRenderer._render_list,
+        HTMLRenderer._render_dict_like_object,
+    ]
+
   def render_object(
       self,
       object_to_render: Any,
@@ -1089,14 +1108,9 @@ class HTMLRenderer:
       # avoid any risk of infinite recursion.
       return HTMLObjectRendering(html=repr(object_to_render))
 
-    default_renderers = [
-        HTMLRenderer._render_result,
-        HTMLRenderer._render_evaluation_summary,
-        HTMLRenderer._render_agent_state,
-        HTMLRenderer._render_list,
-        HTMLRenderer._render_dict,
-    ]
-    all_renderers = itertools.chain(self.custom_renderers, default_renderers)
+    all_renderers = itertools.chain(
+        self.custom_renderers, self._get_default_renderers()
+    )
     for renderer in all_renderers:
       rendering = renderer(
           self,

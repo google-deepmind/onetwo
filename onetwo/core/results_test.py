@@ -15,6 +15,7 @@
 import collections
 from collections.abc import Sequence
 import copy
+import dataclasses
 import datetime
 import logging
 import pprint
@@ -1007,13 +1008,21 @@ class HTMLRendererTest(parameterized.TestCase):
     )
 
   def test_render_generates_correct_content(self):
+    @dataclasses.dataclass
+    class MyDataClass:
+      field1: str
+      field2: str
+
     object_to_render = results.EvaluationResult(
         stage_name='MyStrategy',
         inputs={'i1': 'i_v1'},
         outputs={
             'o_very_long_key1': 'o_very_long_value1',
             'o_very_long_key2': 'o_very_long_value2',
-            'o_very_long_key3': 'o_very_long_value3',
+            'o_very_long_key3': MyDataClass(
+                field1='o_very_long_value3_1',
+                field2='o_very_long_value3_2',
+            ),
         },
         stages=[
             results.ExecutionResult(
@@ -1077,6 +1086,18 @@ class HTMLRendererTest(parameterized.TestCase):
           f'\nFull html:\n{html}',
       )
       self.assertNotIn('<b>i1:</b> ', html, f'\nFull html:\n{html}')
+
+    with self.subTest('dataclasses_display_like_dicts'):
+      self.assertIn(
+          '<span id="0o-2" style="display:inline">MyDataClass',
+          html,
+          f'\nFull html:\n{html}',
+      )
+      self.assertIn(
+          "<li><b>field1:</b> 'o_very_long_value3_1'</li>",
+          html,
+          f'\nFull html:\n{html}',
+      )
 
   def test_custom_renderer(self):
     def dict_renderer(
