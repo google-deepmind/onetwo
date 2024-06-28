@@ -108,8 +108,16 @@ class VertexAIAPITest(
 
     def generate_content_mock(prompt, generation_config):
       candidate_count = getattr(generation_config, 'candidate_count', 1)
+      if isinstance(prompt, str):
+        prompt_txt = prompt
+      elif isinstance(prompt, list) and isinstance(
+          prompt[-1], generative_models.Part
+      ):
+        prompt_txt = prompt[-1].text
+      else:
+        raise ValueError(f'Unsupported mock prompt type: {type(prompt)}')
 
-      if prompt.startswith('raise_exception'):
+      if prompt_txt.startswith('raise_exception'):
         raise ValueError(
             'VertexAI.Model.generate_content raised err:\nFake error\n'
             'for request:\nFake request.'
@@ -122,6 +130,10 @@ class VertexAIAPITest(
           {'candidates': candidates}
       )
 
+    def generate_message_content_mock(content, generation_config, stream):
+      _ = stream
+      return generate_content_mock(content[0].text, generation_config)
+
     mock_generate_model.generate_content.side_effect = generate_content_mock
     mock_generate_model.count_tokens.return_value = (
         gapic_prediction_service_types.CountTokensResponse(
@@ -131,6 +143,9 @@ class VertexAIAPITest(
     mock_embed_model.get_embeddings.return_value = [
         language_models.TextEmbedding(values=[0.0])
     ]
+    mock_generate_model.start_chat().send_message.side_effect = (
+        generate_message_content_mock
+    )
     self._mock_vertexai_init = self.enter_context(
         mock.patch.object(vertexai, 'init', return_value=None)
     )
@@ -364,10 +379,34 @@ class VertexAIAPITest(
     self.assertListEqual(list(results), ['a' * 10, 'a' * 10, 'a' * 10])
 
   def test_chat(self, *args, **kwargs):
-    _ = _get_and_register_backend()
-    msg = Message(role=PredefinedRole.USER, content='Hello')
-    with self.assertRaises(NotImplementedError):
-      executing.run(llm.chat(messages=[msg]))
+    backend = _get_and_register_backend()
+    msg_user = Message(role=PredefinedRole.USER, content='Hello model')
+    msg_model = Message(role=PredefinedRole.MODEL, content='Hello user')
+    result = executing.run(llm.chat(messages=[msg_user]))
+
+    with self.subTest('single_msg_returns_correct_result'):
+      self.assertEqual(result, 'a' * 10)
+
+    expected_backend_counters = collections.Counter({
+        'chat': 1,
+        'chat_via_api_batches': 1,
+    })
+
+    with self.subTest('single_msg_sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+    result = executing.run(llm.chat(messages=[msg_model, msg_user]))
+
+    with self.subTest('multiple_msg_returns_correct_result'):
+      self.assertEqual(result, 'a' * 10)
+
+    expected_backend_counters = collections.Counter({
+        'chat': 2,
+        'chat_via_api_batches': 2,
+    })
+
+    with self.subTest('multiple_msg_sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
 
   def test_truncation(self, *args, **kwargs):
     _ = _get_and_register_backend()

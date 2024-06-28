@@ -22,7 +22,9 @@ from absl import flags
 from absl import logging
 from onetwo.backends import vertexai_api
 from onetwo.builtins import composables as c
+from onetwo.builtins import formatting
 from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
 
@@ -245,6 +247,97 @@ def main(argv: Sequence[str]) -> None:
           samples=3,
           stop=['\n\n'],
           max_tokens=5,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+    print('9.1 Check that chat is working (API formatting).')
+  res = executing.run(
+      llm.chat(
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.SYSTEM,
+                  content='You are a helpful and insightful chatbot.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of France?',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.MODEL,
+                  content='Obviously, it is Paris.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of Germany?',
+              ),
+          ],
+          temperature=0.5,
+          max_tokens=15,
+          stop=['.'],
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('9.2 Check that chat doesn\'t try to completes the model prefix.')
+  value_error_raised = False
+  try:
+    _ = executing.run(
+        llm.chat(
+            messages=[
+                content_lib.Message(
+                    role=content_lib.PredefinedRole.USER,
+                    content='Tell me a real short story?',
+                ),
+                content_lib.Message(
+                    role=content_lib.PredefinedRole.MODEL,
+                    content='Once upon a',
+                ),
+            ],
+            temperature=0.5,
+            max_tokens=10,
+            stop=['.'],
+        )
+    )
+  except ValueError as err:
+    if 'last message must be a user message' not in repr(err):
+      success = False
+      print('ValueError raised, but not with the expected message.', err)
+    value_error_raised = True
+    if _PRINT_DEBUG.value:
+      print('ValueError raised.')
+  if not value_error_raised:
+    success = False
+    print('ValueError not raised.')
+
+  print('9.3 Check that chat is working (Default formatting).')
+  res = executing.run(
+      llm.chat(
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.SYSTEM,
+                  content='You are a helpful and insightful chatbot.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of France?',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.MODEL,
+                  content='Obviously, it is Paris.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of Germany?',
+              ),
+          ],
+          temperature=0.5,
+          formatter=formatting.FormatterName.DEFAULT,
+          max_tokens=15,
       )
   )
   if _PRINT_DEBUG.value:

@@ -21,7 +21,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, Final, Iterable, cast
+from typing import Any, Final, Iterable, TypeAlias, cast
 
 from absl import logging
 from google.auth import credentials as auth_credentials
@@ -32,12 +32,16 @@ import immutabledict
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
+from onetwo.builtins import llm_utils
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import utils
 
+
+_TokenHealingOption: TypeAlias = llm.TokenHealingOption
+_ChunkList: TypeAlias = content_lib.ChunkList
 
 # Available models are listed at https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini.  # pylint: disable=line-too-long
 # input_token_limit=32760, output_token_limit=8192.
@@ -65,6 +69,30 @@ SAFETY_DISABLED: Final[Mapping[int, int]] = immutabledict.immutabledict({
 })
 
 
+def _convert_chunk_list_to_parts_list(
+    prompt: str | _ChunkList,
+) -> list[generative_models.Part]:
+  """Convert ChunkList to the type compatible with Gemini API's ContentsType."""
+  if isinstance(prompt, content_lib.ChunkList):
+    converted = []
+    for c in prompt:
+      match c.content_type:
+        case 'str':
+          converted.append(generative_models.Part.from_text(c.content))
+        case 'bytes' | 'image/jpeg':
+          # If we have bytes we assume for now that it is an image.
+          converted.append(
+              generative_models.Part.from_image(
+                  generative_models.Image.from_bytes(cast(bytes, c.content))
+              )
+          )
+        case _:
+          raise ValueError(f'Unsupported content type: {c.content_type}')
+    return converted
+  else:
+    return [generative_models.Part.from_text(prompt)]
+
+
 def _truncate(text: str, max_tokens: int | None = None) -> str:
   """Truncates text to the given number of tokens."""
   # Unfortunately, when setting a max_output_tokens value in the API that is
@@ -76,7 +104,7 @@ def _truncate(text: str, max_tokens: int | None = None) -> str:
   if max_tokens is None:
     return text
   else:
-    return text[:max_tokens * 3]
+    return text[: max_tokens * 3]
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -172,9 +200,7 @@ class VertexAIAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(
-        self.chat, formatter=formatting.FormatterName.API
-    )
+    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
     llm.count_tokens.configure(self.count_tokens)
 
   def __post_init__(self) -> None:
@@ -191,7 +217,6 @@ class VertexAIAPI(
     self._generate_model = generative_models.GenerativeModel(
         self.generate_model_name
     )
-    self._chat_model = generative_models.GenerativeModel(self.chat_model_name)
     self._embed_model = language_models.TextEmbeddingModel(
         self.embed_model_name
     )
@@ -209,7 +234,7 @@ class VertexAIAPI(
   def _generate_content(
       self,
       *,
-      prompt: str | content_lib.ChunkList,
+      prompt: str | _ChunkList,
       samples: int = 1,
       temperature: float | None = None,
       stop: Sequence[str] | None = None,
@@ -218,19 +243,7 @@ class VertexAIAPI(
   ) -> generative_models.GenerationResponse:
     """Generate content."""
     if isinstance(prompt, content_lib.ChunkList):
-      converted = []
-      for c in prompt:
-        match c.content_type:
-          case 'str':
-            converted.append(c.content)
-          case 'bytes' | 'image/jpeg':
-            # If we have bytes we assume the image is in jpeg format.
-            converted.append(
-                generative_models.Image.from_bytes(cast(bytes, c.content))
-            )
-          case _:
-            converted.append(c.content)
-      prompt = converted
+      prompt = _convert_chunk_list_to_parts_list(prompt)
 
     generation_config = generative_models.GenerationConfig(
         candidate_count=samples,
@@ -285,8 +298,16 @@ class VertexAIAPI(
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_text'] += 1
+
+    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+
+    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=prompt,
+        healing_option=healing_option,
+    )
+
     response = self._generate_content(
-        prompt=prompt,
+        prompt=healed_prompt,
         samples=1,
         temperature=temperature,
         stop=stop,
@@ -346,7 +367,10 @@ class VertexAIAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
-    raise NotImplementedError('chat is not implemented.')
+    if formatter == formatting.FormatterName.API:
+      return await self.chat_via_api(messages, **kwargs)
+    else:
+      return await llm.default_chat(messages, formatter, **kwargs)
 
   @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
@@ -361,10 +385,92 @@ class VertexAIAPI(
   def chat_via_api(
       self,
       messages: Sequence[content_lib.Message],
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
-    raise NotImplementedError('chat_via_api is not implemented.')
+    self._counters['chat'] += 1
+
+    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+
+    if len(messages) == 1:
+      if messages[0].role != content_lib.PredefinedRole.USER:
+        raise ValueError(
+            'When using the Vertex AI API chat interface and passing a '
+            'single message, it must be a user message.'
+        )
+    if messages[-1].role != content_lib.PredefinedRole.USER:
+      raise ValueError(
+          'When using the Vertex AI API chat interface, the last message '
+          'must be a user message.'
+      )
+
+    history = []
+    system_msg = ''
+    for msg in messages:
+      match msg.role:
+        case content_lib.PredefinedRole.SYSTEM:
+          # System messages cannot be to the model as history via the Vertex API.
+          system_msg += msg.content
+          continue
+        case content_lib.PredefinedRole.USER:
+          role = 'user'
+        case content_lib.PredefinedRole.MODEL:
+          role = 'model'
+        case _:
+          raise ValueError(f'Unsupported role: {msg.role}')
+      history.append(
+          generative_models.Content(
+              role=role,
+              parts=[generative_models.Part.from_text(msg.content)],
+          )
+      )
+
+    system_msg_part = None
+    if system_msg:
+      system_msg_part = generative_models.Part.from_text(system_msg)
+
+    chat_model = generative_models.GenerativeModel(
+        self.chat_model_name, system_instruction=system_msg_part
+    )
+
+    healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    content_parts = _convert_chunk_list_to_parts_list(healed_content)
+
+    generation_config = generative_models.GenerationConfig(
+        stop_sequences=stop,
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+    )
+
+    chat = chat_model.start_chat(history=history[:-1])
+    response = chat.send_message(
+        content=content_parts,
+        generation_config=generation_config,
+        stream=False,
+    )
+
+    if isinstance(response, Iterable):
+      raise NotImplementedError(
+          'Itterative response processing is not implemented.'
+      )
+
+    reply = llm_utils.maybe_heal_reply(
+        reply_text=response.text,
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    return reply
 
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
