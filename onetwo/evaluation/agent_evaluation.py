@@ -309,8 +309,12 @@ async def _evaluate_example(
   # Results and results debug
   if execution_result is None:
     # Error occurred during strategy execution. Output just a minimal summary.
+    if hasattr(strategy, '__name__'):
+      strategy_name = strategy.__name__
+    else:
+      strategy_name = strategy.__class__.__name__
     evaluation_debug = results.EvaluationResult(
-        stage_name=strategy.__name__,
+        stage_name=strategy_name,
         inputs={'args': args, 'kwargs': kwargs},
         error=error,
     )
