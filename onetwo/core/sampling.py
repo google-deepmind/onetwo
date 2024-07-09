@@ -12,18 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implementation of Self-Consistency as an Executable."""
+"""Functions and classes for sampling from a conditional distribution."""
 
-from collections.abc import Callable
+import abc
+from collections.abc import Awaitable, Callable, Sequence
 import copy
-from typing import Sequence, TypeVar
+import dataclasses
+import itertools
+from typing import Generic, ParamSpec, Protocol, TypeVar
 
 from onetwo.core import caching
 from onetwo.core import executing
+from onetwo.core import tracing
+from onetwo.core import utils
 
 
 Result = TypeVar('Result')
 Executable = executing.Executable[Result]
+
+# Type representing a strategy's arguments.
+_Args = ParamSpec('_Args')
+
+# Type representing a strategy's output.
+_O = TypeVar('_O')
 
 # Constants used in info fields.
 MARGINALIZED_INPUTS_ID = 'marginalized_inputs_id'
@@ -112,3 +123,109 @@ def repeat_and_execute(  # pytype: disable=invalid-annotation
   return executing.par_iter(
       repeat(executable, num_repeats, update_result_fn)
   )
+
+
+class Sampler(Generic[_O], Protocol):
+  """Interface for generating samples from a conditional distribution."""
+
+  @executing.make_executable
+  @abc.abstractmethod
+  async def __call__(
+      self,
+      *args: _Args.args,
+      num_samples: int = 1,
+      start_index: int = 0,
+      **kwargs: _Args.kwargs,
+  ) -> Sequence[_O]:
+    """Returns the specified number of samples of output for the given inputs.
+
+    Args:
+      *args: Positional arguments portion of the inputs to condition on.
+      num_samples: The number of samples to return.
+      start_index: If provided, the ids assigned to the sample start at this
+        number. This can be used for example to get additional (distinct)
+        samples in successive rounds.
+      **kwargs: Keyword arguments portion of the inputs to condition on.
+    """
+
+
+@dataclasses.dataclass
+class Repeated(Generic[_O], Sampler[_O]):
+  """Sampler based on repeated calls to some underlying strategy.
+
+  Serves as a callable with the same signature as the inner strategy, except
+  that it takes additional keyword arguments `num_samples` and `start_index`,
+  and instead of returning a single output, it returns a sequence of outputs.
+
+  Attributes:
+    inner: The inner strategy that is used for generating each sample. Could be,
+      for example, a function that makes calls to an LLM with temperature > 0,
+      or any other function that could potentially return a different answer
+      each time it is called, via sampling from some kind of underlying
+      distribution.
+  """
+
+  inner: Callable[_Args, _O] | Callable[_Args, Awaitable[_O]]
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  async def __call__(
+      self,
+      *args: _Args.args,
+      num_samples: int = 1,
+      start_index: int = 0,
+      **kwargs: _Args.kwargs,
+  ) -> Sequence[_O]:
+    """Overridden from base class (Sampler)."""
+    repeated_executable = repeat(
+        executable=self.inner(*args, **kwargs),
+        num_repeats=num_samples,
+        start_index=start_index,
+    )
+    parallel_executable = executing.parallel(*repeated_executable)
+    result_objects = await parallel_executable
+    return result_objects
+
+
+@dataclasses.dataclass
+class RoundRobin(Generic[_O], Sampler[_O]):
+  """Sampler that performs round-robin calls to multiple inner samplers.
+
+  Serves as a callable with the same signature as the inner samplers, which are
+  all expected to have the same signature as one another (or at minimum, to
+  accept the same arguments).
+
+  Attributes:
+    inner: The inner samplers, over which round-robin calls are performed.
+  """
+
+  inner: Sequence[Sampler[_O]]
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  async def __call__(
+      self,
+      *args: _Args.args,
+      num_samples: int = 1,
+      start_index: int = 0,
+      **kwargs: _Args.kwargs,
+  ) -> Sequence[_O]:
+    """Overridden from base class (Sampler)."""
+    num_samplers = len(self.inner)
+    repeated_executable = []
+    # We can do straightforward round-robin here, without any explicit batching,
+    # since batching is handled automatically at the level of the backend, as
+    # long as we execute the samplers in parallel.
+    for sample_index in range(start_index, start_index + num_samples):
+      sampler_id = sample_index % num_samplers
+      sampler = self.inner[sampler_id]
+      repeated_executable.append(
+          sampler(*args, num_samples=1, start_index=sample_index, **kwargs),
+      )
+
+    # We execute the sampling as much as possible in parallel.
+    parallel_executable = executing.parallel(*repeated_executable)
+    result_object_batches = await parallel_executable
+    result_objects = list(itertools.chain.from_iterable(result_object_batches))
+
+    return result_objects

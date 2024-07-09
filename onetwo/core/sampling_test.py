@@ -22,9 +22,9 @@ from onetwo.core import sampling
 
 
 @executing.make_executable
-async def process(request: str) -> tuple[str, str]:
+async def process(request: str, suffix: str = '') -> tuple[str, str]:
   key = caching.context_sampling_key.get()
-  return (request, key)
+  return (request+suffix, key)
 
 
 class SamplingTest(parameterized.TestCase):
@@ -113,9 +113,7 @@ class SamplingTest(parameterized.TestCase):
     res = executing.run(executable)
     with self.subTest('should_update_results'):
       for i in range(sample_size):
-        self.assertEqual(
-            res[i], ('test', str(i) if i else '', i, sample_size)
-        )
+        self.assertEqual(res[i], ('test', str(i) if i else '', i, sample_size))
 
   def test_streaming(self):
     executable = executing.par_iter(sampling.repeat(process('test'), 3))
@@ -127,6 +125,53 @@ class SamplingTest(parameterized.TestCase):
         results,
         [('test', ''), ('test', '1'), ('test', '2')],
     )
+
+  def test_repeat_sampler(self):
+    sampler = sampling.Repeated(process)
+    # Note that we pass in both a positional and a keyword argument to verify
+    # that the sampler is correctly passing them through.
+    res = executing.run(sampler('test', suffix='-a', num_samples=3))
+    expected = [('test-a', ''), ('test-a', '1'), ('test-a', '2')]
+    self.assertEqual(expected, res, res)
+
+  def test_round_robin_sampler(self):
+    @executing.make_executable
+    async def strategy1(request, **kwargs):
+      return await process(f'{request}-1', **kwargs)
+
+    @executing.make_executable
+    async def strategy2(request, **kwargs):
+      return await process(f'{request}-2', **kwargs)
+
+    sampler = sampling.RoundRobin([
+        sampling.Repeated(strategy1),
+        sampling.Repeated(strategy2),
+    ])
+
+    # Note that we pass in both a positional and a keyword argument to verify
+    # that the sampler is correctly passing them through.
+    res = executing.run(sampler('test', suffix='-a', num_samples=5))
+    expected = [
+        ('test-1-a', ''),
+        ('test-2-a', '1'),
+        ('test-1-a', '2'),
+        ('test-2-a', '3'),
+        ('test-1-a', '4'),
+    ]
+    with self.subTest('default_start_index_starts_at_0_with_first_sampler'):
+      self.assertEqual(expected, res, res)
+
+    # This time we omit the suffix kwarg for simplicity.
+    res = executing.run(sampler(request='test', num_samples=5, start_index=1))
+    expected = [
+        ('test-2', '1'),
+        ('test-1', '2'),
+        ('test-2', '3'),
+        ('test-1', '4'),
+        ('test-2', '5'),
+    ]
+    with self.subTest('start_index_1_starts_at_1_with_second_sampler'):
+      self.assertEqual(expected, res, res)
 
 
 if __name__ == '__main__':
