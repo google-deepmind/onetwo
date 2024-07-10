@@ -132,8 +132,8 @@ class QACoTPromptJ2:
     prompt_template = composables.j(self.prompt_text)
     _ = await prompt_template(question=question, exemplars=exemplars)
     return CoTReply(
-        answer=prompt_template['answer'],
-        reasoning=prompt_template['reasoning'],
+        answer=prompt_template['answer'].strip(),
+        reasoning=prompt_template['reasoning'].strip(),
     )
 
 

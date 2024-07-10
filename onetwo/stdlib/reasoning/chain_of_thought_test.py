@@ -37,15 +37,18 @@ Reasoning: """
 Question: What is the answer?
 Reasoning: Let me think...
 Final answer: """
-    simulated_reasoning = 'Let me think...'
-    simulated_answer = '42'
+    simulated_llm_reply_1 = 'Let me think... '
+    simulated_llm_reply_2 = '\n42'
+    expected_cot_reply = chain_of_thought.CoTReply(
+        reasoning='Let me think...', answer='42'
+    )
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
-            expected_request_1: simulated_reasoning,
-            expected_request_2: simulated_answer,
+            expected_request_1: simulated_llm_reply_1,
+            expected_request_2: simulated_llm_reply_2,
         },
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -56,13 +59,10 @@ Final answer: """
     # expected.
     cot_reply = executing.run(prompt(question=question))
 
-    expected_cot_reply = chain_of_thought.CoTReply(
-        reasoning=simulated_reasoning, answer=simulated_answer
-    )
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
-    with self.subTest('should_return_the_llm_reply_as_answer'):
+    with self.subTest('should_return_the_trimmed_llm_reply_as_answer'):
       self.assertEqual(expected_cot_reply, cot_reply)
 
   def test_qa_cot_prompt_j2_few_shot(self):
@@ -101,15 +101,18 @@ Final answer: A2
 Question: What is the answer?
 Reasoning: Let me think...
 Final answer: """
-    simulated_reasoning = 'Let me think...'
-    simulated_answer = '42'
+    simulated_llm_reply_1 = 'Let me think... '
+    simulated_llm_reply_2 = '\n42'
+    expected_cot_reply = chain_of_thought.CoTReply(
+        reasoning='Let me think...', answer='42'
+    )
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
-            expected_request_1: simulated_reasoning,
-            expected_request_2: simulated_answer,
+            expected_request_1: simulated_llm_reply_1,
+            expected_request_2: simulated_llm_reply_2,
         },
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -120,13 +123,10 @@ Final answer: """
     # expected.
     cot_reply = executing.run(prompt(question=question))
 
-    expected_cot_reply = chain_of_thought.CoTReply(
-        reasoning=simulated_reasoning, answer=simulated_answer
-    )
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
-    with self.subTest('should_return_the_llm_reply_as_answer'):
+    with self.subTest('should_return_the_trimmed_llm_reply_as_answer'):
       self.assertEqual(expected_cot_reply, cot_reply)
 
   def test_qa_cot_prompt_with_answer_parser_j2_zero_shot(self):
@@ -137,15 +137,16 @@ Final answer: """
     expected_request = """\
 Q: What is the answer?
 A: """
-    simulated_reasoning_and_answer = 'Let me think... The answer is 42.'
-    simulated_reasoning = 'Let me think...'
-    simulated_answer = '42'
+    simulated_llm_reply = 'Let me think... The answer is 42.'
+    expected_cot_reply = chain_of_thought.CoTReply(
+        reasoning='Let me think...', answer='42'
+    )
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
-            expected_request: simulated_reasoning_and_answer,
+            expected_request: simulated_llm_reply,
         },
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -156,9 +157,6 @@ A: """
     # expected.
     cot_reply = executing.run(prompt(question=question))
 
-    expected_cot_reply = chain_of_thought.CoTReply(
-        reasoning=simulated_reasoning, answer=simulated_answer
-    )
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
@@ -187,15 +185,16 @@ A: R2 The answer is A2.
 
 Q: What is the answer?
 A: """
-    simulated_reasoning_and_answer = 'Let me think... The answer is 42.'
-    simulated_reasoning = 'Let me think...'
-    simulated_answer = '42'
+    simulated_llm_reply = 'Let me think... The answer is 42.'
+    expected_cot_reply = chain_of_thought.CoTReply(
+        reasoning='Let me think...', answer='42'
+    )
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
-            expected_request: simulated_reasoning_and_answer,
+            expected_request: simulated_llm_reply,
         },
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -206,9 +205,6 @@ A: """
     # expected.
     cot_reply = executing.run(prompt(question=question))
 
-    expected_cot_reply = chain_of_thought.CoTReply(
-        reasoning=simulated_reasoning, answer=simulated_answer
-    )
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
@@ -240,15 +236,16 @@ A: R2 The answer is A2.
 
 Q: What is the answer?
 A: """
-    simulated_reasoning_and_answer = 'Let me think... The answer is 42.'
-    simulated_reasoning = 'Let me think...'
-    simulated_answer = '42'
+    simulated_llm_reply = 'Let me think... The answer is 42.'
+    expected_cot_reply = chain_of_thought.CoTReply(
+        reasoning='Let me think...', answer='42'
+    )
 
     # Now we can define our test LLM that sends deterministic answers to the
     # specified prompts.
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt={
-            expected_request: simulated_reasoning_and_answer,
+            expected_request: simulated_llm_reply,
         },
         reply_by_prompt_target={},
         default_reply=DEFAULT_REPLY,
@@ -261,9 +258,6 @@ A: """
         prompt(question=question, exemplars=question_specific_exemplars)
     )
 
-    expected_cot_reply = chain_of_thought.CoTReply(
-        reasoning=simulated_reasoning, answer=simulated_answer
-    )
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
