@@ -260,7 +260,7 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
         self._registered_function,
         **new_defaults,
     )
-    self._defaults |= new_defaults
+    self._defaults = self._defaults | new_defaults
 
   # We do not decorate this function with make_executable since we want it
   # transparently call the registered function which is itself decorated.

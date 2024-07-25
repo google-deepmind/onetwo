@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import AsyncIterator, Sequence
+import copy
 import functools
 import inspect
 from typing import Any, TypeVar
@@ -405,6 +406,8 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       return 0
 
     def add(a: int, b: int | None = None, c: int = 0) -> int:
+      if b is None:
+        b = 0
       return a + b + c
 
     # We create 2 registries with different defaults.
@@ -414,19 +417,75 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     r2 = routing.copy_registry()
     # We create an executable to run in two different contexts.
     executable = fn(1, c=2)
+
     # We switch the context and store the results for each context.
     with routing.RegistryContext():
       routing.set_registry(r1)
       res1 = executing.run(executable)
+    with self.subTest('first_call_with_r1'):
+      self.assertEqual(4, res1)
+
     with routing.RegistryContext():
       routing.set_registry(r2)
       res2 = executing.run(executable)
+    with self.subTest('first_call_with_r2'):
+      self.assertEqual(5, res2)
+
     with routing.RegistryContext():
       routing.set_registry(r1)
       res3 = executing.run(executable)
-    self.assertEqual(res1, 4)
-    self.assertEqual(res2, 5)
-    self.assertEqual(res3, 4)
+    with self.subTest('second_call_with_r1'):
+      self.assertEqual(4, res3)
+
+  def test_configure_update_within_registry_context(self):
+    @builtins_base.Builtin[int]
+    def fn(a: int, b: int | None = None, c: int = 0) -> int:
+      del a, b, c
+      return 0
+
+    def add(a: int, b: int | None = None, c: int = 0) -> int:
+      if b is None:
+        b = 0
+      return a + b + c
+
+    fn.configure(add)
+
+    # We create executables to run inside and outside of the registry context.
+    # We test both the case where the argument `b` is omitted, and the case
+    # where it is explicitly set to None, as in both of these cases the default
+    # value set by `_BuiltinWrapper.update` is supposed to be applied, but the
+    # mechanism is slightly different. The latter case occurs, for example, when
+    # calling functions from `builtins/callbacks.py` from a prompt template.
+    executable = fn(1, c=2)
+    executable_with_none = fn(1, b=None, c=2)
+
+    with self.subTest('value_of_b_initially_defaults_to_0'):
+      self.assertEqual(3, executing.run(executable))
+      self.assertEqual(3, executing.run(executable_with_none))
+
+    with self.subTest('defaults_are_initially_empty'):
+      self.assertDictEqual({}, routing.function_registry[fn.name].defaults)
+
+    with routing.RegistryContext():
+      fn.update(b=1)
+      defaults_in_context = copy.deepcopy(
+          routing.function_registry[fn.name].defaults)
+      res_in_context = executing.run(executable)
+      res_in_context_with_none = executing.run(executable)
+
+    with self.subTest('inside_the_registry_context_b_defaults_to_1'):
+      self.assertEqual(4, res_in_context)
+      self.assertEqual(4, res_in_context_with_none)
+
+    with self.subTest('defaults_are_updated_within_the_registry_context'):
+      self.assertDictEqual({'b': 1}, defaults_in_context)
+
+    with self.subTest('after_exiting_the_context_b_again_defaults_to_0'):
+      self.assertEqual(3, executing.run(executable))
+      self.assertEqual(3, executing.run(executable_with_none))
+
+    with self.subTest('defaults_revert_to_empty_when_exiting_the_context'):
+      self.assertDictEqual({}, routing.function_registry[fn.name].defaults)
 
 if __name__ == '__main__':
   absltest.main()
