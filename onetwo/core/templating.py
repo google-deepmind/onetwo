@@ -60,6 +60,29 @@ _ADD_PREFIX_ROLE_TAGS_KEY: Final[str] = (
 )
 
 
+def create_jinja2_environment(loader=jinja2.BaseLoader()) -> jinja2.Environment:
+  """Creates a Jinja2 environment for use by OneTwo templates.
+
+  Args:
+    loader: A Jinja2 loader object that can load other templates from files if
+      they are included in your prompt using the jinja include directive.
+
+  Returns:
+    A Jinja2 environment.
+  """
+  return jinja2.Environment(
+      extensions=[
+          'jinja2.ext.do',
+          'jinja2.ext.loopcontrols',
+          'onetwo.core.templating.SectionExtension',
+          'onetwo.core.templating.RoleExtension',
+      ],
+      enable_async=True,
+      undefined=jinja2.StrictUndefined,
+      loader=loader,
+  )
+
+
 @dataclasses.dataclass
 class _InnerContext:
   """Data used for the template execution (see PromptTemplateContext)."""
@@ -891,17 +914,7 @@ class JinjaTemplate:
 
   def _prepare_prompt(self) -> jinja2.Template:
     """Parses the prompt into a Jinja Template and adds the callbacks."""
-    environment = jinja2.Environment(
-        extensions=[
-            'jinja2.ext.do',
-            'jinja2.ext.loopcontrols',
-            'onetwo.core.templating.SectionExtension',
-            'onetwo.core.templating.RoleExtension',
-        ],
-        enable_async=True,
-        undefined=jinja2.StrictUndefined,
-        loader=self.loader,
-    )
+    environment = create_jinja2_environment(self.loader)
     for k, v in self.template_globals.items():
       if k in environment.globals:
         raise ValueError(f'{k} is already in the jinja environment globals.')

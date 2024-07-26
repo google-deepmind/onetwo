@@ -139,8 +139,15 @@ class JinjaTemplateWithCallbacks(templating.JinjaTemplate):
         mock_prompt.register_callback(
             name=callback_name,
             function=callback_fn,
-            pass_context=callback_pass_context)
+            pass_context=callback_pass_context,
+        )
     outputs = await mock_prompt.render(**inputs)
-    result = outputs[_DRY_RUN_PREFIX_VAR]
+    try:
+      result = outputs[_DRY_RUN_PREFIX_VAR]
+    except KeyError as exc:
+      raise ValueError(
+          'No DRY_RUN found in outputs. Please make sure that the template has'
+          ' a llm() call.'
+      ) from exc
     result[PROMPT_PREFIX] = outputs[PROMPT_PREFIX]
     return result
