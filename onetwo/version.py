@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OneTwo API."""
+"""Current OneTwo version at head on GitHub."""
 
-# Do NOT add anything here !!
-# Indeed, top-level `__init__.py` makes it hard to import a specific sub-module
-# without triggering a full import of the codebase.
-# Instead, the public API is exposed in `ot.py`.
+# A new GitHub release will be pushed everytime `__version__` is increased.
+# When changing this, also update the CHANGELOG.md.
+__version__ = '0.2.0'

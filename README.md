@@ -144,13 +144,14 @@ To cite this repository:
   author = {Olivier Bousquet and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
   url = {https://github.com/google-deepmind/onetwo},
-  version = {0.1.0},
+  version = {0.2.0},
   year = {2024},
 }
 ```
 
 In the above bibtex entry, names are in alphabetical order, the version number
-is intended to be the latest version mentioned in the [CHANGELOG](CHANGELOG.md),
+is intended to be the one returned by `ot.__version__` (i.e., the latest version
+mentioned in [version.py](version.py) and in the [CHANGELOG](CHANGELOG.md),
 and the year corresponds to the project's open-source release.
 
 ## License

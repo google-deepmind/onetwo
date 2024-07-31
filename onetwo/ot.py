@@ -19,12 +19,15 @@ from onetwo import ot
 ```
 """
 
+from onetwo import version
 from onetwo.core import composing
 from onetwo.core import executing
 from onetwo.core import results
 from onetwo.core import routing
 from onetwo.core import sampling
 from onetwo.evaluation import evaluation
+
+__version__: str = version.__version__
 
 compare_with_critic = evaluation.compare_with_critic
 copy_registry = routing.copy_registry
