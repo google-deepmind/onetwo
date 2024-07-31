@@ -701,6 +701,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     function_cache.save()
     with self.subTest('cache_file_exists'):
       self.assertTrue(os.path.exists(cache_filename))
+
     # Cache with restored sample id mappings.
     cache_1 = caching.SimpleFunctionCache(cache_filename=cache_filename)
     cache_1.load(restore_mapping=True)
@@ -713,6 +714,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           asyncio.run(cache_1.get_cached_value('key1', 'sampling_key_1')),
           'value_1',
       )
+
     # Cache with fresh sample id mappings.
     cache_2 = caching.SimpleFunctionCache(cache_filename=cache_filename)
     cache_2.load(restore_mapping=False)
@@ -725,6 +727,43 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           asyncio.run(cache_2.get_cached_value('key1', 'sampling_key_1')),
           'value_2',
       )
+
+  def test_write_to_specified_location(self):
+    # Create a cache with some data (not yet saved to disk).
+    cache_dir = self.create_tempdir()
+    cache_filename1 = os.path.join(cache_dir.full_path, 'cache1.json')
+    cache_filename2 = os.path.join(cache_dir.full_path, 'cache2.json')
+    cache1 = caching.SimpleFunctionCache(cache_filename=cache_filename1)
+    cache1.cache_value('key1', 'sampling_key_1', 'val1')
+    cache1.cache_value('key2', 'sampling_key_1', 'val2')
+
+    # Save the cache to a different location from the one specified at creation
+    # time. The write to the secondary location but not to the default location.
+    cache1.save(cache_filename=cache_filename2)
+    with self.subTest('save_with_arg_should_write_to_the_specified_location'):
+      self.assertTrue(os.path.exists(cache_filename2))
+    with self.subTest('save_with_arg_should_not_write_to_the_default_location'):
+      self.assertFalse(os.path.exists(cache_filename1))
+
+    # Now save the cache to the default location. Should write to the default
+    # location but not to the secondary location.
+    cache1.cache_value('key3', 'sampling_key_1', 'val3')
+    cache1.save()
+    with self.subTest('save_without_arg_should_write_to_the_default_location'):
+      self.assertTrue(os.path.exists(cache_filename1))
+
+    # Now restore the cache from each location to verify the contents.
+    cache_restored_1 = caching.SimpleFunctionCache(
+        cache_filename=cache_filename1)
+    cache_restored_1.load(restore_mapping=True)
+    cache_restored_2 = caching.SimpleFunctionCache(
+        cache_filename=cache_filename2)
+    cache_restored_2.load(restore_mapping=True)
+
+    with self.subTest('restore_from_specified_location_should_work'):
+      self.assertLen(cache_restored_2._cache_data.values_by_key.values(), 2)
+    with self.subTest('restore_from_default_location_should_work'):
+      self.assertLen(cache_restored_1._cache_data.values_by_key.values(), 3)
 
   def test_load_and_merge_two_cache_files(self):
     # This test follows a similar pattern as `CacheDataTest.test_iadd`,

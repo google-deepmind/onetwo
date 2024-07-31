@@ -226,8 +226,21 @@ class SimpleFileCache(
     """
 
   @abc.abstractmethod
-  def save(self, overwrite: bool = False):
-    """Saves the cache to file."""
+  def save(
+      self,
+      *,
+      overwrite: bool = False,
+      cache_filename: str | None = None,
+  ) -> None:
+    """Saves the cache to file.
+
+    Args:
+      overwrite: If False (default) right before saving cache in the file we
+        check if file with that name already exists and raise error if it does.
+        If True we overwrite.
+      cache_filename: If specified, then will save to the given file path;
+        otherwise, by default will save to `self.cache_filename`.
+    """
 
 
 @dataclasses.dataclass
@@ -297,12 +310,27 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
         cache_filename=cache_filename,
     )  # pytype: disable=attribute-error
 
-  def save_cache(self, overwrite: bool = False):
+  def save_cache(
+      self,
+      *,
+      overwrite: bool = False,
+      cache_filename: str | None = None,
+  ):
+    """Save the cache to file.
+
+    Args:
+      overwrite: If False (default) right before saving cache in the file we
+        check if file with that name already exists and raise error if it does.
+        If True we overwrite.
+      cache_filename: If specified, then will save to the given file path;
+        otherwise, by default will save to the same file path from which the
+        cache was originally loaded.
+    """
     if self._cache_handler is None:
       raise ValueError('Cache handler is not initialized.')
     # Hint for the type checker.
     assert self._cache_handler is not None
-    self._cache_handler.save(overwrite=overwrite)  # pytype: disable=attribute-error
+    self._cache_handler.save(overwrite=overwrite, cache_filename=cache_filename)  # pytype: disable=attribute-error
 
 
 def _create_cache_key(
@@ -1113,7 +1141,7 @@ class SimpleFunctionCache(
       sampling_key: str | None,
       value: CachedType,
   ) -> None:
-    """See parent class."""
+    """See base class (SimpleCache)."""
     try:
       # We attempt to copy the value in order to see if it can be pickled.
       # If this fails, we will not be able to store the cache and it may lead
@@ -1141,6 +1169,8 @@ class SimpleFunctionCache(
       sampling_key: str | None,
   ) -> CachedType | None:
     """Retrieves a value for cache key from the cache.
+
+    Overridden from base class (SimpleCache).
 
     Args:
       key: The cache key to retrieve the value.
@@ -1185,6 +1215,8 @@ class SimpleFunctionCache(
   ):
     """Loads the cache from file.
 
+    Overridden from base class (SimpleFileCache).
+
     Args:
       restore_mapping: If True, will try and restore the mapping between
         sampling_key and sample_ids from disk, otherwise creates a new one.
@@ -1212,25 +1244,36 @@ class SimpleFunctionCache(
     else:
       self._cache_data += new_cache_data
 
-  def save(self, overwrite: bool = False) -> None:
+  def save(
+      self,
+      *,
+      overwrite: bool = False,
+      cache_filename: str | None = None,
+  ) -> None:
     """Writes the contents of the cache to the given directory.
+
+    Overridden from base class (SimpleFileCache).
 
     Args:
       overwrite: If False (default) right before saving cache in the file we
         check if file with that name already exists and raise error if it does.
         If True we overwrite.
+      cache_filename: If specified, then will save to the given file path;
+        otherwise, by default will save to `self.cache_filename`.
 
     Raises:
       FileExistsError: If trying to save cache in file that already exists.
     """
-    if not self.cache_filename:
+    if not cache_filename:
+      cache_filename = self.cache_filename
+    if not cache_filename:
       raise ValueError('Cache filename must be provided when storing on disk.')
-    if os.path.exists(self.cache_filename) and not overwrite:
-      raise FileExistsError(f'File {self.cache_filename} already exists.')
+    if os.path.exists(cache_filename) and not overwrite:
+      raise FileExistsError(f'File {cache_filename} already exists.')
     # Create the directory if it doesn't exist yet
-    os.makedirs(os.path.dirname(self.cache_filename), exist_ok=True)
-    with open(self.cache_filename, 'w') as f:
-      logging.info('Writing cache to file: %s', self.cache_filename)
+    os.makedirs(os.path.dirname(cache_filename), exist_ok=True)
+    with open(cache_filename, 'w') as f:
+      logging.info('Writing cache to file: %s', cache_filename)
       # The following call corresponds to `to_json` method of
       # `DataClassJsonMixin` in `third_party/py/dataclasses_json/api.py`. This
       # method in particular applies all the custom encoder transofrmations to
