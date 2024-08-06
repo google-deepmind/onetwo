@@ -44,6 +44,7 @@ import abc
 from collections.abc import AsyncIterator, Sequence
 import contextlib
 import dataclasses
+import re
 from typing import Protocol, TypeAlias
 
 from onetwo.agents import agents_base
@@ -112,6 +113,8 @@ def _get_result_str(result: python_execution.SandboxResult) -> str:
         'The python code above raises an exception:\n\n'
         f'{result.status_message}\n\n'
         'Rewrite the python code to eliminate the exception.\n'
+        'Do not start from scratch, you can assume that the variables from '
+        'previous steps are available.\n'
     )
   elif result.execution_status != _ExecutionStatus.SUCCESS:
     parts.append(
@@ -129,6 +132,47 @@ def _sandbox_state_from_agent_state(
   # snippets that have been executed on it so far.
   code_sequence = tuple(step.code for step in agent_state.updates)
   return code_sequence
+
+
+def _regex_search(start_fence: str, end_fence: str, text: str) -> str:
+  """Returns substring between the given fences, or itself if nothing found."""
+  found = re.search(f'(?s){start_fence}(.*?){end_fence}', text)
+  if found:
+    text = (
+        found.group()
+        .replace(start_fence, '')
+        .replace(end_fence, '')
+        .strip()
+    )
+  return text
+
+
+def _parse_llm_reply_code(llm_reply: str) -> str:
+  """Parses the LLM reply to remove fences that aren't strict code.
+
+  The Flash sv2 gemini models tend to start their code with '```python'
+  '```tool_code', etc, instead of just outputting the code, so we must
+  extract those out if we encounter them. We also remove any trailing text after
+  the next ``` if we find one. Older models don't have these issues,
+  and this code should do nothing besides .strip() in that case.
+
+  Args:
+    llm_reply: The LLM reply to parse.
+
+  Returns:
+    The stripped LLM reply with the start fence removed if found, and anything
+    after the next '```' removed as well.
+  """
+  llm_reply = llm_reply.strip()
+  first_line = llm_reply.split('\n')[0]
+  # If we find ``` in the first line, we remove the line, assuming it's a fence.
+  if '```' == first_line[:3]:
+    llm_reply = llm_reply[len(first_line):]
+
+  # Any '```' now is treated as the stop fence. Anything beyond is discarded.
+  llm_reply = _regex_search('', '```', llm_reply)
+
+  return llm_reply.strip()
 
 
 DEFAULT_PYTHON_PLANNING_PROMPT_TEXT = """\
@@ -410,7 +454,7 @@ class PythonPlanningAgent(
 
     sandbox_state = _sandbox_state_from_agent_state(state)
     result = await environment.run_code(
-        sandbox_state=sandbox_state, code=llm_reply.strip()
+        sandbox_state=sandbox_state, code=_parse_llm_reply_code(llm_reply)
     )
 
     irrecoverable_error = result.sandbox_result.execution_status in (

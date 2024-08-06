@@ -386,6 +386,111 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
       # This verifies that the agent actually stops when it sees `exit()`.
       self.assertEmpty(llm_backend.unexpected_prompts)
 
+  @parameterized.named_parameters(
+      ('no_fences', 'print("Hello!")', 'print("Hello!")'),
+      (
+          'no_fences_white_space',
+          '\nprint("Hello!")\n',
+          'print("Hello!")',
+      ),
+      (
+          # This may occur, for example, when the starting fence is already
+          # included in the prompt, and no stop sequence is specified.
+          'closing_backticks_only',
+          'print("Hello!")\n```',
+          'print("Hello!")',
+      ),
+      (
+          'generic_fence',
+          '```\nprint("Hello!")\n```',
+          'print("Hello!")',
+      ),
+      (
+          'python_fence',
+          '```python\nprint("Hello!")',
+          'print("Hello!")',
+      ),
+      (
+          'tool_code_fence',
+          '```tool_code\nprint("Hello!")',
+          'print("Hello!")',
+      ),
+      (
+          'random_fence',
+          '```random_fence\nprint("Hello!")',
+          'print("Hello!")',
+      ),
+      (
+          'multiline_python_fence',
+          '```python\nprint("Hello!")\nprint("Bye!")',
+          'print("Hello!")\nprint("Bye!")',
+      ),
+      (
+          # The closing fence is treated like a "stop token" and everything
+          # after it is discarded.
+          'multiline_python_fence_text_beyond_trailing_backticks',
+          '```python\nprint("Hello!")\nprint("Bye!")\n```\nunwanted_text',
+          'print("Hello!")\nprint("Bye!")',
+      ),
+      (
+          # The closing fence is treated like a "stop token" and everything
+          # after it is discarded.
+          'multiline_generic_fence_text_beyond_trailing_backticks',
+          '```\nprint("Hello!")\nprint("Bye!")\n```\nunwanted_text',
+          'print("Hello!")\nprint("Bye!")',
+      ),
+      (
+          # Text before the first fence is always treated as code (even if it
+          # was actually textual commentary or other unwanted text), and
+          # anything after the fence is discarded, as it is generally
+          # non-trivial to distinguish between `text_before_fence` (here) vs.
+          # `multiple_code_blocks_no_start_fence` (below).
+          'text_before_fence',
+          'unwanted_pre\n```\nprint("Hello!")```',
+          'unwanted_pre',
+      ),
+      (
+          # Like above. Text before first fence is treated as first code block.
+          # The first code block is kept. Others discarded.
+          'text_before_and_after_fence',
+          'unwanted_pre\n```python\nprint("Hello!")\n```\nunwanted_post',
+          'unwanted_pre',
+      ),
+      (
+          # The first code block is kept. Others discarded.
+          'multiple_code_blocks_with_start_fence',
+          '```\nprint("Hello!")```\ntext_between```\nprint("Bye!")```',
+          'print("Hello!")',
+      ),
+      (
+          # The first code block is kept. Others discarded.
+          'multiple_code_blocks_with_start_fence_python',
+          '```python\nprint("Hello!")```\ntext_between```\nprint("Bye!")```',
+          'print("Hello!")',
+      ),
+      (
+          # The first code block is kept. Others discarded.
+          'multiple_code_blocks_no_start_fence',
+          'print("Hello!")\n```\ntext_between```\nprint("Bye!")```',
+          'print("Hello!")',
+      ),
+      (
+          # The first code block is kept. Others discarded.
+          'multiple_code_blocks_no_start_fence_ticks_in_first_line',
+          'print("Hello!")```\ntext_between```\nprint("Bye!")```',
+          'print("Hello!")',
+      ),
+      (
+          # The first code block is kept. Others discarded.
+          'multiple_code_blocks_no_start_fence_ticks_and_text_in_first_line',
+          'print("Hello!")```text\ntext_between```\nprint("Bye!")```',
+          'print("Hello!")',
+      ),
+
+  )
+  def test_parse_llm_reply_code(self, llm_reply, expected):
+    self.assertEqual(python_planning._parse_llm_reply_code(llm_reply), expected)
+
 
 if __name__ == '__main__':
   absltest.main()
