@@ -139,7 +139,7 @@ Some of the frequently asked questions are discussed here: [FAQ](docs/faq.md).
 
 To cite this repository:
 
-```
+```bibtex
 @software{onetwo2024github,
   author = {Olivier Bousquet and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
@@ -149,7 +149,7 @@ To cite this repository:
 }
 ```
 
-In the above bibtex entry, names are in alphabetical order, the version number
+In the above BibTeX entry, names are in alphabetical order, the version number
 is intended to be the one returned by `ot.__version__` (i.e., the latest version
 mentioned in [version.py](version.py) and in the [CHANGELOG](CHANGELOG.md),
 and the year corresponds to the project's open-source release.
