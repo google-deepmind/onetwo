@@ -23,6 +23,8 @@ import functools
 import hashlib
 import inspect
 import io
+import logging
+import random
 import threading
 import time
 from typing import cast, overload, Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
@@ -430,6 +432,113 @@ def rate_limit_method(
     else:
       return wrapper
   return decorate
+
+
+@decorator_with_optional_args
+def with_retry(
+    function: _FunctionToDecorate,
+    *,
+    max_retries: int | FromInstance[InterruptedError] = 0,
+    initial_base_delay: int = 1,
+    max_base_delay: int = 32,
+    retriable_error_filter: Callable[[Exception], bool] = lambda e: True,
+) -> _FunctionToDecorate:
+  """Decorates a method or function with ability to retry on errors.
+
+  Args:
+    function: The function or method to decorate. Can be ordinary or async.
+    max_retries: Maximum number of retries before giving up and raising the
+      error. (E.g., if 0, then will make only a single attempt.)
+    initial_base_delay: Initial base delay (in seconds) for retries. After the
+      first retriable error, we will wait a random amount of time between
+      `initial_base_delay` and `2 * initial_base_delay` before retrying.
+      Any time that retrying with a given base delay value results in two
+      consecutive errors, we will double the base delay before proceeding to
+      the next retry (until reaching `max_base_delay`). The amount of delay is
+      managed independently for each request (i.e., reverts to
+      `initial_base_delay` for the next request).
+    max_base_delay: Maximum base delay (in seconds) for retries.
+    retriable_error_filter: Function taking an Exception and returning True if
+      the error should be retried.
+
+  Returns:
+    The decorated function.
+  """
+
+  def wrapper_impl(*args, **kwargs) -> _ReturnType:
+    self = args[0] if is_method(function) else None
+    max_retries_value = RuntimeParameter[int](max_retries, self).value()
+    if not max_retries_value:
+      return function(*args, **kwargs)
+    base_delay = initial_base_delay
+    for i in range(max_retries_value + 1):
+      try:
+        return function(*args, **kwargs)
+      except Exception as e:  # pylint: disable=broad-except
+        if not retriable_error_filter(e):
+          raise e
+        # Increase base_delay after 2 consecutive errors at the current value.
+        if i % 2 == 1:
+          if base_delay < max_base_delay:
+            base_delay = min(max_base_delay, 2 * base_delay)
+        actual_delay = base_delay * (1 + random.random())
+        logging.info('Retry #%s: %ss (%s)', i, actual_delay, str(e))
+        if i < max_retries_value:
+          time.sleep(actual_delay)
+        else:
+          # If we are out of retries, then raise the original exception.
+          raise e
+
+  async def async_wrapper_impl(*args, **kwargs) -> _ReturnType:
+    self = args[0] if is_method(function) else None
+    max_retries_value = RuntimeParameter[int](max_retries, self).value()
+    if not max_retries_value:
+      return await function(*args, **kwargs)
+    base_delay = initial_base_delay
+    for i in range(max_retries_value + 1):
+      try:
+        return await call_and_maybe_await(function, *args, **kwargs)
+      except Exception as e:  # pylint: disable=broad-except
+        if not retriable_error_filter(e):
+          raise e
+        # Increase base_delay after 2 consecutive errors at the current value.
+        if i % 2 == 1:
+          if base_delay < max_base_delay:
+            base_delay = min(max_base_delay, 2 * base_delay)
+        actual_delay = base_delay * (1 + random.random())
+        logging.info('Retry #%s: %ss (%s)', i, actual_delay, str(e))
+        if i < max_retries_value:
+          await asyncio.sleep(actual_delay)
+        else:
+          # If we are out of retries, then raise the original exception.
+          raise e
+
+  @functools.wraps(function)
+  def wrapper(*args, **kwargs) -> _ReturnType:
+    return wrapper_impl(*args, **kwargs)
+
+  @functools.wraps(function)
+  async def awrapper(*args, **kwargs) -> _ReturnType:
+    return await async_wrapper_impl(*args, **kwargs)
+
+  @functools.wraps(function)
+  def wrapper_m(self, *args, **kwargs) -> _ReturnType:
+    return wrapper_impl(self, *args, **kwargs)
+
+  @functools.wraps(function)
+  async def awrapper_m(self, *args, **kwargs) -> _ReturnType:
+    return await async_wrapper_impl(self, *args, **kwargs)
+
+  if inspect.iscoroutinefunction(function):
+    if is_method(function):
+      return awrapper_m
+    else:
+      return awrapper
+  else:
+    if is_method(function):
+      return wrapper_m
+    else:
+      return wrapper
 
 
 @overload

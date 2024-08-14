@@ -14,6 +14,7 @@
 
 import asyncio
 import copy
+import dataclasses
 import functools
 import multiprocessing.pool
 import time
@@ -346,6 +347,146 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('should_limit_async_calls'):
       # We run 20 queries with 2qps, on two objects, it should take ~5s.
       self.assertBetween(end - start, 5, 6)
+
+  def test_with_retry_sync(self):
+    max_retries = 12
+    # We set the delays to be small, so that the test doesn't take too long.
+    initial_base_delay = 0.01
+    max_base_delay = 0.05
+
+    @dataclasses.dataclass
+    class FailOnFirstNCalls:
+      n: int = 0
+
+      @utils.with_retry(
+          max_retries=max_retries,
+          initial_base_delay=initial_base_delay,
+          max_base_delay=max_base_delay)
+      def __call__(self, value: str) -> str:
+        if self.n > 0:
+          self.n -= 1
+          raise ValueError(f'error: {self.n} tries left')
+        return value
+
+    with self.subTest('should_succeed_when_retrying_enough_times'):
+      self.assertEqual('x', FailOnFirstNCalls(n=max_retries)('x'))
+
+    with self.subTest('should_raise_underlying_error_when_not_enough_retries'):
+      with self.assertRaisesRegex(ValueError, 'error'):
+        FailOnFirstNCalls(n=max_retries+1)('x')
+
+    with self.subTest('should_introduce_no_delay_if_no_retry_is_needed'):
+      start_time = time.perf_counter()
+      _ = FailOnFirstNCalls(n=0)('x')
+      end_time = time.perf_counter()
+      self.assertLess(end_time - start_time, 0.5 * initial_base_delay)
+
+    with self.subTest('first_retry_should_take_around_initial_base_delay'):
+      # More precisely, the delay should be a random value somewhere between
+      # initial_base_delay and 2 * initial_base_delay.
+      start_time = time.perf_counter()
+      _ = FailOnFirstNCalls(n=1)('x')
+      end_time = time.perf_counter()
+      self.assertGreaterEqual(end_time - start_time, initial_base_delay)
+      self.assertLess(end_time - start_time, 2.1 * initial_base_delay)
+
+    with self.subTest('second_retry_should_double_the_base_delay'):
+      # This is because we increase the base delay after two consecutive errors.
+      start_time = time.perf_counter()
+      _ = FailOnFirstNCalls(n=2)('x')
+      end_time = time.perf_counter()
+      # Minimum: (1 + 2) * initial_base_delay
+      self.assertGreaterEqual(end_time - start_time, 3 * initial_base_delay)
+      # Maximum delay is double the minimum delay (due to the randomization).
+      self.assertLess(end_time - start_time, 6.1 * initial_base_delay)
+
+    with self.subTest('third_retry_should_keep_base_delay_constant'):
+      # We don't increase the base delay in this case because we only increase
+      # the base delay after two consecutive errors at the same base delay.
+      start_time = time.perf_counter()
+      _ = FailOnFirstNCalls(n=3)('x')
+      end_time = time.perf_counter()
+      # Minimum: (1 + 2 + 2) * initial_base_delay
+      self.assertGreaterEqual(end_time - start_time, 5 * initial_base_delay)
+      # Maximum delay is double the minimum delay (due to the randomization).
+      self.assertLess(end_time - start_time, 10.1 * initial_base_delay)
+
+    with self.subTest('base_delay_should_be_capped_at_max_base_delay'):
+      # This is because we increase the base delay after two consecutive errors.
+      start_time = time.perf_counter()
+      _ = FailOnFirstNCalls(n=10)('x')
+      end_time = time.perf_counter()
+      self.assertLessEqual(end_time - start_time, 2 * 10 * max_base_delay)
+
+  def test_with_retry_async(self):
+    max_retries = 12
+    # We set the delays to be small, so that the test doesn't take too long.
+    initial_base_delay = 0.01
+    max_base_delay = 0.05
+
+    @dataclasses.dataclass
+    class FailOnFirstNCalls:
+      n: int = 0
+
+      @utils.with_retry(
+          max_retries=max_retries,
+          initial_base_delay=initial_base_delay,
+          max_base_delay=max_base_delay)
+      async def __call__(self, value: str) -> str:
+        if self.n > 0:
+          self.n -= 1
+          raise ValueError(f'error: {self.n} tries left')
+        return value
+
+    with self.subTest('should_succeed_when_retrying_enough_times'):
+      self.assertEqual('x', asyncio.run(FailOnFirstNCalls(n=max_retries)('x')))
+
+    with self.subTest('should_raise_underlying_error_when_not_enough_retries'):
+      with self.assertRaisesRegex(ValueError, 'error'):
+        asyncio.run(FailOnFirstNCalls(n=max_retries+1)('x'))
+
+    with self.subTest('should_introduce_no_delay_if_no_retry_is_needed'):
+      start_time = time.perf_counter()
+      _ = asyncio.run(FailOnFirstNCalls(n=0)('x'))
+      end_time = time.perf_counter()
+      self.assertLess(end_time - start_time, 0.5 * initial_base_delay)
+
+    with self.subTest('first_retry_should_take_around_initial_base_delay'):
+      # More precisely, the delay should be a random value somewhere between
+      # initial_base_delay and 2 * initial_base_delay.
+      start_time = time.perf_counter()
+      _ = asyncio.run(FailOnFirstNCalls(n=1)('x'))
+      end_time = time.perf_counter()
+      self.assertGreaterEqual(end_time - start_time, initial_base_delay)
+      self.assertLess(end_time - start_time, 2.1 * initial_base_delay)
+
+    with self.subTest('second_retry_should_double_the_base_delay'):
+      # This is because we increase the base delay after two consecutive errors.
+      start_time = time.perf_counter()
+      _ = asyncio.run(FailOnFirstNCalls(n=2)('x'))
+      end_time = time.perf_counter()
+      # Minimum: (1 + 2) * initial_base_delay
+      self.assertGreaterEqual(end_time - start_time, 3 * initial_base_delay)
+      # Maximum delay is double the minimum delay (due to the randomization).
+      self.assertLess(end_time - start_time, 6.1 * initial_base_delay)
+
+    with self.subTest('third_retry_should_keep_base_delay_constant'):
+      # We don't increase the base delay in this case because we only increase
+      # the base delay after two consecutive errors at the same base delay.
+      start_time = time.perf_counter()
+      _ = asyncio.run(FailOnFirstNCalls(n=3)('x'))
+      end_time = time.perf_counter()
+      # Minimum: (1 + 2 + 2) * initial_base_delay
+      self.assertGreaterEqual(end_time - start_time, 5 * initial_base_delay)
+      # Maximum delay is double the minimum delay (due to the randomization).
+      self.assertLess(end_time - start_time, 10.1 * initial_base_delay)
+
+    with self.subTest('base_delay_should_be_capped_at_max_base_delay'):
+      # This is because we increase the base delay after two consecutive errors.
+      start_time = time.perf_counter()
+      _ = asyncio.run(FailOnFirstNCalls(n=10)('x'))
+      end_time = time.perf_counter()
+      self.assertLessEqual(end_time - start_time, 2 * 10 * max_base_delay)
 
   @parameterized.named_parameters(
       ('str', 'key1', 'key1', 'key2'),

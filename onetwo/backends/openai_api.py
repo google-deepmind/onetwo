@@ -132,6 +132,8 @@ class OpenAIAPI(
     enable_streaming: Whether to enable streaming replies from generate_text.
     max_qps: Maximum queries per second for the backend (if None, no rate
       limiting is applied).
+    max_retries: Maximum number of times to retry a request in case of an
+      exception.
     temperature: Temperature parameter (float) for LLM generation (can be set as
       a default and can be overridden per request).
     max_tokens: Maximum number of tokens to generate (can be set as a default
@@ -149,6 +151,7 @@ class OpenAIAPI(
   model_name: str = DEFAULT_MODEL
   enable_streaming: bool = False
   max_qps: float | None = None
+  max_retries: int = 0
 
   # Generation parameters
   temperature: float | None = None
@@ -436,11 +439,13 @@ class OpenAIAPI(
 
     return response
 
+  @executing.make_executable
   @caching.cache_method(  # Cache this method.
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -491,11 +496,13 @@ class OpenAIAPI(
         else text
     )
 
+  @executing.make_executable
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -584,6 +591,7 @@ class OpenAIAPI(
       is_sampled=True,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,

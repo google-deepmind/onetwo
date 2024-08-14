@@ -119,8 +119,6 @@ class GeminiAPI(
   """Google GenAI API.
 
   TODO: Implement streaming for generate_text and chat.
-  TODO: Implement embed.
-  TODO: Add rate limiting.
 
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
@@ -143,6 +141,8 @@ class GeminiAPI(
     enable_streaming: Whether to enable streaming replies from generate_text.
     max_qps: Maximum queries per second for the backend (if None, no rate
       limiting is applied).
+    max_retries: Maximum number of times to retry a request in case of an
+      exception.
     temperature: Temperature parameter (float) for LLM generation (can be set as
       a default and can be overridden per request).
     max_tokens: Maximum number of tokens to generate (can be set as a default
@@ -163,6 +163,7 @@ class GeminiAPI(
   embed_model_name: str = DEFAULT_EMBED_MODEL
   enable_streaming: bool = False
   max_qps: float | None = None
+  max_retries: int = 0
 
   # Generation parameters
   temperature: float | None = None
@@ -353,6 +354,7 @@ class GeminiAPI(
       )
     return response
 
+  @executing.make_executable
   @caching.cache_method(  # Cache this method.
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -362,6 +364,7 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   def generate_text(
       self,
       prompt: str | content_lib.ChunkList,
@@ -418,6 +421,7 @@ class GeminiAPI(
       is_sampled=True,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -487,11 +491,13 @@ class GeminiAPI(
     )
     return reply
 
+  @executing.make_executable
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -506,11 +512,13 @@ class GeminiAPI(
         content=content,
     )
 
+  @executing.make_executable
   @caching.cache_method(  # Cache this method.
       name='count_tokens',
       is_sampled=False,  # Method is deterministic.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
