@@ -68,10 +68,6 @@ productivity include the following:
     samples have been obtained for each request, so that no result is wasted
     and actual requests are minimized while the user is tuning their workflow.
 
-
-Note: The current release (v0.1.0) is an early preview. The API may evolve
-significantly in future releases (see [CHANGELOG](CHANGELOG.md)).
-
 ## Quick start
 
 ### Installation
