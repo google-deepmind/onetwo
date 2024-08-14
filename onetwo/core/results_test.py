@@ -290,7 +290,11 @@ class EvaluationResultTest(absltest.TestCase):
                 'stages': [{
                     'inputs': {'request': 'Q: q A:'},
                     'outputs': {'reply_text': 'To answer "q", we need: "q1".'},
+                    'start_time': 0.0,
+                    'end_time': 0.0,
                 }],
+                'start_time': 0.0,
+                'end_time': 0.0,
             },
             {
                 'stage_name': 'translate',
@@ -300,17 +304,25 @@ class EvaluationResultTest(absltest.TestCase):
                     {
                         'inputs': {'request': 'Q: q1 A:'},
                         'outputs': {'reply_text': ' r1.'},
+                        'start_time': 0.0,
+                        'end_time': 0.0,
                     },
                     {
                         'inputs': {'request': 'Q: q1 A: r1.\nQ: q A:'},
                         'outputs': {'reply_text': ' Wrong answer.'},
+                        'start_time': 0.0,
+                        'end_time': 0.0,
                     },
                 ],
+                'start_time': 0.0,
+                'end_time': 0.0,
             },
         ],
         'info': {'record_id': 0, 'sample_id': 0, 'sample_size': 1},
         'targets': {'answer': 'Gold answer'},
         'metrics': {'strict_accuracy': 0},
+        'start_time': 0.0,
+        'end_time': 0.0,
     }
 
     with self.subTest('to_dict_excludes_empty_fields'):

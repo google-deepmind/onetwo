@@ -20,7 +20,7 @@ import pprint
 import random
 import string
 import time
-from typing import Any, cast, Final, TypeAlias
+from typing import Any, Final, TypeAlias, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -67,6 +67,13 @@ _EXAMPLES_WITH_TWO_OPTIONS: Final[tuple[_Example, ...]] = tuple([
     })
     for num in range(5)
 ])
+
+
+def _reset_times(eval_summary: _EvaluationSummary):
+  for er in eval_summary.results.values():
+    core_test_utils.reset_times(er)
+  for er in eval_summary.results_debug.values():
+    core_test_utils.reset_times(er)
 
 
 def _get_iterator_of_examples(total_num: int) -> Iterator[_Example]:
@@ -223,6 +230,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_results_debug=True,
           output_final_states=True,
       )
+      _reset_times(summary)
 
     expected_timing = _EvaluationTiming(start_time=now, end_time=now)
     expected_results = {
@@ -296,6 +304,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_results_debug=True,
           output_final_states=True,
       )
+      _reset_times(summary)
 
     expected_timing = _EvaluationTiming(start_time=now, end_time=now)
     expected_summary = _EvaluationSummary(
@@ -473,6 +482,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         target_extractor=lambda x: x['golden'],
         output_results=True,
     )
+    _reset_times(summary)
 
     with self.subTest('inputs_extractor'):
       self.assertEqual('context1q1', summary.results[0].inputs.get('inputs'))
@@ -499,6 +509,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         output_results_debug=output_results_debug,
         output_final_states=output_final_states,
     )
+    _reset_times(summary)
 
     with self.subTest('output_results'):
       self.assertEqual(output_results, bool(summary.results))
@@ -538,6 +549,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         output_results_debug=True,
         output_final_states=True,
     )
+    _reset_times(summary)
 
     with self.subTest('example_keys'):
       self.assertSameElements(
@@ -577,6 +589,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         output_results_debug=True,
         output_final_states=True,
     )
+    _reset_times(summary)
 
     with self.subTest('example_keys'):
       self.assertEqual({0: 'q1', 1: 'q2'}, summary.example_keys)
@@ -622,6 +635,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         examples=examples,
         metric_functions={'accuracy': metric_function},
     )
+    _reset_times(summary)
     self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
 
   def test_metric_function_returning_extra_info(self):
@@ -641,6 +655,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         metric_functions={'accuracy': metric_function},
         output_results=True,
     )
+    _reset_times(summary)
 
     with self.subTest('metrics'):
       self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
@@ -720,6 +735,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         aggregation_functions=[_aggregate_via_dict_update],
         output_results=True,
     )
+    _reset_times(summary)
     timing: _EvaluationTiming = summary.timing
 
     with self.subTest('produces_plausible_timedelta'):
@@ -757,6 +773,7 @@ class AgentEvaluationTest(parameterized.TestCase):
             'accuracy': _accuracy_function_that_returns_example_option
         },
     )
+    _reset_times(summary_slow)
     timing_slow: _EvaluationTiming = summary_slow.timing
 
     with self.subTest('runs_correctly_with_batchsize_eq_1'):
@@ -779,6 +796,7 @@ class AgentEvaluationTest(parameterized.TestCase):
             'accuracy': _accuracy_function_that_returns_example_option
         },
     )
+    _reset_times(summary_fast)
     timing_fast: _EvaluationTiming = summary_fast.timing
 
     with self.subTest('runs_correctly_with_batchsize_gt_1'):
@@ -831,7 +849,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         metric_functions={'accuracy': metric_function},
         aggregation_functions=[_keep_track_of_execution_order],
     )
-
+    _reset_times(summary)
     with self.subTest('examples_are_iterated_not_in_order'):
       # Chance of this subtest failing is one over 10 factorial, i.e. small.
       self.assertNotEqual(list(range(10)), summary.info['execution_order'])
@@ -894,6 +912,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_results_debug=True,
           output_final_states=True,
       )
+      _reset_times(summary)
 
     agent_evaluation.write_evaluation_summary_as_json(
         summary=summary, output_dir=output_dir

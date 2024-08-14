@@ -20,9 +20,11 @@ import functools
 import io
 import pprint
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import results
 from onetwo.core import tracing
@@ -99,12 +101,14 @@ def traced_executable_traced_add(x, y):
 
 
 class ClassForTest:
+
   @tracing.trace
   def m(self, a: str) -> str:
     return a + ' done'
 
 
 class StringTracerForTest(tracing.Tracer):
+
   def __init__(self):
     self.buffer = io.StringIO()
     self.inner_tracer = tracing.StringTracer(self.buffer)
@@ -123,6 +127,7 @@ class StringTracerForTest(tracing.Tracer):
 
 
 class ExecutionResultTracerForTest(tracing.Tracer):
+
   def __init__(self):
     self.execution_result = ExecutionResult()
     self.inner_tracer = tracing.ExecutionResultTracer(self.execution_result)
@@ -141,6 +146,12 @@ class ExecutionResultTracerForTest(tracing.Tracer):
 
 
 class TracingTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.enter_context(
+        mock.patch('timeit.default_timer', core_test_utils.MockTimer())
+    )
 
   @parameterized.named_parameters(
       ('untraced_ordinary_function', g, False),
@@ -180,10 +191,9 @@ class TracingTest(parameterized.TestCase):
         inputs={'a': 'test'},
         outputs={results.MAIN_OUTPUT: 'other done'},
         stages=[],
+        start_time=1.0,
+        end_time=2.0,
     )
-    if isinstance(tracer, ExecutionResultTracerForTest):
-      expected_trace = ExecutionResult(stages=[expected_execution_result])
-
     _, execution_result = tracing.run(
         functools.partial(ff, 'test', 'other'), tracer=tracer
     )
@@ -194,6 +204,10 @@ class TracingTest(parameterized.TestCase):
           execution_result,
           pprint.pformat(execution_result),
       )
+
+    if isinstance(tracer, ExecutionResultTracerForTest):
+      expected_trace = ExecutionResult(stages=[expected_execution_result])
+      core_test_utils.reset_times(expected_trace)
 
     if tracer is not None:
       with self.subTest('should_return_correct_trace'):
@@ -213,15 +227,15 @@ class TracingTest(parameterized.TestCase):
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test done'},
               stages=[],
+              start_time=1.0,
+              end_time=2.0,
           ),
           execution_result,
           pprint.pformat(execution_result),
       )
 
   def test_update_info(self):
-    _, execution_result = tracing.run(
-        functools.partial(with_update, 'test')
-    )
+    _, execution_result = tracing.run(functools.partial(with_update, 'test'))
     with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
           ExecutionResult(
@@ -229,6 +243,8 @@ class TracingTest(parameterized.TestCase):
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test'},
               info={'a': 'test'},
+              start_time=1.0,
+              end_time=2.0,
           ),
           execution_result,
           pprint.pformat(execution_result),
@@ -245,6 +261,8 @@ class TracingTest(parameterized.TestCase):
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test done'},
               stages=[],
+              start_time=1.0,
+              end_time=2.0,
           ),
           execution_result,
           pprint.pformat(execution_result),
@@ -254,7 +272,7 @@ class TracingTest(parameterized.TestCase):
       ('no_tracer', None, None),
       (
           'string_tracer',
-          StringTracerForTest(),
+          StringTracerForTest,
           (
               "  h: {'b': 'test'}\n"
               "    f: {'a': 'test other'}\n"
@@ -270,11 +288,16 @@ class TracingTest(parameterized.TestCase):
       ),
       (
           'execution_result_tracer',
-          ExecutionResultTracerForTest(),
+          ExecutionResultTracerForTest,
           'SEE_CODE_BELOW_FOR_EXPECTED_TRACE',
       ),
   )
-  def test_tracing(self, tracer, expected_trace):
+  def test_tracing(
+      self,
+      tracer_factory,
+      expected_trace,
+  ):
+    tracer = tracer_factory() if tracer_factory else None
     _, execution_result = tracing.run(
         functools.partial(h, 'test'), tracer=tracer
     )
@@ -288,26 +311,34 @@ class TracingTest(parameterized.TestCase):
                 stage_name='f',
                 inputs={'a': 'test other'},
                 outputs={'b': 'test other done'},
+                start_time=2.0,
+                end_time=3.0,
             ),
             ExecutionResult(
                 stage_name='f',
                 inputs={'a': 'test another'},
                 outputs={'b': 'test another done'},
+                start_time=4.0,
+                end_time=5.0,
             ),
             ExecutionResult(
                 stage_name='f',
                 inputs={'a': 'test2 other'},
                 outputs={'b': 'test2 other done'},
+                start_time=6.0,
+                end_time=7.0,
             ),
             ExecutionResult(
                 stage_name='f',
                 inputs={'a': 'test2 another'},
                 outputs={'b': 'test2 another done'},
+                start_time=8.0,
+                end_time=9.0,
             ),
         ],
+        start_time=1.0,
+        end_time=10.0,
     )
-    if isinstance(tracer, ExecutionResultTracerForTest):
-      expected_trace = ExecutionResult(stages=[expected_execution_result])
 
     with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
@@ -315,6 +346,10 @@ class TracingTest(parameterized.TestCase):
           execution_result,
           pprint.pformat(execution_result),
       )
+
+    if isinstance(tracer, ExecutionResultTracerForTest):
+      expected_trace = ExecutionResult(stages=[expected_execution_result])
+      core_test_utils.reset_times(expected_trace)
 
     if tracer is not None:
       with self.subTest('should_return_correct_trace'):
@@ -340,13 +375,17 @@ class TracingTest(parameterized.TestCase):
               stage_name='f1',
               inputs={'a': 'test'},
               outputs={results.MAIN_OUTPUT: 'test'},
+              start_time=1.0,
               stages=[
                   ExecutionResult(
                       stage_name='f3',
                       inputs={'a': 'test'},
                       outputs={results.MAIN_OUTPUT: 'test'},
+                      start_time=2.0,
+                      end_time=3.0,
                   )
               ],
+              end_time=4.0,
           ),
           execution_result,
           pprint.pformat(execution_result),
@@ -385,31 +424,39 @@ class TracingTest(parameterized.TestCase):
         stage_name='ah',
         inputs={'b': 'test'},
         outputs={results.MAIN_OUTPUT: 'test2 from g'},
+        start_time=1.0,
         stages=[
             ExecutionResult(
                 stage_name='af',
                 inputs={'a': 'test other'},
                 outputs={'b': 'test other done'},
+                start_time=2.0,
+                end_time=4.0,
             ),
             ExecutionResult(
                 stage_name='af',
                 inputs={'a': 'test another'},
                 outputs={'b': 'test another done'},
+                start_time=3.0,
+                end_time=5.0,
             ),
             ExecutionResult(
                 stage_name='af',
                 inputs={'a': 'test2 other'},
                 outputs={'b': 'test2 other done'},
+                start_time=6.0,
+                end_time=8.0,
             ),
             ExecutionResult(
                 stage_name='af',
                 inputs={'a': 'test2 another'},
                 outputs={'b': 'test2 another done'},
+                start_time=7.0,
+                end_time=9.0,
             ),
         ],
+        end_time=10.0,
     )
-    if isinstance(tracer, ExecutionResultTracerForTest):
-      expected_trace = ExecutionResult(stages=[expected_execution_result])
 
     with self.subTest('should_return_correct_execution_result'):
       self.assertEqual(
@@ -417,6 +464,10 @@ class TracingTest(parameterized.TestCase):
           execution_result,
           pprint.pformat(execution_result),
       )
+
+    if isinstance(tracer, ExecutionResultTracerForTest):
+      expected_trace = ExecutionResult(stages=[expected_execution_result])
+      core_test_utils.reset_times(expected_trace)
 
     if tracer is not None:
       with self.subTest('should_return_correct_trace'):
@@ -436,6 +487,7 @@ class TracingTest(parameterized.TestCase):
       tracing.execution_context.set(None)
       async for _ in fn('test'):
         trace.append(copy.deepcopy(tracing.execution_context.get(None)))
+      trace.append(copy.deepcopy(tracing.execution_context.get(None)))
 
     expected_trace = [
         ExecutionResult(
@@ -443,28 +495,45 @@ class TracingTest(parameterized.TestCase):
             inputs={'a': 'test'},
             outputs={'output': 't'},
             stages=[],
+            start_time=1.0,
+            end_time=0.0,
         ),
         ExecutionResult(
             stage_name='fn',
             inputs={'a': 'test'},
             outputs={'output': 'te'},
             stages=[],
+            start_time=1.0,
+            end_time=0.0,
         ),
         ExecutionResult(
             stage_name='fn',
             inputs={'a': 'test'},
             outputs={'output': 'tes'},
             stages=[],
+            start_time=1.0,
+            end_time=0.0,
         ),
         ExecutionResult(
             stage_name='fn',
             inputs={'a': 'test'},
             outputs={'output': 'test'},
             stages=[],
+            start_time=1.0,
+            end_time=0.0,
+        ),
+        ExecutionResult(
+            stage_name='fn',
+            inputs={'a': 'test'},
+            outputs={'output': 'test'},
+            stages=[],
+            start_time=1.0,
+            end_time=2.0,
         ),
     ]
 
     asyncio.run(wrapper())
+
     with self.subTest('should_return_correct_trace'):
       self.assertListEqual(expected_trace, trace, pprint.pformat(trace))
 
@@ -493,28 +562,38 @@ class TracingTest(parameterized.TestCase):
                       ['test21 done', 'test22 done'],
                   ]
               },
+              start_time=1.0,
               stages=[
                   ExecutionResult(
                       stage_name='f3',
                       inputs={'a': 'test11'},
                       outputs={results.MAIN_OUTPUT: 'test11 done'},
+                      start_time=2.0,
+                      end_time=3.0,
                   ),
                   ExecutionResult(
                       stage_name='f3',
                       inputs={'a': 'test12'},
                       outputs={results.MAIN_OUTPUT: 'test12 done'},
+                      start_time=4.0,
+                      end_time=5.0,
                   ),
                   ExecutionResult(
                       stage_name='f3',
                       inputs={'a': 'test21'},
                       outputs={results.MAIN_OUTPUT: 'test21 done'},
+                      start_time=6.0,
+                      end_time=7.0,
                   ),
                   ExecutionResult(
                       stage_name='f3',
                       inputs={'a': 'test22'},
                       outputs={results.MAIN_OUTPUT: 'test22 done'},
+                      start_time=8.0,
+                      end_time=9.0,
                   ),
               ],
+              end_time=10.0,
           ),
           execution_result,
           pprint.pformat(execution_result),
@@ -548,6 +627,7 @@ class TracingTest(parameterized.TestCase):
   def test_queue_trace(self):
 
     class TracerForTest(tracing.QueueTracer):
+
       def set_inputs(self, name: str, inputs: Mapping[str, Any]) -> None:
         self.callback(f'{2-self.depth} - {name}: {inputs}')
 
@@ -596,6 +676,7 @@ class TracingTest(parameterized.TestCase):
   def test_queue_trace_errors(self):
 
     class TracerForTest(tracing.QueueTracer):
+
       def set_inputs(self, name: str, inputs: Mapping[str, Any]) -> None:
         self.callback(f'{2-self.depth} - {name}: {inputs}')
 
@@ -707,9 +788,7 @@ class TracingTest(parameterized.TestCase):
     final_result = iterator.value
 
     with self.subTest('should_return_correct_updates'):
-      self.assertListEqual(
-          updates, expected_updates
-      )
+      self.assertListEqual(updates, expected_updates)
 
     with self.subTest('should_return_correct_final_result'):
       self.assertEqual("['0 done', '1 done', '2 done']", final_result)
@@ -737,6 +816,7 @@ class TracingTest(parameterized.TestCase):
         stage_name='',
         inputs={},
         outputs={},
+        start_time=0.0,
         stages=[
             ExecutionResult(
                 stage_name=expected_stage_name,
@@ -745,10 +825,13 @@ class TracingTest(parameterized.TestCase):
                 stages=[],
                 error='',
                 info={},
+                start_time=1.0,
+                end_time=2.0,
             )
         ],
         error='',
         info={},
+        end_time=0.0,
     )
 
     # Note that it is important to wrap the call to `function('x', 'y')` in an
@@ -778,9 +861,11 @@ class TracingTest(parameterized.TestCase):
           pprint.pformat(execution_result),
       )
 
+    core_test_utils.reset_times(expected_trace)
     with self.subTest('should_return_correct_trace'):
       trace = tracer.get_result()
       self.assertEqual(expected_trace, trace, pprint.pformat(trace))
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -25,6 +25,7 @@ import itertools
 import logging
 import pprint
 import textwrap
+import timeit
 from typing import Any, Protocol
 
 import dataclasses_json
@@ -108,6 +109,8 @@ class ExecutionResult:
     info: Contains identifying information for the given data point -- e.g.,
       record_id, exemplar_list_id, exemplar_list_size, sample_id, sample_size.
       For now, this is populated only on top-level ExecutionResults.
+    start_time: The monotonic clock time at which the execution started.
+    end_time: The monotonic clock time at which the execution ended.
   """
   # Disabling type checking due to a wrong type annotation in dataclasses_json:
   # https://github.com/lidatong/dataclasses-json/issues/336
@@ -137,6 +140,9 @@ class ExecutionResult:
       default_factory=dict,
       metadata=dataclasses_json.config(exclude=_exclude_empty),
   )
+
+  start_time: float = 0.0
+  end_time: float = 0.0
 
   # pytype: enable=wrong-arg-types
 
@@ -227,6 +233,20 @@ class ExecutionResult:
     if self.error:
       result += f'--------------\nError: {self.error}\n'
     return result
+
+  def update_start_time(self) -> None:
+    """Sets start time to now."""
+    self.start_time = timeit.default_timer()
+
+  def update_end_time(self) -> None:
+    """Sets end time to now."""
+    self.end_time = timeit.default_timer()
+
+  def get_elapsed_time(self) -> float:
+    """Returns the elapsed time between start and end time in seconds."""
+    if self.end_time == 0.0:
+      return 0.0
+    return self.end_time - self.start_time
 
 
 def format_result(
@@ -1139,7 +1159,7 @@ class HTMLRenderer:
 
     Delegates most of the object-specific rendering logic to `render_object`.
     If the `HTMLObjectRendering` returned by `render_object` has
-    `collapsible == True`, then (with the exception of a few trivial cases) the 
+    `collapsible == True`, then (with the exception of a few trivial cases) the
     object will be rendered as a collapsible line, in which the user can toggle
     between the longer `html` representation and the shorter `collapsed_html`
     representation by clicking on the "title" portion of the line.

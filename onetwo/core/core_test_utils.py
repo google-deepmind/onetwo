@@ -20,6 +20,7 @@ import json
 import pprint
 from typing import Any
 import unittest
+from onetwo.core import results
 
 
 class CounterAssertions(unittest.TestCase):
@@ -57,3 +58,45 @@ def maybe_read_json(filepath: str) -> Mapping[str, Any] | None:
   except json.JSONDecodeError:
     return None
 
+
+class MockTimer:
+  """Mock timer for use in unit tests."""
+
+  def __init__(self):
+    self._current_time = 0
+
+  def __call__(self) -> float:
+    self._current_time += 1
+    return float(self._current_time)
+
+
+def reset_fields(
+    er: list[results.ExecutionResult] | results.ExecutionResult,
+    reset_values: Mapping[str, Any],
+):
+  """Recursively resset the given fields in the given execution result(s).
+
+  Args:
+    er: The ExecutionResult or list thereof to reset fields in.
+    reset_values: Mapping field_name to the value to set when resetting.
+
+  Returns:
+    None.
+  """
+  if isinstance(er, list):
+    for sub_er in er:
+      reset_fields(sub_er, reset_values)
+    return
+
+  for name, value in reset_values.items():
+    setattr(er, name, value)
+
+  for stage in er.stages:
+    reset_fields(stage, reset_values)
+
+
+def reset_times(
+    er: list[results.ExecutionResult] | results.ExecutionResult,
+) -> None:
+  """Resets the start and end times in the given execution result(s)."""
+  reset_fields(er, {'start_time': 0.0, 'end_time': 0.0})
