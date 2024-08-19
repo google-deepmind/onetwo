@@ -12,6 +12,9 @@
     contents. This is useful, for example, when collaborating in a group, where
     each person can save to a personal cache file, while loading from both their
     own and ones from teammates.
+  * **Retries:** Implement a generic `with_retry` decorator that automatically
+    retries a given function with exponential backoff when an exception occurs,
+    and enable this for the `GeminiAPI` and `OpenAIAPI` backends.
 * **Standard library**
   * **Chain-of-thought:** Define a library of helper functions and data
     structures for implementing chain-of-thought
