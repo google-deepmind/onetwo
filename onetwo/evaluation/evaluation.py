@@ -503,19 +503,34 @@ async def naive_evaluation_critic(
           stop=['Question:'],
       )
   )).strip()
-  # TODO: Implement the following as a builtin. It's fairly common.
-  if res.startswith('yes'):
+
+  # Defaults in case no reason is provided.
+  rating = res
+  reason = ''
+
+  # Attempt to parse the reason from the response.
+  separators = ['\nReason: ', '\nreason: ', '\n**Reason:** ', '\n**reason:** ']
+  for separator in separators:
+    if separator in res:
+      rating, reason = res.split(separator, 1)
+      break
+
+  # Normalize the rating and reason.
+  rating = rating.lower().strip()
+  reason = reason.split('\n\n')[0].strip()
+
+  # Some models are stubborn about returning the answer in a certain format
+  # such as boldface (e.g. **yes**), regardless of how they are prompted.
+  # We try to cover such cases on a best effort basis.
+  if rating.startswith('yes') or rating.startswith('**yes**'):
     is_correct = 1.0
-  elif res.startswith('no'):
+  elif rating.startswith('no') or rating.startswith('**no**'):
     is_correct = 0.0
   else:
     raise ValueError(
         'Critic is expected to start its answer from " yes" or " no" . Instead '
-        'it generated an unexpected result:\n{res}'
+        f'it generated an unexpected result:\n{res}'
     )
-  reason = ''
-  if '\nReason: ' in res:
-    reason = res.split('\nReason: ', 1)[1].split('\n\n')[0].strip()
   extra_evaluation_info = {
       example[question_key]: {
           'golden_answer': example[golden_answer_key],

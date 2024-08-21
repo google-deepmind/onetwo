@@ -245,62 +245,99 @@ class EvaluateTest(parameterized.TestCase):
     with self.subTest('evaluation_metrics_are_correct'):
       self.assertEqual(avg_metric, 1.0)
 
-  def test_naive_evaluation_critic(self):
-
-    with self.subTest('raises_error_if_no_question_key'):
-      with self.assertRaisesRegex(
-          ValueError,
+  @parameterized.named_parameters(
+      (
+          'no_question_key',
+          {'bla': 'bla', 'golden_answer': 'bla'},
           'Example does not contain the question key',
-      ):
-        _ = executing.run(
-            evaluation.naive_evaluation_critic(
-                'answer 1',
-                example={'bla': 'bla', 'golden_answer': 'bla'},
-            )
-        )
-
-    with self.subTest('raises_error_if_no_golden_answer_key'):
-      with self.assertRaisesRegex(
-          ValueError,
+      ),
+      (
+          'no_golden_answer_key',
+          {'question': 'bla'},
           'Example does not contain the golden answer key',
-      ):
-        _ = executing.run(
-            evaluation.naive_evaluation_critic(
-                'answer 1',
-                example={'question': 'bla'},
-            )
-        )
-
-      llm.generate_text.configure(
-          _fake_generate_text_returns_anything,
-          return_value=' bla',
+      ),
+  )
+  def test_naive_evaluation_critic_example_error_handling(
+      self, example, expected_error_message
+  ):
+    with self.assertRaisesRegex(ValueError, expected_error_message):
+      _ = executing.run(
+          evaluation.naive_evaluation_critic('answer 1', example=example)
       )
-      with self.subTest('raises_error_if_critic_beginning_unexpected'):
-        with self.assertRaisesRegex(
-            ValueError,
-            'Critic is expected to start its answer from " yes" or " no" .',
-        ):
-          _ = executing.run(
-              evaluation.naive_evaluation_critic(
-                  'answer 1',
-                  example={'question': 'bla', 'golden_answer': 'bla'},
-              )
-          )
 
-      llm.generate_text.configure(
-          _fake_generate_text_returns_anything,
-          return_value=' yes\nReason: because\n\n',
-      )
-      res = executing.run(
+  @parameterized.named_parameters(
+      (
+          'critic_beginning_unexpected',
+          ' bla',
+          'Critic is expected to start its answer from " yes" or " no" .',
+      ),
+  )
+  def test_naive_evaluation_critic_llm_reply_error_handling(
+      self, critic_llm_reply, expected_error_message
+  ):
+    llm.generate_text.configure(
+        _fake_generate_text_returns_anything, return_value=critic_llm_reply
+    )
+    with self.assertRaisesRegex(ValueError, expected_error_message):
+      _ = executing.run(
           evaluation.naive_evaluation_critic(
               'answer 1',
-              example={'question': 'some question', 'golden_answer': 'bla'},
+              example={'question': 'bla', 'golden_answer': 'bla'},
           )
       )
-      with self.subTest('produces_correct_output'):
-        self.assertEqual(res[0], 1.)
-        self.assertIn('some question', res[1])
-        self.assertEqual(res[1]['some question']['reason'], 'because')
+
+  @parameterized.named_parameters(
+      ('yes_with_reason_lowercase', 'yes\nreason: because\n\n', 1.0, 'because'),
+      ('yes_with_reason_uppercase', 'Yes\nReason: because\n\n', 1.0, 'because'),
+      ('no_with_reason_lowercase', 'no\nReason: because\n\n', 0.0, 'because'),
+      ('no_with_reason_uppercase', 'no\nReason: because\n\n', 0.0, 'because'),
+      ('yes_without_reason', 'yes', 1.0, ''),
+      ('no_without_reason', 'no', 0.0, ''),
+      (
+          'yes_with_reason_bold',
+          '**yes**\n**Reason:** because\n\n',
+          1.0,
+          'because',
+      ),
+      (
+          'no_with_reason_bold',
+          '**no**\n**Reason:** because\n\n',
+          0.0,
+          'because',
+      ),
+      (
+          'should_not_be_confused_by_no_in_reason',
+          'yes\nReason: because no\n\n',
+          1.0,
+          'because no',
+      ),
+      (
+          'should_not_be_confused_by_yes_in_reason',
+          'no\nReason: because yes\n\n',
+          0.0,
+          'because yes',
+      ),
+  )
+  def test_naive_evaluation_critic_produces_correct_output(
+      self, critic_llm_reply, expected_value, expected_reason
+  ):
+    question = 'some question'
+    llm.generate_text.configure(
+        _fake_generate_text_returns_anything,
+        return_value=critic_llm_reply,
+    )
+    res = executing.run(
+        evaluation.naive_evaluation_critic(
+            'answer 1',
+            example={'question': question, 'golden_answer': 'bla'},
+        )
+    )
+    with self.subTest('should_return_correct_numeric_metric_value'):
+      self.assertEqual(expected_value, res[0])
+    with self.subTest('extra_info_should_be_keyed_by_question'):
+      self.assertIn(question, res[1])
+    with self.subTest('should_return_reason_in_extra_info'):
+      self.assertEqual(expected_reason, res[1][question]['reason'])
 
 
 class CompareWithCriticTest(parameterized.TestCase):
