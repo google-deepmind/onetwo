@@ -73,25 +73,6 @@ async def check_length_and_generate(
   return res
 
 
-mock_generate_model = mock.MagicMock(spec=generative_models.GenerativeModel)
-mock_embed_model = mock.MagicMock(
-    spec=vertexai.language_models.TextEmbeddingModel
-)
-
-
-# Patch the necessary modules and classes.
-@mock.patch.object(
-    generative_models,
-    'GenerativeModel',
-    return_value=mock_generate_model,
-    autospec=True,
-)
-@mock.patch.object(
-    language_models,
-    'TextEmbeddingModel',
-    return_value=mock_embed_model,
-    autospec=True,
-)
 class VertexAIAPITest(
     parameterized.TestCase, core_test_utils.CounterAssertions
 ):
@@ -106,7 +87,8 @@ class VertexAIAPITest(
     # implementations to make sure they are set properly.
     llm.reset_defaults()
 
-    def generate_content_mock(prompt, generation_config):
+    def generate_content_mock(prompt, generation_config, **kwargs):
+      del kwargs  # Unused.
       candidate_count = generation_config.to_dict().get('candidate_count', 1)
       if isinstance(prompt, str):
         prompt_txt = prompt
@@ -134,17 +116,42 @@ class VertexAIAPITest(
       _ = stream
       return generate_content_mock(content[0].text, generation_config)
 
-    mock_generate_model.generate_content.side_effect = generate_content_mock
-    mock_generate_model.count_tokens.return_value = (
+    self._mock_generate_model = mock.MagicMock(
+        spec=generative_models.GenerativeModel
+    )
+    self._mock_embed_model = mock.MagicMock(
+        spec=vertexai.language_models.TextEmbeddingModel
+    )
+    self._mock_generate_model.generate_content.side_effect = (
+        generate_content_mock
+    )
+    self._mock_generate_model.count_tokens.return_value = (
         gapic_prediction_service_types.CountTokensResponse(
             total_tokens=_MOCK_COUNT_TOKENS_RETURN
         )
     )
-    mock_embed_model.get_embeddings.return_value = [
+    self._mock_embed_model.get_embeddings.return_value = [
         language_models.TextEmbedding(values=[0.0])
     ]
-    mock_generate_model.start_chat().send_message.side_effect = (
+    self._mock_generate_model.start_chat().send_message.side_effect = (
         generate_message_content_mock
+    )
+
+    self.enter_context(
+        mock.patch.object(
+            generative_models,
+            'GenerativeModel',
+            return_value=self._mock_generate_model,
+            autospec=True,
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            language_models,
+            'TextEmbeddingModel',
+            return_value=self._mock_embed_model,
+            autospec=True,
+        )
     )
     self._mock_vertexai_init = self.enter_context(
         mock.patch.object(vertexai, 'init', return_value=None)
@@ -370,6 +377,19 @@ class VertexAIAPITest(
           ValueError, 'VertexAI.Model.generate_content raised er*'
       ):
         _ = executing.run(exe)
+
+  def test_generate_text_pass_through_safety_settings(self, *args, **kwargs):
+    _ = _get_and_register_backend()
+
+    prompt = 'Something'
+    llm.generate_text.update(safety_settings=vertexai_api.SAFETY_DISABLED)
+
+    executing.run(llm.generate_text(prompt=prompt))
+    self._mock_generate_model.generate_content.assert_called_once_with(
+        mock.ANY,  # prompt
+        generation_config=mock.ANY,
+        safety_settings=vertexai_api.SAFETY_DISABLED,
+    )
 
   def test_generate_texts(self, *args, **kwargs):
     _ = _get_and_register_backend()

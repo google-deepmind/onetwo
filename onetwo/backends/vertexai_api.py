@@ -21,14 +21,13 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, Final, Iterable, TypeAlias, cast
+from typing import Any, Dict, Final, Iterable, TypeAlias, cast
 
 from absl import logging
 from google.auth import credentials as auth_credentials
 import vertexai
 from vertexai import generative_models
 from vertexai import language_models
-import immutabledict
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
@@ -53,7 +52,8 @@ DEFAULT_EMBED_MODEL: Final[str] = 'textembedding-gecko@003'
 
 # Refer to
 # https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini#request_body.
-SAFETY_DISABLED: Final[Mapping[int, int]] = immutabledict.immutabledict({
+# Vertex AI client library requires the safety settings to be of type Dict.
+SAFETY_DISABLED: Final[Dict[int, int]] = {
     generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: (
         generative_models.HarmBlockThreshold.BLOCK_NONE
     ),
@@ -66,7 +66,7 @@ SAFETY_DISABLED: Final[Mapping[int, int]] = immutabledict.immutabledict({
     generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: (
         generative_models.HarmBlockThreshold.BLOCK_NONE
     ),
-})
+}
 
 
 def _convert_chunk_list_to_parts_list(
@@ -248,6 +248,7 @@ class VertexAIAPI(
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
+      **kwargs,  # Optional genai specific arguments.
   ) -> generative_models.GenerationResponse:
     """Generate content."""
     if isinstance(prompt, content_lib.ChunkList):
@@ -266,6 +267,7 @@ class VertexAIAPI(
       response = self._generate_model.generate_content(
           prompt,
           generation_config=generation_config,
+          **kwargs,
       )
       if isinstance(response, Iterable):
         raise NotImplementedError('Streaming is not implemented.')
@@ -301,13 +303,15 @@ class VertexAIAPI(
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
+      decoding_constraint: str | None = None,
       include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
       **kwargs,  # Optional genai specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
-    self._counters['generate_text'] += 1
+    del decoding_constraint  # Unused.
 
-    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+    self._counters['generate_text'] += 1
 
     healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
         original_prompt=prompt,
@@ -321,6 +325,7 @@ class VertexAIAPI(
         stop=stop,
         top_k=top_k,
         top_p=top_p,
+        **kwargs,
     )
     raw = response.text
     truncated = _truncate(raw, max_tokens)
