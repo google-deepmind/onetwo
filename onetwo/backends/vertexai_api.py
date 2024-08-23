@@ -36,6 +36,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import tracing
 from onetwo.core import utils
 
 
@@ -285,6 +286,7 @@ class VertexAIAPI(
       )
     return response
 
+  @tracing.trace(name='VertexAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -384,6 +386,7 @@ class VertexAIAPI(
         )
     return results
 
+  @tracing.trace(name='VertexAIAPI.chat')
   async def chat(
       self,
       messages: Sequence[content_lib.Message],
@@ -496,6 +499,7 @@ class VertexAIAPI(
     )
     return reply
 
+  @tracing.trace(name='VertexAIAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
@@ -526,6 +530,7 @@ class VertexAIAPI(
     responses = self._embed_model.get_embeddings([input_content])
     return responses[0].values
 
+  @tracing.trace(name='VertexAIAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',
       is_sampled=False,  # Method is deterministic.

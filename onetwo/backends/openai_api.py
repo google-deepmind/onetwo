@@ -31,6 +31,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import tracing
 from onetwo.core import utils
 
 
@@ -440,6 +441,7 @@ class OpenAIAPI(
     return response
 
   @executing.make_executable
+  @tracing.trace(name='OpenAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -497,6 +499,7 @@ class OpenAIAPI(
     )
 
   @executing.make_executable
+  @tracing.trace(name='OpenAIAPI.generate_texts')
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -566,6 +569,7 @@ class OpenAIAPI(
 
     return results
 
+  @tracing.trace(name='OpenAIAPI.chat')
   async def chat(
       self,
       messages: Sequence[content_lib.Message],

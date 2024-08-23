@@ -37,6 +37,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import tracing
 from onetwo.core import utils
 
 
@@ -355,6 +356,7 @@ class GeminiAPI(
     return response
 
   @executing.make_executable
+  @tracing.trace(name='GeminiAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -403,6 +405,7 @@ class GeminiAPI(
     )
     return (reply, {'text': raw}) if include_details else reply
 
+  @tracing.trace(name='GeminiAPI.chat')
   async def chat(
       self,
       messages: Sequence[content_lib.Message],
@@ -492,6 +495,7 @@ class GeminiAPI(
     return reply
 
   @executing.make_executable
+  @tracing.trace(name='GeminiAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
@@ -513,6 +517,7 @@ class GeminiAPI(
     )
 
   @executing.make_executable
+  @tracing.trace(name='GeminiAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',
       is_sampled=False,  # Method is deterministic.

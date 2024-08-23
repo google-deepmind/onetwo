@@ -28,6 +28,7 @@ from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
+from onetwo.core import tracing
 from onetwo.core import utils
 import requests
 
@@ -114,6 +115,7 @@ class OneTwoAPI(
     except Exception as err:
       raise ValueError(f'OneTwoAPI connection failed: {err}') from err
 
+  @tracing.trace(name='OneTwoAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.

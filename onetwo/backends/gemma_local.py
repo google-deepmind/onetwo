@@ -35,6 +35,7 @@ from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
+from onetwo.core import tracing
 from onetwo.core import utils
 
 import sentencepiece as spm
@@ -165,6 +166,7 @@ class Gemma(
     )
     logging.info('Sampler ready')
 
+  @tracing.trace(name='Gemma.generate_text')
   @caching.cache_method(
       name='generate_text',
       is_sampled=True,  # Two calls with same args may return different replies.

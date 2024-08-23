@@ -36,6 +36,7 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import sampling
+from onetwo.core import tracing
 
 
 _T = TypeVar('_T')
@@ -351,6 +352,7 @@ def instruct(
 
 
 @executing.make_executable
+@tracing.trace(name='llm.instruct')
 async def default_instruct(
     prompt: str | _ChunkList,
     assistant_prefix: str | _ChunkList | None = None,
@@ -406,6 +408,7 @@ def chat(
 
 
 @executing.make_executable
+@tracing.trace(name='llm.chat')
 async def default_chat(
     messages: Sequence[_Message],
     formatter: formatting.FormatterName = formatting.FormatterName.DEFAULT,
@@ -512,6 +515,7 @@ def rank(
 
 
 @executing.make_executable
+@tracing.trace(name='llm.select')
 async def _default_select_via_score(
     prompt: str | _ChunkList,
     options: Sequence[str | _ChunkList],
@@ -537,6 +541,7 @@ async def _default_select_via_score(
 
 
 @executing.make_executable
+@tracing.trace(name='llm.rank')
 async def _default_rank_via_score(
     prompt: str | _ChunkList,
     options: Sequence[str | _ChunkList],
