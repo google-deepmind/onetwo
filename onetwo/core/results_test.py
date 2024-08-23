@@ -26,6 +26,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import html5lib
 from onetwo.agents import agents_base
+from onetwo.builtins import formatting
+from onetwo.core import content
 from onetwo.core import results
 import termcolor
 
@@ -859,6 +861,43 @@ class EvaluationSummaryTest(parameterized.TestCase):
 class HTMLRendererTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
+      dict(
+          testcase_name='int',
+          object_to_render=123,
+          expected_html='123',
+      ),
+      dict(
+          testcase_name='string',
+          object_to_render='ab',
+          expected_html='&#x27;ab&#x27;',
+      ),
+      dict(
+          testcase_name='list',
+          object_to_render=['a', 'b'],
+          expected_html='[&#x27;a&#x27;, &#x27;b&#x27;]',
+      ),
+      dict(
+          testcase_name='dict',
+          object_to_render={'a': 1, 'b': 2},
+          expected_html='{&#x27;a&#x27;: 1, &#x27;b&#x27;: 2}',
+      ),
+      dict(
+          testcase_name='aenum',
+          object_to_render=content.PredefinedRole.USER,
+          # Note: It's important that the <> signs are escaped here, or else
+          # they will interfere with the HTML parsing.
+          expected_html='&lt;PredefinedRole.USER: &#x27;user&#x27;&gt;',
+      ),
+  )
+  def test_render_object(self, object_to_render, expected_html):
+    renderer = results.HTMLRenderer()
+    rendering = renderer.render_object(
+        object_to_render, element_id='0', levels_to_expand=1
+    )
+    with self.subTest('html'):
+      self.assertEqual(expected_html, rendering.html)
+
+  @parameterized.named_parameters(
       ('empty_result', results.ExecutionResult()),
       (
           'result_with_single_element_in_each_container',
@@ -933,15 +972,36 @@ class HTMLRendererTest(parameterized.TestCase):
           ),
       ),
       ('list_with_single_summary', [results.EvaluationSummary()]),
+      (
+          'chat_result',
+          # This is an example of a result that previously caused problems
+          # when we were failing to escape special characters in the HTML.
+          results.ExecutionResult(
+              stage_name='llm.chat',
+              inputs={
+                  'messages': [
+                      content.Message(
+                          role=content.PredefinedRole.USER,
+                          content=(
+                              'This is a very very very very very very long'
+                              ' question.'
+                          ),
+                      )
+                  ],
+                  'formatter': formatting.FormatterName.API,
+              },
+              outputs={'output': 'This is the answer.'},
+          ),
+      ),
   )
   def test_render_returns_valid_html(self, object_to_render: Any):
     renderer = results.HTMLRenderer()
-    html = renderer.render(object_to_render)
-    logging.info('Rendered HTML: %s', html)
+    rendered_html = renderer.render(object_to_render)
+    logging.info('Rendered HTML: %s', rendered_html)
 
     # Here we create a minimal full HTML page containing the rendered content
     # and verify that it is fully valid HTML (no mismatched HTML tags, etc.).
-    expanded_html = f'<!DOCTYPE html><html>{html}</html>'
+    expanded_html = f'<!DOCTYPE html><html>{rendered_html}</html>'
     parser = html5lib.HTMLParser()
     parser.parse(expanded_html)
     self.assertEmpty(
@@ -1008,15 +1068,15 @@ class HTMLRendererTest(parameterized.TestCase):
     # referencing to the element_id), which allows us to more easily verify
     # whether the outer result element was skipped or not.
     renderer = results.HTMLRenderer()
-    html = renderer.render([object_to_render], element_id='0')
-    logging.info('Rendered HTML: %s', html)
+    rendered_html = renderer.render([object_to_render], element_id='0')
+    logging.info('Rendered HTML: %s', rendered_html)
 
     # We expect there to be exactly one `toggle_element` directive for each
     # result object that was actually displayed.
     self.assertEqual(
         expected_number_of_result_blocks,
-        html.count('onClick="toggleElements'),
-        f'Full html:\n{html}',
+        rendered_html.count('onClick="toggleElements'),
+        f'Full html:\n{rendered_html}',
     )
 
   def test_render_generates_correct_content(self):
@@ -1080,7 +1140,8 @@ class HTMLRendererTest(parameterized.TestCase):
 
     with self.subTest('result_collapsed_html'):
       self.assertIn(
-          "{'i2': 'i_v2'} <b>&rArr;</b> {'o2': 'o_v2'}",
+          '{&#x27;i2&#x27;: &#x27;i_v2&#x27;} <b>&rArr;</b> {&#x27;o2&#x27;:'
+          ' &#x27;o_v2&#x27;}',
           html,
           f'\nFull html:\n{html}',
       )
@@ -1093,7 +1154,7 @@ class HTMLRendererTest(parameterized.TestCase):
 
     with self.subTest('short_dicts_displayed_inline'):
       self.assertIn(
-          "<li><b>inputs:</b> {'i1': 'i_v1'}</li>",
+          '<li><b>inputs:</b> {&#x27;i1&#x27;: &#x27;i_v1&#x27;}</li>',
           html,
           f'\nFull html:\n{html}',
       )
@@ -1106,7 +1167,7 @@ class HTMLRendererTest(parameterized.TestCase):
           f'\nFull html:\n{html}',
       )
       self.assertIn(
-          "<li><b>field1:</b> 'o_very_long_value3_1'</li>",
+          '<li><b>field1:</b> &#x27;o_very_long_value3_1&#x27;</li>',
           html,
           f'\nFull html:\n{html}',
       )
@@ -1156,19 +1217,20 @@ class HTMLRendererTest(parameterized.TestCase):
 
     with self.subTest('should_render_custom_content_for_dict'):
       self.assertIn(
-          '<b>inputs:</b> dict_renderer(keys=["\'i1\'"])',
+          "<b>inputs:</b> dict_renderer(keys=['&#x27;i1&#x27;'])",
           html,
           f'\nFull html:\n{html}',
       )
       self.assertIn(
-          '<b>outputs:</b> dict_renderer(keys=["\'o1\'"])',
+          "<b>outputs:</b> dict_renderer(keys=['&#x27;o1&#x27;'])",
           html,
           f'\nFull html:\n{html}',
       )
 
     with self.subTest('should_render_standard_content_for_other_types'):
       self.assertIn(
-          "{'i2': 'i_v2'} <b>&rArr;</b> {'o2': 'o_v2'}",
+          '{&#x27;i2&#x27;: &#x27;i_v2&#x27;} <b>&rArr;</b> {&#x27;o2&#x27;:'
+          ' &#x27;o_v2&#x27;}',
           html,
           f'\nFull html:\n{html}',
       )

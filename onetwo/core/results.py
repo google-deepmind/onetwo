@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
 import datetime
+import html
 import itertools
 import logging
 import pprint
@@ -337,7 +338,9 @@ def get_short_values_tree(result: ExecutionResult) -> str:
   """Returns a tree with the values trimmed to a single line."""
 
   def render_dict(d: Mapping[str, Any]) -> str:
-    trimmed = {_trim_key(k): _trim_value(repr(v)) for k, v in d.items()}
+    trimmed = {
+        _trim_key(k): _trim_value(repr(v)) for k, v in d.items()
+    }
     if len(d.keys()) <= 1:
       return str(d)
     return (
@@ -673,6 +676,11 @@ def _is_update_list_state(object_to_render: Any) -> bool:
   )
 
 
+def _as_string(object_to_render: Any) -> str:
+  """Returns an appropriate string representation for rendering in HTML."""
+  return html.escape(repr(object_to_render))
+
+
 @dataclasses.dataclass
 class HTMLRenderer:
   """Renders Execution[Result|Summary] and related objects in HTML format.
@@ -715,6 +723,12 @@ class HTMLRenderer:
   # dict.
   _max_single_line_value_string_length: int = 80
 
+  def _string_representation_can_fit_on_single_line(
+      self, object_to_render: Any
+  ) -> bool:
+    object_as_string = _as_string(object_to_render)
+    return len(object_as_string) <= self._max_single_line_value_string_length
+
   def _render_llm_request_reply(
       self, request: str, reply: str, element_id: str, levels_to_expand: int
   ) -> str:
@@ -744,7 +758,7 @@ class HTMLRenderer:
         # Type cannot be converted to a dict.
         return None
 
-    if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
+    if self._string_representation_can_fit_on_single_line(object_to_render):
       return None
 
     lines = []
@@ -806,7 +820,9 @@ class HTMLRenderer:
     else:
       outputs = result.outputs
 
-    collapsed_html = f'{result.inputs!r} <b>&rArr;</b> {outputs!r}'
+    inputs_string = _as_string(result.inputs)
+    outputs_string = _as_string(outputs)
+    collapsed_html = f'{inputs_string} <b>&rArr;</b> {outputs_string}'
 
     # TODO: Remove the special treatment of the special outputs key
     # 'target', once we support storing non-dict targets directly in the
@@ -918,7 +934,7 @@ class HTMLRenderer:
     """Returns a rendering of the state as text or in ...<ul>...</ul> form."""
     if not _is_update_list_state(object_to_render):
       return None
-    if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
+    if self._string_representation_can_fit_on_single_line(object_to_render):
       return None
     state = object_to_render
 
@@ -948,10 +964,12 @@ class HTMLRenderer:
     )
     lines.append('</ul>')
 
+    inputs_string = _as_string(state.inputs)
     return HTMLObjectRendering(
         html='\n'.join(lines),
+
         collapsed_html=(
-            f'{state.inputs!r} <b>&rArr;</b> {len(state.updates)} updates'
+            f'{inputs_string} <b>&rArr;</b> {len(state.updates)} updates'
         ),
         expanded=(levels_to_expand > 0),
     )
@@ -964,7 +982,7 @@ class HTMLRenderer:
         object_to_render, tuple
     ):
       return None
-    if len(repr(object_to_render)) <= self._max_single_line_value_string_length:
+    if self._string_representation_can_fit_on_single_line(object_to_render):
       return None
 
     lines = []
@@ -1126,7 +1144,7 @@ class HTMLRenderer:
       # Too deep in the hierarchy to expand. At this point, we simply render
       # the object as a string, without any additional HTML formatting, to
       # avoid any risk of infinite recursion.
-      return HTMLObjectRendering(html=repr(object_to_render))
+      return HTMLObjectRendering(html=_as_string(object_to_render))
 
     all_renderers = itertools.chain(
         self.custom_renderers, self._get_default_renderers()
@@ -1141,7 +1159,9 @@ class HTMLRenderer:
       if rendering is not None:
         return rendering
 
-    return HTMLObjectRendering(html=repr(object_to_render), collapsible=False)
+    return HTMLObjectRendering(
+        html=_as_string(object_to_render), collapsible=False
+    )
 
   def render_object_as_collapsible_list_element(
       self,
@@ -1216,11 +1236,12 @@ class HTMLRenderer:
     # Content to show when collapsed.
     collapsed_html = object_rendering.collapsed_html
     if collapsed_html is None:
-      collapsed_html = repr(object_to_render)
-    if len(collapsed_html) > self._max_collapsed_rendering_length:
-      collapsed_html = (
-          collapsed_html[: self._max_collapsed_rendering_length] + '...'
-      )
+      object_as_string = _as_string(object_to_render)
+      if len(object_as_string) > self._max_collapsed_rendering_length:
+        object_as_string = (
+            object_as_string[: self._max_collapsed_rendering_length] + '...'
+        )
+      collapsed_html = object_as_string
 
     # If the entire content can be shown in collapsed state, then don't
     # bother with the expandable behavior.
