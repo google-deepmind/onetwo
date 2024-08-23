@@ -95,8 +95,8 @@ Final answer: {{exemplar.answer}}
 
 {#- Start of the processing of the actual inputs. -#}
 Question: {{question}}
-Reasoning: {{store("reasoning", generate_text(stop=["\\nFinal", "\\nAnswer", "\\n\\n"])) | trim }}
-Final answer: {{store("answer", generate_text(stop=["\\nQuestion:", "\\n\\n"])) | trim }}
+Reasoning: {{store("reasoning", generate_text(stop=["\\nFinal", "\\nAnswer", "\\nQuestion:"])) | trim }}
+Final answer: {{store("answer", generate_text(stop=["\\nQuestion:"])) | trim }}
 """
 
 
@@ -152,7 +152,7 @@ A: {{exemplar.reasoning}} The answer is {{exemplar.answer}}.
 
 {#- Start of the processing of the actual inputs. -#}
 Q: {{question}}
-A: {{store("reasoning_and_answer", generate_text(stop=["\\n"])) | trim }}
+A: {{store("reasoning_and_answer", generate_text(stop=["\\nQuestion:"])) | trim }}
 """
 
 
