@@ -199,6 +199,14 @@ class VertexAIAPI(
         top_p=self.top_p,
         top_k=self.top_k,
     )
+    llm.generate_texts.configure(
+        self.generate_texts,
+        temperature=self.temperature,
+        max_tokens=self.max_tokens,
+        stop=self.stop,
+        top_p=self.top_p,
+        top_k=self.top_k,
+    )
     llm.embed.configure(self.embed)
     llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
     llm.count_tokens.configure(self.count_tokens)
@@ -267,11 +275,11 @@ class VertexAIAPI(
           f'for request:\n{pprint.pformat(prompt)[:100]}'
       ) from err
 
-    if not response.text:
+    if not all([c.text for c in response.candidates]):
       response_msg = pprint.pformat(response)
       raise ValueError(
-          'VertexAIAPI.generate_content returned no answers. This may be'
-          f' caused by safety filters:\n{response_msg}'
+          'VertexAIAPI.generate_content returned empty candidate(s). This may '
+          f'be caused by safety filters:\n{response_msg}'
       )
     return response
 
@@ -337,18 +345,29 @@ class VertexAIAPI(
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
+      decoding_constraint: str | None = None,
       include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
     """See builtins.llm.generate_texts."""
+    del decoding_constraint  # Unused.
+
     self._counters['generate_texts'] += 1
+
+    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=prompt,
+        healing_option=healing_option,
+    )
+
     response = self._generate_content(
-        prompt=prompt,
+        prompt=healed_prompt,
         samples=samples,
         temperature=temperature,
         stop=stop,
         top_k=top_k,
         top_p=top_p,
+        **kwargs,
     )
     results = []
     for candidate in response.candidates:

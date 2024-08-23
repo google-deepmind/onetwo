@@ -107,7 +107,7 @@ class VertexAIAPITest(
     llm.reset_defaults()
 
     def generate_content_mock(prompt, generation_config):
-      candidate_count = getattr(generation_config, 'candidate_count', 1)
+      candidate_count = generation_config.to_dict().get('candidate_count', 1)
       if isinstance(prompt, str):
         prompt_txt = prompt
       elif isinstance(prompt, list) and isinstance(
@@ -376,7 +376,7 @@ class VertexAIAPITest(
     prompt = 'Something'
     results = executing.run(llm.generate_texts(prompt=prompt, samples=3))
     self.assertLen(results, 3)
-    self.assertListEqual(list(results), ['a' * 10, 'a' * 10, 'a' * 10])
+    self.assertListEqual(list(results), ['a' * 10, 'b' * 10, 'c' * 10])
 
   def test_chat(self, *args, **kwargs):
     backend = _get_and_register_backend()

@@ -32,8 +32,19 @@ from onetwo.core import sampling
 
 
 
+_VETEXT_AI_PARAMS_DOC = 'https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference#generationconfig'
+
 _PROJECT = flags.DEFINE_string('project', default=None, help='Project ID.')
 _LOCATION = flags.DEFINE_string('location', default=None, help='Location.')
+_MODEL_NAME = flags.DEFINE_string(
+    'generate_model_name',
+    default='gemini-1.5-pro',
+    help=(
+        'The model to use for testing. Note that not all models support more'
+        ' than 1 candidates (required by generate_texts). See'
+        f' {_VETEXT_AI_PARAMS_DOC} for details.'
+    ),
+)
 _CACHE_DIR = flags.DEFINE_string(
     'cache_dir',
     default='.',
@@ -59,6 +70,9 @@ def main(argv: Sequence[str]) -> None:
   location = _LOCATION.value
   fname = os.path.join(_CACHE_DIR.value, 'google_vertexai_api.json')
   backend = vertexai_api.VertexAIAPI(
+      generate_model_name=(
+          _MODEL_NAME.value or vertexai_api.DEFAULT_GENERATE_MODEL
+      ),
       cache_filename=fname,
       project=project,
       location=location,
@@ -241,14 +255,22 @@ def main(argv: Sequence[str]) -> None:
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
   print('8. Check that generate_texts is working.')
-  res = executing.run(
-      llm.generate_texts(
-          prompt=prompt_text,
-          samples=3,
-          stop=['\n\n'],
-          max_tokens=5,
-      )
+  exe = llm.generate_texts(
+      prompt=prompt_text,
+      samples=3,
+      stop=['\n\n'],
+      max_tokens=5,
   )
+  try:
+    res = executing.run(exe)
+  except ValueError as err:
+    if 'candidateCount must be 1' in repr(err):
+      raise ValueError(
+          f'Model under test {backend.generate_model_name} does not support'
+          f' more than 1 candidates. Check {_VETEXT_AI_PARAMS_DOC} to find one '
+          'that supports it.'
+      ) from err
+    raise err
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
