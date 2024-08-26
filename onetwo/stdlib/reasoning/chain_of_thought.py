@@ -152,7 +152,7 @@ A: {{exemplar.reasoning}} The answer is {{exemplar.answer}}.
 
 {#- Start of the processing of the actual inputs. -#}
 Q: {{question}}
-A: {{store("reasoning_and_answer", generate_text(stop=["\\nQuestion:"])) | trim }}
+A: {{store("reasoning_and_answer", generate_text(stop=["\\nQ:"])) | trim }}
 """
 
 
