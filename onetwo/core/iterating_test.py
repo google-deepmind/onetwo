@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import contextvars
 import itertools
 import threading
 import time
@@ -57,6 +58,27 @@ class IteratingTest(parameterized.TestCase):
       with self.subTest('direct_asyncio_fails'):
         with self.assertRaises(RuntimeError):
           asyncio.run(f(1))
+
+    asyncio.run(outer_wrapper())
+
+  def test_asyncio_run_wrapper_outside_loop_has_context_var_inherited(self):
+    context_var = contextvars.ContextVar('test_context_var', default=0)
+    context_var.set(42)
+
+    async def f():
+      return context_var.get()
+
+    self.assertEqual(iterating.asyncio_run_wrapper(f()), 42)
+
+  def test_asyncio_run_wrapper_inside_loop_has_context_var_inherited(self):
+    async def outer_wrapper():
+      context_var = contextvars.ContextVar('test_context_var', default=0)
+      context_var.set(42)
+
+      async def f():
+        return context_var.get()
+
+      self.assertEqual(iterating.asyncio_run_wrapper(f()), 42)
 
     asyncio.run(outer_wrapper())
 

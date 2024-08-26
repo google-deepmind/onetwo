@@ -44,16 +44,20 @@ class _ThreadWithAsyncioLoop(Generic[T], threading.Thread):
       name: str,
       coroutine: Coroutine[Any, Any, T],
       loop: asyncio.AbstractEventLoop,
+      context: contextvars.Context,
   ):
     super().__init__()
     self.name = name
     self.coroutine = coroutine
     self.loop = loop
+    self.context = context
     self.result = None
 
   def run(self):
     try:
-      self.result = self.loop.run_until_complete(self.coroutine)
+      self.result = self.context.run(
+          self.loop.run_until_complete, self.coroutine
+      )
     except Exception as e:  # pylint: disable=broad-exception-caught
       self.result = e
 
@@ -82,8 +86,9 @@ def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
     is_running = False
   if is_running:
     loop = asyncio.new_event_loop()
+    context = contextvars.copy_context()
     thr = _ThreadWithAsyncioLoop[T](
-        'Thread running an asyncio loop', coroutine, loop
+        'Thread running an asyncio loop', coroutine, loop, context
     )
     thr.start()
     thr.join()
