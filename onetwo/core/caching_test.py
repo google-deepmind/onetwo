@@ -68,6 +68,9 @@ class CacheForTest(caching.SimpleCache[str]):
     assert isinstance(res, str)  # pytype hint.
     return res
 
+  def get_key_count(self):
+    return len(self.contents)
+
 
 @dataclasses.dataclass
 class KeyMakerForTest(caching.CacheKeyMaker):
@@ -486,6 +489,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     # New cache key.
     function_cache.cache_value('key2', sampling_key_none, 'value_2')
     with self.subTest('cache_new_cache_key'):
+      self.assertEqual(2, function_cache.get_key_count())
       self.assertEqual(
           {
               'add_new': 2,
@@ -499,6 +503,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     # New cache key, sample_id updates.
     function_cache.cache_value('key3', 'sampling_key_1', 'value_3')
     with self.subTest('cache_new_cache_key_with_sample_update'):
+      self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
           {
               'add_new': 3,
@@ -512,6 +517,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     # Matched cache key, no sampling_key, append value.
     function_cache.cache_value('key1', sampling_key_none, 'value_4')
     with self.subTest('cache_matched_cache_key'):
+      self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
           {
               'add_new': 3,
@@ -526,6 +532,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     # Matched cache key, new sampling_key, append value, sample_id updates.
     function_cache.cache_value('key1', 'sampling_key_1', 'value_5')
     with self.subTest('cache_matched_cache_key_with_sample_update'):
+      self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
           {
               'add_new': 3,
@@ -586,6 +593,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     with self.subTest(
         'cache_matched_cache_key_matched_sampling_key_same_value'
     ):
+      self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
           {
               'add_new': 3,
@@ -607,6 +615,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     with self.subTest(
         'cache_matched_cache_key_matched_sampling_key_new_value'
     ):
+      self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
           {
               'add_new': 3,

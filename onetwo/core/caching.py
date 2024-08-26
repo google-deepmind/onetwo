@@ -194,6 +194,10 @@ class SimpleCache(Generic[CachedType], metaclass=abc.ABCMeta):
   ) -> CachedType | None:
     """Retrieves a value from the cache if it exists."""
 
+  @abc.abstractmethod
+  def get_key_count(self) -> int:
+    """Returns the number of keys in the cache (a measure of cache size)."""
+
 
 @dataclasses.dataclass
 class SimpleFileCache(
@@ -1205,6 +1209,13 @@ class SimpleFunctionCache(
       return self._cache_data.get_cached_value(
           key_hash, sampling_key, key_for_logging
       )
+
+  def get_key_count(self):
+    """Returns the number of keys in the cache (a measure of cache size).
+
+    Overridden from base class (SimpleCache).
+    """
+    return len(self._cache_data.values_by_key)
 
   def load(
       self,
