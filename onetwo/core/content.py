@@ -25,6 +25,7 @@ from collections.abc import Iterator, Mapping
 import dataclasses
 import enum
 from typing import Final, NamedTuple, TypeAlias, Union, cast
+
 import immutabledict
 import PIL.Image
 
@@ -57,23 +58,34 @@ class PredefinedRole(enum.Enum):
   in the prompt, but instead the formatters use these roles as keys in the
   `role_map` property. See the builtins/formatting.py module for more details.
   """
+
   MODEL = 'model'
   USER = 'user'
   SYSTEM = 'system'
   CONTEXT = 'context'
 
 
+RoleType: TypeAlias = Union[str, PredefinedRole, None]
+
+
 @dataclasses.dataclass
 class Chunk:
   """Dataclass to represent a chunk in a multimodal prompt.
 
-  If the content_type is not specified, it will be inferred.
-  If it is specified, it should correspond to the type of the content.
-  For example, if content_type is 'image/jpeg', the content should be bytes.
-  See _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE for accepted types.
+  Attributes:
+    content: The content of the chunk.
+    content_type: The type of the content. If not specified, it will be
+      inferred. If it is specified, it should correspond to the type of the
+      content. For example, if content_type is 'image/jpeg', the content should
+      be bytes. See _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE for accepted types.
+    role: The role to assign to the chunk when grouping chunks into chat
+      messages. If not specified, it will be treated as USER. Ignored when the
+      chunk is used in a non-chat operation.
   """
+
   content: ContentType
   content_type: str = dataclasses.field(default_factory=str)
+  role: RoleType = None
 
   def __post_init__(self):
     # Check that the content is of one of the accepted types and set the
@@ -217,7 +229,7 @@ class ChunkList:
       # In case typing did not catch this.
       raise ValueError(
           f'Creating a ChunkList with chunks type {type(chunks)} which'
-          f' does not match expected type "list".'
+          ' does not match expected type "list".'
       )
     self.chunks: list[Chunk] = []
     if chunks is None:
@@ -323,10 +335,9 @@ class ChunkList:
       return ChunkList()
 
     # Strip the first non-empty chunk and delete the leading empty chunks.
-    result = (
-        [self.chunks[first_nonempty_id].lstrip(chars)]
-        + self.chunks[first_nonempty_id + 1:]
-    )
+    result = [self.chunks[first_nonempty_id].lstrip(chars)] + self.chunks[
+        first_nonempty_id + 1 :
+    ]
     if result[0].is_empty():
       # If we stripped the entire first chunk, remove it.
       del result[0]

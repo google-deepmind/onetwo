@@ -31,7 +31,9 @@ section_end = composing.section_end
 
 
 @composing.make_composable
-def f(context: composing.Context, content: str) -> str:
+def f(
+    context: composing.Context, content: str, role: content_lib.RoleType = None
+) -> content_lib.Chunk:
   """Composable version of the string.format function that uses context vars."""
   try:
     content = content.format(**context.variables)
@@ -40,20 +42,25 @@ def f(context: composing.Context, content: str) -> str:
         f'Could not format {content} with context'
         f' {context.variables}, some variables were not found.'
     ) from e
-  return content
+  return content_lib.Chunk(content, role=role)
 
 
 @composing.make_composable
-def c(context: composing.Context, content: Any) -> content_lib.ChunkList:
+def c(
+    context: composing.Context, content: Any, role: content_lib.RoleType = None
+) -> content_lib.ChunkList:
   """Composable chunk created from content."""
   del context
-  return content_lib.ChunkList([content_lib.Chunk(content)])
+  return content_lib.ChunkList([content_lib.Chunk(content, role=role)])
 
 
 @composing.make_composable
 async def j(
-    context: composing.Context, template: str, name: str = 'JinjaTemplate'
-) -> str:
+    context: composing.Context,
+    template: str,
+    name: str = 'JinjaTemplate',
+    role: content_lib.RoleType = None,
+) -> content_lib.Chunk:
   """Composable version of a jinja formatted prompt using context vars."""
   result = await prompt_templating.JinjaTemplateWithCallbacks(
       name=name, text=template
@@ -63,13 +70,27 @@ async def j(
   for key, value in result.items():
     if key != prompt_templating.PROMPT_PREFIX:
       context[key] = value
-  return result[prompt_templating.PROMPT_PREFIX]
+  return content_lib.Chunk(result[prompt_templating.PROMPT_PREFIX], role=role)
 
 
 @composing.make_composable
 def generate_text(context: composing.Context, **kwargs) -> ...:
   """Composable version of the llm.generate_text function."""
   return llm.generate_text(context.prefix, **kwargs)
+
+
+@composing.make_composable
+async def chat(
+    context: composing.Context,
+    **kwargs,
+) -> content_lib.ChunkList:
+  """Composable version of the llm.chat function."""
+  return content_lib.ChunkList([
+      content_lib.Chunk(
+          await llm.chat(context.to_messages(), **kwargs),
+          role=content_lib.PredefinedRole.MODEL,
+      )
+  ])
 
 
 @composing.make_join_composable  # pytype: disable=wrong-arg-types

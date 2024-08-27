@@ -102,6 +102,43 @@ class Context:
     """Returns the variables in this context."""
     return self._variables
 
+  def to_messages(self) -> list[content_lib.Message]:
+    """Converts current prefix into a list of Messages to be used with llm.chat.
+
+    Chunks with no role are assumed to have the USER role.
+    Each consecutive collection of chunks with the same role are grouped into a
+    single Message.
+
+    Returns:
+      List of messages.
+    """
+    current_role = content_lib.PredefinedRole.USER
+    current_chunk_list = []
+    messages = []
+    for chunk in self.prefix:
+      chunk.role = chunk.role or content_lib.PredefinedRole.USER
+      if chunk.role == current_role:
+        current_chunk_list.append(chunk)
+      else:
+        if current_chunk_list:
+          messages.append(
+              content_lib.Message(
+                  role=current_role,
+                  content=content_lib.ChunkList(current_chunk_list),
+              )
+          )
+        current_chunk_list = [chunk]
+        current_role = chunk.role
+    if current_chunk_list:
+      messages.append(
+          content_lib.Message(
+              role=current_role,
+              content=content_lib.ChunkList(current_chunk_list),
+          )
+      )
+
+    return messages
+
   def __getitem__(self, key: str, /) -> Any:
     if key not in self._variables:
       raise ValueError(f'Context key "{key}" not found in {self}')
@@ -363,10 +400,8 @@ class _FunctionNode(Composable):
 
 @utils.decorator_with_optional_args
 def make_composable(
-    fn: (
-        Callable[..., executing.FunctionExecWrapper]
-    ),
-    *composable_args: str
+    fn: Callable[..., executing.FunctionExecWrapper],
+    *composable_args: str,
 ) -> Callable[..., Composable]:
   """Allows the function to be composed by addition.
 
@@ -436,7 +471,10 @@ def make_composable(
     to_wrap.execute_result = False
     return Composable(
         nodes=[
-            _FunctionNode(executable=to_wrap, context_arg_name=first_arg_name)
+            _FunctionNode(
+                executable=to_wrap,
+                context_arg_name=first_arg_name,
+            )
         ]
     )
 

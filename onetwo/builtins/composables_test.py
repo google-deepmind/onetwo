@@ -30,6 +30,8 @@ _T = TypeVar('_T')
 
 Chunk = content_lib.Chunk
 ChunkList = content_lib.ChunkList
+Message = content_lib.Message
+PredefinedRole = content_lib.PredefinedRole
 
 
 @executing.make_executable
@@ -54,6 +56,12 @@ def generate_test_function(
 ) -> str:
   del prompt
   return ' done'
+
+
+@executing.make_executable
+async def chat_test_function(messages: Sequence[Message], **kwargs) -> str:
+  del kwargs
+  return ','.join(','.join(c.content for c in m.content) for m in messages)
 
 
 class ComposablesTest(parameterized.TestCase):
@@ -282,6 +290,25 @@ class ComposablesTest(parameterized.TestCase):
       res = executing.run(composable(var='value'))
       self.assertEqual(res, 'hello value done end')
       self.assertEqual(composable['res'], ' done')
+
+  def test_chat(self):
+    llm.chat.configure(chat_test_function)
+    composable = (
+        c.c(
+            's1',
+            role=PredefinedRole.SYSTEM,
+        )
+        + c.c('u1')
+        + c.c('u2', role=PredefinedRole.USER)
+        + c.c('m1', role=PredefinedRole.MODEL)
+        + c.c('u3', role=PredefinedRole.USER)
+        + c.c('u4')
+        + c.store('result', c.chat())
+    )
+    res = executing.run(composable)
+
+    self.assertEqual(composable['result'], 's1,u1,u2,m1,u3,u4')
+    self.assertEqual(res, 's1u1u2m1u3u4' + 's1,u1,u2,m1,u3,u4')
 
 
 if __name__ == '__main__':

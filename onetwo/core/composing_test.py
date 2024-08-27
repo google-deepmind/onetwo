@@ -25,6 +25,8 @@ from onetwo.core import updating
 
 Chunk = content_lib.Chunk
 ChunkList = content_lib.ChunkList
+Message = content_lib.Message
+PredefinedRole = content_lib.PredefinedRole
 
 
 @composing.make_composable
@@ -663,6 +665,85 @@ class ComposingTest(parameterized.TestCase):
     with self.subTest('raises_if_key_not_found'):
       with self.assertRaises(ValueError):
         _ = c['w']
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='no_explicit_roles',
+          chunks=[
+              Chunk('c1'),
+              Chunk('c2'),
+              Chunk('c3'),
+          ],
+          expected_messages=[
+              Message(
+                  PredefinedRole.USER,
+                  ChunkList([
+                      Chunk('c1', role=PredefinedRole.USER),
+                      Chunk('c2', role=PredefinedRole.USER),
+                      Chunk('c3', role=PredefinedRole.USER),
+                  ]),
+              )
+          ],
+      ),
+      dict(
+          testcase_name='with_explicit_roles',
+          chunks=[
+              Chunk('s1', role=PredefinedRole.SYSTEM),
+              Chunk('u2', role=PredefinedRole.USER),
+              Chunk('u3'),
+              Chunk('m1', role=PredefinedRole.MODEL),
+              Chunk('u4'),
+              Chunk('u5', role=PredefinedRole.USER),
+              Chunk('t1', role='thoughts'),
+              Chunk('t2', role='thoughts'),
+              Chunk('m2', role=PredefinedRole.MODEL),
+          ],
+          expected_messages=[
+              Message(
+                  PredefinedRole.SYSTEM,
+                  ChunkList([
+                      Chunk('s1', role=PredefinedRole.SYSTEM),
+                  ]),
+              ),
+              Message(
+                  PredefinedRole.USER,
+                  ChunkList([
+                      Chunk('u2', role=PredefinedRole.USER),
+                      Chunk('u3', role=PredefinedRole.USER),
+                  ]),
+              ),
+              Message(
+                  PredefinedRole.MODEL,
+                  ChunkList([
+                      Chunk('m1', role=PredefinedRole.MODEL),
+                  ]),
+              ),
+              Message(
+                  PredefinedRole.USER,
+                  ChunkList([
+                      Chunk('u4', role=PredefinedRole.USER),
+                      Chunk('u5', role=PredefinedRole.USER),
+                  ]),
+              ),
+              Message(
+                  'thoughts',
+                  ChunkList([
+                      Chunk('t1', role='thoughts'),
+                      Chunk('t2', role='thoughts'),
+                  ]),
+              ),
+              Message(
+                  PredefinedRole.MODEL,
+                  ChunkList([
+                      Chunk('m2', role=PredefinedRole.MODEL),
+                  ]),
+              ),
+          ],
+      ),
+  )
+  def test_context_to_messages(self, chunks, expected_messages):
+    ctx = composing.Context(prefix=ChunkList(chunks))
+    self.assertListEqual(ctx.to_messages(), expected_messages)
 
 
 if __name__ == '__main__':
