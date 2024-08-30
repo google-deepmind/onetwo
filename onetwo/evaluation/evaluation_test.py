@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for evaluation code."""
-
 from collections.abc import Iterator
 import datetime
 import functools
+import logging
 import random
 import textwrap
 import time
@@ -322,22 +321,71 @@ class EvaluateTest(parameterized.TestCase):
       self, critic_llm_reply, expected_value, expected_reason
   ):
     question = 'some question'
+    # We test the critic with a prediction that contains a newline, to make
+    # sure that this doesn't interfere with the prompt formatting (e.g., due to
+    # use of `textwrap.dedent`).
+    prediction_containing_newline = 'Answer first line\nAnswer second line'
     llm.generate_text.configure(
         _fake_generate_text_returns_anything,
         return_value=critic_llm_reply,
     )
-    res = executing.run(
+    rating, extra_info = executing.run(
         evaluation.naive_evaluation_critic(
-            'answer 1',
+            prediction_containing_newline,
             example={'question': question, 'golden_answer': 'bla'},
         )
     )
-    with self.subTest('should_return_correct_numeric_metric_value'):
-      self.assertEqual(expected_value, res[0])
+
+    # The critic prompt in the extra info is a list of chunks, or a single
+    # string. We merge them into a single string here to make the test
+    # independent of the implementation details of the critic.
+    critic_prompt = extra_info[question]['critic_prompt']
+    if isinstance(critic_prompt, list):
+      critic_prompt_text = ''.join(x.content for x in critic_prompt)
+    else:
+      critic_prompt_text = str(critic_prompt)
+    logging.info('Naive evaluation critic prompt:\n%s', critic_prompt_text)
+
+    # This is the expected plain text version of the prompt that is sent to the
+    # critic (i.e., with the content chunks concatenated, and roles ignored).
+    # We explicitly check the full prompt text to avoid any misunderstandings
+    # in the critic implementation regarding newlines, indentations, etc.
+    expected_critic_prompt_text = """\
+Please judge whether the predicted answer means the same thing as the target answer, in the context of the given question. Give your rating (yes/no), and then give the reason for your rating.
+
+Question: Circumference of a circle with radius 1cm?
+Target: 2pi cm
+Prediction: 6.28 centimenter
+Does prediction agree with target? (yes/no): yes
+Reason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate enough answer.
+
+Question: Spell first 5 digits of pi.
+Target: 3.1415
+Prediction: 3.14
+Does prediction agree with target? (yes/no): no
+Reason: Answer 2 provides only 3 digits, while 5 were required.
+
+Question: some question
+Target: bla
+Prediction: Answer first line
+Answer second line
+Does prediction agree with target? (yes/no): """
+
+    with self.subTest('should_return_correct_numeric_rating'):
+      self.assertEqual(expected_value, rating)
+
     with self.subTest('extra_info_should_be_keyed_by_question'):
-      self.assertIn(question, res[1])
+      self.assertIn(question, extra_info)
+
     with self.subTest('should_return_reason_in_extra_info'):
-      self.assertEqual(expected_reason, res[1][question]['reason'])
+      self.assertEqual(expected_reason, extra_info[question]['reason'])
+
+    with self.subTest('critic_prompt_in_extra_info_should_be_correct_type'):
+      self.assertEqual(list, type(critic_prompt))
+      self.assertEqual(content_lib.Message, type(critic_prompt[0]))
+
+    with self.subTest('critic_prompt_in_extra_info_should_be_correct_text'):
+      self.assertEqual(expected_critic_prompt_text, critic_prompt_text)
 
 
 class CompareWithCriticTest(parameterized.TestCase):

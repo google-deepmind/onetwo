@@ -34,7 +34,6 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import datetime
 import pprint
 import random
-import textwrap
 import time
 from typing import Any, Final, Protocol, TypeAlias, TypeVar, cast
 
@@ -478,31 +477,54 @@ async def naive_evaluation_critic(
         f'Example does not contain the golden answer key {golden_answer_key}:\n'
         f'{pprint.pformat(example)}'
     )
-  critic_prompt = _ChunkList()
-  critic_prompt += textwrap.dedent("""\
-      Question: Circumference of a circle with radius 1cm?
-      Answer 1 (correct): 2pi cm
-      Answer 2: 6.28 centimenter
-      Is Answer 2 also correct? (yes/no): yes
-      Reason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate enough answer.
+  question = example[question_key]
+  golden_answer = example[golden_answer_key]
+  messages = [
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Please judge whether the predicted answer means the same thing as'
+          ' the target answer, in the context of the given question. Give your'
+          ' rating (yes/no), and then give the reason for your rating.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          """
 
-      Question: Spell first 5 digits of pi.
-      Answer 1 (correct): 3.1415
-      Answer 2: 3.14
-      Is Answer 2 also correct? (yes/no): no
-      Reason: Answer 2 provides only 3 digits, while 5 were required.
+Question: Circumference of a circle with radius 1cm?
+Target: 2pi cm
+Prediction: 6.28 centimenter
+Does prediction agree with target? (yes/no): """,
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          'yes\nReason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate'
+          ' enough answer.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          """
 
-      Question: """)
-  critic_prompt += example[question_key] + '\n'
-  critic_prompt += 'Answer 1 (correct): ' + example[golden_answer_key] + '\n'
-  critic_prompt += 'Answer 2: ' + answer + '\n'
-  critic_prompt += 'Is Answer 2 also correct? (yes/no):'
-  res = cast(str, (
-      await llm.generate_text(
-          prompt=critic_prompt,
-          stop=['Question:'],
-      )
-  )).strip()
+Question: Spell first 5 digits of pi.
+Target: 3.1415
+Prediction: 3.14
+Does prediction agree with target? (yes/no): """,
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          'no\nReason: Answer 2 provides only 3 digits, while 5 were required.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          f"""
+
+Question: {question}
+Target: {golden_answer}
+Prediction: {answer}
+Does prediction agree with target? (yes/no): """,
+      ),
+  ]
+  res = await llm.chat(messages=messages, stop=['Question:'])
+  res = cast(str, res).strip()
 
   # Defaults in case no reason is provided.
   rating = res
@@ -537,7 +559,7 @@ async def naive_evaluation_critic(
           'candidate_answer': answer,
           'answer_is_correct': is_correct,
           'reason': reason,
-          'critic_prompt': critic_prompt,
+          'critic_prompt': messages,
       }
   }
   return (is_correct, extra_evaluation_info)
