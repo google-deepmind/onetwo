@@ -43,13 +43,14 @@ from onetwo.core import utils
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 _ChunkList: TypeAlias = content_lib.ChunkList
 
-# Available models are listed at https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini.  # pylint: disable=line-too-long
-# input_token_limit=32760, output_token_limit=8192.
-DEFAULT_GENERATE_MODEL: Final[str] = 'gemini-1.0-pro'
-# input_token_limit=16384, output_token_limit=2048.
-DEFAULT_MULTIMODAL_MODEL: Final[str] = 'gemini-1.0-pro-vision'
+# Available models are listed at https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini and https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models.  # pylint: disable=line-too-long
+# input_token_limit=1048576, output_token_limit=8192.
+DEFAULT_GENERATE_MODEL: Final[str] = 'gemini-1.5-flash-001'
+# input_token_limit=1048576, output_token_limit=8192.
+DEFAULT_MULTIMODAL_MODEL: Final[str] = 'gemini-1.5-flash-001'
+# Available models are listed at https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/text-embeddings-api
 # input_token_limit=3072.
-DEFAULT_EMBED_MODEL: Final[str] = 'textembedding-gecko@003'
+DEFAULT_EMBED_MODEL: Final[str] = 'textembedding-gecko@004'
 
 # Refer to
 # https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini#request_body.
