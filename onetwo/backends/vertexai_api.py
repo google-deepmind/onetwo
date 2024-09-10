@@ -428,12 +428,11 @@ class VertexAIAPI(
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
-      **kwargs,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,  # Optional genai specific arguments.
   ) -> str:
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
-
-    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
 
     if len(messages) == 1:
       if messages[0].role != content_lib.PredefinedRole.USER:
@@ -495,6 +494,7 @@ class VertexAIAPI(
         content=content_parts,
         generation_config=generation_config,
         stream=False,
+        **kwargs,
     )
 
     if isinstance(response, Iterable):

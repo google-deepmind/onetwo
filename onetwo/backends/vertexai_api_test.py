@@ -139,8 +139,13 @@ class VertexAIAPITest(
           {'candidates': candidates}
       )
 
-    def generate_message_content_mock(content, generation_config, stream):
-      _ = stream
+    def generate_message_content_mock(
+        content,
+        generation_config,
+        stream,
+        safety_settings=None,
+    ):
+      _ = stream, safety_settings
       return generate_content_mock(content[0].text, generation_config)
 
     self._mock_generate_model = mock.MagicMock(
@@ -492,6 +497,20 @@ class VertexAIAPITest(
 
     with self.subTest('multiple_msg_sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+  def test_chat_pass_through_safety_settings(self, *args, **kwargs):
+    _ = _get_and_register_backend()
+    llm.chat.update(safety_settings=vertexai_api.SAFETY_DISABLED)
+
+    msg_user = Message(role=PredefinedRole.USER, content='Hello model')
+    executing.run(llm.chat(messages=[msg_user]))
+
+    self._mock_generate_model.start_chat().send_message.assert_called_once_with(
+        content=mock.ANY,
+        generation_config=mock.ANY,
+        stream=False,
+        safety_settings=vertexai_api.SAFETY_DISABLED,
+    )
 
   def test_truncation(self, *args, **kwargs):
     _ = _get_and_register_backend()
