@@ -15,6 +15,7 @@
 """Tests for VertexAIAPI engine."""
 
 import collections
+from collections.abc import Mapping
 import string
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
@@ -47,6 +48,10 @@ _BATCH_SIZE: Final[int] = 4
 
 _MOCK_COUNT_TOKENS_RETURN: Final[int] = 5
 
+_FAKE_CITATION_METADATA: Final[Mapping[str, Any]] = {
+    'citations': [{'uri': 'fake-uri'}],
+}
+
 
 def _get_and_register_backend(**kwargs) -> vertexai_api.VertexAIAPI:
   """Get an instance of VertexAIAPI and register its methods."""
@@ -58,6 +63,24 @@ def _get_and_register_backend(**kwargs) -> vertexai_api.VertexAIAPI:
   )
   backend.register()
   return backend
+
+
+def _create_fake_detailed_response(
+    text: str,
+    citation_metadata: Mapping[str, Any],
+    truncated: str | None = None,
+) -> tuple[str, Mapping[str, Any]]:
+  """Returns a fake detailed response from generate_text(s)."""
+  return (
+      truncated if truncated else text,
+      {
+          'text': text,
+          'candidate': {
+              'content': {'parts': [{'text': text}]},
+              'citation_metadata': citation_metadata,
+          },
+      },
+  )
 
 
 @executing.make_executable
@@ -106,7 +129,11 @@ class VertexAIAPITest(
         )
       letters = [string.ascii_lowercase[i % 26] for i in range(candidate_count)]
       candidates = [
-          {'content': {'parts': [{'text': letter * 10}]}} for letter in letters
+          {
+              'content': {'parts': [{'text': letter * 10}]},
+              'citation_metadata': _FAKE_CITATION_METADATA,
+          }
+          for letter in letters
       ]
       return generative_models.GenerationResponse.from_dict(
           {'candidates': candidates}
@@ -391,6 +418,44 @@ class VertexAIAPITest(
         safety_settings=vertexai_api.SAFETY_DISABLED,
     )
 
+  def test_generate_text_include_details(self, *args, **kwargs):
+    _ = _get_and_register_backend()
+    prompt = 'Something'
+
+    result = executing.run(
+        llm.generate_text(prompt=prompt, include_details=True)
+    )
+
+    self.assertEqual(
+        result,
+        _create_fake_detailed_response(
+            text='a' * 10, citation_metadata=_FAKE_CITATION_METADATA
+        ),
+    )
+
+  def test_generate_texts_include_details(self, *args, **kwargs):
+    _ = _get_and_register_backend()
+    prompt = 'Something'
+
+    results = executing.run(
+        llm.generate_texts(prompt=prompt, samples=3, include_details=True)
+    )
+
+    self.assertEqual(
+        results,
+        [
+            _create_fake_detailed_response(
+                text='a' * 10, citation_metadata=_FAKE_CITATION_METADATA
+            ),
+            _create_fake_detailed_response(
+                text='b' * 10, citation_metadata=_FAKE_CITATION_METADATA
+            ),
+            _create_fake_detailed_response(
+                text='c' * 10, citation_metadata=_FAKE_CITATION_METADATA
+            ),
+        ],
+    )
+
   def test_generate_texts(self, *args, **kwargs):
     _ = _get_and_register_backend()
     prompt = 'Something'
@@ -435,7 +500,14 @@ class VertexAIAPITest(
             prompt='something', include_details=True, max_tokens=2
         )
     )
-    self.assertEqual(result, ('a' * 6, {'text': 'a' * 10}))
+    self.assertEqual(
+        result,
+        _create_fake_detailed_response(
+            text='a' * 10,
+            citation_metadata=_FAKE_CITATION_METADATA,
+            truncated='a' * 6,
+        ),
+    )
 
   def test_embed_text(self, *args, **kwargs):
     _ = _get_and_register_backend()

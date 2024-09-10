@@ -94,6 +94,13 @@ def _convert_chunk_list_to_parts_list(
     return [generative_models.Part.from_text(prompt)]
 
 
+def _get_detailed_candidate(
+    candidate: generative_models.Candidate,
+) -> Mapping[str, Any]:
+  """Returns the text and details of a candidate."""
+  return {'text': candidate.text, 'candidate': candidate.to_dict()}
+
+
 def _truncate(text: str, max_tokens: int | None = None) -> str:
   """Truncates text to the given number of tokens."""
   # Unfortunately, when setting a max_output_tokens value in the API that is
@@ -331,7 +338,9 @@ class VertexAIAPI(
     )
     raw = response.text
     truncated = _truncate(raw, max_tokens)
-    return (truncated, {'text': raw}) if include_details else truncated
+    if include_details:
+      return (truncated, _get_detailed_candidate(response.candidates[0]))
+    return truncated
 
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
@@ -381,9 +390,10 @@ class VertexAIAPI(
       if candidate and candidate.content.parts:
         raw = candidate.content.parts[0].text
         truncated = _truncate(raw, max_tokens)
-        results.append(
-            truncated if not include_details else (truncated, {'text': raw})
-        )
+        if not include_details:
+          results.append(truncated)
+          continue
+        results.append((truncated, _get_detailed_candidate(candidate)))
     return results
 
   @tracing.trace(name='VertexAIAPI.chat')

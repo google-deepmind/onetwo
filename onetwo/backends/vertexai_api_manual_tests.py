@@ -38,7 +38,7 @@ _PROJECT = flags.DEFINE_string('project', default=None, help='Project ID.')
 _LOCATION = flags.DEFINE_string('location', default=None, help='Location.')
 _MODEL_NAME = flags.DEFINE_string(
     'generate_model_name',
-    default='gemini-1.5-pro',
+    default='gemini-1.5-flash',
     help=(
         'The model to use for testing. Note that not all models support more'
         ' than 1 candidates (required by generate_texts). See'
@@ -144,6 +144,20 @@ def main(argv: Sequence[str]) -> None:
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
+  print('1.3 Same query but include details.')
+  res = executing.run(
+      check_and_complete(
+          prompt_text=prompt_text,
+          temperature=0.0,
+          stop=['\n\n'],
+          max_tokens=5,
+          include_details=True,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
   print('2. Repeated generate request.')
   exe = executing.par_iter(sampling.repeat(
       executable=check_and_complete(
@@ -254,6 +268,18 @@ def main(argv: Sequence[str]) -> None:
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
+  def _try_multi_generation(exe):
+    try:
+      return executing.run(exe)
+    except ValueError as err:
+      if 'candidateCount must be 1' in repr(err):
+        raise ValueError(
+            f'Model under test {backend.generate_model_name} does not support'
+            f' more than 1 candidates. Check {_VETEXT_AI_PARAMS_DOC} to find '
+            'one that supports it.'
+        ) from err
+      raise err
+
   print('8. Check that generate_texts is working.')
   exe = llm.generate_texts(
       prompt=prompt_text,
@@ -261,16 +287,19 @@ def main(argv: Sequence[str]) -> None:
       stop=['\n\n'],
       max_tokens=5,
   )
-  try:
-    res = executing.run(exe)
-  except ValueError as err:
-    if 'candidateCount must be 1' in repr(err):
-      raise ValueError(
-          f'Model under test {backend.generate_model_name} does not support'
-          f' more than 1 candidates. Check {_VETEXT_AI_PARAMS_DOC} to find one '
-          'that supports it.'
-      ) from err
-    raise err
+  res = _try_multi_generation(exe)
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+  print('8.1 Same query but include details.')
+  exe = llm.generate_texts(
+      prompt=prompt_text,
+      samples=3,
+      stop=['\n\n'],
+      max_tokens=5,
+      include_details=True,
+  )
+  res = _try_multi_generation(exe)
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
