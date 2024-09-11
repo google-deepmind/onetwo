@@ -293,6 +293,7 @@ class VertexAIAPI(
       )
     return response
 
+  @executing.make_executable
   @tracing.trace(name='VertexAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -342,6 +343,7 @@ class VertexAIAPI(
       return (truncated, _get_detailed_candidate(response.candidates[0]))
     return truncated
 
+  @executing.make_executable
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -509,6 +511,7 @@ class VertexAIAPI(
     )
     return reply
 
+  @executing.make_executable
   @tracing.trace(name='VertexAIAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -540,6 +543,7 @@ class VertexAIAPI(
     responses = self._embed_model.get_embeddings([input_content])
     return responses[0].values
 
+  @executing.make_executable
   @tracing.trace(name='VertexAIAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',
