@@ -101,20 +101,6 @@ def _get_detailed_candidate(
   return {'text': candidate.text, 'candidate': candidate.to_dict()}
 
 
-def _truncate(text: str, max_tokens: int | None = None) -> str:
-  """Truncates text to the given number of tokens."""
-  # Unfortunately, when setting a max_output_tokens value in the API that is
-  # smaller than what the model would naturally generate, the response is
-  # empty with a finish_reason of "MAX_TOKENS". So we need to do post-hoc
-  # truncation.
-  # However we don't want to tokenize the answer in order to know its exact
-  # token length, so instead we approximately truncate by counting characters.
-  if max_tokens is None:
-    return text
-  else:
-    return text[: max_tokens * 3]
-
-
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class VertexAIAPI(
@@ -253,6 +239,7 @@ class VertexAIAPI(
       prompt: str | _ChunkList,
       samples: int = 1,
       temperature: float | None = None,
+      max_tokens: int | None = None,
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
@@ -265,7 +252,7 @@ class VertexAIAPI(
     generation_config = generative_models.GenerationConfig(
         candidate_count=samples,
         stop_sequences=stop,
-        max_output_tokens=None,
+        max_output_tokens=max_tokens,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
@@ -332,16 +319,15 @@ class VertexAIAPI(
         prompt=healed_prompt,
         samples=1,
         temperature=temperature,
+        max_tokens=max_tokens,
         stop=stop,
         top_k=top_k,
         top_p=top_p,
         **kwargs,
     )
-    raw = response.text
-    truncated = _truncate(raw, max_tokens)
     if include_details:
-      return (truncated, _get_detailed_candidate(response.candidates[0]))
-    return truncated
+      return (response.text, _get_detailed_candidate(response.candidates[0]))
+    return response.text
 
   @executing.make_executable
   @caching.cache_method(  # Cache this method.
@@ -382,6 +368,7 @@ class VertexAIAPI(
         prompt=healed_prompt,
         samples=samples,
         temperature=temperature,
+        max_tokens=max_tokens,
         stop=stop,
         top_k=top_k,
         top_p=top_p,
@@ -390,12 +377,11 @@ class VertexAIAPI(
     results = []
     for candidate in response.candidates:
       if candidate and candidate.content.parts:
-        raw = candidate.content.parts[0].text
-        truncated = _truncate(raw, max_tokens)
+        text = candidate.content.parts[0].text
         if not include_details:
-          results.append(truncated)
+          results.append(text)
           continue
-        results.append((truncated, _get_detailed_candidate(candidate)))
+        results.append((text, _get_detailed_candidate(candidate)))
     return results
 
   @tracing.trace(name='VertexAIAPI.chat')

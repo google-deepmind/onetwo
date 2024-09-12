@@ -512,22 +512,6 @@ class VertexAIAPITest(
         safety_settings=vertexai_api.SAFETY_DISABLED,
     )
 
-  def test_truncation(self, *args, **kwargs):
-    _ = _get_and_register_backend()
-    result = executing.run(
-        llm.generate_text(
-            prompt='something', include_details=True, max_tokens=2
-        )
-    )
-    self.assertEqual(
-        result,
-        _create_fake_detailed_response(
-            text='a' * 10,
-            citation_metadata=_FAKE_CITATION_METADATA,
-            truncated='a' * 6,
-        ),
-    )
-
   def test_embed_text(self, *args, **kwargs):
     _ = _get_and_register_backend()
     content = 'something'
