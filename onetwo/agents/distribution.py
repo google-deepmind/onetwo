@@ -128,7 +128,7 @@ class DistributionAgent(
     dist_dict = {d.update: d.score for d in distribution}
     samples = random.choices(values, weights=probabilities, k=num_candidates)
     return [
-        agents_base.ScoredUpdate(update=s, score=dist_dict[s])
+        agents_base.ScoredUpdate(update=s, score=float(dist_dict[s]))
         for s in samples
     ]
 
@@ -228,6 +228,6 @@ class ReweightedDistributionAgent(
     # We restore the original order.
     updated_distribution = sorted(updated_distribution, key=lambda x: x[2])
     return [
-        agents_base.ScoredUpdate(update=u, score=p)
+        agents_base.ScoredUpdate(update=u, score=float(p))
         for (u, p, _) in updated_distribution
     ]
