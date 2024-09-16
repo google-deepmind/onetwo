@@ -728,6 +728,14 @@ class TemplatingTest(parameterized.TestCase):
         result['prefix'], 'Test included prompt', repr(result['prefix'])
     )
 
+  def test_render_template_with_code_execution_fails(self):
+    prompt = templating.JinjaTemplate(
+        text='var: {{ self.__init__.__globals__ }}'
+    )
+
+    with self.assertRaises(jinja2.exceptions.SecurityError):
+      executing.run(prompt.render())
+
 
 if __name__ == '__main__':
   absltest.main()

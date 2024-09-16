@@ -28,6 +28,7 @@ import immutabledict
 import jinja2
 from jinja2 import ext as j2_ext
 from jinja2 import parser as j2_parser
+import jinja2.sandbox
 from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.core import routing
@@ -70,7 +71,7 @@ def create_jinja2_environment(loader=jinja2.BaseLoader()) -> jinja2.Environment:
   Returns:
     A Jinja2 environment.
   """
-  return jinja2.Environment(
+  return jinja2.sandbox.SandboxedEnvironment(
       extensions=[
           'jinja2.ext.do',
           'jinja2.ext.loopcontrols',
