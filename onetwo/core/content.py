@@ -24,10 +24,12 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 import dataclasses
 import enum
-from typing import Final, NamedTuple, TypeAlias, Union, cast
+from typing import Any, Final, Iterable, NamedTuple, TypeAlias, Union, cast
 
 import immutabledict
 import PIL.Image
+
+from google.protobuf import message
 
 ContentType: TypeAlias = Union[str, bytes, PIL.Image.Image]
 
@@ -44,7 +46,7 @@ ContentType: TypeAlias = Union[str, bytes, PIL.Image.Image]
 _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE: Final[Mapping[str, list[str]]] = (
     immutabledict.immutabledict({
         'str': ['str', 'ctrl'],
-        'bytes': ['bytes', 'image/'],
+        'bytes': ['bytes', 'image/', 'video/'],
         'pil_image': ['image/'],
     })
 )
@@ -81,11 +83,14 @@ class Chunk:
     role: The role to assign to the chunk when grouping chunks into chat
       messages. If not specified, it will be treated as USER. Ignored when the
       chunk is used in a non-chat operation.
+    metadata: An iterable of custom metadata objects to be supplied to the
+      downstream request object.
   """
 
   content: ContentType
   content_type: str = dataclasses.field(default_factory=str)
   role: RoleType = None
+  metadata: Iterable[message.Message | dict[str, Any]] = ()
 
   def __post_init__(self):
     # Check that the content is of one of the accepted types and set the
