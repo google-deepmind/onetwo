@@ -46,7 +46,7 @@ ContentType: TypeAlias = Union[str, bytes, PIL.Image.Image]
 _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE: Final[Mapping[str, list[str]]] = (
     immutabledict.immutabledict({
         'str': ['str', 'ctrl'],
-        'bytes': ['bytes', 'image/', 'video/'],
+        'bytes': ['bytes', 'image/', 'video/', 'audio/'],
         'pil_image': ['image/'],
     })
 )
