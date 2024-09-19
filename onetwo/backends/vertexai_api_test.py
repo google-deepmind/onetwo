@@ -16,6 +16,7 @@
 
 import collections
 from collections.abc import Mapping
+import math
 import string
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
@@ -65,9 +66,14 @@ def _get_and_register_backend(**kwargs) -> vertexai_api.VertexAIAPI:
   return backend
 
 
+def _fake_count_tokens(prompt: str) -> int:
+  return math.ceil(len(prompt) / 3.0)
+
+
 def _create_fake_detailed_response(
     text: str,
     citation_metadata: Mapping[str, Any],
+    usage_metadata: Mapping[str, Any],
     truncated: str | None = None,
 ) -> tuple[str, Mapping[str, Any]]:
   """Returns a fake detailed response from generate_text(s)."""
@@ -79,6 +85,7 @@ def _create_fake_detailed_response(
               'content': {'parts': [{'text': text}]},
               'citation_metadata': citation_metadata,
           },
+          'usage_metadata': usage_metadata,
       },
   )
 
@@ -135,9 +142,16 @@ class VertexAIAPITest(
           }
           for letter in letters
       ]
-      return generative_models.GenerationResponse.from_dict(
-          {'candidates': candidates}
-      )
+      return generative_models.GenerationResponse.from_dict({
+          'candidates': candidates,
+          'usage_metadata': {
+              'prompt_token_count': _fake_count_tokens(prompt_txt),
+              'candidates_token_count': sum([
+                  _fake_count_tokens(c['content']['parts'][0]['text'])
+                  for c in candidates
+              ]),
+          },
+      })
 
     def generate_message_content_mock(
         content,
@@ -434,7 +448,12 @@ class VertexAIAPITest(
     self.assertEqual(
         result,
         _create_fake_detailed_response(
-            text='a' * 10, citation_metadata=_FAKE_CITATION_METADATA
+            text='a' * 10,
+            citation_metadata=_FAKE_CITATION_METADATA,
+            usage_metadata={
+                'prompt_token_count': 3,
+                'candidates_token_count': 4,
+            },
         ),
     )
 
@@ -450,13 +469,28 @@ class VertexAIAPITest(
         results,
         [
             _create_fake_detailed_response(
-                text='a' * 10, citation_metadata=_FAKE_CITATION_METADATA
+                text='a' * 10,
+                citation_metadata=_FAKE_CITATION_METADATA,
+                usage_metadata={
+                    'prompt_token_count': 3,
+                    'candidates_token_count': 12,
+                },
             ),
             _create_fake_detailed_response(
-                text='b' * 10, citation_metadata=_FAKE_CITATION_METADATA
+                text='b' * 10,
+                citation_metadata=_FAKE_CITATION_METADATA,
+                usage_metadata={
+                    'prompt_token_count': 3,
+                    'candidates_token_count': 12,
+                },
             ),
             _create_fake_detailed_response(
-                text='c' * 10, citation_metadata=_FAKE_CITATION_METADATA
+                text='c' * 10,
+                citation_metadata=_FAKE_CITATION_METADATA,
+                usage_metadata={
+                    'prompt_token_count': 3,
+                    'candidates_token_count': 12,
+                },
             ),
         ],
     )

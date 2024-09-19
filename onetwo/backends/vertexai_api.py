@@ -94,11 +94,20 @@ def _convert_chunk_list_to_parts_list(
     return [generative_models.Part.from_text(prompt)]
 
 
-def _get_detailed_candidate(
+def _get_details_dict(
     candidate: generative_models.Candidate,
+    response: generative_models.GenerationResponse,
 ) -> Mapping[str, Any]:
   """Returns the text and details of a candidate."""
-  return {'text': candidate.text, 'candidate': candidate.to_dict()}
+  return {
+      'text': candidate.text,
+      'candidate': candidate.to_dict(),
+      # Note that Vertex AI does not return per candidate output token count
+      # for multi-generations (generate_texts), instead it sets
+      # usage_metadata.candidates_token_count to the aggregated output_token for
+      # all candidates in the response.
+      'usage_metadata': response.to_dict().get('usage_metadata', {}),
+  }
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -326,7 +335,10 @@ class VertexAIAPI(
         **kwargs,
     )
     if include_details:
-      return (response.text, _get_detailed_candidate(response.candidates[0]))
+      return (
+          response.text,
+          _get_details_dict(response.candidates[0], response),
+      )
     return response.text
 
   @executing.make_executable
@@ -381,7 +393,7 @@ class VertexAIAPI(
         if not include_details:
           results.append(text)
           continue
-        results.append((text, _get_detailed_candidate(candidate)))
+        results.append((text, _get_details_dict(candidate, response)))
     return results
 
   @tracing.trace(name='VertexAIAPI.chat')
