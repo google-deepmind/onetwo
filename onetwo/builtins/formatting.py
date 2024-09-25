@@ -80,17 +80,17 @@ class Formatter(metaclass=abc.ABCMeta):
       kwargs = {}
     self._kwargs = kwargs
 
-  @property
-  def role_map(self) -> dict[str | _PredefinedRole, str]:
-    """Returns a mapping from role to string representation.
+  @abc.abstractmethod
+  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+    """Returns whether the role is supported by this formatter.
 
-    This serves two purposes:
-    - It specifies which roles are supported by the formatter. Any role that is
-      not in this map will be ignored or raise an error if
-      `raise_error_if_unsupported_roles=True` in the call to `format`.
-    - It allows to specify how the role name is represented in the prompt.
+    Any role for which this method returns False will be ignored or raise an
+    error in the call to `format`, depending on the value of
+    `raise_error_if_unsupported_roles`.
+
+    Args:
+      role: The role to check (e.g., 'user', 'model', etc.).
     """
-    return {_PredefinedRole.USER: 'user'}
 
   @abc.abstractmethod
   def is_already_formatted(self, content: Sequence[_Message]) -> bool:
@@ -131,7 +131,7 @@ class Formatter(metaclass=abc.ABCMeta):
       self,
       content: str | _ChunkList | _Message | Sequence[_Message],
       raise_error_if_already_formatted: bool = True,
-      raise_error_if_unsupported_roles: bool = False,
+      raise_error_if_unsupported_roles: bool = True,
   ) -> _ChunkList:
     """Returns formatted ChunkList."""
     if isinstance(content, str) or isinstance(content, _ChunkList):
@@ -155,16 +155,17 @@ class Formatter(metaclass=abc.ABCMeta):
         # Return the content as is (converting message content to chunks).
         return _ChunkList([_Chunk(c.content) for c in content])
     # Remove messages with unsupported roles.
-    filtered_content = [
-        message for message in content if message.role in self.role_map.keys()
-    ]
-    if raise_error_if_unsupported_roles and len(filtered_content) != len(
-        content
-    ):
+    unsupported_roles = set()
+    filtered_content = []
+    for message in content:
+      if self.is_role_supported(message.role):
+        filtered_content.append(message)
+      else:
+        unsupported_roles.add(message.role)
+    if raise_error_if_unsupported_roles and unsupported_roles:
       raise ValueError(
-          'Content contains unsupported roles for this formatter. Supported'
-          f' roles: {self.role_map.keys()}.'
-          f' Messages:\n{pprint.pformat(content)}'
+          'Content contains unsupported roles for this formatter: '
+          f'{unsupported_roles}. Messages:\n{pprint.pformat(content)}'
       )
     return self._format(filtered_content)
 
@@ -178,6 +179,14 @@ class DefaultFormatter(Formatter):
 
   @property
   def role_map(self) -> dict[str | _PredefinedRole, str]:
+    """Returns a mapping from role to string representation.
+
+    This serves two purposes:
+    - It specifies which roles are supported by the formatter. Any role that is
+      not in this map will be ignored or raise an error if
+      `raise_error_if_unsupported_roles=True` in the call to `format`.
+    - It allows to specify how the role name is represented in the prompt.
+    """
     return {
         _PredefinedRole.USER: 'User',
         _PredefinedRole.MODEL: 'Model',
@@ -185,12 +194,18 @@ class DefaultFormatter(Formatter):
         _PredefinedRole.CONTEXT: 'Context',
     }
 
+  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+    """Overridden from base class (Formatter)."""
+    return role in self.role_map
+
   def is_already_formatted(self, content: Sequence[_Message]) -> bool:
+    """Overridden from base class (Formatter)."""
     concat = str(content)
     matches = [_INSTRUCTION_QUESTION_PREFIX, _INSTRUCTION_ANSWER_PREFIX]
     return any(substr in concat for substr in matches)
 
   def extra_stop_sequences(self) -> list[str]:
+    """Overridden from base class (Formatter)."""
     return [
         f'{_INSTRUCTION_SEPARATOR}{_INSTRUCTION_QUESTION_PREFIX}',
         _MULTITURN_TURN_SEPARATOR
@@ -201,6 +216,7 @@ class DefaultFormatter(Formatter):
       self,
       content: Sequence[_Message],
   ) -> _ChunkList:
+    """Overridden from base class (Formatter)."""
     prompt = _ChunkList()
     role_list = [m.role for m in content]
     # We first determine if we are in the `instruct` situation where there is

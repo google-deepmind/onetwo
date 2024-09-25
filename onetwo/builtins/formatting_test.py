@@ -31,12 +31,9 @@ _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 class FormatterForTest(formatting.Formatter):
   """Formatter for testing."""
 
-  @property
-  def role_map(self) -> dict[str | content_lib.PredefinedRole, str]:
-    return {
-        content_lib.PredefinedRole.USER: 'user',
-        content_lib.PredefinedRole.MODEL: 'model',
-    }
+  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+    """Overridden from base class (Formatter)."""
+    return role in {_PredefinedRole.USER, _PredefinedRole.MODEL}
 
   def is_already_formatted(self, content: Sequence[_Message]) -> bool:
     """Returns whether the content is already formatted."""

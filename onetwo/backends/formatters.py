@@ -39,14 +39,25 @@ class GemmaFormatter(_Formatter):
 
   @property
   def role_map(self) -> dict[str | _PredefinedRole, str]:
-    """See parent class."""
+    """Returns a mapping from role to string representation.
+
+    This serves two purposes:
+    - It specifies which roles are supported by the formatter. Any role that is
+      not in this map will be ignored or raise an error if
+      `raise_error_if_unsupported_roles=True` in the call to `format`.
+    - It allows to specify how the role name is represented in the prompt.
+    """
     return {
         _PredefinedRole.USER: 'user',
         _PredefinedRole.MODEL: 'model'
     }
 
+  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+    """Overridden from base class (Formatter)."""
+    return role in self.role_map
+
   def is_already_formatted(self, content: Sequence[_Message]) -> bool:
-    """See parent class."""
+    """Overridden from base class (Formatter)."""
     if not content:
       return False
     return any(
@@ -55,14 +66,14 @@ class GemmaFormatter(_Formatter):
     )
 
   def extra_stop_sequences(self) -> list[str]:
-    """See parent class."""
+    """Overridden from base class (Formatter)."""
     return [_START_OF_TURN]
 
   def _format(
       self,
       content: Sequence[_Message],
   ) -> _ChunkList:
-    """See parent class."""
+    """Overridden from base class (Formatter)."""
     res = []
     for i, message in enumerate(content):
       role_name = self.role_map[message.role]
