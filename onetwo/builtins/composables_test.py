@@ -235,14 +235,14 @@ class ComposablesTest(parameterized.TestCase):
 
     with self.subTest('string_gets_formatted'):
       res = executing.run(composable(var='value'))
-      self.assertEqual(res, 'var=value done')
+      self.assertEqual('var=value done', res)
 
     composable = (
         c.store('v', c.f('var={var}')) + c.generate_text() + c.f(' v="{v}"')
     )
     with self.subTest('nested_store_gets_formatted'):
       res = executing.run(composable(var='value'))
-      self.assertEqual(res, 'var=value done v="var=value"')
+      self.assertEqual('var=value done v="var=value"', res)
 
   @parameterized.named_parameters(
       ('bytes', [bytes(1)], 'hello <bytes>', ['hello ', bytes(1)]),
@@ -252,6 +252,13 @@ class ComposablesTest(parameterized.TestCase):
           ['test', 'generate'],
           'hello test done',
           ['hello ', 'test', ' done'],
+      ),
+      ('chunk', [Chunk('test')], 'hello test', ['hello ', 'test']),
+      (
+          'chunk_list',
+          [ChunkList(['test1 ', Chunk('test2')])],
+          'hello test1 test2',
+          ['hello ', 'test1 ', 'test2'],
       ),
   )
   def test_chunks(self, chunks, expected_result, expected_prefix):
@@ -264,7 +271,9 @@ class ComposablesTest(parameterized.TestCase):
         composable += c.c(chunk)
     res = executing.run(composable)
     # Composable.get_result returns a string version of the ChunkList.
-    self.assertEqual(res, expected_result)
+    with self.subTest('result'):
+      self.assertEqual(expected_result, res)
+
     # We can also inspect the prefix from the context which contains a
     # ChunkList.
     context = composing.Context()
@@ -273,7 +282,22 @@ class ComposablesTest(parameterized.TestCase):
     expected_prefix = content_lib.ChunkList(
         [content_lib.Chunk(c) for c in expected_prefix]
     )
-    self.assertEqual(context.prefix, expected_prefix)
+    with self.subTest('prefix'):
+      self.assertEqual(expected_prefix, context.prefix)
+
+  def test_empty_composable(self):
+    # This is how to create an empty Composable to which other content can then
+    # be added.
+    composable = c.c(ChunkList())
+    res = executing.run(composable)
+    with self.subTest('result'):
+      self.assertEqual('', res)
+
+    context = composing.Context()
+    composable += composing.get_context(context)
+    _ = executing.run(composable)
+    with self.subTest('prefix'):
+      self.assertEqual(content_lib.ChunkList(), context.prefix)
 
   def test_jinja(self):
 
@@ -281,15 +305,15 @@ class ComposablesTest(parameterized.TestCase):
     with self.subTest('simple_generate'):
       composable = 'hello ' + c.j('{{var}}{{generate_text()}}') + ' end'
       res = executing.run(composable(var='value'))
-      self.assertEqual(res, 'hello value done end')
+      self.assertEqual('hello value done end', res)
 
     with self.subTest('propagate_context'):
       composable = (
           'hello ' + c.j('{{var}}{{store("res", generate_text())}}') + ' end'
       )
       res = executing.run(composable(var='value'))
-      self.assertEqual(res, 'hello value done end')
-      self.assertEqual(composable['res'], ' done')
+      self.assertEqual('hello value done end', res)
+      self.assertEqual(' done', composable['res'])
 
   def test_chat(self):
     llm.chat.configure(chat_test_function)
@@ -307,8 +331,8 @@ class ComposablesTest(parameterized.TestCase):
     )
     res = executing.run(composable)
 
-    self.assertEqual(composable['result'], 's1,u1,u2,m1,u3,u4')
-    self.assertEqual(res, 's1u1u2m1u3u4' + 's1,u1,u2,m1,u3,u4')
+    self.assertEqual('s1,u1,u2,m1,u3,u4', composable['result'])
+    self.assertEqual('s1u1u2m1u3u4' + 's1,u1,u2,m1,u3,u4', res)
 
 
 if __name__ == '__main__':

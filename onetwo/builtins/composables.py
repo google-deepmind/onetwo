@@ -51,7 +51,12 @@ def c(
 ) -> content_lib.ChunkList:
   """Composable chunk created from content."""
   del context
-  return content_lib.ChunkList([content_lib.Chunk(content, role=role)])
+  if isinstance(content, content_lib.Chunk):
+    return content_lib.ChunkList([content])
+  elif isinstance(content, content_lib.ChunkList):
+    return content
+  else:
+    return content_lib.ChunkList([content_lib.Chunk(content, role=role)])
 
 
 @composing.make_composable
