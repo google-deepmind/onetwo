@@ -324,5 +324,75 @@ class ContentTest(parameterized.TestCase):
     chunk = _Chunk(chunk_content)
     self.assertEqual(chunk.is_empty(), expected)
 
+
+class MessageTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('string_should_stay_unchanged', 'a', 'a'),
+      (
+          'chunk_list_with_single_string_chunk_should_be_normalized',
+          _ChunkList(['a']),
+          'a',
+      ),
+      (
+          'chunk_list_containing_metadata_should_not_be_normalized',
+          _ChunkList([_Chunk('a', metadata=[{'b': 'c'}])]),
+          _ChunkList([_Chunk('a', metadata=[{'b': 'c'}])]),
+      ),
+      (
+          'chunk_list_with_multiple_chunks_should_not_be_normalized',
+          _ChunkList(['a', 'b']),
+          _ChunkList(['a', 'b']),
+      ),
+      (
+          'chunk_list_with_non_string_chunk_should_not_be_normalized',
+          _ChunkList([b'123']),
+          _ChunkList([b'123']),
+      ),
+      (
+          'list_of_chunks_with_single_string_chunk_should_be_normalized',
+          [_Chunk('a')],
+          'a',
+      ),
+      (
+          'list_of_chunks_containing_metadata_should_not_be_normalized',
+          [_Chunk('a', metadata=[{'b': 'c'}])],
+          _ChunkList([_Chunk('a', metadata=[{'b': 'c'}])]),
+      ),
+      (
+          'list_of_chunks_with_multiple_chunks_should_not_be_normalized',
+          [_Chunk('a'), _Chunk('b')],
+          _ChunkList(['a', 'b']),
+      ),
+      (
+          'list_of_chunks_with_non_string_chunk_should_not_be_normalized',
+          [_Chunk(b'123')],
+          _ChunkList([b'123']),
+      ),
+  )
+  def test_create_normalized(self, content, expected_message_content):
+    role = content_lib.PredefinedRole.USER
+    message = content_lib.Message.create_normalized(role, content)
+    self.assertEqual(expected_message_content, message.content, message.content)
+
+  @parameterized.named_parameters(
+      (
+          'string',
+          'a',
+          _ChunkList(['a']),
+      ),
+      (
+          'chunk_list',
+          _ChunkList(['a', 'b']),
+          _ChunkList(['a', 'b']),
+      ),
+  )
+  def test_get_chunk_list(self, message_content, expected_chunk_list):
+    role = content_lib.PredefinedRole.USER
+    message = content_lib.Message(role, message_content)
+    chunk_list = message.get_chunk_list()
+    self.assertEqual(expected_chunk_list, chunk_list, chunk_list)
+
+
 if __name__ == '__main__':
   absltest.main()

@@ -105,9 +105,10 @@ class Context:
   def to_messages(self) -> list[content_lib.Message]:
     """Converts current prefix into a list of Messages to be used with llm.chat.
 
-    Chunks with no role are assumed to have the USER role.
-    Each consecutive collection of chunks with the same role are grouped into a
-    single Message.
+    Chunks with no role are assumed to have the USER role. Each consecutive
+    collection of chunks with the same role are grouped into a single Message.
+    Messages containing just a single string chunk are normalized to represent
+    the content as the string itself rather than a ChunkList of length 1.
 
     Returns:
       List of messages.
@@ -122,16 +123,14 @@ class Context:
       else:
         if current_chunk_list:
           messages.append(
-              content_lib.Message(
-                  role=current_role,
-                  content=content_lib.ChunkList(current_chunk_list),
-              )
+              content_lib.Message.create_normalized(
+                  role=current_role, content=current_chunk_list)
           )
         current_chunk_list = [chunk]
         current_role = chunk.role
     if current_chunk_list:
       messages.append(
-          content_lib.Message(
+          content_lib.Message.create_normalized(
               role=current_role,
               content=content_lib.ChunkList(current_chunk_list),
           )

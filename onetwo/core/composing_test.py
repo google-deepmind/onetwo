@@ -699,12 +699,7 @@ class ComposingTest(parameterized.TestCase):
               Chunk('m2', role=PredefinedRole.MODEL),
           ],
           expected_messages=[
-              Message(
-                  PredefinedRole.SYSTEM,
-                  ChunkList([
-                      Chunk('s1', role=PredefinedRole.SYSTEM),
-                  ]),
-              ),
+              Message(PredefinedRole.SYSTEM, 's1'),
               Message(
                   PredefinedRole.USER,
                   ChunkList([
@@ -712,12 +707,7 @@ class ComposingTest(parameterized.TestCase):
                       Chunk('u3', role=PredefinedRole.USER),
                   ]),
               ),
-              Message(
-                  PredefinedRole.MODEL,
-                  ChunkList([
-                      Chunk('m1', role=PredefinedRole.MODEL),
-                  ]),
-              ),
+              Message(PredefinedRole.MODEL, 'm1'),
               Message(
                   PredefinedRole.USER,
                   ChunkList([
@@ -732,18 +722,13 @@ class ComposingTest(parameterized.TestCase):
                       Chunk('t2', role='thoughts'),
                   ]),
               ),
-              Message(
-                  PredefinedRole.MODEL,
-                  ChunkList([
-                      Chunk('m2', role=PredefinedRole.MODEL),
-                  ]),
-              ),
+              Message(PredefinedRole.MODEL, 'm2'),
           ],
       ),
   )
   def test_context_to_messages(self, chunks, expected_messages):
     ctx = composing.Context(prefix=ChunkList(chunks))
-    self.assertListEqual(ctx.to_messages(), expected_messages)
+    self.assertListEqual(expected_messages, ctx.to_messages())
 
 
 if __name__ == '__main__':

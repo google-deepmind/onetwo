@@ -21,10 +21,10 @@ named tuple to represent a message in a chat conversation.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 import dataclasses
 import enum
-from typing import Any, Final, Iterable, NamedTuple, TypeAlias, Union, cast
+from typing import Any, Final, Iterable, TypeAlias, Union, cast
 
 import immutabledict
 import PIL.Image
@@ -229,7 +229,7 @@ class ChunkList:
     chunks: List of Chunks.
   """
 
-  def __init__(self, chunks: list[Chunk | ContentType] | None = None):
+  def __init__(self, chunks: Sequence[Chunk | ContentType] | None = None):
     if chunks is not None and not isinstance(chunks, list):
       # In case typing did not catch this.
       raise ValueError(
@@ -443,8 +443,50 @@ class ChunkList:
     ])
 
 
-class Message(NamedTuple):
-  """NamedTuple to represent a message in a chat conversation."""
+@dataclasses.dataclass
+class Message:
+  """A message in a chat conversation.
+
+  Attributes:
+    role: The role of the message.
+    content: The content of the message.
+  """
 
   role: str | PredefinedRole
   content: str | ChunkList
+
+  @classmethod
+  def create_normalized(
+      cls,
+      role: str | PredefinedRole,
+      content: str | ChunkList | Sequence[Chunk]
+  ) -> 'Message':
+    """Returns a message with the given role and normalized content."""
+    if isinstance(content, str):
+      normalized_content = content
+    else:
+      if isinstance(content, ChunkList):
+        chunks = content.chunks
+      else:
+        chunks = content
+
+      if (
+          len(chunks) == 1
+          and chunks[0].content_type == 'str'
+          and not chunks[0].metadata
+      ):
+        # In the case of a single string with no metadata, the same information
+        # could be represented either a standalone string or as a ChunkList with
+        # a single chunk. We normalize to the simpler representation.
+        normalized_content = chunks[0].content
+      else:
+        normalized_content = ChunkList(chunks)
+
+    return cls(role=role, content=normalized_content)
+
+  def get_chunk_list(self) -> ChunkList:
+    """Returns the message contents in the form of a ChunkList."""
+    if isinstance(self.content, str):
+      return ChunkList([self.content])
+    else:
+      return self.content

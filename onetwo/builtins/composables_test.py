@@ -61,7 +61,8 @@ def generate_test_function(
 @executing.make_executable
 async def chat_test_function(messages: Sequence[Message], **kwargs) -> str:
   del kwargs
-  return ','.join(','.join(c.content for c in m.content) for m in messages)
+  return ','.join(
+      ','.join(c.content for c in m.get_chunk_list()) for m in messages)
 
 
 class ComposablesTest(parameterized.TestCase):
