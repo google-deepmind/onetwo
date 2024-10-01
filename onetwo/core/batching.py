@@ -140,6 +140,7 @@ be a uniform and straightforward mechanism.
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Iterator, Mapping
+import concurrent.futures
 import contextlib
 import contextvars
 import dataclasses
@@ -150,7 +151,7 @@ from multiprocessing import pool as mp_pool
 import queue
 import threading
 import types
-from typing import Any, Generic, Literal, ParamSpec, Sequence, Type, TypeAlias, TypeVar, overload
+from typing import Any, Generic, Literal, overload, ParamSpec, Sequence, Type, TypeAlias, TypeVar
 
 from onetwo.core import iterating
 from onetwo.core import results
@@ -1537,6 +1538,68 @@ def batch_method_with_threadpool(
             pass_self=True,
         )(threadpool_method)
     )
+
+  return inner
+
+
+def to_thread_pool_method(
+    num_workers: int | utils.FromInstance[int | None]
+)-> Callable[
+    [Callable[..., _ReplyT]],  # TODO: Replace with _Args.
+    Callable[..., Awaitable[_ReplyT]],  # TODO: Replace with _Args.
+]:
+  """Decorator to run a method in a thread pool.
+
+  Unlike `run_method_in_threadpool`, this decorator does not batch the calls
+  but instead issues them to the thread pool one by one.
+  So in particular the class does not need to be decorated with `@add_batching`.
+
+  Using this decorator will add an attribute `threadpools` to the class, which
+  will be a dictionary mapping thread pool names to thread pool objects.
+  The thread pool name is the name of the method being decorated, so there is
+  one threadpool created for each decorated method and each instance of the
+  class.
+
+  Args:
+    num_workers: The number of workers to use in the thread pool.
+
+  Returns:
+    A decorator that can be used to run a method in a thread pool.
+  """
+  def inner(
+      method: Callable[..., _ReplyT]
+  ) -> Callable[..., Awaitable[_ReplyT]]:
+    # Set the name of the thread pool to the name of the method.
+    thread_pool_name = getattr(method, '__name__', 'default')
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs) -> Awaitable[_ReplyT]:
+      if not hasattr(self, 'threadpools'):
+        self.threadpools = {}
+      if thread_pool_name not in self.threadpools:
+        num_workers_val = utils.RuntimeParameter[int](num_workers, self).value()
+        logging.info(
+            'Creating threadpool for %s with %d workers',
+            thread_pool_name,
+            num_workers_val,
+        )
+        self.threadpools[thread_pool_name] = (
+            concurrent.futures.ThreadPoolExecutor(max_workers=num_workers_val)
+        )
+      future = self.threadpools[thread_pool_name].submit(
+          method, self, *args, **kwargs
+      )
+      logging.info('Submitted task to threadpool %s', thread_pool_name)
+
+      async def waiter() -> _ReplyT:
+        await asyncio.sleep(0)
+        res = future.result()
+        logging.info('Task done in threadpool %s', thread_pool_name)
+        return res
+
+      return waiter()
+
+    return wrapper
 
   return inner
 

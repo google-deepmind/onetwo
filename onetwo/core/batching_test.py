@@ -1469,6 +1469,88 @@ class BatchingTest(parameterized.TestCase):
               enable_batching=enable_batching,
           )
 
+  def test_to_thread_pool_method(self):
+    class C:
+      processed = []
+
+      @batching.to_thread_pool_method(num_workers=2)
+      def process(self, request: int, sleep_time: int = 0) -> int:
+        time.sleep(sleep_time)
+        self.processed.append(request)
+        return request
+
+    async def process_all(
+        inputs: Sequence[tuple[int, int]],
+    ) -> tuple[Sequence[int], Sequence[int]]:
+      c = C()
+      coroutines = [c.process(*x) for x in inputs]
+      return await asyncio.gather(*coroutines), c.processed
+
+    results, processed = asyncio.run(
+        process_all([(1, 1), (2, 0), (3, 0), (4, 1)])
+    )
+    with self.subTest('results_are_correct'):
+      self.assertEqual([1, 2, 3, 4], results)
+
+    with self.subTest('processing_order_is_correct'):
+      self.assertEqual([2, 3, 1, 4], processed)
+
+  def test_to_thread_pool_method_made_executable(self):
+    class C:
+      processed = []
+
+      @executing.make_executable
+      @batching.to_thread_pool_method(num_workers=2)
+      def process(self, request: int, sleep_time: int = 0) -> int:
+        time.sleep(sleep_time)
+        self.processed.append(request)
+        return request
+
+    c = C()
+    executables = [c.process(*x) for x in [(1, 1), (2, 0), (3, 0), (4, 1)]]
+    results = batching.run(executing.parallel(*executables))
+    with self.subTest('results_are_correct'):
+      self.assertSequenceEqual([1, 2, 3, 4], results)
+
+    with self.subTest('processing_order_is_correct'):
+      self.assertEqual([2, 3, 1, 4], c.processed)
+
+  @parameterized.named_parameters(
+      ('return_exceptions', True),
+      ('no_return_exceptions', False),
+  )
+  def test_to_thread_pool_method_with_exceptions(
+      self, return_exceptions
+  ):
+    class C:
+
+      @executing.make_executable
+      @batching.to_thread_pool_method(num_workers=2)
+      def process(self, request: int) -> int:
+        if request == 2:
+          raise ValueError('error')
+        else:
+          return request
+
+    c = C()
+    executables = [c.process(x) for x in [1, 2, 3]]
+    if return_exceptions:
+      results = batching.run(
+          executing.parallel(*executables, return_exceptions=return_exceptions)
+      )
+      self.assertLen(results, 3)
+      self.assertIsInstance(results[1], ValueError)
+      self.assertSequenceEqual(
+          [1, 3], [r for r in results if not isinstance(r, ValueError)]
+      )
+    else:
+      with self.assertRaisesRegex(ValueError, 'error'):
+        batching.run(
+            executing.parallel(
+                *executables, return_exceptions=return_exceptions
+            )
+        )
+
 
 if __name__ == '__main__':
   absltest.main()
