@@ -519,7 +519,6 @@ class BatchingTest(parameterized.TestCase):
       return value + 1
 
     async def plan():
-      result = None
       for i in range(4):
         await tracing.report_update(f'{i} sent')
         result = await process(i)
@@ -557,7 +556,6 @@ class BatchingTest(parameterized.TestCase):
       return requests
 
     async def plan():
-      result = None
       for i in range(2):
         executables = [process([i * 5 + j]) for j in range(5)]
         result = await asyncio.gather(*executables)
@@ -1494,6 +1492,61 @@ class BatchingTest(parameterized.TestCase):
 
     with self.subTest('processing_order_is_correct'):
       self.assertEqual([2, 3, 1, 4], processed)
+
+  def test_to_thread_pool_method_cascading(self):
+    """Test thread pools with parallel/sequential calls."""
+
+    class C:
+      def __init__(self):
+        self.submitted = []
+        self.processed = []
+        self.lock = threading.Lock()
+
+      @batching.to_thread_pool_method(num_workers=2)
+      def process(self, request: int, sleep_time: int = 0) -> int:
+        with self.lock:
+          self.submitted.append(request)
+        time.sleep(sleep_time)
+        with self.lock:
+          self.processed.append(request)
+        return request
+
+      async def sequential(
+          self, inputs: Sequence[tuple[int, int]]
+      ) -> Sequence[int]:
+        res = []
+        for x in inputs:
+          res.append(await self.process(*x))
+        return res
+
+      async def parallel(
+          self, inputs: Sequence[tuple[int, int]]
+      ) -> Sequence[Sequence[int]]:
+        coroutines = [
+            self.sequential(inputs[i : i + 2])
+            for i in range(0, len(inputs) - 1, 2)
+        ]
+        return await asyncio.gather(*coroutines)
+
+    c = C()
+    results = asyncio.run(
+        c.parallel([(1, 1), (2, 1), (3, 0), (4, 1)])
+    )
+    with self.subTest('results_are_correct'):
+      self.assertEqual([[1, 2], [3, 4]], results)
+
+    with self.subTest('submitting_order_is_correct'):
+      # We are processing (1,2) in parallel with (3,4)
+      # so we will create first the tasks 1 and 3,
+      # and 3 will return first, at which point we will create the task 4,
+      # then 1 will return, at which point we create the task 2.
+      self.assertEqual([1, 3, 4, 2], c.submitted)
+
+    with self.subTest('processing_order_is_correct'):
+      # Since we submit tasks in the order 1, 3, 4, 2 and
+      # we use two workers, we will get the results in the order 3 (after
+      # 0 seconds), 1 (after 1 second), 4, 2.
+      self.assertEqual([3, 1, 4, 2], c.processed)
 
   def test_to_thread_pool_method_made_executable(self):
     class C:

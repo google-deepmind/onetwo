@@ -1592,7 +1592,13 @@ def to_thread_pool_method(
       logging.info('Submitted task to threadpool %s', thread_pool_name)
 
       async def waiter() -> _ReplyT:
-        await asyncio.sleep(0)
+        while not future.done():
+          # We wait for 10ms before checking again if the future is done.
+          # This is to avoid wasting CPU cycles by checking the future status
+          # in a tight loop.
+          # Note that each call to await is yielding control to other async
+          # tasks, so this is not blocking the execution.
+          await asyncio.sleep(0.01)
         res = future.result()
         logging.info('Task done in threadpool %s', thread_pool_name)
         return res
