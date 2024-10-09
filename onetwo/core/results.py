@@ -676,9 +676,12 @@ def _is_update_list_state(object_to_render: Any) -> bool:
   )
 
 
-def _as_string(object_to_render: Any) -> str:
+def _as_string(object_to_render: Any, max_length: int | None = None) -> str:
   """Returns an appropriate string representation for rendering in HTML."""
-  return html.escape(repr(object_to_render))
+  object_as_string = repr(object_to_render)
+  if max_length is not None and len(object_as_string) > max_length:
+    object_as_string = object_as_string[: max_length] + '...'
+  return html.escape(object_as_string)
 
 
 @dataclasses.dataclass
@@ -820,8 +823,9 @@ class HTMLRenderer:
     else:
       outputs = result.outputs
 
-    inputs_string = _as_string(result.inputs)
-    outputs_string = _as_string(outputs)
+    max_io_string_length = self._max_collapsed_rendering_length // 2
+    inputs_string = _as_string(result.inputs, max_length=max_io_string_length)
+    outputs_string = _as_string(outputs, max_length=max_io_string_length)
     collapsed_html = f'{inputs_string} <b>&rArr;</b> {outputs_string}'
 
     # TODO: Remove the special treatment of the special outputs key
