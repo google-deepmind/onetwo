@@ -21,7 +21,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, cast, Final, TypeAlias
+from typing import Any, Final, TypeAlias, cast
 
 from absl import logging
 import google.generativeai as genai
@@ -74,7 +74,7 @@ SAFETY_DISABLED: Final[Mapping[int, int]] = immutabledict.immutabledict({
 
 
 def _convert_chunk_list_to_contents_type(
-    prompt: str | _ChunkList
+    prompt: str | _ChunkList,
 ) -> content_types.ContentsType:
   """Convert ChunkList to the type compatible with Gemini API's ContentsType."""
   if isinstance(prompt, content_lib.ChunkList):
@@ -89,6 +89,12 @@ def _convert_chunk_list_to_contents_type(
           converted.append(
               content_types.BlobDict(
                   mime_type='image/jpeg', data=cast(bytes, c.content)
+              )
+          )
+        case 'video/mp4':
+          converted.append(
+              content_types.BlobDict(
+                  mime_type='video/mp4', data=cast(bytes, c.content)
               )
           )
         case _:
@@ -108,7 +114,7 @@ def _truncate(text: str, max_tokens: int | None = None) -> str:
   if max_tokens is None:
     return text
   else:
-    return text[:max_tokens * 3]
+    return text[: max_tokens * 3]
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -207,9 +213,7 @@ class GeminiAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(
-        self.chat, formatter=formatting.FormatterName.API
-    )
+    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
     llm.count_tokens.configure(self.count_tokens)
 
   def _get_api_key(self) -> str | None:
@@ -282,9 +286,7 @@ class GeminiAPI(
     self._chat_model = genai.GenerativeModel(
         self.chat_model_name, generation_config=generation_config
     )
-    self._embed_model = genai.GenerativeModel(
-        self.embed_model_name
-    )
+    self._embed_model = genai.GenerativeModel(self.embed_model_name)
     logging.info(
         'Registered models:\n'
         'Default for generate/count_tokens: %s\n'
@@ -461,12 +463,10 @@ class GeminiAPI(
         case _:
           raise ValueError(f'Unsupported role: {msg.role}')
       history.append(
-          content_types.to_content(
-              {
-                  'role': role,
-                  'parts': _convert_chunk_list_to_contents_type(msg.content),
-              }
-          )
+          content_types.to_content({
+              'role': role,
+              'parts': _convert_chunk_list_to_contents_type(msg.content),
+          })
       )
     generation_config = genai.GenerationConfig(
         candidate_count=1,
@@ -477,9 +477,9 @@ class GeminiAPI(
     )
     healed_content = _convert_chunk_list_to_contents_type(healed_content)
     # TODO: Trace this external API call.
-    chat = cast(
-        genai.GenerativeModel, self._chat_model
-    ).start_chat(history=history[:-1])
+    chat = cast(genai.GenerativeModel, self._chat_model).start_chat(
+        history=history[:-1]
+    )
     response = chat.send_message(
         content={
             'role': history[-1].role,
@@ -534,9 +534,9 @@ class GeminiAPI(
 
     try:
       # TODO: Trace this external API call.
-      response = cast(
-          genai.GenerativeModel, self._generate_model
-      ).count_tokens(content)
+      response = cast(genai.GenerativeModel, self._generate_model).count_tokens(
+          content
+      )
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'GeminiAPI.count_tokens raised err:\n{err}\n'

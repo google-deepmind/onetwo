@@ -25,6 +25,7 @@ from absl.testing import parameterized
 from google import generativeai
 from google.ai import generativelanguage as glm
 from google.generativeai import client
+from google.generativeai.types import content_types
 from google.generativeai.types import model_types
 from onetwo.backends import gemini_api
 from onetwo.builtins import llm
@@ -37,6 +38,7 @@ from onetwo.core import sampling
 
 _Message: TypeAlias = content_lib.Message
 _ChunkList: TypeAlias = content_lib.ChunkList
+_Chunk: TypeAlias = content_lib.Chunk
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 
 
@@ -80,10 +82,7 @@ def _mock_list_models() -> model_types.ModelsIterable:
 
 def _get_and_register_backend() -> gemini_api.GeminiAPI:
   """Get an instance of GeminiAPI and register its methods."""
-  backend = gemini_api.GeminiAPI(
-      api_key='some_key',
-      batch_size=_BATCH_SIZE
-  )
+  backend = gemini_api.GeminiAPI(api_key='some_key', batch_size=_BATCH_SIZE)
   backend.register()
   return backend
 
@@ -159,9 +158,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       if self.generate_content_responses:
         # Return specified replies.
         if len(self.generate_content_responses) < candidate_count:
-          raise ValueError(
-              'Not enough replies in generate_content_responses.'
-          )
+          raise ValueError('Not enough replies in generate_content_responses.')
         replies = self.generate_content_responses[:candidate_count]
         self.generate_content_responses.clear()
       else:
@@ -176,12 +173,9 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         ]
         replies = [letter * 10 for letter in letters]
       candidates = [
-          {'content': {'parts': [{'text': reply}]}}
-          for reply in replies
+          {'content': {'parts': [{'text': reply}]}} for reply in replies
       ]
-      return glm.GenerateContentResponse(
-          {'candidates': candidates}
-      )
+      return glm.GenerateContentResponse({'candidates': candidates})
 
     @add_client_method
     def count_tokens(  # pylint: disable=unused-variable
@@ -191,9 +185,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       del kwargs  # Not used.
       self.observed_count_tokens_requests.append(request)
       self.assertIsInstance(request, glm.CountTokensRequest)
-      return glm.CountTokensResponse(
-          total_tokens=_MOCK_COUNT_TOKENS_RETURN
-      )
+      return glm.CountTokensResponse(total_tokens=_MOCK_COUNT_TOKENS_RETURN)
 
   def test_generate_and_count_tokens(self):
     """Verifies that repeated calls to the cached method behave as expected.
@@ -610,6 +602,51 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(prompt_sent, exp_healed_prompt)
     with self.subTest('chat_reply_healed_correctly'):
       self.assertEqual(result, exp_healed_reply)
+
+  @parameterized.named_parameters(
+      (
+          'str_prompt',
+          'this is a prompt',
+          'this is a prompt',
+      ),
+      (
+          'chunk_str',
+          _ChunkList(chunks=['this is a prompt']),
+          ['this is a prompt'],
+      ),
+      (
+          'chunk_image_jpeg',
+          _ChunkList(
+              chunks=[
+                  _Chunk(content=b'this is an image', content_type='image/jpeg')
+              ]
+          ),
+          [
+              content_types.BlobDict(
+                  data=b'this is an image', mime_type='image/jpeg'
+              )
+          ],
+      ),
+      (
+          'chunk_video_mp4',
+          _ChunkList(
+              chunks=[
+                  _Chunk(content=b'this is a video', content_type='video/mp4')
+              ]
+          ),
+          [
+              content_types.BlobDict(
+                  data=b'this is a video', mime_type='video/mp4'
+              )
+          ],
+      ),
+  )
+  def test_convert_chunk_list_to_contents_type(self, prompt, exp_contents_type):
+    self.assertEqual(
+        gemini_api._convert_chunk_list_to_contents_type(prompt),
+        exp_contents_type,
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
