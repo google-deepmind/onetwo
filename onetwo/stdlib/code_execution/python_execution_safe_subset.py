@@ -31,8 +31,9 @@ from onetwo.stdlib.code_execution import python_execution
 
 def _has_star_args(node: ast.Call) -> bool:
   """Returns True if the callable node has *args or **kwargs."""
-  return (any(isinstance(arg, ast.Starred) for arg in node.args) or
-          any(kw.arg is None for kw in node.keywords))
+  return any(isinstance(arg, ast.Starred) for arg in node.args) or any(
+      kw.arg is None for kw in node.keywords
+  )
 
 
 def _get_dotted_name(node: ast.AST) -> str | None:
@@ -132,6 +133,7 @@ def arithmetic_eval(expression: str) -> Any:
     expression: A Python expression consisting purely of numbers and basic
       arithmetic operators. E.g., `(2 + 3) * 4`.
   """
+
   def _evaluate(node: ast.AST) -> Any:
     """Returns the result of recursively evaluating the given AST node."""
     if isinstance(node, ast.Constant):
@@ -171,6 +173,7 @@ async def safe_eval(
     *,
     context: dict[str, Any] | None = None,
     allowed_callables: Mapping[str, Callable[..., Any]] | None = None,
+    hooks: Mapping[str, Callable[..., Any]] | None = None,
 ) -> Any:
   """Returns the result of evaluating the given Python code.
 
@@ -207,6 +210,10 @@ async def safe_eval(
     allowed_callables: Mapping of name to callable, representing the callables
       that are allowed to be called from within `call`. E.g., `{'print': print}`
       will allow the evaluator to call the native 'print'function.
+    hooks: Mapping from string to functions for the hooks the sandbox can call.
+      These are solely used to track the failures in the sandbox. Even though
+      these hooks are already part of _allowed_callables parameter, we cannot
+      differentiate between the hooks and the other non-hook callables.
 
   Raises:
     NameError: If the code references a variable that is not defined in
@@ -357,11 +364,17 @@ async def safe_eval(
       if callable_name is None:
         raise SyntaxError('Malformed code: %r' % code)
       if callable_name in allowed_callables:
-        return await utils.call_and_maybe_await(
-            allowed_callables[callable_name],
-            *[await _evaluate(arg) for arg in node.args],
-            **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
-        )
+        try:
+          return await utils.call_and_maybe_await(
+              allowed_callables[callable_name],
+              *[await _evaluate(arg) for arg in node.args],
+              **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
+          )
+        except Exception as e:
+          if hooks and callable_name in hooks:
+            setattr(e, '_hook_name', callable_name)
+            raise e
+          raise e
       # If allowed_callables doesn't contain the full dotted name, the other
       # possibility is that it may be referring to a method of an object,
       # e.g., if the code is `x = []\nx.append("a")`, and we have
@@ -425,7 +438,7 @@ async def safe_eval(
       elif isinstance(node.op, ast.FloorDiv):
         context[node.target.id] = target_value // value
       elif isinstance(node.op, ast.Pow):
-        context[node.target.id] = target_value ** value
+        context[node.target.id] = target_value**value
       elif isinstance(node.op, ast.Sub):
         context[node.target.id] = target_value - value
       else:
@@ -538,7 +551,7 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
     return allowed_callables
 
   @executing.make_executable
-  async def run(self, code: str) ->  python_execution.SandboxResult:
+  async def run(self, code: str) -> python_execution.SandboxResult:
     """See base class (PythonSandbox)."""
     # Precheck code syntax.
     try:
@@ -559,6 +572,7 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
             code=code,
             context=self.context,
             allowed_callables=self._prepare_allowed_callables(),
+            hooks=self.hooks,
         )
         return python_execution.SandboxResult(
             final_expression_value=value, stdout=out.getvalue()
@@ -568,6 +582,11 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
             stdout=out.getvalue(),
             execution_status=python_execution.ExecutionStatus.EXECUTION_ERROR,
             status_message=f'{e.__class__.__name__} - {str(e)}',
+            failure_details=python_execution.FailureDetails(
+                hook_name=getattr(e, '_hook_name', None),
+                exception_class=e.__class__.__name__,
+                exception_message=str(e),
+            ),
         )
 
   def get_hook_object(self, key: str) -> Any:

@@ -497,6 +497,14 @@ class Tool:
     description: String containing a human-readable description of the tool.
     example: String containing a human-readable example of the tool usage.
     color: Optional color name for printing the output from this tool.
+    irrecoverable_error_types: Optional list of error types that are
+      irrecoverable. This field is used to determine whether to terminate the
+      agent when there are certain types of errors thrown by the tool execution.
+      Some of the common error types can be KeyError, PermissionError,
+      RuntimeError, etc. Configuring the error types per tool helps to determine
+      whether to fail early and terminate the code execution or not. If this is
+      empty, then the LLM will retry until reaching the maximum number of steps
+      configured in the agent.
   """
 
   name: str
@@ -504,6 +512,7 @@ class Tool:
   description: str | None = None
   example: str | ToolExample | None = None
   color: str | None = None
+  irrecoverable_error_types: list[str] | None = None
 
   @property
   def example_str(self) -> str:

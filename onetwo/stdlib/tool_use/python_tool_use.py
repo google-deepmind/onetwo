@@ -55,6 +55,7 @@ class RunCodeResult:
     exit_hook_called: Whether `ExitHook` was called while executing the current
       code block.
   """
+
   code: str = ''
   sandbox_result: python_execution.SandboxResult = dataclasses.field(
       default_factory=python_execution.SandboxResult
@@ -89,6 +90,7 @@ class PythonToolUseEnvironmentConfig:
       latency issues that can occur in certain RPC-based tools that may be
       called by the Python sandbox as hooks.
   """
+
   sandbox_factory: python_execution.PythonSandboxFactory = dataclasses.field(
       default_factory=python_execution_safe_subset.PythonSandboxSafeSubsetFactory
   )
@@ -101,9 +103,7 @@ class PythonToolUseEnvironmentConfig:
   # tool object, and have a tool factory for each such object, so that we can
   # construct a new instance of the relevant tool object on demand, depending
   # on the desired starting state.
-  tools: Sequence[llm_tool_use.Tool] = dataclasses.field(
-      default_factory=list
-  )
+  tools: Sequence[llm_tool_use.Tool] = dataclasses.field(default_factory=list)
   imports: list[str] = dataclasses.field(default_factory=list)
   sandbox_timeout: datetime.timedelta = datetime.timedelta(seconds=20)
   max_retries_on_timeout: int = 1
@@ -118,6 +118,7 @@ class ExitHook:
       of the Python sandbox. This is expected to be manually reset to `False`
       each time before running code in the sandbox.
   """
+
   called: bool = False
 
   def __call__(self) -> None:
@@ -161,6 +162,7 @@ class PythonToolUseEnvironment:
     config: Config controlling the behavior of the PythonToolUseEnvironment.
       Typically cloned from an identical config object owned by the agent.
   """
+
   config: PythonToolUseEnvironmentConfig = dataclasses.field(
       default_factory=PythonToolUseEnvironmentConfig
   )
@@ -345,7 +347,7 @@ class PythonToolUseEnvironment:
           sandbox_result=python_execution.SandboxResult(
               execution_status=_ExecutionStatus.PROGRAM_ERROR,
               status_message=''.join(traceback.format_exception(e)),
-          )
+          ),
       )
     finally:
       # We reset `hook_objects[HOOK_EXIT].called` at both the beginning and end
@@ -469,19 +471,16 @@ class PythonToolUseEnvironment:
         )
       return tool_args[0]
 
-    try:
-      if not self.is_tool_supported(tool_name):
-        raise ValueError(
-            f'Function {tool_name} is not registered in the environment'
-            f' (tools={self.config.tools}).'
-        )
+    if not self.is_tool_supported(tool_name):
+      raise ValueError(
+          f'Function {tool_name} is not registered in the environment'
+          f' (tools={self.config.tools}).'
+      )
 
-      # TODO: When using stateful tools, this is where we would need
-      # to fetch the appropriate instance of the tool based on the current world
-      # state. After the tool call, we would then need to update both the world
-      # state and the state of the given tool instance.
+    # TODO: When using stateful tools, this is where we would need
+    # to fetch the appropriate instance of the tool based on the current world
+    # state. After the tool call, we would then need to update both the world
+    # state and the state of the given tool instance.
 
-      tool = self._stateless_tools[tool_name]
-      return await tool(*tool_args, **tool_kwargs)
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      return f'{constants.ERROR_STRING}: {e}'
+    tool = self._stateless_tools[tool_name]
+    return await tool(*tool_args, **tool_kwargs)

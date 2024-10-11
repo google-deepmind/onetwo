@@ -657,14 +657,17 @@ class ReActAgent(
       # TODO: Support variable reference and assignment in the
       # `llm_reply`.
       if next_step.action:
-        # Note that if we assume that the environment is always registered at
-        # the time we reach here, calling `environment.run_tool` like below is
-        # equivalent to calling the builtin `tool_use.run_tool`.
-        next_step.observation = await environment.run_tool(
-            tool_name=next_step.action.function_name,
-            tool_args=next_step.action.args,
-            tool_kwargs=next_step.action.kwargs,
-        )
+        try:
+          # Note that if we assume that the environment is always registered at
+          # the time we reach here, calling `environment.run_tool` like below is
+          # equivalent to calling the builtin `tool_use.run_tool`.
+          next_step.observation = await environment.run_tool(
+              tool_name=next_step.action.function_name,
+              tool_args=next_step.action.args,
+              tool_kwargs=next_step.action.kwargs,
+          )
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          next_step.observation = f'{constants.ERROR_STRING}: {e}'
       return next_step
 
   def is_finished(self, state: ReActState) -> bool:

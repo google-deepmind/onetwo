@@ -442,7 +442,8 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
       self, code, context, allowed_callables, expected_value, expected_context
   ):
     value = _safe_eval(
-        code, context=context, allowed_callables=allowed_callables)
+        code, context=context, allowed_callables=allowed_callables
+    )
     with self.subTest(name='correct_value'):
       self.assertEqual(expected_value, value)
     with self.subTest(name='correct_context'):
@@ -471,9 +472,7 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
       ('set_symmetric_diff', '{1, 2} ^ {1, 3}', None, {2, 3}),
       ('set_union', '{1} | {2}', None, {1, 2}),
   )
-  def test_miscellaneous_syntax(
-      self, code, context, expected_value
-  ):
+  def test_miscellaneous_syntax(self, code, context, expected_value):
     value = _safe_eval(code, context=context)
     self.assertEqual(expected_value, value)
 
@@ -647,9 +646,20 @@ class PythonSandboxSafeSubsetTest(
               stdout='hello\n', final_expression_value=5
           ),
       ),
+      (
+          'print_with_hook_call',
+          'print(f())',
+          python_execution.SandboxResult(
+              stdout='Hello world!\n',
+          ),
+      ),
   )
   def test_run_with_print_statements(self, code, expected_result):
-    sb = python_execution_safe_subset.PythonSandboxSafeSubset()
+
+    def f():
+      return 'Hello world!'
+
+    sb = python_execution_safe_subset.PythonSandboxSafeSubset(hooks={'f': f})
 
     @sb.start()
     async def wrapper(code: str):
@@ -667,6 +677,10 @@ class PythonSandboxSafeSubsetTest(
               stdout='Hello world!\n',
               execution_status=python_execution.ExecutionStatus.EXECUTION_ERROR,
               status_message="NameError - name 'b' is not defined",
+              failure_details=python_execution.FailureDetails(
+                  exception_class='NameError',
+                  exception_message="name 'b' is not defined",
+              ),
           ),
       ),
       (
@@ -690,11 +704,34 @@ class PythonSandboxSafeSubsetTest(
                   "ValueError - invalid literal for int() with base 10: 'not an"
                   " int'"
               ),
+              failure_details=python_execution.FailureDetails(
+                  exception_class='ValueError',
+                  exception_message=(
+                      "invalid literal for int() with base 10: 'not an int'"
+                  ),
+              ),
+          ),
+      ),
+      (
+          'hook_exception',
+          'print(f())',
+          python_execution.SandboxResult(
+              execution_status=python_execution.ExecutionStatus.EXECUTION_ERROR,
+              status_message='ValueError - value error',
+              failure_details=python_execution.FailureDetails(
+                  hook_name='f',
+                  exception_class='ValueError',
+                  exception_message='value error',
+              ),
           ),
       ),
   )
   def test_run_error(self, code: str, expected: python_execution.SandboxResult):
-    sb = python_execution_safe_subset.PythonSandboxSafeSubset()
+
+    def f():
+      raise ValueError('value error')
+
+    sb = python_execution_safe_subset.PythonSandboxSafeSubset(hooks={'f': f})
 
     @sb.start()
     async def wrapper(code: str):
@@ -730,6 +767,11 @@ class PythonSandboxSafeSubsetTest(
           python_execution.SandboxResult(
               execution_status=python_execution.ExecutionStatus.EXECUTION_ERROR,
               status_message='ValueError - Some error.',
+              failure_details=python_execution.FailureDetails(
+                  hook_name='f4',
+                  exception_class='ValueError',
+                  exception_message='Some error.',
+              ),
           ),
       ),
       (
@@ -739,6 +781,11 @@ class PythonSandboxSafeSubsetTest(
           python_execution.SandboxResult(
               execution_status=python_execution.ExecutionStatus.EXECUTION_ERROR,
               status_message='TypeError - Crash in hook.',
+              failure_details=python_execution.FailureDetails(
+                  hook_name='f5',
+                  exception_class='TypeError',
+                  exception_message='Crash in hook.',
+              ),
           ),
       ),
   )

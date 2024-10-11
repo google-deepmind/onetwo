@@ -58,6 +58,17 @@ def firstnumber(x: str) -> float | str:
     return f'Error: could not parse {x} as a number'
 
 
+def error_tool(x: str) -> str:
+  """Returns an error message."""
+  if x == 'show_key_error':
+    raise KeyError('test key error')
+  elif x == 'show_runtime_error':
+    raise RuntimeError('test runtime error')
+  elif x == 'show_file_permission_error':
+    raise PermissionError('test file permission error')
+  return x
+
+
 def _get_environment_config_with_tools() -> (
     python_tool_use.PythonToolUseEnvironmentConfig
 ):
@@ -316,6 +327,65 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
+  @parameterized.named_parameters(
+      ('not_empty_key_error', 'show_key_error', ['KeyError'], True),
+      (
+          'not_empty_permission_error',
+          'show_file_permission_error',
+          ['PermissionError'],
+          True,
+      ),
+      ('not_empty_runtime_error', 'show_runtime_error', ['RuntimeError'], True),
+      ('empty', 'test', None, False),
+  )
+  def test_sample_next_step_with_irrecoverable_error(
+      self, llm_reply_message, irrecoverable_error_types, expected_is_finished
+  ):
+
+    tool_with_irrecoverable_error_types = (
+        llm_tool_use.Tool(
+            name='error_tool',
+            function=error_tool,
+            description='Returns a KeyError exception.',
+            example="error_tool('test')  # returns test as a string",
+            irrecoverable_error_types=irrecoverable_error_types,
+        ),
+    )
+    # Set up some simple tools that don't involve RPCs.
+    config = python_tool_use.PythonToolUseEnvironmentConfig(
+        tools=tool_with_irrecoverable_error_types
+    )
+    # Some minimal agent configuration and inputs.
+    question = 'My test question'
+    prev_state = python_planning.PythonPlanningState(inputs=question)
+
+    # We hard-code the LLM to return the same thought every time (assuming the
+    # prompt is of the expected form).
+    llm_reply = f"""\
+error_message = error_tool("{llm_reply_message}")
+print(error_message)
+"""
+    llm_backend = backends_test_utils.LLMForTest(
+        reply_by_prompt_regex={
+            r'My test question\n\n```$': llm_reply,
+        },
+        default_reply=DEFAULT_REPLY,
+    )
+    llm_backend.register()
+
+    agent = python_planning.PythonPlanningAgent(
+        exemplars=python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS,
+        environment_config=config,
+        max_steps=2,
+    )
+
+    result = executing.run(
+        agent.start_environment_and_sample_next_step(
+            state=prev_state, num_candidates=1
+        )
+    )
+    self.assertEqual(result[0].is_finished, expected_is_finished)
+
   def test_execute_with_max_steps(self):
     # Some minimal agent configuration and inputs.
     question = 'What is the total population of Tuebingen and Zuerich?'
@@ -486,7 +556,6 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
           'print("Hello!")```text\ntext_between```\nprint("Bye!")```',
           'print("Hello!")',
       ),
-
   )
   def test_parse_llm_reply_code(self, llm_reply, expected):
     self.assertEqual(python_planning._parse_llm_reply_code(llm_reply), expected)

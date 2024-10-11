@@ -16,6 +16,7 @@
 
 For library code prefer `python_execution_utils` instead.
 """
+
 from __future__ import annotations
 
 import abc
@@ -24,9 +25,15 @@ import contextlib
 import dataclasses
 import datetime
 import enum
-from typing import Any, Callable
+from typing import Any, Callable, Final
 
 from onetwo.core import executing
+
+# Helper keys for building the exception failure details in the sandbox.
+_EX_FAILURE_DETAILS_KEY: Final[str] = 'failure_details'
+EX_HOOK_NAME_KEY: Final[str] = 'hook_name'
+EX_CLASS_KEY: Final[str] = 'exception_class'
+EX_MESSAGE_KEY: Final[str] = 'exception_message'
 
 
 @enum.unique
@@ -100,6 +107,21 @@ class SandboxResultTiming:
 
 
 @dataclasses.dataclass
+class FailureDetails:
+  r"""Details of a failure that occurred while executing a sandbox code.
+
+  Attributes:
+    hook_name: The name of the hook that resulted in the failure if any.
+    exception_class: The type of the exception that was raised.
+    exception_message: The message of the exception that was raised.
+  """
+
+  hook_name: str | None = None
+  exception_class: str = ''
+  exception_message: str = ''
+
+
+@dataclasses.dataclass
 class SandboxResult:
   r"""The result of executing code in the sandbox.
 
@@ -118,6 +140,8 @@ class SandboxResult:
     status_message: A message describing details of non-SUCCESS return statuses.
       For exceptions, this is typically the message of the exception combined
       with the exception type.
+    failure_details: Details of a failure that occurred while executing a
+      sandbox code.
     timing: Information on time elapsed while processing the sandbox request.
   """
 
@@ -126,6 +150,7 @@ class SandboxResult:
   sandbox_status: SandboxStatus = SandboxStatus.AFTER_RUNNING_CODE
   execution_status: ExecutionStatus = ExecutionStatus.SUCCESS
   status_message: str = ''
+  failure_details: FailureDetails | None = None
   timing: SandboxResultTiming | None = None
 
   def __str__(self) -> str:
@@ -331,3 +356,25 @@ class PythonSandboxFactory(metaclass=abc.ABCMeta):
         requests after a restart. Only select this option if you don't expect
         multiple calls to [safe_]run() to depend on each other.
     """
+
+
+def parse_failure_details(
+    result: dict[str, Any],
+) -> FailureDetails | None:
+  """Parses the failure details from the sandbox result, if present.
+
+  Args:
+    result: The result returned by the sandbox when there is a
+      failure/exception.
+
+  Returns:
+    The parsed failure details, or None if not present.
+  """
+  failure_details = result.get(_EX_FAILURE_DETAILS_KEY)
+  if failure_details is None:
+    return None
+  return FailureDetails(
+      hook_name=failure_details[EX_HOOK_NAME_KEY],
+      exception_class=failure_details[EX_CLASS_KEY],
+      exception_message=failure_details[EX_MESSAGE_KEY],
+  )

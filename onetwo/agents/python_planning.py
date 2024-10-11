@@ -87,7 +87,9 @@ class PythonPlanningStep:
 PythonPlanningState = agents_base.UpdateListState[str, PythonPlanningStep]
 
 
-def _get_result_str(result: python_execution.SandboxResult) -> str:
+def _get_result_str(
+    result: python_execution.SandboxResult, is_irrecoverable_error: bool
+) -> str:
   """Returns a string representation of the result for showing to the LLM."""
   parts = []
 
@@ -108,7 +110,10 @@ def _get_result_str(result: python_execution.SandboxResult) -> str:
     parts.append(str(result.final_expression_value))
 
   # Error message (prompting for retry, where relevant).
-  if result.execution_status == _ExecutionStatus.EXECUTION_ERROR:
+  if (
+      result.execution_status == _ExecutionStatus.EXECUTION_ERROR
+      and not is_irrecoverable_error
+  ):
     parts.append(
         'The python code above raises an exception:\n\n'
         f'{result.status_message}\n\n'
@@ -138,12 +143,7 @@ def _regex_search(start_fence: str, end_fence: str, text: str) -> str:
   """Returns substring between the given fences, or itself if nothing found."""
   found = re.search(f'(?s){start_fence}(.*?){end_fence}', text)
   if found:
-    text = (
-        found.group()
-        .replace(start_fence, '')
-        .replace(end_fence, '')
-        .strip()
-    )
+    text = found.group().replace(start_fence, '').replace(end_fence, '').strip()
   return text
 
 
@@ -167,7 +167,7 @@ def _parse_llm_reply_code(llm_reply: str) -> str:
   first_line = llm_reply.split('\n')[0]
   # If we find ``` in the first line, we remove the line, assuming it's a fence.
   if '```' == first_line[:3]:
-    llm_reply = llm_reply[len(first_line):]
+    llm_reply = llm_reply[len(first_line) :]
 
   # Any '```' now is treated as the stop fence. Anything beyond is discarded.
   llm_reply = _regex_search('', '```', llm_reply)
@@ -457,15 +457,46 @@ class PythonPlanningAgent(
         sandbox_state=sandbox_state, code=_parse_llm_reply_code(llm_reply)
     )
 
-    irrecoverable_error = result.sandbox_result.execution_status in (
-        _ExecutionStatus.PROGRAM_ERROR,
-        _ExecutionStatus.SANDBOX_ERROR,
-        _ExecutionStatus.SANDBOX_TIMEOUT,
+    irrecoverable_error = False
+    if (
+        result.sandbox_result.execution_status
+        == _ExecutionStatus.EXECUTION_ERROR
+        and result.sandbox_result.failure_details is not None
+        and result.sandbox_result.failure_details.hook_name is not None
+    ):
+      # Get the exception type from the failure details.
+      failure_details = result.sandbox_result.failure_details
+      exception_class = failure_details.exception_class
+
+      # Check if the exception type is listed as an irrecoverable error in the
+      # tool config.
+      tool_obj = next(
+          filter(
+              lambda tool: tool.name == failure_details.hook_name,
+              environment.config.tools,
+          ),
+          None,
+      )
+      if (
+          tool_obj
+          and tool_obj.irrecoverable_error_types
+          and exception_class in tool_obj.irrecoverable_error_types
+      ):
+        irrecoverable_error = True
+
+    irrecoverable_error = (
+        irrecoverable_error
+        or result.sandbox_result.execution_status
+        in (
+            _ExecutionStatus.PROGRAM_ERROR,
+            _ExecutionStatus.SANDBOX_ERROR,
+            _ExecutionStatus.SANDBOX_TIMEOUT,
+        )
     )
 
     return PythonPlanningStep(
         code=result.code,
-        result=_get_result_str(result.sandbox_result),
+        result=_get_result_str(result.sandbox_result, irrecoverable_error),
         execution_status=result.sandbox_result.execution_status,
         is_finished=result.exit_hook_called or irrecoverable_error,
     )

@@ -427,29 +427,22 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     # Note that we omit registering any tools in the environment config.
     config = python_tool_use.PythonToolUseEnvironmentConfig()
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
-      result = executing.run(
-          env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
-      )
-
-    self.assertStartsWith(
-        str(result),
-        '#ERROR#: Function add is not registered in the environment',
-    )
+      with self.assertRaises(ValueError):
+        executing.run(
+            env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
+        )
 
   def test_run_tool_error_unexpected_argument(self):
     # Note that we register the function with arg `x`, but call it with `y`.
     config = python_tool_use.PythonToolUseEnvironmentConfig(
-        tools=[llm_tool_use.Tool(name='double', function=lambda x: x *2)]
+        tools=[llm_tool_use.Tool(name='double', function=lambda x: x * 2)]
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
-      result = executing.run(
-          env.run_tool(tool_name='double', tool_args=[], tool_kwargs={'y': 3})
-      )
+      with self.assertRaises(TypeError):
+        executing.run(
+            env.run_tool(tool_name='double', tool_args=[], tool_kwargs={'y': 3})
+        )
 
-    self.assertRegex(
-        str(result),
-        "#ERROR#: .* got an unexpected keyword argument 'y'",
-    )
 
 if __name__ == '__main__':
   absltest.main()
