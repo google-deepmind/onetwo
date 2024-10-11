@@ -27,7 +27,7 @@ import dataclasses
 import functools
 import inspect
 import itertools
-from typing import Any, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
+from typing import Any, Final, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from onetwo.core import batching
 from onetwo.core import executing_impl
@@ -48,6 +48,8 @@ Executable = executing_impl.Executable
 ExecutableWithPostprocessing = executing_impl.ExecutableWithPostprocessing
 Update = updating.Update
 ListUpdate = updating.ListUpdate
+
+_DEFAULT_CHUNK_SIZE: Final[int] = 100
 
 
 @dataclasses.dataclass
@@ -680,7 +682,7 @@ def ser_iter(executables: Iterable[Executable[Any]]) -> SerialExecutable:
 
 def parallel(
     *args: Executable[Any],
-    chunk_size: int = 100,
+    chunk_size: int | None = None,
     return_exceptions: bool = False,
 ) -> ParallelExecutable:
   """Chains executables in parallel. See `par_iter` for details."""
@@ -691,7 +693,7 @@ def parallel(
 
 def par_iter(
     executables: Iterable[Executable[Any]],
-    chunk_size: int = 100,
+    chunk_size: int | None = None,
     return_exceptions: bool = False,
 ) -> ParallelExecutable:
   """Lazily chains executables in parallel from an iterable of executables.
@@ -701,9 +703,17 @@ def par_iter(
 
   Args:
     executables: Iterable of executables to execute in parallel.
-    chunk_size: Size of the chunks of executables to be executed in parallel.
-    return_exceptions: If False, any exception will stop the processing
-      and no result will be returned. If True, exceptions produced by individual
+    chunk_size: Size of the chunks of executables to be executed in parallel. If
+      None, the default depends on whether the input is a list or an iterator.
+      Indeed, we don't want to materialize the whole list if it is provided as
+      an iterator, so we use a default of _DEFAULT_CHUNK_SIZE. However, if the
+      input is already fully materialized, we use as chunk_size the length of
+      the list. Note that there are specific cases when one may want to have
+      smaller chunks than the size of the list, e.g. to force more interleaving
+      of various steps in a big pipeline, so the value can be provided
+      explicitly.
+    return_exceptions: If False, any exception will stop the processing and no
+      result will be returned. If True, exceptions produced by individual
       executables will be used as their returned result, so that the processing
       will not be interrupted.
 
@@ -1170,7 +1180,15 @@ class ParallelExecutable(Executable[Sequence[Any]]):
 
   Attributes:
     iterable: An iterable of executables to process in parallel.
-    chunk_size: Size of the chunks that can be extracted from the iterable.
+    chunk_size: Size of the chunks of executables to be executed in parallel. If
+      None, the default depends on whether the input is a list or an iterator.
+      Indeed, we don't want to materialize the whole list if it is provided as
+      an iterator, so we use a default of _DEFAULT_CHUNK_SIZE. However, if the
+      input is already fully materialized, we use as chunk_size the length of
+      the list. Note that there are specific cases when one may want to have
+      smaller chunks than the size of the list, e.g. to force more interleaving
+      of various steps in a big pipeline, so the value can be provided
+      explicitly.
     return_exceptions: If False, any exception will stop the processing
       and no result will be returned. If True, exceptions produced by individual
       executables will be used as their returned result, so that the processing
@@ -1178,9 +1196,16 @@ class ParallelExecutable(Executable[Sequence[Any]]):
   """
 
   def __init__(
-      self, iterable: Iterable[Executable[Any]], chunk_size: int = 100,
+      self, iterable: Iterable[Executable[Any]], chunk_size: int | None = None,
       return_exceptions: bool = False,
   ):
+    if chunk_size is None:
+      if isinstance(iterable, list):
+        # If the iterable is fully materialized as a list already, we can take
+        # the whole list as a single chunk.
+        chunk_size = len(iterable)
+      else:
+        chunk_size = _DEFAULT_CHUNK_SIZE
     self.chunk_size = chunk_size
     # We actually make the input an iterable so that we can chunk it.
     self.iterable = iter(iterable)
