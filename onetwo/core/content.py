@@ -181,6 +181,23 @@ class Chunk:
       updated_content = cast(str, self.content).rstrip(chars)
     return Chunk(content=updated_content, content_type=self.content_type)
 
+  def strip(self, chars: str | None = None, /) -> Chunk:
+    """Apply `strip` to the chunk if it is a string.
+
+    Args:
+      chars: String specifying the set of characters to be removed. When chars
+        is None (default) corresponds to the default of builtin `strip()`.
+
+    Returns:
+      Copy of Chunk, where `strip` is applied to its content if it is a string.
+    """
+    updated_content = self.content
+    if self.content_type == 'str':
+      # Note that we do not apply strip to control tokens (content_type
+      # 'ctrl').
+      updated_content = cast(str, self.content).strip(chars)
+    return Chunk(content=updated_content, content_type=self.content_type)
+
   def startswith(
       self,
       prefix: str,
@@ -387,6 +404,20 @@ class ChunkList:
         self.chunks[:last_nonempty_id]
         + [self.chunks[last_nonempty_id].rstrip(chars)]
     )
+
+  def strip(self, chars: str | None = None, /) -> ChunkList:
+    """Apply both `lstrip` and `rstrip`.
+
+    Args:
+      chars: String specifying the set of characters to be removed. When chars
+        is None (default) corresponds to the default of builtin `strip()`.
+
+    Returns:
+      Copy of ChunkList, where `lstrip` is applied to its first non-empty
+      chunk and `rstrip` is applied to its last non-empty chunk.
+      Leading and trailing empty chunks are removed.
+    """
+    return self.lstrip(chars).rstrip(chars)
 
   def startswith(
       self,

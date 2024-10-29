@@ -21,9 +21,11 @@ import dataclasses
 import datetime
 import re
 import time
-from typing import Any, Type, TypeVar
+from typing import Any, Type, TypeAlias, TypeVar
 
+import aenum
 from onetwo.backends import backends_base
+from onetwo.builtins import formatting
 from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import content as content_lib
@@ -32,6 +34,41 @@ from onetwo.core import utils
 
 
 _T = TypeVar('_T')
+
+_PredefinedRole: TypeAlias = content_lib.PredefinedRole
+
+
+# TODO: Replace with import from onetwo.builtins.formatting
+# once ConcatFormatter lands there.
+class ConcatFormatter(formatting.Formatter):
+  """Simple Formatter that simply concatenates its input, ignoring the roles."""
+
+  def is_role_supported(self, role: str | _PredefinedRole) -> bool:
+    """Overridden from base class (Formatter)."""
+    return True
+
+  def is_already_formatted(
+      self, content: Sequence[content_lib.Message]
+  ) -> bool:
+    """Overridden from base class (Formatter)."""
+    return False
+
+  def _format(
+      self,
+      content: Sequence[content_lib.Message],
+  ) -> content_lib.ChunkList:
+    """Overridden from base class (Formatter)."""
+    result = content_lib.ChunkList()
+    for msg in content:
+      result += msg.content
+    return result
+
+if 'CONCAT' not in formatting.FormatterName.__members__:
+  aenum.extend_enum(formatting.FormatterName, 'CONCAT', 'concat')
+
+formatting.FORMATTER_CLASS_BY_NAME[formatting.FormatterName.CONCAT] = (
+    ConcatFormatter
+)
 
 
 @batching.add_batching
@@ -121,6 +158,7 @@ class LLMForTest(backends_base.Backend):
   unexpected_prompts: list[str] = dataclasses.field(
       init=False, default_factory=list
   )
+  # would need at least one attribute here that can support ContentList chunks
 
   # Attributes used for tracking the actual requests / replies (internal).
   _num_generate_text_requests_by_prompt: collections.Counter[str] = (
@@ -265,6 +303,9 @@ class LLMForTest(backends_base.Backend):
   def register(self, name: str | None = None):
     del name
     llm.generate_text.configure(self.generate_text)
+    llm.chat.configure(
+        llm.default_chat, formatter=formatting.FormatterName.CONCAT
+    )
     llm.score_text.configure(self.score_text)
     llm.generate_object.configure(self.generate_object)
     llm.count_tokens.configure(self.count_tokens)

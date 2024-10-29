@@ -36,11 +36,14 @@ from collections.abc import AsyncIterator, Sequence
 import contextlib
 import dataclasses
 import re
-from typing import Any, Protocol
+from typing import Any, Protocol, Union
 
 from onetwo.agents import agents_base
+from onetwo.builtins import composables
 from onetwo.builtins import prompt_templating
+from onetwo.core import composing
 from onetwo.core import constants
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import templating
 from onetwo.core import tracing
@@ -75,26 +78,26 @@ class ReActStep:
   """
 
   is_finished: bool = False
-  thought: str = ''
+  thought: str | content_lib.ChunkList = ''
   action: llm_tool_use.FunctionCall | None = None
   observation: Any = None
   fmt: llm_tool_use.ArgumentFormat | None = None
 
-  def render_action(self) -> str:
+  def render_action(self) -> str | content_lib.ChunkList:
     """Returns the action formatted appropriately for insertion in a prompt."""
     if self.action is not None:
       return self.action.render(fmt=self.fmt)
     else:
       return str(self.action)
 
-  def render_observation(self) -> str:
+  def render_observation(self) -> str | content_lib.ChunkList:
     """Returns the observation formatted for insertion in a prompt."""
     return llm_tool_use.render_response(fmt=self.fmt, value=self.observation)
 
 
 # In the ReAct strategy, the state consists of a monotonically increasing
 # sequence of steps, each of which may involve a thought and/or action.
-ReActState = agents_base.UpdateListState[str, ReActStep]
+ReActState = agents_base.UpdateListState[str | content_lib.ChunkList, ReActStep]
 
 DEFAULT_REACT_PROMPT_TEXT = """\
 {#- Preamble: Tools description -#}
@@ -381,6 +384,176 @@ class ReActPromptJ2(
       )
 
 
+@dataclasses.dataclass
+class ReActPromptComposable(ReActPromptProtocol):
+  """Composable prompt usable with ReActAgent.prompt.
+
+  Currently the question supports multimodal inputs.
+  In the future, if we have models or tools that can output multimodal content,
+  we can extend this to support multimodal ReAct states too.
+
+  Attributes:
+    instruction_role: The role to use for the instruction parts of the prompt,
+      which describe the available tools or the overall task.
+    response_role: The role to use for the response parts of the prompt, i.e.
+      those that will be provided by the model.
+  """
+
+  instruction_role: content_lib.PredefinedRole = (
+      content_lib.PredefinedRole.USER
+  )
+  response_role: content_lib.PredefinedRole = (
+      content_lib.PredefinedRole.MODEL
+  )
+
+  def _build_tool_composable(
+      self,
+      tool: llm_tool_use.Tool,
+  ) -> composing.Composable:
+    """Returns a composable with the prompt content describing a single tool."""
+    e = composables.c(
+        f'Tool name: {tool.name}\n',
+        role=self.instruction_role,
+    ) + composables.c(
+        f'Tool description: {tool.description}\n',
+        role=self.instruction_role,
+    )
+    if tool.example:
+      e += composables.c(
+          f'Tool example: {tool.example_str}\n',
+          role=self.instruction_role,
+      )
+    return e
+
+  def _build_tools_description(
+      self,
+      tools: Sequence[llm_tool_use.Tool],
+  ) -> composing.Composable:
+    """Returns a composable with the prompt content describing all tools."""
+    e = composables.f(
+        'Here is a list of available tools:\n\n', role=self.instruction_role
+    )
+    for tool in tools:
+      e += self._build_tool_composable(tool)
+    e += composables.f('\n', role=self.instruction_role)
+    return e
+
+  def _build_update_step(
+      self,
+      step: ReActStep,
+      stop_prefix: str,
+  ) -> composing.Composable:
+    """Returns a composable for rendering a single ReAct step."""
+    e = composables.c(content_lib.ChunkList())
+    if step.thought:
+      e += composables.c(
+          f'[Thought]: {step.thought}\n', role=self.response_role
+      )
+    if step.action:
+      e += composables.c(
+          f'[Act]: {step.render_action()}\n', role=self.response_role
+      )
+      if step.observation:
+        e += composables.c(
+            f'[{stop_prefix}Observe]: {step.render_observation()}\n',
+            role=content_lib.PredefinedRole.USER,
+        )
+    elif step.is_finished:
+      if step.observation:
+        e += composables.c(
+            f'[Finish]: {step.observation}\n',
+            role=content_lib.PredefinedRole.MODEL,
+        )
+    return e
+
+  def _build_example(
+      self,
+      example: ReActState,
+      stop_prefix: str,
+  ) -> composing.Composable:
+    """Returns a composable for rendering a single few-shot exemplar."""
+    e = composables.f(
+        f'[{stop_prefix}Question]: {example.inputs}\n',
+        role=self.instruction_role,
+    )
+    for step in example.updates:
+      e += self._build_update_step(step, stop_prefix)
+    e += composables.f('\n', role=self.instruction_role)
+    return e
+
+  def _build_react_fewshots(
+      self,
+      exemplars: Sequence[ReActState],
+      stop_prefix: str,
+  ) -> composing.Composable:
+    """Returns a composable for rendering all of the few-shot exemplars."""
+    e = composables.f(
+        'Here are examples of how different tasks can be solved with these'
+        ' tools:\n\n',
+        role=self.instruction_role,
+    )
+    for example in exemplars:
+      e += self._build_example(example, stop_prefix)
+    return e
+
+  def _build_question(
+      self,
+      state: ReActState,
+      stop_prefix: str,
+  ) -> composing.Composable:
+    """Returns a composable for rendering the user-provided question."""
+    e = composables.f(
+        f'[{stop_prefix}Question]: ', role=content_lib.PredefinedRole.USER
+    )
+    e += composables.c(state.inputs)
+    e += composables.f('\n')
+    return e
+
+  def _build_current_state(
+      self,
+      state: ReActState,
+      stop_prefix: str,
+  ) -> composing.Composable:
+    """Returns a composable for rendering the entire current agent state."""
+    e = composables.c(content_lib.ChunkList())
+    if state.updates:
+      for step in state.updates:
+        e += self._build_update_step(step, stop_prefix)
+      e += composables.f('\n', role=content_lib.PredefinedRole.USER)
+    return e
+
+  @executing.make_executable
+  async def __call__(
+      self,
+      force_finish: bool,
+      exemplars: list[ReActState],
+      state: ReActState,
+      stop_prefix: str,
+      stop_sequences: list[str],
+      tools: Sequence[llm_tool_use.Tool],
+  ) -> Union[content_lib.ChunkList, str]:
+    """See ReActPromptProtocol."""
+
+    e = composables.c(content_lib.ChunkList())
+    e += self._build_tools_description(tools)
+    e += self._build_react_fewshots(exemplars, stop_prefix)
+    e += self._build_question(state, stop_prefix)
+    e += self._build_current_state(state, stop_prefix)
+    if force_finish:
+      e += composables.f('[Finish]: \n', role=content_lib.PredefinedRole.MODEL)
+    # Using chat instead of generate_text to return ChunkList.
+    e += composables.store('llm_reply', composables.chat(stop=stop_sequences))
+
+    try:
+      _ = await e
+    except ValueError as error_message:
+      e = {}
+      e['llm_reply'] = f'#ERROR#: {error_message}'
+    # Checking 'llm_reply' in e itself results in a ValueError.
+    # So just try to return it for now.
+    return e['llm_reply']
+
+
 class ReActParseProtocol(Protocol):
   """Interface for parsing the LLM reply for a ReAct prompt."""
 
@@ -504,7 +677,7 @@ def react_parse(
 @dataclasses.dataclass
 class ReActAgent(
     agents_base.SingleSampleAgent[
-        str,  # _I (inputs)
+        str | content_lib.ChunkList,  # _I (inputs)
         str,  # _O (outputs)
         ReActState,  # _S (state)
         ReActStep,  # _U (update)
@@ -530,7 +703,9 @@ class ReActAgent(
       prefix is used.
   """
 
-  prompt: ReActPromptProtocol = dataclasses.field(default_factory=ReActPromptJ2)
+  prompt: ReActPromptProtocol = dataclasses.field(
+      default_factory=ReActPromptJ2
+  )
   parse: ReActParseProtocol = dataclasses.field(default=react_parse)
   exemplars: list[ReActState] = dataclasses.field(default_factory=list)
   # TODO: Decouple the choice of environment from the agent.
@@ -553,7 +728,7 @@ class ReActAgent(
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def initialize_state(
       self,
-      inputs: str,
+      inputs: str | content_lib.ChunkList,
       environment: python_tool_use.PythonToolUseEnvironment | None = None,
   ) -> ReActState:
     """Returns a newly initialized state based on the input question.

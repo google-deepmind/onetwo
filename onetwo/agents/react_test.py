@@ -47,7 +47,11 @@ def _get_environment_config_with_python() -> (
 
 class ReactTest(parameterized.TestCase):
 
-  def test_prompt(self):
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_prompt(self, prompt_class):
     # Some typical ReAct prompt inputs.
     question = 'What is the total population of Tuebingen and Zuerich?'
     exemplars = react.REACT_FEWSHOTS
@@ -58,7 +62,7 @@ class ReactTest(parameterized.TestCase):
     config = _get_environment_config_with_python()
 
     # Prompt configuration.
-    prompt = react.ReActPromptJ2()
+    prompt = prompt_class()
 
     # Current state of agent.
     state = react.ReActState(
@@ -138,45 +142,51 @@ class ReactTest(parameterized.TestCase):
         ),
         enable_tracing=True,
     )
-    prefix = result.stages[0].outputs['prefix']
+    if prompt_class == react.ReActPromptJ2:
+      # The prefix variable is currently tied to Jinja2.
+      prefix = result.stages[0].outputs['prefix']
 
-    with self.subTest('prompt_should_contain_the_tool_descriptions'):
-      self.assertIn(config.tools[0].description, prefix)
-      self.assertIn(config.tools[-1].description, prefix)
+      with self.subTest('prompt_should_contain_the_tool_descriptions'):
+        self.assertIn(config.tools[0].description, prefix)
+        self.assertIn(config.tools[-1].description, prefix)
 
-    with self.subTest('prompt_should_contain_the_exemplar_inputs'):
-      self.assertIn(exemplars[0].inputs, prefix)
-      self.assertIn(exemplars[-1].inputs, prefix)
+      with self.subTest('prompt_should_contain_the_exemplar_inputs'):
+        self.assertIn(exemplars[0].inputs, prefix)
+        self.assertIn(exemplars[-1].inputs, prefix)
 
-    with self.subTest('prompt_should_contain_the_exemplar_steps'):
-      self.assertIn(exemplars[0].updates[0].thought, prefix)
-      self.assertIn(exemplars[-1].updates[-1].thought, prefix)
+      with self.subTest('prompt_should_contain_the_exemplar_steps'):
+        self.assertIn(exemplars[0].updates[0].thought, prefix)
+        self.assertIn(exemplars[-1].updates[-1].thought, prefix)
 
-    with self.subTest('prompt_should_contain_the_actual_inputs'):
-      self.assertIn(state.inputs, prefix)
+      with self.subTest('prompt_should_contain_the_actual_inputs'):
+        self.assertIn(state.inputs, prefix)
 
-    if state.updates:
-      with self.subTest('prompt_should_contain_the_actual_thoughts_so_far'):
-        self.assertIn(state.updates[0].thought, prefix)
-        self.assertIn(state.updates[-1].thought, prefix)
+      if state.updates:
+        with self.subTest('prompt_should_contain_the_actual_thoughts_so_far'):
+          self.assertIn(state.updates[0].thought, prefix)
+          self.assertIn(state.updates[-1].thought, prefix)
 
-      with self.subTest('prompt_should_contain_the_actual_actions_so_far'):
-        if state.updates[0].action:
-          self.assertIn(state.updates[0].action.function_name, prefix)
-        if state.updates[-1].action:
-          self.assertIn(state.updates[-1].action.function_name, prefix)
+        with self.subTest('prompt_should_contain_the_actual_actions_so_far'):
+          if state.updates[0].action:
+            self.assertIn(state.updates[0].action.function_name, prefix)
+          if state.updates[-1].action:
+            self.assertIn(state.updates[-1].action.function_name, prefix)
 
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(llm_reply, prompt_outputs)
 
-  def test_prompt_error(self):
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_prompt_error(self, prompt_class):
     # Some typical inputs / configs. (As in the other test above.)
     question = 'What is the total population of Tuebingen and Zuerich?'
     exemplars = react.REACT_FEWSHOTS
     stop_prefix = ''
     stop_sequences = ['[Question]', '[Observe]']
     config = _get_environment_config_with_python()
-    prompt = react.ReActPromptJ2()
+    prompt = prompt_class()
     state = react.ReActState(inputs=question, updates=[])
 
     # We configure the LLM to raise an exception to verify how it is handled.
@@ -202,10 +212,12 @@ class ReactTest(parameterized.TestCase):
         ),
         enable_tracing=True,
     )
-    prefix = result.stages[0].outputs['prefix']
 
-    with self.subTest('prompt_should_contain_the_error_message'):
-      self.assertIn(error_message, prefix)
+    if prompt_class == react.ReActPromptJ2:
+      prefix = result.stages[0].outputs['prefix']
+
+      with self.subTest('prompt_should_contain_the_error_message'):
+        self.assertIn(error_message, prefix)
 
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(f'#ERROR#: {error_message}', prompt_outputs)
@@ -278,7 +290,11 @@ class ReactTest(parameterized.TestCase):
     actual_result = agent.parse(reply_text)
     self.assertEqual(expected_result, actual_result, actual_result)
 
-  def test_sample_next_step(self):
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_sample_next_step(self, prompt_class):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
     config = _get_environment_config_with_python()
@@ -298,6 +314,7 @@ class ReactTest(parameterized.TestCase):
     llm_backend.register()
 
     agent = react.ReActAgent(
+        prompt=prompt_class(),
         exemplars=react.REACT_FEWSHOTS,
         environment_config=config,
         max_steps=1,
@@ -331,7 +348,11 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
-  def test_execute(self):
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_execute(self, prompt_class):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
     config = _get_environment_config_with_python()
@@ -355,6 +376,7 @@ class ReactTest(parameterized.TestCase):
     llm_backend.register()
 
     agent = react.ReActAgent(
+        prompt=prompt_class(),
         exemplars=react.REACT_FEWSHOTS,
         environment_config=config,
         max_steps=10,
@@ -401,11 +423,16 @@ class ReactTest(parameterized.TestCase):
           ),
       )
 
+    if prompt_class == react.ReActPromptComposable:
+      leaf_name = 'llm.chat'
+    else:
+      leaf_name = 'generate_text'
+
     with self.subTest('should_yield_one_leaf_result_per_llm_call_and_action'):
       self.assertLen(leaf_results, 3)
 
     with self.subTest('leaf_result_0_should_be_llm_call_for_step_1'):
-      self.assertEqual('generate_text', leaf_results[0].stage_name)
+      self.assertEqual(leaf_name, leaf_results[0].stage_name)
       self.assertEqual(
           llm_reply_0_trimmed,
           leaf_results[0].outputs.get('output'),
@@ -425,14 +452,18 @@ class ReactTest(parameterized.TestCase):
       self.assertEqual({'output': -5}, leaf_results[1].outputs)
 
     with self.subTest('leaf_result_2_should_be_llm_call_for_step_2'):
-      self.assertEqual('generate_text', leaf_results[2].stage_name)
+      self.assertEqual(leaf_name, leaf_results[2].stage_name)
       self.assertEqual(
           llm_reply_1,
           leaf_results[2].outputs.get('output'),
           f'{leaf_results[2].outputs=}',
       )
 
-  def test_execute_force_finish_due_to_max_steps(self):
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_execute_force_finish_due_to_max_steps(self, prompt_class):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
     config = _get_environment_config_with_python()
@@ -458,6 +489,7 @@ class ReactTest(parameterized.TestCase):
     llm_backend.register()
 
     agent = react.ReActAgent(
+        prompt=prompt_class(),
         exemplars=react.REACT_FEWSHOTS,
         environment_config=config,
         max_steps=1,
@@ -476,14 +508,19 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_yield_one_leaf_result_per_llm_call_and_action'):
       self.assertLen(leaf_results, 3)
 
+    if prompt_class == react.ReActPromptComposable:
+      leaf_name = 'llm.chat'
+    else:
+      leaf_name = 'generate_text'
+
     with self.subTest('leaf_result_0_should_be_llm_call_for_step_1'):
-      self.assertEqual('generate_text', leaf_results[0].stage_name)
+      self.assertEqual(leaf_name, leaf_results[0].stage_name)
 
     with self.subTest('leaf_result_1_should_be_tool_call_for_step_1'):
       self.assertEqual('run_tool', leaf_results[1].stage_name)
 
     with self.subTest('leaf_result_2_should_be_llm_call_for_force_finish'):
-      self.assertEqual('generate_text', leaf_results[2].stage_name)
+      self.assertEqual(leaf_name, leaf_results[2].stage_name)
 
     with self.subTest('should_end_in_finished_state'):
       self.assertTrue(final_state.updates[-1].is_finished)
@@ -491,7 +528,11 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 
-  def test_execute_force_finish_due_to_empty_reply(self):
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_execute_force_finish_due_to_empty_reply(self, prompt_class):
     # Some minimal agent configuration and inputs.
     question = 'What is larger, 10 or 15, and by how much?'
     config = _get_environment_config_with_python()
@@ -519,6 +560,7 @@ class ReactTest(parameterized.TestCase):
     llm_backend.register()
 
     agent = react.ReActAgent(
+        prompt=prompt_class(),
         exemplars=react.REACT_FEWSHOTS,
         environment_config=config,
         max_steps=5,
@@ -537,17 +579,22 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_yield_one_leaf_result_per_llm_call_and_action'):
       self.assertLen(leaf_results, 4)
 
+    if prompt_class == react.ReActPromptComposable:
+      leaf_name = 'llm.chat'
+    else:
+      leaf_name = 'generate_text'
+
     with self.subTest('leaf_result_0_should_be_llm_call_for_step_1'):
-      self.assertEqual('generate_text', leaf_results[0].stage_name)
+      self.assertEqual(leaf_name, leaf_results[0].stage_name)
 
     with self.subTest('leaf_result_1_should_be_tool_call_for_step_1'):
       self.assertEqual('run_tool', leaf_results[1].stage_name)
 
     with self.subTest('leaf_result_2_should_be_llm_call_for_step_2'):
-      self.assertEqual('generate_text', leaf_results[2].stage_name)
+      self.assertEqual(leaf_name, leaf_results[2].stage_name)
 
     with self.subTest('leaf_result_3_should_be_llm_call_for_force_finish'):
-      self.assertEqual('generate_text', leaf_results[3].stage_name)
+      self.assertEqual(leaf_name, leaf_results[3].stage_name)
 
     with self.subTest('should_end_in_finished_state'):
       self.assertTrue(final_state.updates[-1].is_finished)
