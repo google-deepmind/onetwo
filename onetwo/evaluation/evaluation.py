@@ -484,16 +484,12 @@ async def naive_evaluation_critic(
           content_lib.PredefinedRole.USER,
           'Please judge whether the predicted answer means the same thing as'
           ' the target answer, in the context of the given question. Give your'
-          ' rating (yes/no), and then give the reason for your rating.',
-      ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
-          """
-
-Question: Circumference of a circle with radius 1cm?
-Target: 2pi cm
-Prediction: 6.28 centimenter
-Does prediction agree with target? (yes/no): """,
+          ' rating (yes/no), and then give the reason for your rating.'
+          '\n\n'
+          'Question: Circumference of a circle with radius 1cm?\n'
+          'Target: 2pi cm\n'
+          'Prediction: 6.28 centimenter\n'
+          'Does prediction agree with target? (yes/no): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
