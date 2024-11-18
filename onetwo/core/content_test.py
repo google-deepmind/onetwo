@@ -39,7 +39,6 @@ class ContentTest(parameterized.TestCase):
       ('supported_type_no_content_type', 'test', None, False, 'str'),
       ('supported_type_no_content_type_bytes', b'test', None, False, 'bytes'),
       ('supported_type_content_type', 'test', 'str', False, 'str'),
-      ('wrong_prefix_other', b'test', 'other', True, None),
       ('wrong_prefix_str', b'test', 'str', True, None),
       ('wrong_prefix_ctrl', b'test', 'ctrl', True, None),
       ('correct_prefix_image', b'test', 'image/jpeg', False, 'image/jpeg'),
@@ -72,6 +71,104 @@ class ContentTest(parameterized.TestCase):
       else:
         c = _Chunk(content)
       self.assertEqual(c.content_type, expected_content_type)
+
+  @parameterized.named_parameters(
+      ('string_content', 'string test', 'str'),
+      ('bytes_content', b'bytes test', 'bytes'),
+      ('pil_image_content', PIL.Image.Image(), 'image/jpeg'),
+  )
+  def test_chunk_creation_with_unset_content_type(
+      self,
+      content: Any,
+      expected_content_type: str | None,
+  ):
+    c = _Chunk(content)
+    self.assertEqual(c.content_type, expected_content_type)
+
+  def test_chunk_creation_with_unaccepted_content(
+      self,
+  ):
+    with self.assertRaises(
+        ValueError,
+        msg=(
+            "Creating a Chunk with content of type <class 'list'> which is not"
+            ' one of the accepted types (str, bytes, PIL.Image.Image).'
+        ),
+    ):
+      content: Any = ['list type content']
+      _ = _Chunk(content)
+
+  @parameterized.named_parameters(
+      ('text_csv_content_type', 'test', 'text/csv'),
+      ('text_css_content_type', b'test', 'text/css'),
+      ('font_woff_content_type', PIL.Image.Image(), 'font/woff'),
+      ('model_vrml_content_type', 'test', 'model/vrml'),
+  )
+  def test_chunk_creation_with_unknown_content_type(
+      self,
+      content: Any,
+      content_type: str,
+  ):
+    with self.assertLogs() as logs:
+      _ = _Chunk(content, content_type)
+      self.assertEqual(
+          logs.records[0].getMessage(),
+          f'Creating a Chunk with unknown content_type: {content_type}. This'
+          ' might cause errors if the type of the content is not compatible'
+          ' with the provided content_type.',
+      )
+
+  @parameterized.named_parameters(
+      ('string_content_bytes_content_type', 'test', 'bytes', 'str'),
+      (
+          'string_content_bytes_application_content_type',
+          'test',
+          'application/pdf',
+          'str',
+      ),
+      ('string_content_image_content_type', 'test', 'image/jpeg', 'str'),
+      ('bytes_content_str_content_type', b'test', 'ctrl', 'bytes'),
+      (
+          'image_content_image_content_type',
+          PIL.Image.Image(),
+          'str',
+          'pil_image',
+      ),
+      (
+          'image_content_bytes_video_content_type',
+          PIL.Image.Image(),
+          'video/mp4',
+          'pil_image',
+      ),
+  )
+  def test_chunk_creation_with_content_type_not_matching_content(
+      self,
+      content: Any,
+      content_type: str,
+      python_type: str,
+  ):
+    accepted_prefixes = ['str', 'ctrl']
+    if python_type == 'bytes':
+      accepted_prefixes = [
+          'bytes',
+          'image/',
+          'video/',
+          'audio/',
+          'application/',
+          'vision/',
+      ]
+    elif python_type == 'pil_image':
+      accepted_prefixes = ['image/']
+
+    with self.assertRaises(
+        ValueError,
+        msg=(
+            f'Creating a Chunk with content of type {python_type} but'
+            f' content_type is set to {content_type} which is not'
+            f' compatible (accepted prefixes are {accepted_prefixes}).'
+        ),
+    ):
+      _ = _Chunk(content, content_type)
 
   def test_chunk_list_add(self):
     c = _Chunk('test')

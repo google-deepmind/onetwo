@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 import dataclasses
 import enum
+import logging
 from typing import Any, Final, Iterable, TypeAlias, Union, cast
 
 import immutabledict
@@ -57,6 +58,75 @@ _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE: Final[Mapping[str, list[str]]] = (
         'pil_image': ['image/'],
     })
 )
+
+# Mapping from content type prefix to the Python types that are accepted.
+# For example, if the content type prefix is 'image/', the Python type can be
+# either 'pil_image' or 'bytes'.
+_PYTHON_TYPE_BY_CONTENT_TYPE_PREFIX: Final[Mapping[str, list[str]]] = (
+    immutabledict.immutabledict({
+        'str': ['str'],
+        'ctrl': ['str'],
+        'image/': ['pil_image', 'bytes'],
+        'bytes': ['bytes'],
+        'video/': ['bytes'],
+        'audio/': ['bytes'],
+        'application/': ['bytes'],
+        'vision/': ['bytes'],
+    })
+)
+
+
+def _get_python_and_content_type_from_content(
+    content: ContentType,
+) -> tuple[str, str]:
+  """Returns the python_type and the default content_type based on the content.
+
+  The python type shows the type of the content.
+  The default content_type is used when the content_type is not specified.
+
+  Args:
+    content: The content to get the python type and the default content_type
+      for.
+
+  Returns:
+    A tuple of (python_type, default_content_type).
+
+  Raises:
+    ValueError: If the content is not one of the accepted types (str, bytes,
+    PIL.Image.Image).
+  """
+  match content:
+    case str():
+      return ('str', 'str')
+    case bytes():
+      return 'bytes', 'bytes'
+    case PIL.Image.Image():
+      return 'pil_image', 'image/jpeg'
+    case _:
+      raise ValueError(
+          f'Creating a Chunk with content of type {type(content)} which is not'
+          ' one of the accepted types (str, bytes, PIL.Image.Image).'
+      )
+
+
+def _get_content_type_prefix(content_type: str) -> str:
+  """Returns the content type prefix for the given content_type.
+
+  Args:
+    content_type: The content_type to get the prefix for.
+
+  Returns:
+    The content type prefix for the given content_type. If the content_type is
+    not one of the known types, returns 'Unknown'.
+    Ex: 'image/jpeg' -> 'image/'
+        'text/csv' -> 'Unknown'
+  """
+  for prefix in _PYTHON_TYPE_BY_CONTENT_TYPE_PREFIX.keys():
+    # If the content_type is one of the known types, return the prefix.
+    if content_type.startswith(prefix):
+      return prefix
+  # If the content_type is not one of the known types, return Unknown.
+  return 'Unknown'
 
 
 class PredefinedRole(enum.Enum):
@@ -100,35 +170,38 @@ class Chunk:
   metadata: Iterable[message.Message | dict[str, Any]] = ()
 
   def __post_init__(self):
-    # Check that the content is of one of the accepted types and set the
-    # content_type if not set.
-    match self.content:
-      case str():
-        if not self.content_type:
-          self.content_type = 'str'
-        python_type = 'str'
-      case bytes():
-        if not self.content_type:
-          self.content_type = 'bytes'
-        python_type = 'bytes'
-      case PIL.Image.Image():
-        if not self.content_type:
-          self.content_type = 'image/jpeg'
-        python_type = 'pil_image'
-      case _:
-        raise ValueError(
-            f'Creating a Chunk with content type {type(self.content)} which'
-            f' does not match supported types: {ContentType}'
-        )
-    # Check that the content type and the provided content_type argument are
-    # compatible.
-    prefixes = _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE[python_type]
-    if not any(self.content_type.startswith(prefix) for prefix in prefixes):
-      raise ValueError(
-          f'Creating a Chunk with content of type {python_type} but'
-          f' content_type is set to {self.content_type} which is not'
-          f' compatible (accepted prefixes are {prefixes}).'
+    # Get the python type and the default content_type based on the content.
+    python_type, default_content_type = (
+        _get_python_and_content_type_from_content(self.content)
+    )
+
+    # If the content_type is not set, set it to the default content_type.
+    if not self.content_type:
+      self.content_type = default_content_type
+      return
+
+    content_type_prefix = _get_content_type_prefix(self.content_type)
+
+    # If the content_type is unknown, log a warning.
+    if content_type_prefix == 'Unknown':
+      logging.warning(
+          'Creating a Chunk with unknown content_type: %s. This might cause'
+          ' errors if the type of the content is not compatible with the'
+          ' provided content_type.',
+          self.content_type,
       )
+      return
+    else:
+      if (
+          python_type
+          not in _PYTHON_TYPE_BY_CONTENT_TYPE_PREFIX[content_type_prefix]
+      ):
+        raise ValueError(
+            f'Creating a Chunk with content of type {python_type} but'
+            f' content_type is set to {self.content_type} which is not'
+            ' compatible (accepted prefixes are'
+            f' {_PYTHON_TYPE_BY_CONTENT_TYPE_PREFIX[content_type_prefix]}).'
+        )
 
   def __bool__(self):
     return self.__nonzero__()
