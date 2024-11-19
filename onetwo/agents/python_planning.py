@@ -41,15 +41,18 @@ Adopting the "Agent" framework for the strategy implementation means that:
 """
 
 import abc
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 import contextlib
 import dataclasses
 import re
-from typing import Protocol, TypeAlias
+from typing import Protocol, Sequence, TypeAlias, Union
 
 from onetwo.agents import agents_base
+from onetwo.builtins import composables
 from onetwo.builtins import prompt_templating
+from onetwo.core import composing
 from onetwo.core import constants
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import templating
 from onetwo.core import tracing
@@ -335,6 +338,150 @@ class PythonPlanningPromptJ2(
           "PythonPlanning prompt result missing 'llm_reply' and lacking error"
           f' message to explain why: {result}'
       )
+
+
+@dataclasses.dataclass
+class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
+  """Composable prompt for PythonPlanningAgent.prompt.
+
+  Currently the question supports multimodal inputs.
+  In the future, if we have models or tools that can output multimodal content,
+  we can extend this to support multimodal PythonPlanning states too.
+
+  Attributes:
+    instruction_role: The role to use for the instruction parts of the prompt,
+      which describe the available tools or the overall task.
+    response_role: The role to use for the response parts of the prompt, i.e.
+      those that will be provided by the model.
+  """
+
+  instruction_role: content_lib.PredefinedRole = content_lib.PredefinedRole.USER
+  response_role: content_lib.PredefinedRole = content_lib.PredefinedRole.MODEL
+
+  def _build_tool_composable(
+      self,
+      tool: llm_tool_use.Tool,
+  ) -> composing.Composable:
+    """Returns a composable with the prompt content describing a single tool."""
+    e = composables.c(
+        f'Tool name: {tool.name}\n',
+        role=self.instruction_role,
+    ) + composables.c(
+        f'Tool description: {tool.description}\n',
+        role=self.instruction_role,
+    )
+    if tool.example:
+      e += composables.c(
+          f'Tool example: {tool.example_str}\n',
+          role=self.instruction_role,
+      )
+    return e
+
+  def _build_tools_description(
+      self,
+      tools: Sequence[llm_tool_use.Tool],
+  ) -> composing.Composable:
+    """Returns a composable with the prompt content describing all tools."""
+    e = composables.f(
+        'Here is a list of available tools:\n\n', role=self.instruction_role
+    )
+    for tool in tools:
+      e += self._build_tool_composable(tool)
+    e += composables.f('\n', role=self.instruction_role)
+    return e
+
+  def _build_update_step(
+      self, step: PythonPlanningStep
+  ) -> composing.Composable:
+    """Returns a composable for rendering a single PythonPlanning step."""
+    e = composables.c(content_lib.ChunkList())
+    e += composables.c(
+        f'```\n{step.code}\n```\n',
+        role=self.response_role,
+    )
+    e += composables.c(
+        f'{step.result.strip()}\n\n',
+        role=self.instruction_role,
+    )
+    if step.is_finished:
+      e += composables.c(
+          '**Done**\n',
+          role=content_lib.PredefinedRole.MODEL,
+      )
+    return e
+
+  def _build_example(
+      self, example: PythonPlanningState
+  ) -> composing.Composable:
+    """Returns a composable for rendering a single few-shot exemplar."""
+    e = composables.f(
+        f'**Question**: {example.inputs}\n',
+        role=self.instruction_role,
+    )
+    for step in example.updates:
+      e += self._build_update_step(step)
+    return e
+
+  def _build_pythonplanning_fewshots(
+      self, exemplars: Sequence[PythonPlanningState]
+  ) -> composing.Composable:
+    """Returns a composable for rendering all of the few-shot exemplars."""
+    e = composables.f(
+        'Here is an example of how these tools can be used to solve a'
+        ' task:\n\n',  # Differs from ReAct.
+        role=self.instruction_role,
+    )
+    for example in exemplars:
+      e += self._build_example(example)
+    return e
+
+  def _build_question(self, state: PythonPlanningState) -> composing.Composable:
+    """Returns a composable for rendering the user-provided question."""
+    e = composables.f(
+        '\n\nWrite code in Python using the above tools to solve the following'
+        ' question:\n\n',
+        role=self.instruction_role,
+    )
+    e += composables.f('**Question**: ', role=content_lib.PredefinedRole.USER)
+    e += composables.c(state.inputs, role=content_lib.PredefinedRole.USER)
+    e += composables.f('\n\n', role=content_lib.PredefinedRole.USER)
+    return e
+
+  def _build_current_state(
+      self,
+      state: PythonPlanningState,
+  ) -> composing.Composable:
+    """Returns a composable for rendering the entire current agent state."""
+    e = composables.c(content_lib.ChunkList())
+    if state.updates:
+      for step in state.updates:
+        e += self._build_update_step(step)
+    return e
+
+  @executing.make_executable
+  async def __call__(
+      self,
+      exemplars: list[PythonPlanningState],
+      state: PythonPlanningState,
+      tools: Sequence[llm_tool_use.Tool],
+  ) -> Union[content_lib.ChunkList, str]:
+    e = composables.c(content_lib.ChunkList())
+    e += self._build_tools_description(tools)
+    e += self._build_pythonplanning_fewshots(exemplars)
+    e += self._build_question(state)
+    e += self._build_current_state(state)
+    e += composables.f('```\n', role=self.response_role)
+    # Using chat instead of generate_text to return ChunkList.
+    e += composables.store('llm_reply', composables.chat(stop=['\n```']))
+
+    try:
+      _ = await e
+    except ValueError as error_message:
+      e = {}
+      e['llm_reply'] = f'#ERROR#: {error_message}'
+    # Checking 'llm_reply' in e itself results in a ValueError.
+    # So just try to return it for now.
+    return e['llm_reply'].strip()
 
 
 # TODO: Generalize the output type from `str` to `Any`.

@@ -101,60 +101,78 @@ def _get_environment_config_with_tools() -> (
 
 class PythonPlanningTest(parameterized.TestCase):
 
+  @staticmethod
+  def _build_params_for_prompt(tests):
+    out_tests = []
+    named_prompt_classes = {
+        'j2': python_planning.PythonPlanningPromptJ2,
+        'composable': python_planning.PythonPlanningPromptComposable,
+    }
+    for prompt_name, prompt_class in named_prompt_classes.items():
+      for test_name, *test_args in tests:
+        out_tests.append(
+            (f'{test_name}_{prompt_name}', prompt_class, *test_args)
+        )
+    return out_tests
+
   @parameterized.named_parameters(
-      ('first_step', []),
-      (
-          'middle_step',
-          [
-              python_planning.PythonPlanningStep(
-                  is_finished=False,
-                  code=(
-                      '# First we need to find the populations of Tuebingen and'
-                      " Zuerich individually\npopulation1 = search('population"
-                      " of Tuebingen')\npopulation2 = search('population of"
-                      " Zuerich')\nprint(f'Tuebingen: {population1}, Zuerich:"
-                      " {population2}')"
+      _build_params_for_prompt((
+          ('first_step', []),
+          (
+              'middle_step',
+              [
+                  python_planning.PythonPlanningStep(
+                      is_finished=False,
+                      code=(
+                          '# First we need to find the populations of Tuebingen'
+                          ' and Zuerich individually\npopulation1 ='
+                          " search('population of Tuebingen')\npopulation2 ="
+                          " search('population of Zuerich')\nprint(f'Tuebingen:"
+                          " {population1}, Zuerich: {population2}')"
+                      ),
+                      result=(
+                          "Tuebingen: [{'index': 1, 'Name': 'Tübingen',"
+                          " 'County': 'Tübingen', 'Population Estimate"
+                          " 2021-12-31': '91,877'}, {'index': 2, 'Name':"
+                          " 'Tübingen 91,877 Population [2021] – Estimate 108.1"
+                          ' km2 Area 850.2/km2 Population Density [2021] 1.0%'
+                          " Annual Population Change [2011 → 2021]', 'County':"
+                          " '', 'Population Estimate 2021-12-31': ''}],"
+                          ' Zuerich: 402,762 (2017)\n'
+                      ),
+                      execution_status=_ExecutionStatus.SUCCESS,
                   ),
-                  result=(
-                      "Tuebingen: [{'index': 1, 'Name': 'Tübingen', 'County':"
-                      " 'Tübingen', 'Population Estimate 2021-12-31':"
-                      " '91,877'}, {'index': 2, 'Name': 'Tübingen 91,877"
-                      ' Population [2021] – Estimate 108.1 km2 Area 850.2/km2'
-                      ' Population Density [2021] 1.0% Annual Population Change'
-                      " [2011 → 2021]', 'County': '', 'Population Estimate"
-                      " 2021-12-31': ''}], Zuerich: 402,762 (2017)\n"
+              ],
+          ),
+          (
+              'last_step',
+              [
+                  python_planning.PythonPlanningStep(
+                      is_finished=True,
+                      code=(
+                          '# First we need to find the populations of Tuebingen'
+                          ' and Zuerich individually\npopulation1 ='
+                          " search('population of Tuebingen')\npopulation2 ="
+                          " search('population of Zuerich')\nprint(f'Tuebingen:"
+                          " {population1}, Zuerich: {population2}')"
+                      ),
+                      result=(
+                          "Tuebingen: [{'index': 1, 'Name': 'Tübingen',"
+                          " 'County': 'Tübingen', 'Population Estimate"
+                          " 2021-12-31': '91,877'}, {'index': 2, 'Name':"
+                          " 'Tübingen 91,877 Population [2021] – Estimate 108.1"
+                          ' km2 Area 850.2/km2 Population Density [2021] 1.0%'
+                          " Annual Population Change [2011 → 2021]', 'County':"
+                          " '', 'Population Estimate 2021-12-31': ''}],"
+                          ' Zuerich: 402,762 (2017)\n'
+                      ),
+                      execution_status=_ExecutionStatus.SUCCESS,
                   ),
-                  execution_status=_ExecutionStatus.SUCCESS,
-              ),
-          ],
-      ),
-      (
-          'last_step',
-          [
-              python_planning.PythonPlanningStep(
-                  is_finished=True,
-                  code=(
-                      '# First we need to find the populations of Tuebingen and'
-                      " Zuerich individually\npopulation1 = search('population"
-                      " of Tuebingen')\npopulation2 = search('population of"
-                      " Zuerich')\nprint(f'Tuebingen: {population1}, Zuerich:"
-                      " {population2}')"
-                  ),
-                  result=(
-                      "Tuebingen: [{'index': 1, 'Name': 'Tübingen', 'County':"
-                      " 'Tübingen', 'Population Estimate 2021-12-31':"
-                      " '91,877'}, {'index': 2, 'Name': 'Tübingen 91,877"
-                      ' Population [2021] – Estimate 108.1 km2 Area 850.2/km2'
-                      ' Population Density [2021] 1.0% Annual Population Change'
-                      " [2011 → 2021]', 'County': '', 'Population Estimate"
-                      " 2021-12-31': ''}], Zuerich: 402,762 (2017)\n"
-                  ),
-                  execution_status=_ExecutionStatus.SUCCESS,
-              ),
-          ],
-      ),
+              ],
+          ),
+      ))
   )
-  def test_prompt(self, updates):
+  def test_prompt(self, prompt_class, updates):
     # Some typical Python Planning prompt inputs.
     question = 'What is the total population of Tuebingen and Zuerich?'
     exemplars = python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS
@@ -163,7 +181,7 @@ class PythonPlanningTest(parameterized.TestCase):
     config = _get_environment_config_with_tools()
 
     # Prompt configuration.
-    prompt = python_planning.PythonPlanningPromptJ2()
+    prompt = prompt_class()
 
     # Current state of agent.
     state = python_planning.PythonPlanningState(
@@ -194,7 +212,14 @@ num2 = firstnumber(population2)
         prompt(tools=config.tools, exemplars=exemplars, state=state),
         enable_tracing=True,
     )
-    prefix = result.get_leaf_results()[0].inputs['request']
+    if prompt_class == python_planning.PythonPlanningPromptJ2:
+      prefix = result.get_leaf_results()[0].inputs['request']
+    elif prompt_class == python_planning.PythonPlanningPromptComposable:
+      formatter = backends_test_utils.ConcatFormatter()
+      prefix = formatter.format(result.get_leaf_results()[0].inputs['messages'])
+      prefix = str(prefix)
+    else:
+      raise ValueError(f'Unsupported prompt class: {prompt_class}')
 
     logging.info('Prompt sent to the LLM:\n%s', prefix)
 
@@ -233,12 +258,17 @@ num2 = firstnumber(population2)
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(llm_reply.strip(), prompt_outputs)
 
-  def test_prompt_error(self):
+  @parameterized.named_parameters(
+      ('j2', python_planning.PythonPlanningPromptJ2),
+      ('composable', python_planning.PythonPlanningPromptComposable),
+  )
+  def test_prompt_error(self, prompt_class):
     # Some typical inputs / configs. (As in the other test above.)
     question = 'What is the total population of Tuebingen and Zuerich?'
     exemplars = python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS
     config = _get_environment_config_with_tools()
-    prompt = python_planning.PythonPlanningPromptJ2()
+    prompt = prompt_class()
+
     state = python_planning.PythonPlanningState(inputs=question, updates=[])
 
     # We configure the LLM to raise an exception to verify how it is handled.
@@ -257,15 +287,20 @@ num2 = firstnumber(population2)
         prompt(tools=config.tools, exemplars=exemplars, state=state),
         enable_tracing=True,
     )
-    prefix = result.stages[0].outputs['prefix']
+    if prompt_class == python_planning.PythonPlanningPromptJ2:
+      prefix = result.stages[0].outputs['prefix']
 
-    with self.subTest('prompt_should_contain_the_error_message'):
-      self.assertIn(error_message, prefix)
+      with self.subTest('prompt_should_contain_the_error_message'):
+        self.assertIn(error_message, prefix)
 
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(f'#ERROR#: {error_message}', prompt_outputs)
 
-  def test_sample_next_step(self):
+  @parameterized.named_parameters(
+      ('j2', python_planning.PythonPlanningPromptJ2),
+      ('composable', python_planning.PythonPlanningPromptComposable),
+  )
+  def test_sample_next_step(self, prompt_class):
     # Some minimal agent configuration and inputs.
     question = 'What is the total population of Tuebingen and Zuerich?'
     prev_state = python_planning.PythonPlanningState(inputs=question)
@@ -292,6 +327,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     llm_backend.register()
 
     agent = python_planning.PythonPlanningAgent(
+        prompt=prompt_class(),
         exemplars=python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS,
         environment_config=config,
         max_steps=1,
@@ -386,7 +422,11 @@ print(error_message)
     )
     self.assertEqual(result[0].is_finished, expected_is_finished)
 
-  def test_execute_with_max_steps(self):
+  @parameterized.named_parameters(
+      ('j2', python_planning.PythonPlanningPromptJ2),
+      ('composable', python_planning.PythonPlanningPromptComposable),
+  )
+  def test_execute_with_max_steps(self, prompt_class):
     # Some minimal agent configuration and inputs.
     question = 'What is the total population of Tuebingen and Zuerich?'
 
@@ -411,6 +451,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     llm_backend.register()
 
     agent = python_planning.PythonPlanningAgent(
+        prompt=prompt_class(),
         exemplars=python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS,
         environment_config=config,
         max_steps=1,
