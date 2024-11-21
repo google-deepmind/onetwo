@@ -888,6 +888,11 @@ class HTMLRendererTest(parameterized.TestCase):
           # they will interfere with the HTML parsing.
           expected_html='&lt;PredefinedRole.USER: &#x27;user&#x27;&gt;',
       ),
+      dict(
+          testcase_name='bytes',
+          object_to_render=b'ab',
+          expected_html='&#x27;&lt;bytes&gt;&#x27;',
+      ),
   )
   def test_render_object(self, object_to_render, expected_html):
     renderer = results.HTMLRenderer()

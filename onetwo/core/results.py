@@ -1011,6 +1011,22 @@ class HTMLRenderer:
         expanded=(levels_to_expand > 0),
     )
 
+  def _render_bytes(
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+  ) -> HTMLObjectRendering | None:
+    """Renders a bytes object as a string of the form '<bytes>'."""
+    if not isinstance(object_to_render, bytes):
+      return None
+
+    bytes_render = self.render_object(
+        '<bytes>', element_id=element_id, levels_to_expand=levels_to_expand
+    )
+    return bytes_render
+
   def _render_evaluation_summary(
       self, object_to_render: Any, *, element_id: str, levels_to_expand: int
   ) -> HTMLObjectRendering | None:
@@ -1116,6 +1132,7 @@ class HTMLRenderer:
   def _get_default_renderers(self) -> Sequence[HTMLObjectRenderer]:
     """Returns a list of default renderers for various object types."""
     return [
+        HTMLRenderer._render_bytes,
         HTMLRenderer._render_result,
         HTMLRenderer._render_evaluation_summary,
         HTMLRenderer._render_agent_state,
