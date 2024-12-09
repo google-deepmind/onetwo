@@ -25,12 +25,10 @@ from collections.abc import Iterator, Mapping, Sequence
 import dataclasses
 import enum
 import logging
-from typing import Any, Final, Iterable, TypeAlias, Union, cast
+from typing import Any, Final, TypeAlias, Union, cast
 
 import immutabledict
 import PIL.Image
-
-from google.protobuf import message
 
 ContentType: TypeAlias = Union[str, bytes, PIL.Image.Image]
 
@@ -160,14 +158,14 @@ class Chunk:
     role: The role to assign to the chunk when grouping chunks into chat
       messages. If not specified, it will be treated as USER. Ignored when the
       chunk is used in a non-chat operation.
-    metadata: An iterable of custom metadata objects to be supplied to the
-      downstream request object.
+    metadata: Metadata information to be supplied to the downstream request
+      object.
   """
 
   content: ContentType
   content_type: str = dataclasses.field(default_factory=str)
   role: RoleType = None
-  metadata: Iterable[message.Message | dict[str, Any]] = ()
+  metadata: Any = None
 
   def __post_init__(self):
     # Get the python type and the default content_type based on the content.
