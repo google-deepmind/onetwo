@@ -74,7 +74,7 @@ class FormattingTest(parameterized.TestCase):
             content='<model>This is an assistant message.</model>\n'
         ),
     ])
-    self.assertEqual(FormatterForTest().format(content), expected)
+    self.assertEqual(expected, FormatterForTest().format(content))
 
   @parameterized.named_parameters(
       ('formatted', '<user>This is a user message.</user>', True),
@@ -261,7 +261,64 @@ class DefaultFormatterTest(parameterized.TestCase):
   def test_format(self, messages, use_fewshots, expected_result):
     formatter = formatting.DefaultFormatter({'use_fewshots': use_fewshots})
     res = formatter.format(messages)
-    self.assertEqual(str(res), expected_result)
+    self.assertEqual(expected_result, str(res))
+
+
+class ConcatFormatterTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      (
+          'single_msg',
+          (_Message(role=_PredefinedRole.USER, content='Hello!'),),
+          'Hello!',
+      ),
+      (
+          'several_msgs',
+          (
+              _Message(role=_PredefinedRole.SYSTEM, content='Any instructions'),
+              _Message(role=_PredefinedRole.USER, content='Hello!'),
+              _Message(role=_PredefinedRole.MODEL, content='Hey.'),
+              _Message(role=_PredefinedRole.USER, content='How are you?'),
+              _Message(role=_PredefinedRole.MODEL, content='I am'),
+          ),
+          (
+              'Any instructionsHello!Hey.How are you?I am'
+          ),
+      ),
+      (
+          'several_msgs_including_empty_msgs',
+          (
+              _Message(role=_PredefinedRole.SYSTEM, content='Any instructions'),
+              _Message(role=_PredefinedRole.SYSTEM, content=''),
+              _Message(role=_PredefinedRole.USER, content='Hello!'),
+              _Message(role=_PredefinedRole.MODEL, content=''),
+              _Message(role=_PredefinedRole.USER, content=''),
+              _Message(role=_PredefinedRole.MODEL, content='Hey.'),
+              _Message(role=_PredefinedRole.USER, content='How are you?'),
+              _Message(role=_PredefinedRole.MODEL, content='I am'),
+          ),
+          (
+              'Any instructionsHello!Hey.How are you?I am'
+          ),
+      ),
+      (
+          'several_msgs_including_newlines',
+          (
+              _Message(role=_PredefinedRole.SYSTEM, content='Instructions\n'),
+              _Message(role=_PredefinedRole.USER, content='\nHello!\n'),
+              _Message(role=_PredefinedRole.MODEL, content='Hey.\n'),
+              _Message(role=_PredefinedRole.USER, content='\nHow are you?\n'),
+              _Message(role=_PredefinedRole.MODEL, content='I am\n'),
+          ),
+          (
+              'Instructions\n\nHello!\nHey.\n\nHow are you?\nI am\n'
+          ),
+      ),
+  )
+  def test_format(self, messages, expected_result):
+    formatter = formatting.ConcatFormatter()
+    res = formatter.format(messages)
+    self.assertEqual(expected_result, str(res))
 
 
 if __name__ == '__main__':

@@ -47,6 +47,7 @@ class FormatterName(aenum.Enum):
 
   NONE = 'none'  # No formatting, just concatenate all messages.
   DEFAULT = 'default'  # Best effort formatting to produce a useful prompt.
+  CONCAT = 'concat'  # Concatenates all messages without formatting.
   API = 'api'  # Attempts to use the model API to pass messages directly.
 
 
@@ -302,6 +303,32 @@ class DefaultFormatter(Formatter):
       return prompt
 
 
+class ConcatFormatter(Formatter):
+  """Simple formatter that simply concatenates its input, ignoring the roles.
+
+  """
+
+  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+    """Overridden from base class (Formatter)."""
+    return True
+
+  def is_already_formatted(
+      self, content: Sequence[content_lib.Message]) -> bool:
+    """Overridden from base class (Formatter)."""
+    return False
+
+  def _format(
+      self,
+      content: Sequence[content_lib.Message],
+  ) -> content_lib.ChunkList:
+    """Overridden from base class (Formatter)."""
+    result = content_lib.ChunkList()
+    for msg in content:
+      result += msg.content
+    return result
+
+
 FORMATTER_CLASS_BY_NAME: dict[FormatterName, type[Formatter]] = {
     FormatterName.DEFAULT: DefaultFormatter,
+    FormatterName.CONCAT: ConcatFormatter,
 }

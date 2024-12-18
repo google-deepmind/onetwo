@@ -23,7 +23,6 @@ import re
 import time
 from typing import Any, Type, TypeAlias, TypeVar
 
-import aenum
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
@@ -36,39 +35,6 @@ from onetwo.core import utils
 _T = TypeVar('_T')
 
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
-
-
-# TODO: Replace with import from onetwo.builtins.formatting
-# once ConcatFormatter lands there.
-class ConcatFormatter(formatting.Formatter):
-  """Simple Formatter that simply concatenates its input, ignoring the roles."""
-
-  def is_role_supported(self, role: str | _PredefinedRole) -> bool:
-    """Overridden from base class (Formatter)."""
-    return True
-
-  def is_already_formatted(
-      self, content: Sequence[content_lib.Message]
-  ) -> bool:
-    """Overridden from base class (Formatter)."""
-    return False
-
-  def _format(
-      self,
-      content: Sequence[content_lib.Message],
-  ) -> content_lib.ChunkList:
-    """Overridden from base class (Formatter)."""
-    result = content_lib.ChunkList()
-    for msg in content:
-      result += msg.content
-    return result
-
-if 'CONCAT' not in formatting.FormatterName.__members__:
-  aenum.extend_enum(formatting.FormatterName, 'CONCAT', 'concat')
-
-formatting.FORMATTER_CLASS_BY_NAME[formatting.FormatterName.CONCAT] = (
-    ConcatFormatter
-)
 
 
 @batching.add_batching

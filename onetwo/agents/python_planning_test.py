@@ -20,6 +20,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import python_planning
 from onetwo.backends import backends_test_utils
+from onetwo.builtins import formatting
 from onetwo.core import executing
 from onetwo.stdlib.code_execution import python_execution
 from onetwo.stdlib.tool_use import llm_tool_use
@@ -215,7 +216,7 @@ num2 = firstnumber(population2)
     if prompt_class == python_planning.PythonPlanningPromptJ2:
       prefix = result.get_leaf_results()[0].inputs['request']
     elif prompt_class == python_planning.PythonPlanningPromptComposable:
-      formatter = backends_test_utils.ConcatFormatter()
+      formatter = formatting.ConcatFormatter()
       prefix = formatter.format(result.get_leaf_results()[0].inputs['messages'])
       prefix = str(prefix)
     else:
