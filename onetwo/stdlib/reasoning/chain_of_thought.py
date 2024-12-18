@@ -38,6 +38,8 @@ from collections.abc import Callable, Sequence
 import dataclasses
 from typing import Any
 from onetwo.builtins import composables
+from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
@@ -134,6 +136,96 @@ class QACoTPromptJ2:
     return CoTReply(
         answer=prompt_template['answer'].strip(),
         reasoning=prompt_template['reasoning'].strip(),
+    )
+
+
+@dataclasses.dataclass
+class QACoTPromptChat:
+  """Basic chain-of-thought strategy implemented using chat API.
+
+  Attributes:
+    instruction: The instruction to use for the prompt. Does not need to begin
+      or end with a newline, as these will be handled automatically.
+    exemplars: Default exemplars to use, if question-specific exemplars are not
+      provided.
+  """
+
+  instruction: str | content_lib.ChunkList | None = None
+  exemplars: Sequence[QACoTExemplar] = tuple()
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  async def __call__(
+      self, question: str, exemplars: Sequence[QACoTExemplar] | None = None
+  ) -> CoTReply:
+    """Returns the final answer and reasoning for the given question.
+
+    Args:
+      question: The question to answer.
+      exemplars: Optional few-shot exemplars to be used for this specific
+        question (e.g., when performing dynamic exemplar selection).
+    """
+    if exemplars is None:
+      exemplars = self.exemplars
+
+    messages = []
+
+    # Instruction
+    if self.instruction:
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.USER,
+              self.instruction + '\n'))
+
+    # Few-shot exemplars
+    for exemplar in exemplars:
+      exemplar_reasoning = exemplar.reasoning
+      if not exemplar_reasoning.endswith('\n'):
+        exemplar_reasoning += '\n'
+
+      exemplar_answer = exemplar.answer
+      if not exemplar_answer.endswith('\n'):
+        exemplar_answer += '\n'
+
+      # Separate sections with a blank line (unless this is the first section).
+      maybe_newline = '\n' if messages else ''
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.USER,
+              f'{maybe_newline}Question: {exemplar.question}\nReasoning: '))
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.MODEL,
+              exemplar_reasoning))
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.USER,
+              'Final answer: '))
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.MODEL,
+              exemplar_answer))
+
+    # Process the actual inputs.
+    maybe_newline = '\n' if messages else ''
+    messages.append(
+        content_lib.Message(
+            content_lib.PredefinedRole.USER,
+            f'{maybe_newline}Question: {question}\nReasoning: '))
+    reasoning = await llm.chat(
+        messages=messages, stop=['\nFinal', '\nAnswer', '\nQuestion:'])
+    messages.append(
+        content_lib.Message(
+            content_lib.PredefinedRole.MODEL,
+            reasoning.rstrip() + '\n'))
+    messages.append(
+        content_lib.Message(
+            content_lib.PredefinedRole.USER,
+            'Final answer: '))
+    answer = await llm.chat(messages=messages, stop=['\nQuestion:'])
+    return CoTReply(
+        answer=answer.strip(),
+        reasoning=reasoning.strip(),
     )
 
 
@@ -313,3 +405,66 @@ QA_COT_EXEMPLARS_ORIGINAL_MATH_WORD_PROBLEMS = [
         answer='8',
     ),
 ]
+
+
+@dataclasses.dataclass
+class QACoTPromptWithAnswerParserChat:
+  """Chain-of-thought strategy using chat API + answer parser.
+
+  Attributes:
+    instruction: The instruction to use for the prompt. Does not need to begin
+      or end with a newline, as these will be handled automatically.
+    answer_parser: Function that parses the LLM reply into the reasoning and
+      final answer.
+    exemplars: Default exemplars to use, if question-specific exemplars are not
+      provided.
+  """
+
+  instruction: str | content_lib.ChunkList | None = None
+  answer_parser: Callable[[str], CoTReply] = default_cot_parse_answer
+  exemplars: Sequence[QACoTExemplar] = tuple()
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  async def __call__(
+      self, question: str, exemplars: Sequence[QACoTExemplar] | None = None
+  ) -> CoTReply:
+    """Returns the final answer and reasoning for the given question.
+
+    Args:
+      question: The question to answer.
+      exemplars: Optional few-shot exemplars to be used for this specific
+        question (e.g., when performing dynamic exemplar selection).
+    """
+    if exemplars is None:
+      exemplars = self.exemplars
+
+    messages = []
+
+    # Instruction
+    if self.instruction:
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.USER,
+              self.instruction + '\n'))
+
+    # Few-shot exemplars
+    for exemplar in exemplars:
+      maybe_newline = '\n' if messages else ''
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.USER,
+              f'{maybe_newline}Q: {exemplar.question}\nA: '))
+      messages.append(
+          content_lib.Message(
+              content_lib.PredefinedRole.MODEL,
+              f'{exemplar.reasoning} The answer is {exemplar.answer}.\n'))
+
+    # Process the actual inputs.
+    maybe_newline = '\n' if messages else ''
+    messages.append(
+        content_lib.Message(
+            content_lib.PredefinedRole.USER,
+            f'{maybe_newline}Q: {question}\nA: '))
+    reasoning_and_answer = await llm.chat(messages=messages, stop=['\nQ:'])
+    return self.answer_parser(reasoning_and_answer)

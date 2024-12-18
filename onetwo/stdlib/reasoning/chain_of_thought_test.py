@@ -25,9 +25,13 @@ DEFAULT_REPLY = 'UNKNOWN_PROMPT'
 
 class ChainOfThoughtTest(parameterized.TestCase):
 
-  def test_qa_cot_prompt_j2_zero_shot(self):
+  @parameterized.named_parameters(
+      ('j2', chain_of_thought.QACoTPromptJ2),
+      ('chat', chain_of_thought.QACoTPromptChat),
+  )
+  def test_qa_cot_prompt_zero_shot(self, prompt_class):
     question = 'What is the answer?'
-    prompt = chain_of_thought.QACoTPromptJ2()
+    prompt = prompt_class()
 
     # Expected requests (based on above inputs), along with simulated replies.
     expected_request_1 = """\
@@ -65,7 +69,11 @@ Final answer: """
     with self.subTest('should_return_the_trimmed_llm_reply_as_answer'):
       self.assertEqual(expected_cot_reply, cot_reply)
 
-  def test_qa_cot_prompt_j2_few_shot(self):
+  @parameterized.named_parameters(
+      ('j2', chain_of_thought.QACoTPromptJ2),
+      ('chat', chain_of_thought.QACoTPromptChat),
+  )
+  def test_qa_cot_prompt_few_shot(self, prompt_class):
     question = 'What is the answer?'
     exemplars = [
         chain_of_thought.QACoTExemplar(
@@ -75,7 +83,7 @@ Final answer: """
             question='Q2', reasoning='R2', answer='A2'
         ),
     ]
-    prompt = chain_of_thought.QACoTPromptJ2(exemplars=exemplars)
+    prompt = prompt_class(exemplars=exemplars)
 
     # Expected requests (based on above inputs), along with simulated replies.
     expected_request_1 = """\
@@ -129,9 +137,13 @@ Final answer: """
     with self.subTest('should_return_the_trimmed_llm_reply_as_answer'):
       self.assertEqual(expected_cot_reply, cot_reply)
 
-  def test_qa_cot_prompt_with_answer_parser_j2_zero_shot(self):
+  @parameterized.named_parameters(
+      ('j2', chain_of_thought.QACoTPromptWithAnswerParserJ2),
+      ('chat', chain_of_thought.QACoTPromptWithAnswerParserChat),
+  )
+  def test_qa_cot_prompt_with_answer_parser_zero_shot(self, prompt_class):
     question = 'What is the answer?'
-    prompt = chain_of_thought.QACoTPromptWithAnswerParserJ2()
+    prompt = prompt_class()
 
     # Expected requests (based on above inputs), along with simulated replies.
     expected_request = """\
@@ -163,7 +175,11 @@ A: """
     with self.subTest('should_return_the_parsed_llm_reply'):
       self.assertEqual(expected_cot_reply, cot_reply)
 
-  def test_qa_cot_prompt_with_answer_parser_j2_few_shot(self):
+  @parameterized.named_parameters(
+      ('j2', chain_of_thought.QACoTPromptWithAnswerParserJ2),
+      ('chat', chain_of_thought.QACoTPromptWithAnswerParserChat),
+  )
+  def test_qa_cot_prompt_with_answer_parser_few_shot(self, prompt_class):
     question = 'What is the answer?'
     exemplars = [
         chain_of_thought.QACoTExemplar(
@@ -173,7 +189,7 @@ A: """
             question='Q2', reasoning='R2', answer='A2'
         ),
     ]
-    prompt = chain_of_thought.QACoTPromptWithAnswerParserJ2(exemplars=exemplars)
+    prompt = prompt_class(exemplars=exemplars)
 
     # Expected requests (based on above inputs), along with simulated replies.
     expected_request = """\
@@ -211,7 +227,12 @@ A: """
     with self.subTest('should_return_the_parsed_llm_reply'):
       self.assertEqual(expected_cot_reply, cot_reply)
 
-  def test_qa_cot_prompt_with_answer_parser_j2_dynamic_exemplars(self):
+  @parameterized.named_parameters(
+      ('j2', chain_of_thought.QACoTPromptWithAnswerParserJ2),
+      ('chat', chain_of_thought.QACoTPromptWithAnswerParserChat),
+  )
+  def test_qa_cot_prompt_with_answer_parser_dynamic_exemplars(
+      self, prompt_class):
     question = 'What is the answer?'
     default_exemplars = [
         chain_of_thought.QACoTExemplar(
@@ -223,9 +244,7 @@ A: """
             question='Q2', reasoning='R2', answer='A2'
         ),
     ]
-    prompt = chain_of_thought.QACoTPromptWithAnswerParserJ2(
-        exemplars=default_exemplars
-    )
+    prompt = prompt_class(exemplars=default_exemplars)
 
     # Expected requests (based on above inputs), along with simulated replies.
     # We expect the prompt to be generated using the question-specific exemplars
