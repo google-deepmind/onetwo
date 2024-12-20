@@ -540,9 +540,21 @@ Does prediction agree with target? (yes/no): """,
   # Some models are stubborn about returning the answer in a certain format
   # such as boldface (e.g. **yes**), regardless of how they are prompted.
   # We try to cover such cases on a best effort basis.
-  if rating.startswith('yes') or rating.startswith('**yes**'):
+  starts_with_yes = (
+      rating.startswith('yes')
+      or rating.startswith('**yes**')
+      or rating.startswith('<strong>yes</strong>')
+  )
+  starts_with_no = (
+      rating.startswith('no')
+      or rating.startswith('**no**')
+      or rating.startswith('<strong>no</strong>')
+  )
+  contains_yes = 'yes' in rating
+  contains_no = 'no' in rating
+  if starts_with_yes or contains_yes and not contains_no:
     is_correct = 1.0
-  elif rating.startswith('no') or rating.startswith('**no**'):
+  elif starts_with_no or contains_no and not contains_yes:
     is_correct = 0.0
   else:
     raise ValueError(

@@ -305,6 +305,18 @@ class EvaluateTest(parameterized.TestCase):
           'because',
       ),
       (
+          'yes_with_reason_strong',
+          '<strong>yes</strong>\nReason: because\n\n',
+          1.0,
+          'because',
+      ),
+      (
+          'no_with_reason_strong',
+          '<strong>no</strong>\nReason: because\n\n',
+          0.0,
+          'because',
+      ),
+      (
           'should_not_be_confused_by_no_in_reason',
           'yes\nReason: because no\n\n',
           1.0,
@@ -315,6 +327,18 @@ class EvaluateTest(parameterized.TestCase):
           'no\nReason: because yes\n\n',
           0.0,
           'because yes',
+      ),
+      (
+          'yes_as_part_of_longer_phrase_with_misleading_reason',
+          '100% yes!\nReason: I considered no, but changed my mind.\n\n',
+          1.0,
+          'I considered no, but changed my mind.',
+      ),
+      (
+          'no_as_part_of_longer_phrase_with_misleading_reason',
+          '100% no!\nReason: I considered yes, but changed my mind.\n\n',
+          0.0,
+          'I considered yes, but changed my mind.',
       ),
   )
   def test_naive_evaluation_critic_produces_correct_output(
