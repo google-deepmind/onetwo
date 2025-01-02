@@ -224,6 +224,16 @@ num2 = firstnumber(population2)
 
     logging.info('Prompt sent to the LLM:\n%s', prefix)
 
+    with self.subTest(
+        'prompt_should_start_with_instructions_followed_by_a_blank_line'
+    ):
+      self.assertStartsWith(
+          prefix, python_planning.DEFAULT_PYTHON_PLANNING_INSTRUCTION + '\n\n'
+      )
+      self.assertNotIn(
+          python_planning.DEFAULT_PYTHON_PLANNING_INSTRUCTION + '\n\n\n', prefix
+      )
+
     with self.subTest('prompt_should_contain_the_tool_descriptions'):
       self.assertIn(config.tools[0].description, prefix)
       self.assertIn(config.tools[-1].description, prefix)
@@ -239,17 +249,21 @@ num2 = firstnumber(population2)
     with self.subTest('prompt_should_contain_the_actual_inputs'):
       self.assertIn(state.inputs, prefix)
 
-    with self.subTest('prompt_should_have_one_blank_line_after_the_question'):
-      self.assertIn(state.inputs + '\n\n```', prefix)
-      self.assertNotIn(state.inputs + '\n\n\n```', prefix)
+    with self.subTest(
+        'prompt_should_contain_question_followed_by_triple_backticks_on_next_line'
+    ):
+      self.assertIn(state.inputs + '\n```', prefix)
+      self.assertNotIn(state.inputs + '\n\n```', prefix)
 
     if not state.updates or not state.updates[-1].is_finished:
       with self.subTest(
-          'prompt_should_end_with_triple_backticks_preceded_by_one_blank_line'
+          'prompt_should_end_with_triple_backticks_on_its_own_line'
       ):
-        # TODO: Would it be better to remove the trailing newline?
-        self.assertEndsWith(prefix, '\n\n```\n')
-        self.assertNotEndsWith(prefix, '\n\n\n```\n')
+        self.assertEndsWith(prefix, '\n```')
+        # Depending on whether the current state already contains a code block,
+        # the prompt may or may not have a blank line before the closing fence,
+        # but there should never be more than one blank line.
+        self.assertNotEndsWith(prefix, '\n\n\n```')
 
     if state.updates:
       with self.subTest('prompt_should_contain_the_actual_code_so_far'):
@@ -319,7 +333,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 """
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
-            r'What is the total population of Tuebingen and Zuerich\?\n\n```$': (
+            r'What is the total population of Tuebingen and Zuerich\?\n```$': (
                 llm_reply
             ),
         },
@@ -404,7 +418,7 @@ print(error_message)
 """
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
-            r'My test question\n\n```$': llm_reply,
+            r'My test question\n```$': llm_reply,
         },
         default_reply=DEFAULT_REPLY,
     )
@@ -445,7 +459,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_regex={
             r'What is the total population of Tuebingen and Zuerich\?'
-            + r'\n\n```\n$': llm_reply,
+            + r'\n```$': llm_reply,
         },
         default_reply=DEFAULT_REPLY,
     )

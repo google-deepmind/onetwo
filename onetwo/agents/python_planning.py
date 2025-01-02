@@ -45,7 +45,7 @@ from collections.abc import AsyncIterator
 import contextlib
 import dataclasses
 import re
-from typing import Protocol, Sequence, TypeAlias, Union
+from typing import Protocol, Sequence, TypeAlias
 
 from onetwo.agents import agents_base
 from onetwo.builtins import composables
@@ -178,11 +178,31 @@ def _parse_llm_reply_code(llm_reply: str) -> str:
   return llm_reply.strip()
 
 
+DEFAULT_PYTHON_PLANNING_INSTRUCTION = """\
+Your task is to answer questions through the help of a Python interpreter and \
+a set of tools that can be invoked via Python function calls. You do not need \
+to use all of the tools for every question, and you can also call the same \
+tool multiple times -- whatever is most effective for answering the question \
+accurately and factually. You will answer the question in one or more steps. \
+In each step, you should output a block of Python code enclosed in triple back \
+ticks, after which the code will automatically be executed, and the output \
+will be printed immediately afterward. You can then proceed with outputting \
+the next Python code block, where appropriate. Each code block can reference \
+variables defined in earlier code blocks. At the end, you should print the \
+final answer and then call the function `exit()` to indicate that you are \
+done.\
+"""
+
+
 DEFAULT_PYTHON_PLANNING_PROMPT_TEXT = """\
-{#- Preamble: Tools description -#}
+{#- Preamble: Instructions and tools description -#}
 {%- role name='system' -%}
+{% if instruction -%}
+{{ instruction + '\n\n' }}
+{%- endif -%}
 Here is a list of available tools:
-{% for tool in tools %}
+{%- for tool in tools -%}
+{{ '\n' }}
 Tool name: {{ tool.name }}
 Tool description: {{ tool.description }}
 {% if tool.example -%}
@@ -191,10 +211,9 @@ Tool description: {{ tool.description }}
 {%- endfor -%}
 
 {#- Preamble: Few-shot exemplars -#}
+{%- for exemplar in exemplars -%}
 {{ '\n' }}
-Here is an example of how these tools can be used to solve a task:
-{% for exemplar in exemplars %}
-**Question**: {{ exemplar.inputs + '\n\n' }}
+**Question**: {{ exemplar.inputs + '\n' }}
 {%- for step in exemplar.updates -%}
 ```
 {{ step.code }}
@@ -202,20 +221,16 @@ Here is an example of how these tools can be used to solve a task:
 {{ step.result | trim + '\n\n' }}
 {%- if step.is_finished -%}
 **Done**
-{{ '\n' }}
 {%- endif -%}
 {%- endfor -%}
 {%- endfor -%}
-
-{{ '\n' }}
-Write code in Python using the above tools to solve the following question:
-{{ '\n' }}
 {%- endrole -%}
 
 {#- Start of the processing of the actual inputs. -#}
 
 {#- Render the original question. -#}
-**Question**: {{ state.inputs + '\n\n' }}
+{{ '\n' }}
+**Question**: {{ state.inputs + '\n' }}
 
 {#- Render the current state (i.e., any steps performed up till now). -#}
 {%- for step in state.updates -%}
@@ -225,13 +240,11 @@ Write code in Python using the above tools to solve the following question:
 {{ step.result | trim + '\n\n' }}
 {%- if step.is_finished -%}
 **Done**
-{{ '\n' }}
 {%- endif -%}
 {%- endfor -%}
 
 {#- Get a response from the LLM for the next step and return it. -#}
-```
-{{ store('llm_reply', generate_text(stop=['```']) | trim) }}
+```{{ store('llm_reply', generate_text(stop=['```']) | trim) }}
 """
 
 # Default set of exemplars that can be used for calls to a Python Planning
@@ -308,10 +321,17 @@ class PythonPlanningPromptProtocol(Protocol):
 class PythonPlanningPromptJ2(
     PythonPlanningPromptProtocol, prompt_templating.JinjaTemplateWithCallbacks
 ):
-  """JinjaTemplate usable with PythonPlanningAgent.prompt."""
+  """JinjaTemplate usable with PythonPlanningAgent.prompt.
+
+  Attributes:
+    instruction: The instruction to use in the prompt. Does not need to begin
+      or end with a newline, as these will be handled automatically.
+  """
 
   # Overriding default value of attribute defined in templating.JinjaTemplate.
   text: str = DEFAULT_PYTHON_PLANNING_PROMPT_TEXT
+
+  instruction: str = DEFAULT_PYTHON_PLANNING_INSTRUCTION
 
   @executing.make_executable
   async def __call__(
@@ -322,6 +342,7 @@ class PythonPlanningPromptJ2(
   ) -> str:
     """See PythonPlanningPromptProtocol."""
     result = await self.render(
+        instruction=self.instruction,
         exemplars=exemplars,
         state=state,
         tools=tools,
@@ -349,22 +370,22 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
   we can extend this to support multimodal PythonPlanning states too.
 
   Attributes:
+    instruction: The instruction to use in the prompt. Does not need to begin
+      or end with a newline, as these will be handled automatically.
     instruction_role: The role to use for the instruction parts of the prompt,
       which describe the available tools or the overall task.
     response_role: The role to use for the response parts of the prompt, i.e.
       those that will be provided by the model.
   """
 
+  instruction: str = DEFAULT_PYTHON_PLANNING_INSTRUCTION
   instruction_role: content_lib.PredefinedRole = content_lib.PredefinedRole.USER
   response_role: content_lib.PredefinedRole = content_lib.PredefinedRole.MODEL
 
-  def _build_tool_composable(
-      self,
-      tool: llm_tool_use.Tool,
-  ) -> composing.Composable:
+  def _render_tool(self, tool: llm_tool_use.Tool) -> composing.Composable:
     """Returns a composable with the prompt content describing a single tool."""
     e = composables.c(
-        f'Tool name: {tool.name}\n',
+        f'\nTool name: {tool.name}\n',
         role=self.instruction_role,
     ) + composables.c(
         f'Tool description: {tool.description}\n',
@@ -377,20 +398,19 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       )
     return e
 
-  def _build_tools_description(
+  def _render_tools(
       self,
       tools: Sequence[llm_tool_use.Tool],
   ) -> composing.Composable:
     """Returns a composable with the prompt content describing all tools."""
     e = composables.f(
-        'Here is a list of available tools:\n\n', role=self.instruction_role
+        'Here is a list of available tools:\n', role=self.instruction_role
     )
     for tool in tools:
-      e += self._build_tool_composable(tool)
-    e += composables.f('\n', role=self.instruction_role)
+      e += self._render_tool(tool)
     return e
 
-  def _build_update_step(
+  def _render_step(
       self, step: PythonPlanningStep
   ) -> composing.Composable:
     """Returns a composable for rendering a single PythonPlanning step."""
@@ -410,52 +430,23 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       )
     return e
 
-  def _build_example(
-      self, example: PythonPlanningState
-  ) -> composing.Composable:
-    """Returns a composable for rendering a single few-shot exemplar."""
+  def _render_state(self, state: PythonPlanningState) -> composing.Composable:
+    """Returns a composable for rendering the agent state for one example."""
     e = composables.f(
-        f'**Question**: {example.inputs}\n',
+        f'\n**Question**: {state.inputs}\n',
         role=self.instruction_role,
     )
-    for step in example.updates:
-      e += self._build_update_step(step)
+    for step in state.updates:
+      e += self._render_step(step)
     return e
 
-  def _build_pythonplanning_fewshots(
+  def _render_exemplars(
       self, exemplars: Sequence[PythonPlanningState]
   ) -> composing.Composable:
     """Returns a composable for rendering all of the few-shot exemplars."""
-    e = composables.f(
-        'Here is an example of how these tools can be used to solve a'
-        ' task:\n\n',  # Differs from ReAct.
-        role=self.instruction_role,
-    )
-    for example in exemplars:
-      e += self._build_example(example)
-    return e
-
-  def _build_question(self, state: PythonPlanningState) -> composing.Composable:
-    """Returns a composable for rendering the user-provided question."""
-    e = composables.f(
-        '\n\nWrite code in Python using the above tools to solve the following'
-        ' question:\n\n',
-        role=self.instruction_role,
-    )
-    e += composables.f('**Question**: ', role=content_lib.PredefinedRole.USER)
-    e += composables.c(state.inputs, role=content_lib.PredefinedRole.USER)
-    e += composables.f('\n\n', role=content_lib.PredefinedRole.USER)
-    return e
-
-  def _build_current_state(
-      self,
-      state: PythonPlanningState,
-  ) -> composing.Composable:
-    """Returns a composable for rendering the entire current agent state."""
     e = composables.c(content_lib.ChunkList())
-    if state.updates:
-      for step in state.updates:
-        e += self._build_update_step(step)
+    for exemplar in exemplars:
+      e += self._render_state(exemplar)
     return e
 
   @executing.make_executable
@@ -464,13 +455,17 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       exemplars: list[PythonPlanningState],
       state: PythonPlanningState,
       tools: Sequence[llm_tool_use.Tool],
-  ) -> Union[content_lib.ChunkList, str]:
+  ) -> content_lib.ChunkList | str:
     e = composables.c(content_lib.ChunkList())
-    e += self._build_tools_description(tools)
-    e += self._build_pythonplanning_fewshots(exemplars)
-    e += self._build_question(state)
-    e += self._build_current_state(state)
-    e += composables.f('```\n', role=self.response_role)
+    # Instruction
+    if self.instruction:
+      e += composables.c(
+          self.instruction + '\n\n', role=self.instruction_role)
+
+    e += self._render_tools(tools)
+    e += self._render_exemplars(exemplars)
+    e += self._render_state(state)
+    e += composables.f('```', role=self.response_role)
     # Using chat instead of generate_text to return ChunkList.
     e += composables.store('llm_reply', composables.chat(stop=['\n```']))
 
