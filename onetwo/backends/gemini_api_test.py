@@ -443,6 +443,17 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     self.assertLen(results, 3)
     self.assertListEqual(list(results), ['a' * 10, 'a' * 10, 'a' * 10])
 
+  def test_instruct_should_use_api_formatter(self):
+    _ = _get_and_register_backend()
+    prompt = 'Task: Answer the question.\nQuestion:Why?\nAnswer:'
+    try:
+      _ = executing.run(llm.instruct(prompt=prompt))
+    except ValueError as e:
+      # If llm.instruct inadvertently uses the default formatter rather than the
+      # API formatter, the above prompt will raise an error due to the phrases
+      # 'Task:' and 'Answer:' being interpreted as control tokens.
+      self.fail(f'Instruct raised an error. Maybe due to wrong formatter?\n{e}')
+
   def test_chat(self):
     backend = _get_and_register_backend()
     msg_user = _Message(role=_PredefinedRole.USER, content='Hello model')

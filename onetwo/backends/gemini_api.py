@@ -215,6 +215,9 @@ class GeminiAPI(
     llm.embed.configure(self.embed)
     llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
     llm.count_tokens.configure(self.count_tokens)
+    llm.instruct.configure(
+        llm.default_instruct, formatter=formatting.FormatterName.API
+    )
 
   def _get_api_key(self) -> str | None:
     """Retrieve GenAI API key.
