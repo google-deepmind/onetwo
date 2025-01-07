@@ -224,7 +224,7 @@ class ReactTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (
-          'call_arbitrary_function',
+          'act_tool_call_no_thought',
           "[Act]: some_tool('a', b=1)",
           {},
           react.ReActStep(
@@ -238,7 +238,37 @@ class ReactTest(parameterized.TestCase):
           ),
       ),
       (
-          'call_finish_function_uppercase',
+          'act_tool_call_with_thought',
+          "[Thought]: Hmm...\n[Act]: some_tool('a', b=1)",
+          {},
+          react.ReActStep(
+              is_finished=False,
+              thought='Hmm...',
+              action=llm_tool_use.FunctionCall(
+                  function_name='some_tool',
+                  args=('a',),
+                  kwargs={'b': 1},
+              ),
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ),
+      (
+          'act_tool_call_with_thought_missing_colons',
+          "[Thought] Hmm...\n[Act] some_tool('a', b=1)",
+          {},
+          react.ReActStep(
+              is_finished=False,
+              thought='Hmm...',
+              action=llm_tool_use.FunctionCall(
+                  function_name='some_tool',
+                  args=('a',),
+                  kwargs={'b': 1},
+              ),
+              fmt=llm_tool_use.ArgumentFormat.PYTHON,
+          ),
+      ),
+      (
+          'act_finish_function_uppercase',
           "[Act]: Finish('final_answer')",
           {},
           react.ReActStep(
@@ -251,7 +281,7 @@ class ReactTest(parameterized.TestCase):
           ),
       ),
       (
-          'call_finish_function_lowercase',
+          'act_finish_function_lowercase',
           "[Act]: finish('final_answer')",
           {},
           react.ReActStep(

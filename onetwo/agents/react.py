@@ -580,9 +580,9 @@ class ReActParseProtocol(Protocol):
 def react_parse(
     reply_text: str,
     *,
-    action_pattern: str = r'\[Act\]:',
-    thought_pattern: str = r'\[Thought\]:',
-    finish_pattern: str = r'\[Finish\]:',
+    action_pattern: str = r'\[Act\]:?',
+    thought_pattern: str = r'\[Thought\]:?',
+    finish_pattern: str = r'\[Finish\]:?',
     final_stop_sequence: str | None = '\n\n',
 ) -> ReActStep:
   """Returns the result of parsing the LLM reply for a ReAct prompt.
