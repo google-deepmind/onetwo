@@ -432,10 +432,9 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
 
   def _render_state(self, state: PythonPlanningState) -> composing.Composable:
     """Returns a composable for rendering the agent state for one example."""
-    e = composables.f(
-        f'\n**Question**: {state.inputs}\n',
-        role=self.instruction_role,
-    )
+    e = composables.c('\n**Question**: ', role=content_lib.PredefinedRole.USER)
+    e += composables.c(state.inputs, role=content_lib.PredefinedRole.USER)
+    e += composables.f('\n', role=content_lib.PredefinedRole.USER)
     for step in state.updates:
       e += self._render_step(step)
     return e

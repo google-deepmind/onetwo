@@ -86,6 +86,12 @@ class LLMForTest(backends_base.Backend):
       specifying an empty regex (''). If multiple regexes match the same prompt,
       then will return the reply associated with whichever of the regexes it
       happened to evaluate first.
+    reply_by_prompt_bytes_regex: Same as `reply_by_prompt_regex`, but for
+      use with prompts of type `content_lib.ChunkList`. The key is a bytes regex
+      that will be matched against the bytes representation of the ChunkList,
+      as obtained by calling `utils.get_bytes_for_hashing`. If there was no
+      match for the prompt bytes, we fall back to matching the prompt string
+      against the other mappings, such as `reply_by_prompt_regex`, etc.
     reply_by_prompt_target: Mapping from prompt+target to score.
     default_reply: Default reply if not found in reply_by_prompt, or a function
       to be used by default for determining the reply from the prompt.
@@ -108,6 +114,9 @@ class LLMForTest(backends_base.Backend):
   reply_by_prompt: Mapping[str, str | Sequence[str] | Exception] = (
       dataclasses.field(default_factory=dict)
   )
+  reply_by_prompt_bytes_regex: Mapping[
+      bytes, str | Sequence[str] | Exception
+  ] = dataclasses.field(default_factory=dict)
   reply_by_prompt_regex: Mapping[str, str | Sequence[str] | Exception] = (
       dataclasses.field(default_factory=dict)
   )
@@ -133,9 +142,36 @@ class LLMForTest(backends_base.Backend):
   _num_generate_text_requests_by_regex: collections.Counter[str] = (
       dataclasses.field(init=False, default_factory=collections.Counter)
   )
+  _num_generate_text_requests_by_bytes_regex: collections.Counter[bytes] = (
+      dataclasses.field(init=False, default_factory=collections.Counter)
+  )
 
-  def _get_generate_text_reply(self, prompt: str) -> str:
+  def _get_generate_text_reply(
+      self, prompt: str | content_lib.ChunkList
+  ) -> str:
     """Returns the reply for the given prompt, while updating counters."""
+    if isinstance(prompt, content_lib.ChunkList):
+      prompt_bytes = utils.get_bytes_for_hashing(prompt)
+      # By prompt bytes regex.
+      for regex, reply in self.reply_by_prompt_bytes_regex.items():
+        if not re.search(regex, prompt_bytes):
+          continue
+        if isinstance(reply, Exception):
+          raise reply
+        elif isinstance(reply, str):
+          # Single reply specified. Always return it.
+          return reply
+        else:
+          # Sequence of replies specified. Return the next (until we run out).
+          reply_index = self._num_generate_text_requests_by_bytes_regex[regex]
+          self._num_generate_text_requests_by_bytes_regex[regex] += 1
+          if reply_index < len(reply):
+            return reply[reply_index]
+
+      # If there was no match for the prompt bytes, we fall back to matching on
+      # the prompt string.
+      prompt = str(prompt)
+
     self.prompts.append(prompt)
 
     # By prompt.
@@ -193,9 +229,6 @@ class LLMForTest(backends_base.Backend):
       stop: Sequence[str] | None = None,
       include_details: bool = False,
   ) -> str | tuple[str, Mapping[str, Any]]:
-    if isinstance(prompt, content_lib.ChunkList):
-      prompt = prompt.to_simple_string()
-
     reply = self._get_generate_text_reply(prompt)
 
     def produce_reply(reply: str) -> str | tuple[str, Mapping[str, Any]]:

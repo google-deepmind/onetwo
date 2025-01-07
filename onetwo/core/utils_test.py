@@ -489,6 +489,23 @@ class UtilsTest(parameterized.TestCase):
       self.assertLessEqual(end_time - start_time, 2 * 10 * max_base_delay)
 
   @parameterized.named_parameters(
+      ('str', 'key1', b'key1'),
+      ('list', [1, 2, 3], b'[1, 2, 3]'),
+      ('tuple', (1, 2, 3), b'(1, 2, 3)'),
+      ('set', {'b', 'a'}, b"['a', 'b']"),
+      ('dict', {'b': 2, 'a': 1}, b"[('a', 1), ('b', 2)]"),
+      ('bytes', b'a', b'a'),
+      ('chunk', _Chunk('abc'), b'abc'),
+      (
+          'chunk_list',
+          _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'cd'), _Chunk('ef')]),
+          b'abcdef',
+      ),
+  )
+  def test_get_bytes_for_hashing(self, key, expected_bytes):
+    self.assertEqual(expected_bytes, utils.get_bytes_for_hashing(key))
+
+  @parameterized.named_parameters(
       ('str', 'key1', 'key1', 'key2'),
       ('list', [1, 2, 3], [1, 2, 3], [3, 2, 1]),
       ('set', {'a', 'b'}, {'b', 'a'}, {'a', 'c'}),

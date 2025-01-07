@@ -661,7 +661,7 @@ def raising_returned_exception(function):
       return wrapper
 
 
-def _get_bytes_for_hashing(key: Any) -> bytes:
+def get_bytes_for_hashing(key: Any) -> bytes:
   """Best-effort conversion of key to bytes for further hashing."""
   match key:
     # The `hash` function for python `str` and `bytes` by default (starting
@@ -685,10 +685,10 @@ def _get_bytes_for_hashing(key: Any) -> bytes:
       cast(PIL.Image.Image, key).save(bytes_io, 'JPEG')
       bytes_value = bytes_io.getvalue()
     case content_lib.Chunk():
-      bytes_value = _get_bytes_for_hashing(key.content)
+      bytes_value = get_bytes_for_hashing(key.content)
     case content_lib.ChunkList():
       bytes_value = b''.join(
-          [_get_bytes_for_hashing(chunk) for chunk in key.chunks]
+          [get_bytes_for_hashing(chunk) for chunk in key.chunks]
       )
     # case Hashable():
     #   Let us never add this case! This means we want to rely on `__hash__`
@@ -717,5 +717,5 @@ def get_str_hash(key: Any) -> str:
     `caching.py` is that identical calls to the cached functions end up being
     properly recognized.
   """
-  bytes_value = _get_bytes_for_hashing(key)
+  bytes_value = get_bytes_for_hashing(key)
   return hashlib.sha224(bytes_value).hexdigest()

@@ -21,6 +21,7 @@ from absl.testing import parameterized
 from onetwo.agents import python_planning
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import formatting
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.code_execution import python_execution
 from onetwo.stdlib.tool_use import llm_tool_use
@@ -323,8 +324,7 @@ num2 = firstnumber(population2)
     # Set up some simple tools that don't involve RPCs.
     config = _get_environment_config_with_tools()
 
-    # We hard-code the LLM to return the same thought every time (assuming the
-    # prompt is of the expected form).
+    # Mock LLM replies.
     llm_reply = """\
 # First we need to find the populations of Tuebingen and Zuerich individually.
 population1 = search('population of Tuebingen')
@@ -410,8 +410,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     question = 'My test question'
     prev_state = python_planning.PythonPlanningState(inputs=question)
 
-    # We hard-code the LLM to return the same thought every time (assuming the
-    # prompt is of the expected form).
+    # Mock LLM replies.
     llm_reply = f"""\
 error_message = error_tool("{llm_reply_message}")
 print(error_message)
@@ -448,8 +447,7 @@ print(error_message)
     # Set up some simple tools that don't involve RPCs.
     config = _get_environment_config_with_tools()
 
-    # We hard-code the LLM to return the same thought every time (assuming the
-    # prompt is of the expected form).
+    # Mock LLM replies.
     llm_reply = """\
 # First we need to find the populations of Tuebingen and Zuerich individually.
 population1 = search('population of Tuebingen')
@@ -511,6 +509,47 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
     with self.subTest('should_generate_only_the_expected_requests'):
       # This verifies that the agent actually stops when it sees `exit()`.
       self.assertEmpty(llm_backend.unexpected_prompts)
+
+  def test_execute_with_multimodal_inputs(self):
+    mock_image_of_zurich_bytes = b'<zurich_image>'
+    question = content_lib.ChunkList([
+        content_lib.Chunk(mock_image_of_zurich_bytes),
+        content_lib.Chunk('What is the population of this city?'),
+    ])
+
+    # Set up some simple tools that don't involve RPCs.
+    config = _get_environment_config_with_tools()
+
+    # Mock LLM replies.
+    llm_reply = """\
+# This is a picture of Zuerich. We need to find its population.
+population = search('population of Zuerich')
+print('Zuerich population: %s' % population)
+"""
+    llm_backend = backends_test_utils.LLMForTest(
+        reply_by_prompt_bytes_regex={
+            rb'<zurich_image>What is the population of this city\?\n```$': (
+                llm_reply
+            ),
+        },
+        default_reply=DEFAULT_REPLY,
+    )
+    llm_backend.register()
+
+    agent = python_planning.PythonPlanningAgent(
+        prompt=python_planning.PythonPlanningPromptComposable(),
+        exemplars=python_planning.DEFAULT_PYTHON_PLANNING_EXEMPLARS,
+        environment_config=config,
+        max_steps=1,
+    )
+
+    output = executing.run(agent(inputs=question))
+
+    with self.subTest('should_generate_only_the_expected_requests'):
+      self.assertEmpty(llm_backend.unexpected_prompts)
+
+    with self.subTest('should_return_the_correct_output'):
+      self.assertEqual('Zuerich population: 402,762', output)
 
   @parameterized.named_parameters(
       ('no_fences', 'print("Hello!")', 'print("Hello!")'),
