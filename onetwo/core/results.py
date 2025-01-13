@@ -757,6 +757,11 @@ class HTMLRenderer:
       try:
         object_as_dict = vars(object_to_render)
         title = f'{type(object_to_render).__name__}'
+        # Some objects (e.g., `ValueError`) show up as empty when converted to
+        # a dict, so are better handled by the default renderer, which uses
+        # their string representation.
+        if not object_as_dict.items():
+          return None
       except TypeError:
         # Type cannot be converted to a dict.
         return None
@@ -1181,7 +1186,7 @@ class HTMLRenderer:
         return rendering
 
     return HTMLObjectRendering(
-        html=_as_string(object_to_render), collapsible=False
+        html=_as_string(object_to_render), collapsible=True
     )
 
   def render_object_as_collapsible_list_element(

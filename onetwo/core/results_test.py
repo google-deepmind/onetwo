@@ -189,7 +189,8 @@ class EvaluationResultTest(absltest.TestCase):
       self.assertEqual(
           expected_with_color,
           actual_with_color,
-          f'\n\nExpected:\n{expected_with_color}\n\nActual:\n{actual_with_color}',
+          f'\n\nExpected:\n{expected_with_color}\n\n'
+          f'Actual:\n{actual_with_color}',
       )
 
   def test_format_non_string(self):
@@ -893,6 +894,16 @@ class HTMLRendererTest(parameterized.TestCase):
           object_to_render=b'ab',
           expected_html='&#x27;&lt;bytes&gt;&#x27;',
       ),
+      dict(
+          testcase_name='ValueError',
+          object_to_render=ValueError(
+              'A very very very very very very very very long error message'
+          ),
+          expected_html=(
+              'ValueError(&#x27;A very very very very very very very very long'
+              ' error message&#x27;)'
+          ),
+      ),
   )
   def test_render_object(self, object_to_render, expected_html):
     renderer = results.HTMLRenderer()
@@ -1108,6 +1119,11 @@ class HTMLRendererTest(parameterized.TestCase):
                 outputs={'o2': 'o_v2'},
             ),
         ],
+        error=ValueError(
+            'A very very very very very very very very very very very very very'
+            ' very very very very very very very very very very very very very'
+            ' long error message'
+        ),
         targets={'t1': 't_v1'},
         metrics={'m1': 0.1},
     )
@@ -1175,6 +1191,12 @@ class HTMLRendererTest(parameterized.TestCase):
           '<li><b>field1:</b> &#x27;o_very_long_value3_1&#x27;</li>',
           html,
           f'\nFull html:\n{html}',
+      )
+
+    with self.subTest('long_error_message_displayed_in_multiple_lines'):
+      self.assertIn('very long error ...</span>', html, f'\nFull html:\n{html}')
+      self.assertIn(
+          'very long error message&#x27;)</span>', html, f'\nFull html:\n{html}'
       )
 
   def test_custom_renderer(self):
