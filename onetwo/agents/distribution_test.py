@@ -164,7 +164,7 @@ class ReweightedDistributionAgentTest(parameterized.TestCase):
     result = executing.run(outer_agent.get_next_step_distribution(state=state))
     # We round off the distribution to make the comparison easier.
     result = [(s.update, round(s.score, 2)) for s in result]
-    # Also to avoid issues when comparing floats, we convert everthing to
+    # Also to avoid issues when comparing floats, we convert everything to
     # strings.
     self.assertEqual(str(expected_distribution), str(result))
 
