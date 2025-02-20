@@ -586,6 +586,16 @@ print('Zuerich population: %s' % population)
           'print("Hello!")',
       ),
       (
+          'first_line_is_the_word_python',
+          'python\nprint("Hello!")',
+          'print("Hello!")',
+      ),
+      (
+          'first_line_is_the_word_tool_code',
+          'tool_code\nprint("Hello!")',
+          'print("Hello!")',
+      ),
+      (
           'multiline_python_fence',
           '```python\nprint("Hello!")\nprint("Bye!")',
           'print("Hello!")\nprint("Bye!")',
@@ -653,7 +663,7 @@ print('Zuerich population: %s' % population)
       ),
   )
   def test_parse_llm_reply_code(self, llm_reply, expected):
-    self.assertEqual(python_planning._parse_llm_reply_code(llm_reply), expected)
+    self.assertEqual(expected, python_planning._parse_llm_reply_code(llm_reply))
 
 
 if __name__ == '__main__':

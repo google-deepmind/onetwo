@@ -171,6 +171,10 @@ def _parse_llm_reply_code(llm_reply: str) -> str:
   # If we find ``` in the first line, we remove the line, assuming it's a fence.
   if '```' == first_line[:3]:
     llm_reply = llm_reply[len(first_line) :]
+  # Similarly if the first line is simply 'tool_code' or 'python', then it was
+  # likely intended to be part of a fence (since we end the prompt with ```).
+  elif 'tool_code' == first_line or 'python' == first_line:
+    llm_reply = llm_reply[len(first_line) :]
 
   # Any '```' now is treated as the stop fence. Anything beyond is discarded.
   llm_reply = _regex_search('', '```', llm_reply)
