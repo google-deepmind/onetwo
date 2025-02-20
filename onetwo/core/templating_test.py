@@ -57,7 +57,10 @@ class TemplatingTest(parameterized.TestCase):
       ('all_defined', None, {'var1': 'test', 'var2': ''}),
       (
           'some_undefined',
-          ValueError,  # This will fail when tracing the call to the template.
+          # This used to fail with ValueError in Jinja <3.1.5, but was fixed
+          # here to work with jinja2.Undefined():
+          #   https://github.com/pallets/jinja/issues/2025.
+          None,
           {'var1': 'test', 'var2': jinja2.Undefined()},
       ),
       (
