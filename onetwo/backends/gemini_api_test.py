@@ -15,6 +15,8 @@
 """Tests for GeminiAPI engine."""
 
 import collections
+from collections.abc import Callable, Sequence
+import dataclasses
 import string
 from typing import Any, Counter, Final, TypeAlias
 import unittest
@@ -80,9 +82,11 @@ def _mock_list_models() -> model_types.ModelsIterable:
   ]
 
 
-def _get_and_register_backend() -> gemini_api.GeminiAPI:
+def _get_and_register_backend(**kwargs) -> gemini_api.GeminiAPI:
   """Get an instance of GeminiAPI and register its methods."""
-  backend = gemini_api.GeminiAPI(api_key='some_key', batch_size=_BATCH_SIZE)
+  backend = gemini_api.GeminiAPI(
+      api_key='some_key', batch_size=_BATCH_SIZE, **kwargs
+  )
   backend.register()
   return backend
 
@@ -98,6 +102,24 @@ async def check_length_and_generate(
     raise ValueError('Prompt has too many tokens!')
   res = await llm.generate_text(prompt=prompt_text, **other_args)
   return res
+
+
+@dataclasses.dataclass
+class RespondWithTextAndTemperature(
+    Callable[[glm.GenerateContentRequest], Sequence[str]]):
+  """Returns a fixed reply text, with temperature appended if specified."""
+
+  reply: str
+
+  def __call__(
+      self, request: glm.GenerateContentRequest
+  ) -> Sequence[str]:
+    candidate_count = request.generation_config.candidate_count
+    if request.generation_config.temperature:
+      reply_text = f'{self.reply} {request.generation_config.temperature:.1f}'
+    else:
+      reply_text = self.reply
+    return [reply_text] * candidate_count
 
 
 class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
@@ -137,7 +159,9 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     self.observed_generate_content_requests = []
     self.observed_count_tokens_requests = []
 
-    self.generate_content_responses = []
+    self.generate_content_response_function: Callable[
+        [glm.GenerateContentRequest], Sequence[str]
+    ] | None = None
 
     def add_client_method(f):
       name = f.__name__
@@ -149,18 +173,15 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         request: glm.GenerateContentRequest,
         **kwargs,
     ) -> glm.GenerateContentResponse:
-      """Return contents of generate_content_responses or fake replies."""
+      """Returns response controllable by generate_content_response_function."""
+      print(f'generate_content: {request=}, {kwargs=}')
       del kwargs  # Not used.
       self.observed_generate_content_requests.append(request)
       self.assertIsInstance(request, glm.GenerateContentRequest)
       prompt = request.contents
       candidate_count = request.generation_config.candidate_count
-      if self.generate_content_responses:
-        # Return specified replies.
-        if len(self.generate_content_responses) < candidate_count:
-          raise ValueError('Not enough replies in generate_content_responses.')
-        replies = self.generate_content_responses[:candidate_count]
-        self.generate_content_responses.clear()
+      if self.generate_content_response_function:
+        replies = self.generate_content_response_function(request)
       else:
         # Return fake replies consisting of 10 letters each.
         if prompt[0].parts[0].text.startswith('raise_exception'):
@@ -484,6 +505,67 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with self.subTest('multiple_msg_sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
 
+  def test_defaults_generate_text(self):
+    _ = _get_and_register_backend(temperature=0.1)
+    self.generate_content_response_function = RespondWithTextAndTemperature('a')
+    with self.subTest('uses_backend_default'):
+      res = executing.run(llm.generate_text(prompt='Something'))
+      self.assertEqual(res, 'a 0.1')
+
+    with self.subTest('uses_updated_default'):
+      llm.generate_text.update(temperature=0.2)
+      res = executing.run(llm.generate_text(prompt='Something'))
+      self.assertEqual(res, 'a 0.2')
+
+    with self.subTest('uses_override'):
+      res = executing.run(
+          llm.generate_text(prompt='Something', temperature=0.3)
+      )
+      self.assertEqual(res, 'a 0.3')
+
+  def test_defaults_chat(self):
+    _ = _get_and_register_backend(temperature=0.1)
+    self.generate_content_response_function = RespondWithTextAndTemperature('a')
+    messages = [
+        content_lib.Message(
+            content='Something',
+            role=content_lib.PredefinedRole.USER,
+        )
+    ]
+    with self.subTest('uses_backend_default'):
+      llm.chat(messages=messages)
+      res = executing.run(llm.chat(messages=messages))
+      self.assertEqual(res, 'a 0.1')
+
+    with self.subTest('uses_updated_default'):
+      llm.chat.update(temperature=0.2)
+      res = executing.run(llm.chat(messages=messages))
+      self.assertEqual(res, 'a 0.2')
+
+    with self.subTest('uses_override'):
+      res = executing.run(
+          llm.chat(messages=messages, temperature=0.3)
+      )
+      self.assertEqual(res, 'a 0.3')
+
+  def test_defaults_instruct(self):
+    _ = _get_and_register_backend(temperature=0.1)
+    self.generate_content_response_function = RespondWithTextAndTemperature('a')
+    with self.subTest('uses_backend_default'):
+      res = executing.run(llm.instruct(prompt='Something'))
+      self.assertEqual(res, 'a 0.1')
+
+    with self.subTest('uses_updated_default'):
+      llm.instruct.update(temperature=0.2)
+      res = executing.run(llm.instruct(prompt='Something'))
+      self.assertEqual(res, 'a 0.2')
+
+    with self.subTest('uses_override'):
+      res = executing.run(
+          llm.instruct(prompt='Something', temperature=0.3)
+      )
+      self.assertEqual(res, 'a 0.3')
+
   def test_truncation(self):
     _ = _get_and_register_backend()
     result = executing.run(
@@ -578,7 +660,9 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         prompt=prompt,
         healing_option=healing_option,
     )
-    self.generate_content_responses.append(reply)
+    self.generate_content_response_function = RespondWithTextAndTemperature(
+        reply
+    )
     result = executing.run(executable)
 
     with self.subTest('generate_text_prompt_healed_correctly'):
@@ -600,7 +684,9 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         messages=[msg_model, msg_user],
         healing_option=healing_option,
     )
-    self.generate_content_responses.append(reply)
+    self.generate_content_response_function = RespondWithTextAndTemperature(
+        reply
+    )
     result = executing.run(executable)
 
     with self.subTest('chat_prompt_healed_correctly'):

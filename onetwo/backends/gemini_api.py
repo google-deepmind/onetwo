@@ -48,10 +48,9 @@ _ChunkList: TypeAlias = content_lib.ChunkList
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 
 # Available models are listed at https://ai.google.dev/models/gemini.
-# input_token_limit=30720, output_token_limit=2048.
-DEFAULT_GENERATE_MODEL: Final[str] = 'models/gemini-pro'
-# input_token_limit=30720, output_token_limit=2048.
-DEFAULT_MULTIMODAL_MODEL: Final[str] = 'models/gemini-pro-vision'
+# input_token_limit=1,048,576, output_token_limit=8192.
+DEFAULT_GENERATE_MODEL: Final[str] = 'models/gemini-2.0-flash'
+DEFAULT_MULTIMODAL_MODEL: Final[str] = 'models/gemini-2.0-flash'
 # input_token_limit=2048.
 DEFAULT_EMBED_MODEL: Final[str] = 'models/embedding-001'
 
@@ -213,7 +212,15 @@ class GeminiAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
+    llm.chat.configure(
+        self.chat,
+        formatter=formatting.FormatterName.API,
+        temperature=self.temperature,
+        max_tokens=self.max_tokens,
+        stop=self.stop,
+        top_p=self.top_p,
+        top_k=self.top_k,
+    )
     llm.count_tokens.configure(self.count_tokens)
     llm.instruct.configure(
         llm.default_instruct, formatter=formatting.FormatterName.API
@@ -442,10 +449,12 @@ class GeminiAPI(
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
 
-    # TODO: The send_message method does not support parameters
-    # like temperature, top_k, top_p, etc. So they are just ignored. We should
-    # issue a warning to the user if they are set.
     healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+    stop = kwargs.pop('stop', None)
+    max_tokens = kwargs.pop('max_tokens', None)
+    temperature = kwargs.pop('temperature', None)
+    top_k = kwargs.pop('top_k', None)
+    top_p = kwargs.pop('top_p', None)
 
     if len(messages) == 1:
       if messages[0].role != content_lib.PredefinedRole.USER:
@@ -456,8 +465,6 @@ class GeminiAPI(
 
     history = []
     for msg in messages:
-      if msg.role == content_lib.PredefinedRole.SYSTEM:
-        continue
       match msg.role:
         case content_lib.PredefinedRole.USER:
           role = 'user'
@@ -473,6 +480,11 @@ class GeminiAPI(
       )
     generation_config = genai.GenerationConfig(
         candidate_count=1,
+        stop_sequences=stop,
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
     )
     healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
         original_prompt=messages[-1].content,
@@ -489,6 +501,7 @@ class GeminiAPI(
             'parts': healed_content,
         },
         generation_config=generation_config,
+        **kwargs,
     )
     reply = llm_utils.maybe_heal_reply(
         reply_text=response.text,

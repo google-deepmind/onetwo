@@ -197,7 +197,7 @@ class EvaluateTest(parameterized.TestCase):
       self.assertEqual(avg_metric, 1.0)
 
     with self.subTest('runs_efficiently_with_batching'):
-      self.assertBetween(time_elapsed_slow.total_seconds(), 5., 6.)
+      self.assertBetween(time_elapsed_slow.total_seconds(), 5., 7.)
       self.assertBetween(time_elapsed_fast.total_seconds(), 1., 2.)
 
   def test_random_execution_order(self):

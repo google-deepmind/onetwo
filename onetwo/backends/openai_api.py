@@ -36,7 +36,7 @@ from onetwo.core import utils
 
 
 # See https://platform.openai.com/docs/models/model-endpoint-compatibility.
-DEFAULT_MODEL: Final[str] = 'gpt-3.5-turbo'
+DEFAULT_MODEL: Final[str] = 'gpt-4o-mini'
 
 # These models support only "legacy" free form text complition with
 # `client.completions.create`. They don't support chat.
@@ -194,17 +194,12 @@ class OpenAIAPI(
         top_k=self.top_k,
     )
 
-    llm.chat.configure(
-        self.chat,
-        formatter=(
-            formatting.FormatterName.DEFAULT
-            if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS
-            else formatting.FormatterName.API
-        ),
-    )
-
-    # Note: `llm.instruct` by default is configured to use `llm.chat`, see
-    # `onetwo/builtins/llm.py`.
+    if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
+      formatter = formatting.FormatterName.DEFAULT
+    else:
+      formatter = formatting.FormatterName.API
+    llm.chat.configure(self.chat, formatter=formatter)
+    llm.instruct.configure(llm.default_instruct, formatter=formatter)
 
   def __post_init__(self) -> None:
     # Create cache.

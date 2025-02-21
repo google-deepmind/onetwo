@@ -448,7 +448,7 @@ async def default_chat(
     if 'stop' in defaults:
       stop_sequences += defaults['stop'] or []
     if 'stop' in kwargs:
-      stop_sequences += kwargs['stop']
+      stop_sequences += kwargs['stop'] or []
     if stop_sequences:
       kwargs['stop'] = list(set(stop_sequences))
     return await generate_text(prompt, **kwargs)
