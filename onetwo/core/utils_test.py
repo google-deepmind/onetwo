@@ -30,6 +30,7 @@ import PIL.Image
 
 _Chunk: TypeAlias = content_lib.Chunk
 _ChunkList: TypeAlias = content_lib.ChunkList
+_Message: TypeAlias = content_lib.Message
 
 
 def f_empty():
@@ -85,7 +86,8 @@ class UtilsTest(parameterized.TestCase):
           1,
       ),
       (
-          'f_kwargs', False,
+          'f_kwargs',
+          False,
           f_kwargs,
           [1],
           {'y': 2},
@@ -196,6 +198,7 @@ class UtilsTest(parameterized.TestCase):
 
   def test_from_instance(self):
     class C:
+
       def __init__(self, test_attribute: str):
         self.test_attribute = test_attribute
 
@@ -268,7 +271,7 @@ class UtilsTest(parameterized.TestCase):
       return i
 
     async def plan(start):
-      return await asyncio.gather(*[af(i) for i in range(start, start+5)])
+      return await asyncio.gather(*[af(i) for i in range(start, start + 5)])
 
     start = time.perf_counter()
     with multiprocessing.pool.ThreadPool(10) as pool:
@@ -304,6 +307,7 @@ class UtilsTest(parameterized.TestCase):
 
   def test_rate_limit_method(self):
     class ClassForTest:
+
       @utils.rate_limit_method(2.0)
       def f(self, i: int):
         return i
@@ -361,7 +365,8 @@ class UtilsTest(parameterized.TestCase):
       @utils.with_retry(
           max_retries=max_retries,
           initial_base_delay=initial_base_delay,
-          max_base_delay=max_base_delay)
+          max_base_delay=max_base_delay,
+      )
       def __call__(self, value: str) -> str:
         if self.n > 0:
           self.n -= 1
@@ -373,7 +378,7 @@ class UtilsTest(parameterized.TestCase):
 
     with self.subTest('should_raise_underlying_error_when_not_enough_retries'):
       with self.assertRaisesRegex(ValueError, 'error'):
-        FailOnFirstNCalls(n=max_retries+1)('x')
+        FailOnFirstNCalls(n=max_retries + 1)('x')
 
     with self.subTest('should_introduce_no_delay_if_no_retry_is_needed'):
       start_time = time.perf_counter()
@@ -431,7 +436,8 @@ class UtilsTest(parameterized.TestCase):
       @utils.with_retry(
           max_retries=max_retries,
           initial_base_delay=initial_base_delay,
-          max_base_delay=max_base_delay)
+          max_base_delay=max_base_delay,
+      )
       async def __call__(self, value: str) -> str:
         if self.n > 0:
           self.n -= 1
@@ -443,7 +449,7 @@ class UtilsTest(parameterized.TestCase):
 
     with self.subTest('should_raise_underlying_error_when_not_enough_retries'):
       with self.assertRaisesRegex(ValueError, 'error'):
-        asyncio.run(FailOnFirstNCalls(n=max_retries+1)('x'))
+        asyncio.run(FailOnFirstNCalls(n=max_retries + 1)('x'))
 
     with self.subTest('should_introduce_no_delay_if_no_retry_is_needed'):
       start_time = time.perf_counter()
@@ -489,25 +495,166 @@ class UtilsTest(parameterized.TestCase):
       self.assertLessEqual(end_time - start_time, 2 * 10 * max_base_delay)
 
   @parameterized.named_parameters(
-      ('str', 'key1', b'key1'),
-      ('list', [1, 2, 3], b'[1, 2, 3]'),
-      ('tuple', (1, 2, 3), b'(1, 2, 3)'),
-      ('set', {'b', 'a'}, b"['a', 'b']"),
-      ('dict', {'b': 2, 'a': 1}, b"[('a', 1), ('b', 2)]"),
-      ('bytes', b'a', b'a'),
-      ('chunk', _Chunk('abc'), b'abc'),
+      ('str', 'key1', False, b'key1'),
+      ('list', [1, 2, 3, 1.0, True, 'a'], False, b"[1, 2, 3, 1.0, True, 'a']"),
+      ('tuple', (1, 2, 3), False, b'(1, 2, 3)'),
+      ('set', {'b', 'a'}, False, b"['a', 'b']"),
+      (
+          'dict',
+          {'b': 2, 'a': 1, 'c': (1.0, 2.0), 'e': True, 'd': 's', 'f': [1, 'a']},
+          False,
+          (
+              b"[('a', 1), ('b', 2), ('c', (1.0, 2.0)), ('d', 's'), ('e',"
+              b" True), ('f', [1, 'a'])]"
+          ),
+      ),
+      ('bytes', b'a', False, b'a'),
+      (
+          'deep_recursion',
+          [{'a': 1, 'b': 2}, ([1, 2], {'c': 3, 'b': b'abc', 1: 2})],
+          False,
+          (
+              b"[[('a', 1), ('b', 2)], ([1, 2], [('1', 2), ('b', b'abc'), ('c',"
+              b' 3)])]'
+          ),
+      ),
+      ('chunk', _Chunk('abc'), False, b'abc'),
       (
           'chunk_list',
           _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'cd'), _Chunk('ef')]),
+          False,
+          b"['ab', b'cd', 'ef']",
+      ),
+      (
+          'message',
+          _Message(content='abc', role='user'),
+          False,
+          b'Message(role=user, content=abc)',
+      ),
+      (
+          'messages',
+          [
+              _Message(content='abc', role='user'),
+              _Message(content='def', role='model'),
+          ],
+          False,
+          (
+              b"['Message(role=user, content=abc)', 'Message(role=model,"
+              b" content=def)']"
+          ),
+      ),
+      (
+          'messages_with_bytes',
+          [
+              _Message(
+                  content=_ChunkList([_Chunk(b'abc', content_type='bytes')]),
+                  role='user',
+              ),
+              _Message(content='def', role='user'),
+          ],
+          False,
+          (
+              b"[\"Message(role=user, content=[b'abc'])\", 'Message(role=user,"
+              b" content=def)']"
+          ),
+      ),
+      (
+          'np.array',
+          np.array([1, 2, 3]),
+          False,
+          b'\x01\x00\x00\x00\x00\x00\x00\x00'
+          + b'\x02\x00\x00\x00\x00\x00\x00\x00'
+          + b'\x03\x00\x00\x00\x00\x00\x00\x00',
+      ),
+      ('str_with_fallback', 'key1', True, b'key1'),
+      (
+          'list_with_fallback',
+          [1, 2, 3, 1.0, True, 'a'],
+          True,
+          b"[1, 2, 3, 1.0, True, 'a']",
+      ),
+      ('tuple_with_fallback', (1, 2, 3), True, b'(1, 2, 3)'),
+      ('set_with_fallback', {'b', 'a'}, True, b"['a', 'b']"),
+      (
+          'dict_with_fallback',
+          {'b': 2, 'a': 1, 'c': (1.0, 2.0), 'e': True, 'd': 's', 'f': [1, 'a']},
+          False,
+          (
+              b"[('a', 1), ('b', 2), ('c', (1.0, 2.0)), ('d', 's'), ('e',"
+              b" True), ('f', [1, 'a'])]"
+          ),
+      ),
+      ('bytes_with_fallback', b'a', True, b'a'),
+      ('chunk_with_fallback', _Chunk('abc'), True, b'abc'),
+      (
+          'chunk_list_with_fallback',
+          _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'cd'), _Chunk('ef')]),
+          True,
           b'abcdef',
       ),
+      (
+          'message_with_fallback',
+          _Message(content='abc', role='user'),
+          True,
+          b"Message(role='user', content='abc')",
+      ),
+      (
+          'messages_with_fallback',
+          [
+              _Message(content='abc', role='user'),
+              _Message(content='def', role='model'),
+          ],
+          True,
+          (
+              b"[Message(role='user', content='abc'),"
+              b" Message(role='model', content='def')]"
+          ),
+      ),
+      (
+          'messages_with_bytes_with_fallback',  # Does not use fallback.
+          [
+              _Message(
+                  content=_ChunkList([_Chunk(b'abc', content_type='bytes')]),
+                  role='user',
+              ),
+              _Message(content='def', role='user'),
+          ],
+          True,
+          (
+              b"[\"Message(role=user, content=[b'abc'])\", 'Message(role=user,"
+              b" content=def)']"
+          ),
+      ),
+      (
+          'message_with_bytes_with_fallback',  # Does not use fallback.
+          _Message(
+              content=_ChunkList([_Chunk(b'abc', content_type='bytes')]),
+              role='user',
+          ),
+          True,
+          b"Message(role=user, content=[b'abc'])",
+      ),
+      (
+          'np.array_with_fallback',
+          np.array([1, 2, 3]),
+          True,
+          b'\x01\x00\x00\x00\x00\x00\x00\x00'
+          + b'\x02\x00\x00\x00\x00\x00\x00\x00'
+          + b'\x03\x00\x00\x00\x00\x00\x00\x00',
+      ),
   )
-  def test_get_bytes_for_hashing(self, key, expected_bytes):
-    self.assertEqual(expected_bytes, utils.get_bytes_for_hashing(key))
+  def test_get_bytes_for_hashing(self, key, fallback_if_safe, expected_bytes):
+    got = utils.get_bytes_for_hashing(key, fallback_if_safe)
+    self.assertEqual(expected_bytes, got, got)
 
   @parameterized.named_parameters(
       ('str', 'key1', 'key1', 'key2'),
-      ('list', [1, 2, 3], [1, 2, 3], [3, 2, 1]),
+      (
+          'list',
+          [1, 2, 3, True, 1.0],
+          [1, 2, 3, True, 1.0],
+          [3, 2, 1, True, 1.0],
+      ),
       ('set', {'a', 'b'}, {'b', 'a'}, {'a', 'c'}),
       ('dict', {'a': 1, 'b': 2}, {'b': 2, 'a': 1}, {'a': 1, 'b': 3}),
       ('bytes', b'a', b'a', b'b'),
@@ -529,6 +676,60 @@ class UtilsTest(parameterized.TestCase):
           _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'ab'), _Chunk('bc')]),
           _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'ab'), _Chunk('bc')]),
           _ChunkList(chunks=[_Chunk('bc'), _Chunk(b'ab'), _Chunk('ab')]),
+      ),
+      (
+          'message',
+          _Message(content='abc', role='user'),
+          _Message(content='abc', role='user'),
+          _Message(content='cba', role='user'),
+      ),
+      (
+          'messages_with_roles',
+          [
+              _Message(content='abc', role='user'),
+              _Message(
+                  content=_ChunkList([_Chunk(b'def', content_type='bytes')]),
+                  role='user',
+              ),
+          ],
+          [
+              _Message(content='abc', role='user'),
+              _Message(
+                  content=_ChunkList([_Chunk(b'def', content_type='bytes')]),
+                  role='user',
+              ),
+          ],
+          [
+              _Message(content='abc', role='user'),
+              _Message(
+                  content=_ChunkList([_Chunk(b'def', content_type='bytes')]),
+                  role='assistant',
+              ),
+          ],
+      ),
+      (
+          'messages_with_bytes',
+          [
+              _Message(content='abc', role='user'),
+              _Message(
+                  content=_ChunkList([_Chunk(b'def', content_type='bytes')]),
+                  role='user',
+              ),
+          ],
+          [
+              _Message(content='abc', role='user'),
+              _Message(
+                  content=_ChunkList([_Chunk(b'def', content_type='bytes')]),
+                  role='user',
+              ),
+          ],
+          [
+              _Message(content='abc', role='user'),
+              _Message(
+                  content=_ChunkList([_Chunk(b'xyz', content_type='bytes')]),
+                  role='user',
+              ),
+          ],
       ),
       (
           'np.array',
@@ -566,12 +767,14 @@ class UtilsTest(parameterized.TestCase):
       @functools.wraps(f)
       def wrapper(self, *args, **kwargs):
         return f(self, *args, **kwargs)
+
       return wrapper
 
     def incorrect_wrapping_decorator(f):
       @functools.wraps(f)
       def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
+
       return wrapper
 
     @decorator
@@ -579,6 +782,7 @@ class UtilsTest(parameterized.TestCase):
       return None
 
     class ClassForTest:  # pylint: disable=unused-variable
+
       @decorator
       def method(self):
         return None
@@ -613,6 +817,7 @@ class UtilsTest(parameterized.TestCase):
       raise ValueError(f'error: {x}, {y}')
 
     class C:
+
       @utils.returning_raised_exception
       def f(self, x: int, y: str):
         raise ValueError(f'error: {x}, {y}')
@@ -657,6 +862,7 @@ class UtilsTest(parameterized.TestCase):
       raise ValueError(f'error: {x}, {y}')
 
     class C:
+
       @utils.raising_returned_exception
       @utils.returning_raised_exception
       def f(self, x: int, y: str):
@@ -684,6 +890,7 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('async_method'):
       with self.assertRaisesRegex(ValueError, 'error: 1, a'):
         asyncio.run(o.af(1, y='a'))
+
 
 if __name__ == '__main__':
   absltest.main()

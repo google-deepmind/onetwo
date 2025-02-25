@@ -528,7 +528,7 @@ print('Zuerich population: %s' % population)
 """
     llm_backend = backends_test_utils.LLMForTest(
         reply_by_prompt_bytes_regex={
-            rb'<zurich_image>What is the population of this city\?\n```$': (
+            b"[b'<zurich_image>', 'What is the population of this city?\n```$']": (
                 llm_reply
             ),
         },

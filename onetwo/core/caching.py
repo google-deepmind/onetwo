@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Utility functions for adding caching capabilities to methods."""
+
 from __future__ import annotations
 
 import abc
@@ -114,7 +115,7 @@ def _hint_tuple_decoder(arg: Any) -> Any:
 
 
 def nested_defaultdict_decoder(
-    arg: collections.defaultdict
+    arg: collections.defaultdict,
 ) -> collections.defaultdict:
   """Decodes a defaultdict of int to defaultdict of str to int."""
   decoded = dict(arg)
@@ -125,7 +126,7 @@ def nested_defaultdict_decoder(
 
 
 def defaultdict_decoder(
-    arg: collections.defaultdict
+    arg: collections.defaultdict,
 ) -> collections.defaultdict:
   """Decodes a defaultdict of int to int."""
   decoded = dict(arg)
@@ -136,7 +137,7 @@ def defaultdict_decoder(
 
 
 def nested_defaultdict_initializer(
-    unused_arg: collections.defaultdict | None = None
+    unused_arg: collections.defaultdict | None = None,
 ) -> collections.defaultdict:
   """Returns an empty defaultdict of defaultdict of int."""
   return collections.defaultdict(
@@ -219,12 +220,12 @@ class SimpleFileCache(
 
     Args:
       restore_mapping: If True, will try and restore the mapping between
-        sampling_key and sample_ids from disk, otherwise creates a new one.
-        Only relevant if `overwrite=True` (otherwise nevers restores mapping).
-      overwrite: If True, then any existing cache contents will be discarded
-        and completely overwritten by the contents of the cache file. If False,
-        then the existing cache contents will be preserved and the contents of
-        the cache file will be merged into it.
+        sampling_key and sample_ids from disk, otherwise creates a new one. Only
+        relevant if `overwrite=True` (otherwise nevers restores mapping).
+      overwrite: If True, then any existing cache contents will be discarded and
+        completely overwritten by the contents of the cache file. If False, then
+        the existing cache contents will be preserved and the contents of the
+        cache file will be merged into it.
       cache_filename: If specified, then will load from the given file path;
         otherwise, by default will load from `self.cache_filename`.
     """
@@ -258,6 +259,7 @@ class CacheEnabled(Generic[CachedType]):
   Attributes:
     disable_caching: Whether caching is enabled for this object.
   """
+
   disable_caching: bool = False
   _cache_handler: SimpleCache[CachedType] | None = dataclasses.field(
       init=False,
@@ -297,12 +299,12 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
 
     Args:
       restore_mapping: If True, will try and restore the mapping between
-        sampling_key and sample_ids from disk, otherwise creates a new one.
-        Only relevant if `overwrite=True` (otherwise nevers restores mapping).
-      overwrite: If True, then any existing cache contents will be discarded
-        and completely overwritten by the contents of the cache file. If False,
-        then the existing cache contents will be preserved and the contents of
-        the cache file will be merged into it.
+        sampling_key and sample_ids from disk, otherwise creates a new one. Only
+        relevant if `overwrite=True` (otherwise nevers restores mapping).
+      overwrite: If True, then any existing cache contents will be discarded and
+        completely overwritten by the contents of the cache file. If False, then
+        the existing cache contents will be preserved and the contents of the
+        cache file will be merged into it.
       cache_filename: If specified, then will load from the given file path;
         otherwise, by default will load from `self.cache_filename`.
     """
@@ -391,9 +393,9 @@ class CacheKeyMaker(Generic[CachedType]):
   dropped: Sequence[str] | None = None
   # Parameters set via the initialize method (will be set by the cache_method
   # decorator).
-  _method: (
-      Callable[..., CachedType] | None
-  ) = dataclasses.field(default=None, init=False)
+  _method: Callable[..., CachedType] | None = dataclasses.field(
+      default=None, init=False
+  )
   _name: str | None = dataclasses.field(default=None, init=False)
 
   @property
@@ -445,9 +447,7 @@ class CacheKeyMaker(Generic[CachedType]):
       for name in self.dropped:
         # Remove arguments with that name from the main arguments.
         arguments.pop(name, None)
-    key = _create_cache_key(
-        self._name, arguments, self.hashed
-    )
+    key = _create_cache_key(self._name, arguments, self.hashed)
     return key
 
 
@@ -475,9 +475,9 @@ def return_first_and_cache_remaining(
     First value in values Sequence.
   """
   if (
-      isinstance(values, str) or  # values = 'abcd' won't do.
-      isinstance(values, ByteString) or  # values = b'abcd' won't do.
-      not isinstance(values, Sequence)
+      isinstance(values, str)  # values = 'abcd' won't do.
+      or isinstance(values, ByteString)  # values = b'abcd' won't do.
+      or not isinstance(values, Sequence)
   ):
     raise ValueError(
         'Method that is decorated with cache_method(cache_extra_replies'
@@ -497,7 +497,7 @@ def return_first_and_cache_remaining(
         'Received replies of type %s. Caching extra replies of type '
         'executing.ExecutableWithCallback not yet supported. We discard '
         'them for now.',
-        type(values[0])
+        type(values[0]),
     )
   else:
     for value in values[1:]:
@@ -520,7 +520,7 @@ def _get_cache_handler(
   Returns:
     The cache handler of the given object.
   """
-  if (not isinstance(obj_with_cache, CacheEnabled)):
+  if not isinstance(obj_with_cache, CacheEnabled):
     raise ValueError(
         "Decorator @cache_method is applied to a method whose class doesn't"
         ' inherit from CacheEnabled.'
@@ -596,7 +596,7 @@ def cache_method(
   """
 
   def method_wrapper(
-      method: Callable[..., ReturnType | Coroutine[None, None, ReturnType]]
+      method: Callable[..., ReturnType | Coroutine[None, None, ReturnType]],
   ) -> Callable[..., ReturnType | Coroutine[None, None, ReturnType]]:
     """Actual decorator replacing the method with a version that uses cache."""
     nonlocal name
@@ -678,9 +678,9 @@ def cache_method(
         obj_with_cache: Object of class CacheEnabled. We are decorating its
           method.
         value: Return value of the method to be stored in the cache. If this is
-          an Executable, instead of storing it directly, we attach
-          to it a postprocessing callback to store it after the end of the
-          iterations and return it.
+          an Executable, instead of storing it directly, we attach to it a
+          postprocessing callback to store it after the end of the iterations
+          and return it.
         key: Cache key.
         sampling_key: Sampling key.
 
@@ -696,6 +696,7 @@ def cache_method(
       # We pass a callback that will take care of caching the final state
       # of the value once iterated through.
       if isinstance(value, executing.Executable):
+
         def callback(v: CachedType) -> CachedType:
           _get_cache_handler(obj_with_cache).cache_value(
               key=key,
@@ -759,7 +760,7 @@ def cache_method(
                   self._cache_handler.cache_value,  # pytype: disable=attribute-error
                   key,
                   None,  # No sampling_key set.
-              )
+              ),
           )
         result = store(self, value, key, sampling_key)
         return result
@@ -803,7 +804,7 @@ class SamplingKeyUpdater(executing.Executable):
     # is copied, the sampling key is not copied and instead it is dynamically
     # assigned.
     self.base_key = context_sampling_key.get()
-    if (self.base_key == '0' or not self.base_key):
+    if self.base_key == '0' or not self.base_key:
       # We replace the '0' key by the default sampling_key so that it always
       # maps to the default sample.
       new_key = self.postfix if self.postfix != '0' else _DEFAULT_SAMPLING_KEY
@@ -837,12 +838,12 @@ class _CacheData(
   Attributes:
     counters: Counts of cache hits and misses, etc.
     values_by_key: Mapping of (hashed) cache keys to the existing values.
-    num_used_values_by_key: Keeps track of how many of the existing values for
-      a given (hashed) cache key have been mapped to sampling_keys.
-    sample_id_by_sampling_key_by_key: Mapping from a (hashed) cache and
-      sampling keys to the index in the list of samples we have for that
-      call.
+    num_used_values_by_key: Keeps track of how many of the existing values for a
+      given (hashed) cache key have been mapped to sampling_keys.
+    sample_id_by_sampling_key_by_key: Mapping from a (hashed) cache and sampling
+      keys to the index in the list of samples we have for that call.
   """
+
   # Note: The order of the attributes here determines the order in which they
   # appear in the JSON file. Smaller attributes should go at the top.
   counters: collections.Counter[str] = dataclasses.field(
@@ -861,11 +862,9 @@ class _CacheData(
           decoder=_hint_tuple_decoder,
       ),
   )
-  num_used_values_by_key: collections.defaultdict[str, int] = (
-      dataclasses.field(
-          default_factory=lambda: collections.defaultdict(int),
-          metadata=dataclasses_json.config(decoder=defaultdict_decoder),
-      )
+  num_used_values_by_key: collections.defaultdict[str, int] = dataclasses.field(
+      default_factory=lambda: collections.defaultdict(int),
+      metadata=dataclasses_json.config(decoder=defaultdict_decoder),
   )
   sample_id_by_sampling_key_by_key: collections.defaultdict[
       str, collections.defaultdict[str, int]
@@ -879,7 +878,7 @@ class _CacheData(
       cls,
       cache_file_path: str,
       restore_mapping: bool = False,
-      cached_value_decoder: Callable[[Any], Any] | None = None
+      cached_value_decoder: Callable[[Any], Any] | None = None,
   ) -> _CacheData[CachedType]:
     """Returns a new instance with the contents of the cache file.
 
@@ -1023,7 +1022,11 @@ class _CacheData(
     return key in self.values_by_key
 
   def get_cached_value(
-      self, key: str, sampling_key: str | None, key_for_logging: str
+      self,
+      key: str,
+      sampling_key: str | None,
+      key_for_logging: str,
+      update_counters: bool = True,
   ) -> CachedType | None:
     """Retrieves a value for cache key from the cache.
 
@@ -1032,6 +1035,9 @@ class _CacheData(
       sampling_key: Optional sampling key. See `is_sampled` of `cache_method`
         decorator.
       key_for_logging: Human readable version of the cache key.
+      update_counters: Whether to update the counters: this should not be set to
+        False and it is only used for the special case when we want to fallback
+        to an old-style cache key for backwards compatibility.
 
     Returns:
       The value found in the cache if any or None otherwise.
@@ -1047,7 +1053,7 @@ class _CacheData(
         sample_id = 0
         found = True
       if key in self.sample_id_by_sampling_key_by_key:
-        if (sampling_key in self.sample_id_by_sampling_key_by_key[key]):
+        if sampling_key in self.sample_id_by_sampling_key_by_key[key]:
           sample_id = self.sample_id_by_sampling_key_by_key[key][sampling_key]
           found = True
       if not found:
@@ -1058,11 +1064,10 @@ class _CacheData(
           # We map a new one.
           sample_id = self.num_used_values_by_key[key]
           self.num_used_values_by_key[key] += 1
-          self.sample_id_by_sampling_key_by_key[key][
-              sampling_key
-          ] = sample_id
+          self.sample_id_by_sampling_key_by_key[key][sampling_key] = sample_id
         else:
-          self.counters['get_hit_miss_sample'] += 1
+          if update_counters:
+            self.counters['get_hit_miss_sample'] += 1
           logging.info(
               'Found key but not the sampling key: %s', key_for_logging
           )
@@ -1072,7 +1077,8 @@ class _CacheData(
       # The sample_id should correspond to a valid index in the list of
       # values.
       assert sample_id < len(existing_values)
-      self.counters['get_hit'] += 1
+      if update_counters:
+        self.counters['get_hit'] += 1
       logging.info(
           'Found sample_id %d for key %s',
           sample_id,
@@ -1082,7 +1088,8 @@ class _CacheData(
     else:
       # The key is not in the cache and no other coroutine is processing the
       # same call.
-      self.counters['get_miss'] += 1
+      if update_counters:
+        self.counters['get_miss'] += 1
       logging.info('Key not found: %s', key_for_logging)
       return None
 
@@ -1187,7 +1194,9 @@ class SimpleFunctionCache(
     # A human readable version of the cache key.
     key_for_logging = get_key_for_logging(key, sampling_key)
     # A hash of the key is used whenever we need to map from the key.
-    key_hash = utils.get_str_hash(key)
+    key_hash = utils.get_str_hash(key, fallback_if_safe=False)
+    key_hash_fallback = utils.get_str_hash(key, fallback_if_safe=True)
+
     logging.info('Looking up key %s', key_for_logging)
     if (key, sampling_key) in self._calls_in_progress:
       logging.info(
@@ -1199,16 +1208,34 @@ class SimpleFunctionCache(
         await asyncio.sleep(0)
         if (key, sampling_key) not in self._calls_in_progress:
           # Another coroutine has finished and cached the value.
-          if not self._cache_data.key_exists(key_hash):
+          if not self._cache_data.key_exists(
+              key_hash
+          ) and not self._cache_data.key_exists(key_hash_fallback):
             raise ValueError(
                 'Another coroutine processed the same call but did not cache '
                 'the obtained value.'
             )
           break
     with self._lock:
-      return self._cache_data.get_cached_value(
+      result = self._cache_data.get_cached_value(
           key_hash, sampling_key, key_for_logging
       )
+      if result is None:
+        # We do not have a cached value for this key, but we can try to get a
+        # cached value for an old-style key, at least when it is safe to create
+        # such a key, which means in particular that there is no multimodal data
+        # in the arguments of the function.
+        # TODO: Remove this fallback once we are confident that most
+        # existing caches have been updated. The change of cache key to handle
+        # multimodal data was introduced on 20250224, so this means it should be
+        # fine to remove this fallback on 20250524.
+        result = self._cache_data.get_cached_value(
+            key_hash_fallback,
+            sampling_key,
+            key_for_logging,
+            update_counters=False,
+        )
+    return result
 
   def get_key_count(self):
     """Returns the number of keys in the cache (a measure of cache size).
@@ -1230,12 +1257,12 @@ class SimpleFunctionCache(
 
     Args:
       restore_mapping: If True, will try and restore the mapping between
-        sampling_key and sample_ids from disk, otherwise creates a new one.
-        Only relevant if `overwrite=True` (otherwise nevers restores mapping).
-      overwrite: If True, then any existing cache contents will be discarded
-        and completely overwritten by the contents of the cache file. If False,
-        then the existing cache contents will be preserved and the contents of
-        the cache file will be merged into it.
+        sampling_key and sample_ids from disk, otherwise creates a new one. Only
+        relevant if `overwrite=True` (otherwise nevers restores mapping).
+      overwrite: If True, then any existing cache contents will be discarded and
+        completely overwritten by the contents of the cache file. If False, then
+        the existing cache contents will be preserved and the contents of the
+        cache file will be merged into it.
       cache_filename: If specified, then will load from the given file path;
         otherwise, by default will load from `self.cache_filename`.
     """

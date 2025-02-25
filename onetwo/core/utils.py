@@ -27,7 +27,7 @@ import logging
 import random
 import threading
 import time
-from typing import cast, overload, Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar
+from typing import Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar, cast, overload
 
 from onetwo.core import content as content_lib
 from onetwo.core import executing_impl
@@ -88,9 +88,7 @@ def is_method(function: Callable[..., Any]) -> bool:
 
 
 def decorator_with_optional_args(
-    decorator: Callable[
-        [Concatenate[_FunctionToDecorate, _Args]], _T
-    ]
+    decorator: Callable[[Concatenate[_FunctionToDecorate, _Args]], _T],
 ) -> Callable[_Args, Callable[[_FunctionToDecorate], _T]]:
   """Decorator of decorators to make passing arguments easier.
 
@@ -119,14 +117,18 @@ def decorator_with_optional_args(
   Returns:
     New decorator that can be used in the three ways above.
   """
+
   def wrapper(*args: _Args.args, **kwargs: _Args.kwargs) -> Any:
     # If the only argument is a function to be wrapped, we just wrap it.
     if len(args) == 1 and callable(args[0]):
       return decorator(args[0])
     else:
+
       def sub_wrapper(function) -> Any:
         return decorator(function, *args, **kwargs)
+
       return sub_wrapper
+
   return wrapper
 
 
@@ -228,17 +230,17 @@ def get_calling_args_and_kwargs(
 class FromInstance(Generic[_T]):
   """Wrapper to indicate that a decorator parameter should be read at runtime.
 
-    There are two ways to specify how to determine the value of the parameter
-    from a given instance -- via either `name` or `function`. Only one of these
-    should be specified.
+  There are two ways to specify how to determine the value of the parameter
+  from a given instance -- via either `name` or `function`. Only one of these
+  should be specified.
 
-    Attributes:
-      name: A string representing a name of an attribute or method that is to be
-        passed as the argument to the decorator.
-      function: A function that will be applied to the object instance in order
-        to determine the value that is to be passed as the argument to the
-        decorator.
+  Attributes:
+    name: A string representing a name of an attribute or method that is to be
+      passed as the argument to the decorator.
+    function: A function that will be applied to the object instance in order to
+      determine the value that is to be passed as the argument to the decorator.
   """
+
   name: str | None = None
   function: Callable[[object], _T] | None = None
 
@@ -330,6 +332,7 @@ def rate_limit_function(
       return awrapper
     else:
       return wrapper
+
   return decorate
 
 
@@ -362,13 +365,19 @@ def rate_limit_method(
   def decorate(method: Callable[_Args, _T]) -> Callable[_Args, _T]:
     if not is_method(method):
       raise ValueError('rate_limit_method can decorate only methods.')
+    if not hasattr(method, '__name__'):
+      raise ValueError(
+          f'rate_limit_method can decorate only methods with a name {method}.'
+      )
+    method_name = method.__name__
+
     def get_params(self, qps_value):
       # We retrieve the instance information from self, and create it if
       # this is the first call.
       class_lock.acquire()
-      instance_lock_name = f'_lock_{method.__name__}'
-      last_call_name = f'_last_call_{method.__name__}'
-      interval_name = f'_interval_{method.__name__}'
+      instance_lock_name = f'_lock_{method_name}'
+      last_call_name = f'_last_call_{method_name}'
+      interval_name = f'_interval_{method_name}'
       if not hasattr(self, instance_lock_name):
         # This is the first call, the instance doesn't have any attributes
         # for this method, we create them.
@@ -382,11 +391,11 @@ def rate_limit_method(
       return instance_lock, interval
 
     def get_last_call(self):
-      last_call_name = f'_last_call_{method.__name__}'
+      last_call_name = f'_last_call_{method_name}'
       return getattr(self, last_call_name)
 
     def set_last_call(self):
-      last_call_name = f'_last_call_{method.__name__}'
+      last_call_name = f'_last_call_{method_name}'
       setattr(self, last_call_name, time.perf_counter())
 
     @functools.wraps(method)
@@ -431,6 +440,7 @@ def rate_limit_method(
       return awrapper
     else:
       return wrapper
+
   return decorate
 
 
@@ -451,10 +461,10 @@ def with_retry(
       error. (E.g., if 0, then will make only a single attempt.)
     initial_base_delay: Initial base delay (in seconds) for retries. After the
       first retriable error, we will wait a random amount of time between
-      `initial_base_delay` and `2 * initial_base_delay` before retrying.
-      Any time that retrying with a given base delay value results in two
-      consecutive errors, we will double the base delay before proceeding to
-      the next retry (until reaching `max_base_delay`). The amount of delay is
+      `initial_base_delay` and `2 * initial_base_delay` before retrying. Any
+      time that retrying with a given base delay value results in two
+      consecutive errors, we will double the base delay before proceeding to the
+      next retry (until reaching `max_base_delay`). The amount of delay is
       managed independently for each request (i.e., reverts to
       `initial_base_delay` for the next request).
     max_base_delay: Maximum base delay (in seconds) for retries.
@@ -557,6 +567,7 @@ def returning_raised_exception(
 
 def returning_raised_exception(function):
   """Decorator to make a function return an exception instead of raising it."""
+
   @functools.wraps(function)
   def wrapper(*args, **kwargs):
     try:
@@ -613,6 +624,7 @@ def raising_returned_exception(
 
 def raising_returned_exception(function):
   """Decorator to make a function raise an exception instead of returning it."""
+
   @functools.wraps(function)
   def wrapper(*args, **kwargs):
     result = function(*args, **kwargs)
@@ -661,49 +673,89 @@ def raising_returned_exception(function):
       return wrapper
 
 
-def get_bytes_for_hashing(key: Any) -> bytes:
+def get_bytes_for_hashing(key: Any, fallback_if_safe: bool = False) -> bytes:
   """Best-effort conversion of key to bytes for further hashing."""
-  match key:
-    # The `hash` function for python `str` and `bytes` by default (starting
-    # from python 3.3) adds a random seed to the hash. This means that between
-    # two runs `hash(obj)` is not deterministic. While for many applications
-    # such a behaviour would be ok, it clearly does not work well with caching,
-    # where we want same deterministic hashes between the runs.
-    case str():
-      bytes_value = key.encode('utf-8')
-    case bytes():
-      bytes_value = key
-    case list() | tuple():
-      bytes_value = str(key).encode('utf-8')
-    case dict():
-      bytes_value = str(sorted(key.items())).encode('utf-8')
-    case set():
-      bytes_value = str(sorted(list(key))).encode('utf-8')
-    case PIL.Image.Image():
-      # Extract bytes from the PIL Image object and hash it.
-      bytes_io = io.BytesIO()
-      cast(PIL.Image.Image, key).save(bytes_io, 'JPEG')
-      bytes_value = bytes_io.getvalue()
-    case content_lib.Chunk():
-      bytes_value = get_bytes_for_hashing(key.content)
-    case content_lib.ChunkList():
-      bytes_value = b''.join(
-          [get_bytes_for_hashing(chunk) for chunk in key.chunks]
-      )
-    # case Hashable():
-    #   Let us never add this case! This means we want to rely on `__hash__`
-    #   method of the type, but as pointed out above doing so is often
-    #   dangerous.
-    case _:
-      if hasattr(key, 'tobytes'):  # Type `str` has no such attribute.
-        # This handles the case of a np.ndarray.
-        bytes_value = key.tobytes()
-      else:
-        raise ValueError(f'Unsupported key type: {type(key)}')
-  return bytes_value
+
+  # We use this function to recurse through complex objects made of built-in
+  # types, so that the bytes encoding happens at the outmost level.
+  def _recurse(key: Any) -> Any:
+    match key:
+      case int() | float() | bool() | str() | bytes():
+        return key
+      case list():
+        return [_recurse(k) for k in key]
+      case tuple():
+        return tuple([_recurse(k) for k in key])
+      case dict():
+        # We convert the keys to strings and sort them to ensure that the order
+        # of the items is deterministic.
+        return sorted(
+            [(str(_recurse(k)), _recurse(v)) for k, v in key.items()],
+            key=lambda x: x[0],
+        )
+      case set():
+        # We convert the values to strings and sort them to ensure that the
+        # order of the items is deterministic.
+        return sorted([str(_recurse(k)) for k in key])
+      case PIL.Image.Image():
+        # Extract bytes from the PIL Image object and hash it.
+        bytes_io = io.BytesIO()
+        cast(PIL.Image.Image, key).save(bytes_io, 'JPEG')
+        return bytes_io.getvalue()
+      case content_lib.Chunk():
+        return _recurse(key.content)
+      case content_lib.ChunkList():
+        return [_recurse(chunk) for chunk in key.chunks]
+      case content_lib.Message():
+        return f'Message(role={key.role}, content={_recurse(key.content)})'
+      # case Hashable():
+      #   Let us never add this case! This means we want to rely on `__hash__`
+      #   method of the type, but as pointed out above doing so is often
+      #   dangerous.
+      case _:
+        if hasattr(key, 'tobytes'):  # Type `str` has no such attribute.
+          # This handles the case of a np.ndarray.
+          return key.tobytes()
+        else:
+          raise ValueError(f'Unsupported key type: {type(key)}')
+
+  if fallback_if_safe:
+    # We reproduce the old behavior of this function until 20250524.
+    # TODO: Remove this branch once we are confident that caches
+    # are updated.
+    match key:
+      case bytes():
+        return key
+      case list() | tuple():
+        encoding = str(key)
+      case dict():
+        encoding = str(sorted(key.items()))
+      case set():
+        encoding = str(sorted(list(key)))
+      case content_lib.ChunkList():
+        return b''.join([
+            chunk.content
+            if chunk.content_type == 'bytes'
+            else str(chunk.content).encode('utf-8')
+            for chunk in key.chunks
+        ])
+      case _:
+        if hasattr(key, 'tobytes'):  # Type `str` has no such attribute.
+          # This handles the case of a np.ndarray.
+          return key.tobytes()
+        else:
+          encoding = str(key)
+    if '<bytes>' not in encoding:
+      return encoding.encode('utf-8')
+
+  result = _recurse(key)
+  if isinstance(result, bytes):
+    return result
+  else:
+    return str(_recurse(key)).encode('utf-8')
 
 
-def get_str_hash(key: Any) -> str:
+def get_str_hash(key: Any, fallback_if_safe: bool = False) -> str:
   """Best-effort hashing of various kinds of objects.
 
   This function is used mainly by `core/caching.py` when computing the hash keys
@@ -711,11 +763,15 @@ def get_str_hash(key: Any) -> str:
 
   Args:
     key: Any object that we want to hash.
+    fallback_if_safe: If True, we will try to hash the object using a fallback
+      method corresponding to a the pre-20250224 version of this function except
+      if the content to be cached contains multimodal data in which case we will
+      use the newer method.
 
   Returns:
     Unique string valued hash of the object. Main goal in the context of
     `caching.py` is that identical calls to the cached functions end up being
     properly recognized.
   """
-  bytes_value = get_bytes_for_hashing(key)
+  bytes_value = get_bytes_for_hashing(key, fallback_if_safe)
   return hashlib.sha224(bytes_value).hexdigest()
