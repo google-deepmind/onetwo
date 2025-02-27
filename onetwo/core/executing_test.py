@@ -1190,6 +1190,8 @@ class ExecutionTest(parameterized.TestCase):
           res = None
       with self.assertRaisesRegex(ValueError, error_string):
         raise res[1]
+      with self.subTest('should_have_traceback_in_notes'):
+        self.assertIn('in compute', res[1].__notes__[0])
 
   def test_chain_with_iterate_argument(self):
     @executing.make_executable(iterate_argument='prefix')

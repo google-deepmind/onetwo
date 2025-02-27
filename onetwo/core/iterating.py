@@ -23,10 +23,12 @@ import contextvars
 import copy
 import functools
 import inspect
+import io
 import itertools
 import logging
 import queue
 import threading
+import traceback
 from typing import Any, Generic, ParamSpec, TypeVar
 
 from onetwo.core import utils
@@ -183,6 +185,13 @@ async def merge(
           # reached the end of the iterator, so there is nothing to be done and
           # we can continue with the other iterators, but if it is of any other
           # type, we need to handle it.
+          # We also add the traceback of the exception to the notes of the
+          # exception so that it can be recovered by the caller. Indeed the
+          # exception may be copied when passed back into the results, and
+          # copying does not retain the __cause__ or __traceback__ information.
+          f = io.StringIO()
+          traceback.print_tb(e.__traceback__, file=f)
+          e.add_note(f.getvalue())
           if not return_exceptions:
             # If return_exceptions is False, we just propagate the exception,
             # which means all results are lost.

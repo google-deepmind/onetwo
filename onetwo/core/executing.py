@@ -26,7 +26,9 @@ import copy
 import dataclasses
 import functools
 import inspect
+import io
 import itertools
+import traceback
 from typing import Any, Final, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from onetwo.core import batching
@@ -1136,6 +1138,13 @@ async def _wrap_executable(
   try:
     res = await executable._aexec()  # pylint: disable=protected-access
   except Exception as e:
+    # We add the traceback of the exception to the notes of the
+    # exception so that it can be recovered by the caller. Indeed the
+    # exception may be copied when passed back into the results, and
+    # copying does not retain the __cause__ or __traceback__ information.
+    f = io.StringIO()
+    traceback.print_tb(e.__traceback__, file=f)
+    e.add_note(f.getvalue())
     if report_exceptions:
       # We report the exception.
       await tracing.report_update(ListUpdate([(e, index)]))
