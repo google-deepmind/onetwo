@@ -1,10 +1,67 @@
 # OneTwo Change Log
 
+## v0.2.1
+
+* **Backends**
+  * **Multimodal:** Enable support for sending arbitrary content chunk types to
+    Gemini models, including video, audio, PDFs, vision embeddings, more image
+    formats, and other chunk types.
+  * **Formatting:** Define a `ConcatFormatter` that simply concatenates the
+    contents of a list of chat messages, while ignoring the roles. When applied
+    to certain styles of prompt, this provides a way to reuse the same prompt
+    across both chat-style LLMs (using `formatter=formatting.FormatterName.API`)
+    and plain text LLMs (using `formatter=formatting.FormatterName.CONCAT`).
+  * **Automatic retry:** Implement a generic retry mechanism for use with
+    arbitrary LLMs, which can be used, for example, to automatically retry upon
+    receipt of a rate-limiting error.
+* **Core**
+  * **Tracing:** Apply comprehensive tracing to all calls to built-in methods
+    (`generate_text`, `chat`, `instruct`, `score_text`, `select`, etc.) of the
+    standard LLM backends, so that we no longer depend on the use of Jinja
+    templates for tracing.
+  * **Chat:** Improve support for chat operations throughout the OneTwo
+    codebase, including adding chat support to composables and ensuring that
+    caching works robustly for chat messages that contain multimodal content.
+* **Agents**
+  * **Error handling:** Improve error handling in `PythonPlanningAgent`,
+    including providing a way to configure inside of each `Tool` definition
+    which types of errors are recoverable or not, so as to surface any
+    tool-generated error messages to the LLM for potentially recoverable errors
+    to allow the LLM to retry with adjusted syntax, while automatically
+    terminating the agent quickly if an irrecoverable error occurs.
+* **Standard library**
+  * **Chat:** Re-implement the standard components such as `ReActAgent`,
+    `PythonPlanningAgent`, and chain-of-thought components to use chat
+    operations and to improve performance on the latest generations of
+    chat-tuned models.
+* **Multimodal:** Add support for multimodal inputs in `ReActAgent` and
+  `PythonPlanningAgent`.
+* **Evaluation**
+  * **LLM critic:** Re-implement naive_evaluation_critic using chat operations
+    and with a parser that is robust to more diverse reply formats, including
+    reply formats commonly output by Gemini 1.5 models.
+* **Visualization**
+  * Improve `HTMLRenderer` to ensure that strings are properly escaped before
+    rendering and to robustly handle a broader range of data types, including
+    graceful fallbacks for images and other large byte objects.
+* **Documentation**
+  * Update the tutorial colab to support the latest Gemini and OpenAI models
+    and to illustrate best practices for chat semantics and multimodal support.
+    Includes, among other things, new sections illustrating multimodal `ReAct`
+    and `PythonPlanning` agents.
+* **Other**
+  * Move commonly used utility functions (e.g., for cache management, etc.) from
+    the tutorial colab into a `colab_utils` library to facilitate reuse in other
+    colabs.
+  * Various bug fixes and incremental improvements to the `GeminiAPI` and
+    `OpenAIAPI` backends, the `VertexAIAPI` backend, multi-threading support,
+    and Jinja templates.
+
 ## v0.2.0
 
 * **Backends**
   * **VertexAI**: Add VertexAI chat support.
-  * **Space healing:** Add token/space healing options to builtin functions,
+  * **Space healing:** Add token/space healing options to built-in functions,
     including proper support for space healing in `llm.generate_text` and
     `llm.chat` of `GeminiAPI`.
 * **Core**
