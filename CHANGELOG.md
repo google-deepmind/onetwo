@@ -34,7 +34,7 @@
     `PythonPlanningAgent`, and chain-of-thought components to use chat
     operations and to improve performance on the latest generations of
     chat-tuned models.
-* **Multimodal:** Add support for multimodal inputs in `ReActAgent` and
+  * **Multimodal:** Add support for multimodal inputs in `ReActAgent` and
   `PythonPlanningAgent`.
 * **Evaluation**
   * **LLM critic:** Re-implement naive_evaluation_critic using chat operations
