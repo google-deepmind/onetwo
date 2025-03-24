@@ -22,7 +22,7 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from gemma import sampler as sampler_lib
+from gemma.deprecated import sampler as sampler_lib
 from onetwo.backends import gemma_local
 from onetwo.builtins import llm
 from onetwo.core import core_test_utils
@@ -34,7 +34,7 @@ _BATCH_SIZE: Final[int] = 1
 
 @contextlib.contextmanager
 def mock_backend(reply: str, **kwargs) -> Iterator[gemma_local.Gemma]:
-  with mock.patch('gemma.sampler.Sampler') as mock_sampler:
+  with mock.patch('gemma.deprecated.sampler.Sampler') as mock_sampler:
     with mock.patch(
         'onetwo.backends.gemma_local.Gemma._load_model'
     ) as mock_load_model:

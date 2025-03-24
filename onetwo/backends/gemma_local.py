@@ -24,9 +24,9 @@ import dataclasses
 from typing import Any, Final
 
 from absl import logging
-from gemma import params as params_lib
-from gemma import sampler as sampler_lib
-from gemma import transformer as transformer_lib
+from gemma.deprecated import params as params_lib
+from gemma.deprecated import sampler as sampler_lib
+from gemma.deprecated import transformer as transformer_lib
 from onetwo.backends import backends_base
 # Necessary for the FormatterName enum to be populated.
 from onetwo.backends import formatters  # pylint: disable=unused-import
