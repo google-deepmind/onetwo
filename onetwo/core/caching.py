@@ -899,6 +899,7 @@ class _CacheData(
 
     with open(cache_file_path) as f:
       file_contents = f.read()
+
     try:
       cache = cls.from_json(
           file_contents,
@@ -916,15 +917,14 @@ class _CacheData(
         cache.values_by_key[key_hash] = [
             cached_value_decoder(cached_value) for cached_value in cached_values
         ]
-
-        if restore_mapping:
-          logging.info('Restored sampling_key mapping from file.')
-        else:
-          logging.info('Create new sampling_key mapping.')
-          cache.num_used_values_by_key = collections.defaultdict(int)
-          cache.sample_id_by_sampling_key_by_key = (
-              nested_defaultdict_initializer()
-          )
+      if restore_mapping:
+        logging.info('Restored sampling_key mapping from file.')
+      else:
+        logging.info('Create new sampling_key mapping.')
+        cache.num_used_values_by_key = collections.defaultdict(int)
+        cache.sample_id_by_sampling_key_by_key = (
+            nested_defaultdict_initializer()
+        )
       # pylint: enable=protected-access
     except Exception as error:  # pylint: disable=broad-except
       traceback.print_exc()
