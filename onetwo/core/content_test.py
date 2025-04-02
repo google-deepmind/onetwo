@@ -25,6 +25,7 @@ from typing import Any, TypeAlias
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import content as content_lib
+from onetwo.core import core_test_utils
 import PIL.Image
 
 _Chunk: TypeAlias = content_lib.Chunk
@@ -51,6 +52,20 @@ class ContentTest(parameterized.TestCase):
           False,
           'image/jpeg',
       ),
+      (
+          'correct_prefix_pil_png_explicit',
+          core_test_utils.create_test_pil_image('PNG'),
+          'image/png',
+          False,
+          'image/png',
+      ),
+      (
+          'correct_prefix_pil_gif_explicit',
+          core_test_utils.create_test_pil_image('GIF'),
+          'image/gif',
+          False,
+          'image/gif',
+      ),
   )
   def test_chunk_creation_errors(
       self,
@@ -70,12 +85,28 @@ class ContentTest(parameterized.TestCase):
         c = _Chunk(content, content_type)
       else:
         c = _Chunk(content)
-      self.assertEqual(c.content_type, expected_content_type)
+      self.assertEqual(expected_content_type, c.content_type)
 
   @parameterized.named_parameters(
       ('string_content', 'string test', 'str'),
       ('bytes_content', b'bytes test', 'bytes'),
-      ('pil_image_content', PIL.Image.Image(), 'image/jpeg'),
+      ('pil_image_empty', PIL.Image.Image(), 'image/jpeg'),
+      ('pil_image_no_format', PIL.Image.new('RGB', (1, 1)), 'image/jpeg'),
+      (
+          'pil_image_png_format',
+          core_test_utils.create_test_pil_image('PNG'),
+          'image/png',
+      ),
+      (
+          'pil_image_jpeg_format',
+          core_test_utils.create_test_pil_image('JPEG'),
+          'image/jpeg',
+      ),
+      (
+          'pil_image_gif_format',
+          core_test_utils.create_test_pil_image('GIF'),
+          'image/gif',
+      ),
   )
   def test_chunk_creation_with_unset_content_type(
       self,
@@ -83,7 +114,7 @@ class ContentTest(parameterized.TestCase):
       expected_content_type: str | None,
   ):
     c = _Chunk(content)
-    self.assertEqual(c.content_type, expected_content_type)
+    self.assertEqual(expected_content_type, c.content_type)
 
   def test_chunk_creation_with_unaccepted_content(
       self,
@@ -112,10 +143,10 @@ class ContentTest(parameterized.TestCase):
     with self.assertLogs() as logs:
       _ = _Chunk(content, content_type)
       self.assertEqual(
-          logs.records[0].getMessage(),
           f'Creating a Chunk with unknown content_type: {content_type}. This'
           ' might cause errors if the type of the content is not compatible'
           ' with the provided content_type.',
+          logs.records[0].getMessage(),
       )
 
   @parameterized.named_parameters(
@@ -175,27 +206,27 @@ class ContentTest(parameterized.TestCase):
     l = _ChunkList()
     with self.subTest('add_chunk_to_chunk_list'):
       l += c
-      self.assertEqual(l.chunks, [c])
+      self.assertEqual([c], l.chunks)
 
     with self.subTest('add_chunk_list_to_chunk'):
       l = c + _ChunkList()
-      self.assertEqual(l.chunks, [c])
+      self.assertEqual([c], l.chunks)
 
     with self.subTest('add_chunk_list_to_chunk_list'):
       l += l
-      self.assertEqual(l.chunks, [c, c])
+      self.assertEqual([c, c], l.chunks)
 
     l = _ChunkList()
     l += 'hello '
 
     with self.subTest('add_string_to_chunk_list'):
-      self.assertEqual(l.chunks, [_Chunk('hello ')])
+      self.assertEqual([_Chunk('hello ')], l.chunks)
 
     l = _ChunkList()
     l = 'hello ' + l
 
     with self.subTest('add_chunk_list_to_str'):
-      self.assertEqual(l.chunks, [_Chunk('hello ')])
+      self.assertEqual([_Chunk('hello ')], l.chunks)
 
   def test_chunk_and_chunk_list_evaluates_to_true(self):
     with self.subTest('chunk_with_empty_content_evals_to_false'):
@@ -217,35 +248,35 @@ class ContentTest(parameterized.TestCase):
     chunk = _Chunk('abccbbabbctest')
 
     with self.subTest('chunk_lstrip_works'):
-      self.assertEqual(chunk.lstrip('abc'), _Chunk('test'))
-      self.assertEqual(chunk.lstrip(' '), chunk)
+      self.assertEqual(_Chunk('test'), chunk.lstrip('abc'))
+      self.assertEqual(chunk, chunk.lstrip(' '))
 
     with self.subTest('chunk_rstrip_works'):
-      self.assertEqual(_Chunk('testabbcbc').rstrip('abc'), _Chunk('test'))
-      self.assertEqual(_Chunk('testabbcbc').rstrip(' '), _Chunk('testabbcbc'))
+      self.assertEqual(_Chunk('test'), _Chunk('testabbcbc').rstrip('abc'))
+      self.assertEqual(_Chunk('testabbcbc'), _Chunk('testabbcbc').rstrip(' '))
 
     with self.subTest('chunk_rstrip_does_not_touch_ctrl'):
       self.assertEqual(
-          _Chunk('testabbcbc', content_type='ctrl').rstrip('abc'),
           _Chunk('testabbcbc', content_type='ctrl'),
+          _Chunk('testabbcbc', content_type='ctrl').rstrip('abc'),
       )
 
     with self.subTest('chunk_lstrip_does_not_touch_ctrl'):
       self.assertEqual(
-          _Chunk('abbcbc', content_type='ctrl').lstrip('abc'),
           _Chunk('abbcbc', content_type='ctrl'),
+          _Chunk('abbcbc', content_type='ctrl').lstrip('abc'),
       )
 
     with self.subTest('chunk_strip_works'):
-      self.assertEqual(_Chunk('abbcbctestabbcbc').strip('abc'), _Chunk('test'))
+      self.assertEqual(_Chunk('test'), _Chunk('abbcbctestabbcbc').strip('abc'))
       self.assertEqual(
-          _Chunk('abbcbctestabbcbc').strip(' '), _Chunk('abbcbctestabbcbc')
+          _Chunk('abbcbctestabbcbc'), _Chunk('abbcbctestabbcbc').strip(' ')
       )
 
     with self.subTest('chunk_strip_does_not_touch_ctrl'):
       self.assertEqual(
-          _Chunk('abbcbctestabbcbc', content_type='ctrl').strip('abc'),
           _Chunk('abbcbctestabbcbc', content_type='ctrl'),
+          _Chunk('abbcbctestabbcbc', content_type='ctrl').strip('abc'),
       )
 
     chunk = _Chunk('abccbbabbctest')
@@ -359,7 +390,7 @@ class ContentTest(parameterized.TestCase):
       ),
   )
   def test_chunk_list_rstrip(self, chunk_list, rstrip_arg, expected):
-    self.assertEqual(chunk_list.rstrip(rstrip_arg), expected)
+    self.assertEqual(expected, chunk_list.rstrip(rstrip_arg))
 
   @parameterized.named_parameters(
       (
@@ -400,7 +431,7 @@ class ContentTest(parameterized.TestCase):
       ),
   )
   def test_chunk_list_lstrip(self, chunk_list, lstrip_arg, expected):
-    self.assertEqual(chunk_list.lstrip(lstrip_arg), expected)
+    self.assertEqual(expected, chunk_list.lstrip(lstrip_arg))
 
   @parameterized.named_parameters(
       (
@@ -443,7 +474,7 @@ class ContentTest(parameterized.TestCase):
       ),
   )
   def test_chunk_list_strip(self, chunk_list, strip_arg, expected):
-    self.assertEqual(chunk_list.strip(strip_arg), expected)
+    self.assertEqual(expected, chunk_list.strip(strip_arg))
 
   def test_chunk_list_to_str(self):
     l = _ChunkList()
@@ -452,7 +483,7 @@ class ContentTest(parameterized.TestCase):
     l += _Chunk(b'123')
     l += _Chunk('<ctrl>', content_type='ctrl')
     l += _Chunk(PIL.Image.Image())
-    self.assertEqual(str(l), 'hello world<bytes><ctrl><image/jpeg>')
+    self.assertEqual('hello world<bytes><ctrl><image/jpeg>', str(l))
 
   def test_chunk_list_to_simple_string(self):
     l = _ChunkList()
@@ -462,7 +493,7 @@ class ContentTest(parameterized.TestCase):
     l += _Chunk('<ctrl>', content_type='ctrl')
     l += _Chunk(PIL.Image.Image())
     l += _Chunk(' done')
-    self.assertEqual(l.to_simple_string(), 'hello world<ctrl> done')
+    self.assertEqual('hello world<ctrl> done', l.to_simple_string())
 
   @parameterized.named_parameters(
       ('empty_str', '', True),
@@ -474,7 +505,7 @@ class ContentTest(parameterized.TestCase):
   )
   def test_chunk_is_empty(self, chunk_content, expected):
     chunk = _Chunk(chunk_content)
-    self.assertEqual(chunk.is_empty(), expected)
+    self.assertEqual(expected, chunk.is_empty())
 
 
 class MessageTest(parameterized.TestCase):

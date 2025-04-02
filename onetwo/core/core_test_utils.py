@@ -16,11 +16,13 @@
 
 import collections
 from collections.abc import Mapping
+import io
 import json
 import pprint
-from typing import Any
+from typing import Any, Literal
 import unittest
 from onetwo.core import results
+import PIL.Image
 
 
 class CounterAssertions(unittest.TestCase):
@@ -100,3 +102,39 @@ def reset_times(
 ) -> None:
   """Resets the start and end times in the given execution result(s)."""
   reset_fields(er, {'start_time': 0.0, 'end_time': 0.0})
+
+
+def create_test_pil_image(
+    fmt: Literal['PNG', 'JPEG', 'GIF'] = 'PNG',
+    mode: Literal['RGB', 'RGBA', 'L', 'P'] = 'RGB',
+    size: tuple[int, int] = (1, 1),
+) -> PIL.Image.Image:
+  """Returns a PIL Image in the given format, for testing purposes.
+
+  Args:
+    fmt: The target image format.
+    mode: The image mode.
+    size: The image dimensions (width, height).
+  """
+  img = PIL.Image.new(mode, size)
+  buffer = io.BytesIO()
+  # GIF requires saving the palette.
+  save_kwargs = (
+      {'format': fmt, 'save_all': True}
+      if fmt == 'GIF'
+      else {'format': fmt}
+  )
+  try:
+    # Save and reload the image to attempt to set the format attribute.
+    img.save(buffer, **save_kwargs)
+    buffer.seek(0)
+    reloaded_img = PIL.Image.open(buffer)
+    if reloaded_img.format is None:
+      # PIL might not always preserve format. Inject it for testing purpose.
+      # This might happen for simple modes like 'L' depending on PIL version.
+      reloaded_img.format = fmt
+    return reloaded_img
+  except Exception as e:
+    raise ValueError(
+        f'Failed to create test image with format {fmt}: {e}'
+    ) from e

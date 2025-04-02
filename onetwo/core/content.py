@@ -99,7 +99,15 @@ def _get_python_and_content_type_from_content(
     case bytes():
       return 'bytes', 'bytes'
     case PIL.Image.Image():
-      return 'pil_image', 'image/jpeg'
+      image: PIL.Image.Image = content
+      fmt = image.format  # e.g., 'PNG', 'JPEG', None
+      if fmt:
+        # Use the actual format if available.
+        content_type = f'image/{fmt.lower()}'
+      else:
+        # Default for images created in memory (format=None).
+        content_type = 'image/jpeg'
+      return 'pil_image', content_type
     case _:
       raise ValueError(
           f'Creating a Chunk with content of type {type(content)} which is not'
