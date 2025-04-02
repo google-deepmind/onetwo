@@ -1199,6 +1199,47 @@ class HTMLRendererTest(parameterized.TestCase):
           'very long error message&#x27;)</span>', html, f'\nFull html:\n{html}'
       )
 
+  def test_render_handles_cyclic_reference(self):
+    renderer = results.HTMLRenderer(levels_to_expand=5)
+
+    # Create a simple cyclic structure
+    class Node:
+      def __init__(self, name):
+        self.name = name
+        self.parent = None
+        self.child = None
+
+    root = Node('Root')
+    child = Node('Child')
+    grandchild = Node('Grandchild')
+
+    root.child = child
+    child.parent = root  # Back-link creating a cycle (root -> child -> root)
+    child.child = grandchild
+    grandchild.parent = child  # Back-link creating another cycle
+
+    # Render the root object
+    rendered_html = renderer.render(root)
+    logging.info('Rendered HTML with cycle: %s', rendered_html)
+
+    # Check that the HTML is valid
+    expanded_html = f'<!DOCTYPE html><html>{rendered_html}</html>'
+    parser = html5lib.HTMLParser()
+    parser.parse(expanded_html)
+    self.assertEmpty(
+        parser.errors,
+        _get_html_parse_error_string(parser.errors, expanded_html),
+    )
+
+    with self.subTest('should_detect_cyclic_reference_in_parent_attributes'):
+      self.assertIn('<b>parent:</b> [Cyclic reference skipped]', rendered_html)
+
+    with self.subTest('should_render_non_cyclic_parts'):
+      self.assertIn('<b>name:</b> &#x27;Root&#x27;', rendered_html)
+      self.assertIn('<b>name:</b> &#x27;Child&#x27;', rendered_html)
+      self.assertIn('<b>name:</b> &#x27;Grandchild&#x27;', rendered_html)
+      self.assertIn('<b>child:</b>', rendered_html)
+
   def test_custom_renderer(self):
     def dict_renderer(
         renderer: results.HTMLRenderer,
@@ -1206,6 +1247,7 @@ class HTMLRendererTest(parameterized.TestCase):
         *,
         element_id: str,
         levels_to_expand: int,
+        ancestor_ids: set[int] | None = None,
     ) -> results.HTMLObjectRendering | None:
       """Renders a dict as a string of the form 'dict_renderer(keys=[...])'."""
       if not isinstance(object_to_render, dict):
@@ -1215,6 +1257,7 @@ class HTMLRendererTest(parameterized.TestCase):
               k,
               element_id=f'{element_id}-{i}',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           ).html
           for i, k in enumerate(object_to_render.keys())
       ]

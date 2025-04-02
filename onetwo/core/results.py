@@ -637,6 +637,7 @@ class HTMLObjectRenderer(Protocol):
       *,
       element_id: str,
       levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
     """Returns an HTML rendering of the given object, or `None` to punt.
 
@@ -660,6 +661,8 @@ class HTMLObjectRenderer(Protocol):
         nodes, levels_to_expand should be reduced by 1. If levels_to_expand
         <= 0, then the element should be rendered in collapsed state, and no
         calls should be made for rendering child nodes.
+      ancestor_ids: Set of object IDs currently in the rendering call stack,
+        used for cycle detection. Should be passed down in recursive calls.
     """
     ...
 
@@ -733,11 +736,17 @@ class HTMLRenderer:
     return len(object_as_string) <= self._max_single_line_value_string_length
 
   def _render_llm_request_reply(
-      self, request: str, reply: str, element_id: str, levels_to_expand: int
+      self,
+      request: str,
+      reply: str,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> str:
     """Returns HTML rendering the request/reply as multi-line colored text."""
     # TODO: Support roles and multi-modal requests/replies.
-    del element_id, levels_to_expand
+    del element_id, levels_to_expand, ancestor_ids
     updated_request = request.replace('\n', '<br>')
     updated_reply = reply.replace('\n', '<br>')
     return (
@@ -747,7 +756,12 @@ class HTMLRenderer:
     )
 
   def _render_dict_like_object(
-      self, object_to_render: Any, *, element_id: str, levels_to_expand: int
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
     """Returns a rendering of a dict as text or in ...<ul>...</ul> form."""
     if isinstance(object_to_render, dict):
@@ -779,6 +793,7 @@ class HTMLRenderer:
               title=f'{key}:',
               element_id=f'{element_id}-{i}',
               levels_to_expand=levels_to_expand-1,
+              ancestor_ids=ancestor_ids
           )
       )
     lines.append('</ul>')
@@ -789,7 +804,12 @@ class HTMLRenderer:
     )
 
   def _render_result(
-      self, object_to_render: Any, *, element_id: str, levels_to_expand: int
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
     """Returns a rendering of an ExecutionResult in ...<ul>...</ul> form."""
     if not isinstance(object_to_render, ExecutionResult):
@@ -816,6 +836,7 @@ class HTMLRenderer:
           # the unit tests whether we skipped over the outer element or not.
           element_id=f'{element_id}-0',
           levels_to_expand=levels_to_expand,
+          ancestor_ids=ancestor_ids,
       )
 
     # TODO: Remove the special treatment of the special outputs key
@@ -855,6 +876,7 @@ class HTMLRenderer:
           reply=reply,
           element_id=f'{element_id}rr',
           levels_to_expand=levels_to_expand - 1,
+          ancestor_ids=ancestor_ids,
       )
       return HTMLObjectRendering(
           html=request_reply_string,
@@ -871,6 +893,7 @@ class HTMLRenderer:
             title='inputs:',
             element_id=f'{element_id}i',
             levels_to_expand=levels_to_expand - 1,
+            ancestor_ids=ancestor_ids,
         )
     )
     lines.append(
@@ -879,6 +902,7 @@ class HTMLRenderer:
             title='outputs:',
             element_id=f'{element_id}o',
             levels_to_expand=levels_to_expand - 1,
+            ancestor_ids=ancestor_ids,
         )
     )
     if result.error:
@@ -888,6 +912,7 @@ class HTMLRenderer:
               title='error:',
               element_id=f'{element_id}-error',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     if result.info:
@@ -897,6 +922,7 @@ class HTMLRenderer:
               title='info:',
               element_id=f'{element_id}-info',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     if isinstance(result, EvaluationResult):
@@ -907,6 +933,7 @@ class HTMLRenderer:
                 title='targets:',
                 element_id=f'{element_id}t',
                 levels_to_expand=levels_to_expand - 1,
+                ancestor_ids=ancestor_ids,
             )
         )
       if result.metrics:
@@ -916,6 +943,7 @@ class HTMLRenderer:
                 title='metrics:',
                 element_id=f'{element_id}m',
                 levels_to_expand=levels_to_expand - 1,
+                ancestor_ids=ancestor_ids,
             )
         )
     if result.stages:
@@ -926,6 +954,7 @@ class HTMLRenderer:
                 element_id=f'{element_id}-{i}',
                 index_within_list=i if len(result.stages) > 1 else None,
                 levels_to_expand=levels_to_expand - 1,
+                ancestor_ids=ancestor_ids,
             )
         )
     lines.append('</ul>')
@@ -938,7 +967,12 @@ class HTMLRenderer:
     )
 
   def _render_agent_state(
-      self, object_to_render: Any, *, element_id: str, levels_to_expand: int = 0
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int = 0,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
     """Returns a rendering of the state as text or in ...<ul>...</ul> form."""
     if not _is_update_list_state(object_to_render):
@@ -958,6 +992,7 @@ class HTMLRenderer:
             # as it is usually more intuitive to either fully expand the inputs
             # and updates, or to not expand them at all (rather than halfway).
             levels_to_expand=levels_to_expand,
+            ancestor_ids=ancestor_ids,
         )
     )
     lines.append(
@@ -969,6 +1004,7 @@ class HTMLRenderer:
             # as it is usually more intuitive to either fully expand the inputs
             # and updates, or to not expand them at all (rather than halfway).
             levels_to_expand=levels_to_expand,
+            ancestor_ids=ancestor_ids,
         )
     )
     lines.append('</ul>')
@@ -984,9 +1020,14 @@ class HTMLRenderer:
     )
 
   def _render_list(
-      self, object_to_render: Any, *, element_id: str, levels_to_expand: int = 0
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int = 0,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
-    """Returns a rendering of a seqeuence of elements in <ul>...</ul> form."""
+    """Returns a rendering of a sequence of elements in <ul>...</ul> form."""
     if not isinstance(object_to_render, list) and not isinstance(
         object_to_render, tuple
     ):
@@ -1004,6 +1045,7 @@ class HTMLRenderer:
               element_id=f'{element_id}-{i}',
               index_within_list=i,
               levels_to_expand=levels_to_expand-1,
+              ancestor_ids=ancestor_ids,
           )
       )
     lines.append('</ul>')
@@ -1022,18 +1064,27 @@ class HTMLRenderer:
       *,
       element_id: str,
       levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
     """Renders a bytes object as a string of the form '<bytes>'."""
     if not isinstance(object_to_render, bytes):
       return None
 
     bytes_render = self.render_object(
-        '<bytes>', element_id=element_id, levels_to_expand=levels_to_expand
+        '<bytes>',
+        element_id=element_id,
+        levels_to_expand=levels_to_expand,
+        ancestor_ids=ancestor_ids,
     )
     return bytes_render
 
   def _render_evaluation_summary(
-      self, object_to_render: Any, *, element_id: str, levels_to_expand: int
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering | None:
     """Returns a rendering of an EvaluationSummary in <ul>...</ul>... form."""
     if not isinstance(object_to_render, EvaluationSummary):
@@ -1049,6 +1100,7 @@ class HTMLRenderer:
               title='timing:',
               element_id=f'{element_id}-timing',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     if summary.metrics:
@@ -1058,6 +1110,7 @@ class HTMLRenderer:
               title='metrics:',
               element_id=f'{element_id}-metrics',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     if summary.counters:
@@ -1067,6 +1120,7 @@ class HTMLRenderer:
               title='counters:',
               element_id=f'{element_id}-counters',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     if summary.results:
@@ -1085,6 +1139,7 @@ class HTMLRenderer:
               title='results:',
               element_id=f'{element_id}-results',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     if summary.results_debug:
@@ -1108,6 +1163,7 @@ class HTMLRenderer:
               title='results_debug:',
               element_id=f'{element_id}-results_debug',
               levels_to_expand=0,
+              ancestor_ids=ancestor_ids,
           )
       )
     if summary.final_states:
@@ -1126,6 +1182,7 @@ class HTMLRenderer:
               title='final_states:',
               element_id=f'{element_id}-final_states',
               levels_to_expand=levels_to_expand - 1,
+              ancestor_ids=ancestor_ids,
           )
       )
     lines.append('</ul>')
@@ -1151,10 +1208,12 @@ class HTMLRenderer:
       *,
       element_id: str,
       levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
   ) -> HTMLObjectRendering:
     """Returns an HTML rendering of the given object (without JavaScript, etc.).
 
-    Can be called recursively to render nested objects.
+    Can be called recursively to render nested objects. Detects cycles using
+    object IDs.
 
     Args:
       object_to_render: The object to render.
@@ -1165,22 +1224,42 @@ class HTMLRenderer:
         expand by default, for elements that are capable of
         expanding/collapsing. When making recursive calls for rendering child
         nodes, levels_to_expand is expected to be reduced by 1.
+      ancestor_ids: Set of object IDs currently in the rendering call stack,
+        used for cycle detection.
     """
+    # Initialize ancestor set for the top-level call or use the provided one.
+    current_ancestor_ids = ancestor_ids if ancestor_ids is not None else set()
+
+    # Check for cycles.
+    obj_id = id(object_to_render)
+    if obj_id in current_ancestor_ids:
+      logging.debug('Cyclic reference detected for object id %d', obj_id)
+      # Return the specific message for cycles. Make it not collapsible.
+      return HTMLObjectRendering(
+          html=html.escape('[Cyclic reference skipped]'), collapsible=False
+      )
+
+    # Check recursion depth limit (independent of cycle detection).
     if levels_to_expand < -self._additional_levels_to_make_expandable:
       # Too deep in the hierarchy to expand. At this point, we simply render
       # the object as a string, without any additional HTML formatting, to
       # avoid any risk of infinite recursion.
       return HTMLObjectRendering(html=_as_string(object_to_render))
 
+    # We construct a new set as the ancestor set for recursive calls, so as to
+    # prevent sibling branches from affecting each other's cycle detection.
+    next_ancestor_ids = current_ancestor_ids | {obj_id}
+
     all_renderers = itertools.chain(
         self.custom_renderers, self._get_default_renderers()
     )
-    for renderer in all_renderers:
-      rendering = renderer(
+    for renderer_func in all_renderers:
+      rendering = renderer_func(
           self,
           object_to_render,
           element_id=element_id,
           levels_to_expand=levels_to_expand,
+          ancestor_ids=next_ancestor_ids,
       )
       if rendering is not None:
         return rendering
@@ -1197,6 +1276,7 @@ class HTMLRenderer:
       element_id: str,
       levels_to_expand: int,
       index_within_list: int | None = None,
+      ancestor_ids: set[int] | None = None,
   ) -> str:
     """Returns a rendering of an object as HTML string in <li>...</li>... form.
 
@@ -1212,9 +1292,9 @@ class HTMLRenderer:
 
     Args:
       object_to_render: The object to render.
-      title: The title to be shown in boldface contually (both when collapsed
+      title: The title to be shown in boldface continually (both when collapsed
         and when expanded). If `None`, then falls back to the title from the
-        rendering returned by `render_object`.
+        rendering returned by `render_object` or the object's type name.
       element_id: The id to be used for the outermost HTML element returned by
         this function. Ids for inner elements are expected to be constructed by
         appending suffixes to this id.
@@ -1224,11 +1304,14 @@ class HTMLRenderer:
         nodes, levels_to_expand is expected to be reduced by 1.
       index_within_list: The index of the element within the list, if the
         element is to be displayed as part of a numbered list.
+      ancestor_ids: Set of object IDs currently in the rendering call stack,
+        passed down for cycle detection.
     """
     object_rendering = self.render_object(
         object_to_render,
         element_id=element_id,
         levels_to_expand=levels_to_expand,
+        ancestor_ids=ancestor_ids,
     )
 
     # State of expansion.
@@ -1292,22 +1375,22 @@ class HTMLRenderer:
       # Simple display.
       lines.append(f'<li>{full_title}{object_rendering.html}</li>')
 
-    return'\n'.join(lines)
+    return '\n'.join(lines)
 
   def render(
       self,
-      object_to_render: ExecutionResult | Sequence[ExecutionResult],
+      object_to_render: Any,
       *,
       element_id: str = '0',
   ) -> str:
-    """Returns a full HTML + JavaScript rendering of the given result(s).
+    """Returns a full HTML + JavaScript rendering of the given object(s).
 
     Should not be called recursively, as this would lead to repetition of the
     JavaScript code and other outer boilerplate. For recursive calls, use
-    `render_object` instead.
+    `render_object` instead. Handles cycle detection internally.
 
     Args:
-      object_to_render: The object to render.
+      object_to_render: The object or sequence of objects to render.
       element_id: The id to be used for the outermost HTML element returned by
         this function. Ids for inner elements will be generated automatically by
         appending suffixes to this id.
@@ -1344,6 +1427,7 @@ class HTMLRenderer:
           object_to_render,
           element_id=element_id,
           levels_to_expand=self.levels_to_expand,
+          ancestor_ids=None,
       )
       rendered_html = f"""\
 {javascript_string}
@@ -1360,6 +1444,7 @@ class HTMLRenderer:
           object_to_render,
           element_id=element_id,
           levels_to_expand=self.levels_to_expand,
+          ancestor_ids=None,
       )
       rendered_html = f'{javascript_string}\n{object_rendering.html}'
     return rendered_html
