@@ -17,10 +17,13 @@ from collections.abc import Sequence
 import copy
 import dataclasses
 import datetime
+import html
 import logging
 import pprint
+import re
 import textwrap
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -29,7 +32,9 @@ from onetwo.agents import agents_base
 from onetwo.builtins import formatting
 from onetwo.core import content
 from onetwo.core import results
+import PIL.Image
 import termcolor
+
 
 STAGE_DECOMP = 'decomp'
 STAGE_TRANSLATE = 'translate'
@@ -37,10 +42,10 @@ STAGE_TRANSLATE = 'translate'
 
 def _get_html_parse_error_string(
     parse_errors: Sequence[tuple[tuple[int, int], str, dict[str, Any]]],
-    html: str,
+    html_string: str,
 ) -> str:
   """Returns a readable representation of the html5lib.HTMLParser errors."""
-  expanded_html_lines = html.splitlines()
+  expanded_html_lines = html_string.splitlines()
   result_lines = []
   for pos, error_name, datavars in parse_errors:
     del datavars
@@ -52,6 +57,11 @@ def _get_html_parse_error_string(
     result_lines.append(expanded_html_lines[error_row])
     result_lines.append(' ' * error_col + '^')
   return '\n'.join(result_lines)
+
+
+def _create_tiny_image(color='red'):
+  """Returns a one pixel image with the given color, for testing purposes."""
+  return PIL.Image.new('RGB', (1, 1), color=color)
 
 
 class EvaluationResultTest(absltest.TestCase):
@@ -1129,74 +1139,98 @@ class HTMLRendererTest(parameterized.TestCase):
     )
 
     renderer = results.HTMLRenderer()
-    html = renderer.render(object_to_render)
-    logging.info('Rendered HTML: %s', html)
+    rendered_html = renderer.render(object_to_render)
+    logging.info('Rendered HTML: %s', rendered_html)
 
     with self.subTest('javascript_appears_exactly_once'):
       self.assertEqual(
           1,
-          html.count('function toggleElement(element_id)'),
-          f'\nFull html:\n{html}',
+          rendered_html.count('function toggleElement(element_id)'),
+          f'\nFull html:\n{rendered_html}',
       )
 
     with self.subTest('element_ids_are_correctly_paired_with_toggle_commands'):
       self.assertEqual(
           1,
-          html.count("toggleElements(['0o', '0oc'])"),
-          f'\nFull html:\n{html}',
+          rendered_html.count("toggleElements(['0o', '0oc'])"),
+          f'\nFull html:\n{rendered_html}',
       )
-      self.assertEqual(1, html.count('id="0o"'), f'\nFull html:\n{html}')
-      self.assertEqual(1, html.count('id="0oc"'), f'\nFull html:\n{html}')
+      self.assertEqual(
+          1, rendered_html.count('id="0o"'), f'\nFull html:\n{rendered_html}'
+      )
+      self.assertEqual(
+          1, rendered_html.count('id="0oc"'), f'\nFull html:\n{rendered_html}'
+      )
 
     with self.subTest('top_level_stage_name'):
       self.assertIn(
-          '<b><u>MyStrategy</u></b> ', html, f'\nFull html:\n{html}'
+          '<b><u>MyStrategy</u></b> ',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
 
     with self.subTest('inner_stage_names'):
-      self.assertIn('<b><u>stage1</u></b> ', html, f'\nFull html:\n{html}')
+      self.assertIn(
+          '<b><u>stage1</u></b> ',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
+      )
 
     with self.subTest('result_keys'):
-      self.assertIn('<b>inputs:</b> ', html, f'\nFull html:\n{html}')
+      self.assertIn(
+          '<b>inputs:</b> ', rendered_html, f'\nFull html:\n{rendered_html}'
+      )
 
     with self.subTest('result_collapsed_html'):
       self.assertIn(
           '{&#x27;i2&#x27;: &#x27;i_v2&#x27;} <b>&rArr;</b> {&#x27;o2&#x27;:'
           ' &#x27;o_v2&#x27;}',
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
 
     with self.subTest('long_dicts_displayed_in_multiple_lines'):
-      self.assertIn('<b>o_very_long_key1:</b> ', html, f'\nFull html:\n{html}')
+      self.assertIn(
+          '<b>o_very_long_key1:</b> ',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
+      )
 
     with self.subTest('long_dicts_include_data_type_and_size_on_first_line'):
-      self.assertIn('dict(3)', html, f'\nFull html:\n{html}')
+      self.assertIn('dict(3)', rendered_html, f'\nFull html:\n{rendered_html}')
 
     with self.subTest('short_dicts_displayed_inline'):
       self.assertIn(
           '<li><b>inputs:</b> {&#x27;i1&#x27;: &#x27;i_v1&#x27;}</li>',
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
-      self.assertNotIn('<b>i1:</b> ', html, f'\nFull html:\n{html}')
+      self.assertNotIn(
+          '<b>i1:</b> ', rendered_html, f'\nFull html:\n{rendered_html}'
+      )
 
     with self.subTest('dataclasses_display_like_dicts'):
       self.assertIn(
           '<span id="0o-2" style="display:inline">MyDataClass',
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
       self.assertIn(
           '<li><b>field1:</b> &#x27;o_very_long_value3_1&#x27;</li>',
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
 
     with self.subTest('long_error_message_displayed_in_multiple_lines'):
-      self.assertIn('very long error ...</span>', html, f'\nFull html:\n{html}')
       self.assertIn(
-          'very long error message&#x27;)</span>', html, f'\nFull html:\n{html}'
+          'very long error ...</span>',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
+      )
+      self.assertIn(
+          'very long error message&#x27;)</span>',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
 
   def test_render_handles_cyclic_reference(self):
@@ -1240,6 +1274,96 @@ class HTMLRendererTest(parameterized.TestCase):
       self.assertIn('<b>name:</b> &#x27;Grandchild&#x27;', rendered_html)
       self.assertIn('<b>child:</b>', rendered_html)
 
+  def test_render_image_mode_none(self):
+    renderer = results.HTMLRenderer(
+        image_rendering_mode=results.ImageRenderingMode.NONE
+    )
+    tiny_image = _create_tiny_image()
+    rendered_html = renderer.render(tiny_image)
+    logging.info('Rendered Image HTML (Mode=NONE): %s', rendered_html)
+
+    with self.subTest('should_not_render_image_tag'):
+      self.assertNotIn('src="data:image/', rendered_html)
+
+    with self.subTest('should_fallback_to_default_string_rendering'):
+      self.assertRegex(rendered_html, r'PIL\.Image\.Image')
+
+  def test_render_image_mode_thumbnail_only(self):
+    renderer = results.HTMLRenderer(
+        image_rendering_mode=results.ImageRenderingMode.THUMBNAIL_ONLY
+    )
+    tiny_image = _create_tiny_image('blue')
+    rendered_html = renderer.render(tiny_image)
+    logging.info('Rendered Image HTML (Mode=THUMBNAIL_ONLY): %s', rendered_html)
+
+    with self.subTest('should_render_thumbnail_image'):
+      self.assertRegex(
+          rendered_html,
+          r'<img [^>]*src="data:image/(webp|jpeg);base64,',
+      )
+      self.assertIn('alt="Image Thumbnail (full size: 1x1)"', rendered_html)
+
+    with self.subTest('should_not_include_link_with_full_image_bytes'):
+      self.assertNotIn('<a href="data:image', rendered_html)
+
+    with self.subTest('should_render_single_base64_content_for_thumbnail'):
+      self.assertLen(
+          re.findall(r'base64,([^"]+)"', rendered_html),
+          1,
+          'Expected one base64 string (thumbnail src)',
+      )
+
+  def test_render_image_mode_thumbnail_and_link(self):
+    renderer = results.HTMLRenderer(
+        image_rendering_mode=results.ImageRenderingMode.THUMBNAIL_AND_LINK
+    )
+    tiny_image = _create_tiny_image()
+    rendered_html = renderer.render(tiny_image)
+    logging.info(
+        'Rendered Image HTML (Mode=THUMBNAIL_AND_LINK): %s', rendered_html
+    )
+
+    with self.subTest('should_render_thumbnail_image'):
+      self.assertRegex(
+          rendered_html,
+          r'<img [^>]*src="data:image/(webp|jpeg);base64,',
+      )
+      self.assertIn('alt="Image Thumbnail (full size: 1x1)"', rendered_html)
+
+    with self.subTest('should_include_link_with_full_image_bytes'):
+      self.assertIn('<a href="data:image', rendered_html)
+
+    with self.subTest('should_render_base64_content_for_thumbnail_and_link'):
+      self.assertLen(
+          re.findall(r'base64,([^"]+)"', rendered_html),
+          2,
+          'Expected two base64 strings (thumbnail src and link href)',
+      )
+
+  @parameterized.named_parameters(
+      ('thumbnail_only', results.ImageRenderingMode.THUMBNAIL_ONLY),
+      ('thumbnail_and_link', results.ImageRenderingMode.THUMBNAIL_AND_LINK),
+  )
+  def test_render_image_thumbnail_generation_error(self, mode):
+    renderer = results.HTMLRenderer(image_rendering_mode=mode)
+    tiny_image = _create_tiny_image()
+    error_message = 'Simulated thumbnail save failure!'
+
+    with mock.patch(
+        'PIL.Image.Image.save', side_effect=RuntimeError(error_message)
+    ):
+      rendered_html = renderer.render(tiny_image)
+
+    logging.info('Rendered HTML (Thumbnail Save Error): %s', rendered_html)
+
+    with self.subTest('should_not_render_image_tag'):
+      self.assertNotIn('<img src="data:image', rendered_html)
+      self.assertNotIn('<a href="data:image', rendered_html)
+
+    with self.subTest('should_render_error_message'):
+      self.assertIn('Error generating image thumbnail', rendered_html)
+      self.assertIn(html.escape(error_message), rendered_html)
+
   def test_custom_renderer(self):
     def dict_renderer(
         renderer: results.HTMLRenderer,
@@ -1282,27 +1406,27 @@ class HTMLRendererTest(parameterized.TestCase):
         metrics={'m1': 0.1},
     )
 
-    html = renderer.render(object_to_render)
-    logging.info('Rendered HTML: %s', html)
+    rendered_html = renderer.render(object_to_render)
+    logging.info('Rendered HTML: %s', rendered_html)
 
     with self.subTest('should_render_custom_content_for_dict'):
       self.assertIn(
           "<b>inputs:</b> dict_renderer(keys=['&#x27;i1&#x27;'])",
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
       self.assertIn(
           "<b>outputs:</b> dict_renderer(keys=['&#x27;o1&#x27;'])",
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
 
     with self.subTest('should_render_standard_content_for_other_types'):
       self.assertIn(
           '{&#x27;i2&#x27;: &#x27;i_v2&#x27;} <b>&rArr;</b> {&#x27;o2&#x27;:'
           ' &#x27;o_v2&#x27;}',
-          html,
-          f'\nFull html:\n{html}',
+          rendered_html,
+          f'\nFull html:\n{rendered_html}',
       )
 
 if __name__ == '__main__':

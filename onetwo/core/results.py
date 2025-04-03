@@ -16,22 +16,26 @@
 
 from __future__ import annotations
 
+import base64
 import collections
 from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
 import datetime
+import enum
 import html
+import io
 import itertools
 import logging
 import pprint
 import textwrap
 import timeit
 from typing import Any, Protocol
+import uuid
 
 import dataclasses_json
+import PIL.Image
 import termcolor
-
 
 ################################################################################
 # Constants used as keys in the `inputs` and `outputs` mappings.
@@ -601,6 +605,19 @@ class EvaluationSummary:
     return self
 
 
+class ImageRenderingMode(enum.Enum):
+  """Defines how PIL.Image.Image objects should be rendered.
+
+  Attributes:
+    NONE: Fall back to default rendering.
+    THUMBNAIL_ONLY: Render only a thumbnail image.
+    THUMBNAIL_AND_LINK: Render a thumbnail linked to the full image.
+  """
+  NONE = 'none'
+  THUMBNAIL_ONLY = 'thumbnail_only'
+  THUMBNAIL_AND_LINK = 'thumbnail_and_link'
+
+
 @dataclasses.dataclass
 class HTMLObjectRendering:
   """Reply from an HTMLObjectRenderer.
@@ -699,6 +716,12 @@ class HTMLRenderer:
       types of objects. The function should return a string containing the
       rendered HTML (if the object is of the type that the renderer is intended
       to handle), or None (to defer to  the next renderer in the list).
+    image_rendering_mode: Defines how PIL.Image.Image objects should be
+      rendered.
+    thumbnail_size: The size of the thumbnail to render for PIL.Image.Image
+      objects, represented as a tuple of (width, height) in pixels. If the
+      original image is already smaller than this size, however, then the
+      rendered thumbnail will be the exact size of the original image.
   """
 
   # Public attributes.
@@ -706,6 +729,10 @@ class HTMLRenderer:
   custom_renderers: list[HTMLObjectRenderer] = dataclasses.field(
       default_factory=list
   )
+  image_rendering_mode: ImageRenderingMode = dataclasses.field(
+      default=ImageRenderingMode.THUMBNAIL_ONLY, kw_only=True
+  )
+  thumbnail_size: tuple[int, int] = (150, 150)
 
   # =========================================================================
   # Private attributes. (Not exposing them publicly yet, as they may change.)
@@ -1078,6 +1105,147 @@ class HTMLRenderer:
     )
     return bytes_render
 
+  def _render_image(
+      self,
+      object_to_render: Any,
+      *,
+      element_id: str,
+      levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
+  ) -> HTMLObjectRendering | None:
+    """Renders a PIL.Image.Image object based on self.image_rendering_mode."""
+    del levels_to_expand, ancestor_ids
+
+    if not isinstance(object_to_render, PIL.Image.Image):
+      return None
+
+    mode = self.image_rendering_mode
+    if mode == ImageRenderingMode.NONE:
+      return None
+
+    # Generate thumbnail (shared by both display modes).
+    # Note that we are inlining the full byte representation of the thumbnail
+    # image as part of the <img> tag. This can be problematic for large images,
+    # but for a thumbnail up to at lesat size (200, 200) or so, it seems to
+    # generally work ok and only requires around the same order of magnitude of
+    # memory as the default string representation of the PIL.Image object.
+
+    try:
+      img_copy = object_to_render.copy()
+      img_copy.thumbnail(self.thumbnail_size)
+      thumb_format = 'WEBP'
+      thumb_mime_type = 'image/webp'
+      try:
+        buffered_thumb = io.BytesIO()
+        img_copy.save(buffered_thumb, format=thumb_format)
+      except (OSError, ValueError):
+        # Could get an OSError if the required encoder (`libwebp`) is not
+        # available, or could get a ValueError if the image mode is incompatible
+        # with WebP.
+        logging.warning(
+            'WEBP thumbnail generation failed. Falling back to JPEG.'
+        )
+        thumb_format = 'JPEG'
+        thumb_mime_type = 'image/jpeg'
+        buffered_thumb = io.BytesIO()
+        img_copy.save(buffered_thumb, format=thumb_format)
+      thumb_bytes = buffered_thumb.getvalue()
+      thumb_base64_str = base64.b64encode(thumb_bytes).decode('ascii')
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.exception('Failed to generate PIL.Image.Image thumbnail: %s', e)
+      error_html = html.escape(f'[Error generating image thumbnail: {e}]')
+      return HTMLObjectRendering(html=f'<i>{error_html}</i>', collapsible=False)
+
+    # Define HTML elements shared by both display modes.
+    img_id = f'img-{element_id}-{uuid.uuid4().hex[:8]}'
+    image_dimensions_str = f'{object_to_render.width}x{object_to_render.height}'
+    img_tag_html = (
+        f'<img id="{img_id}" '
+        f'src="data:{thumb_mime_type};base64,{thumb_base64_str}" '
+        f'style="max-width: {self.thumbnail_size[0]}px; '
+        f'max-height: {self.thumbnail_size[1]}px; '
+        'display: block; margin: 5px 0; border: 1px solid #ccc;" '
+        f'alt="Image Thumbnail (full size: {image_dimensions_str})"'
+        '/>'
+    )
+    # Define the caption div.
+    caption_html = (
+        f'<div style="font-size: smaller; color: #555;">'
+        f'Full size: {image_dimensions_str}, '
+        f'Format: {object_to_render.format or "N/A"}, '
+        f'Mode: {object_to_render.mode}'
+        f'</div>'
+    )
+
+    # Construct the remaining HTML according to the selected display mode.
+    if mode == ImageRenderingMode.THUMBNAIL_ONLY:
+      final_html = f'<div>{img_tag_html}</div>{caption_html}'
+
+    elif mode == ImageRenderingMode.THUMBNAIL_AND_LINK:
+      try:
+        # In THUMBNAIL_AND_LINK mode, we generate a link to the full-size image,
+        # which is also represented as inlined bytes in the HTML, but with the
+        # inlined bytes contained in the "href" attribute of an <a> tag, rather
+        # than in the <img> tag itself. This is a crucial distinction, as it
+        # means that initially only the thumbnail is rendered, while the work of
+        # decoding/loading/rendering the full-size image is deferred until the
+        # user clicks on the link. While this is definitely more expensive than
+        # the THUMBNAIL_ONLY mode, when compared to the approach of storing the
+        # full-size image directly in the <img> tag itself, the thumbnail+link
+        # approach can significantly improve initial rendering latency and
+        # prevent issues in which the browser is inactive for too long and loses
+        # connection with the colab runtime (even though the size of the HTML
+        # string is actually somewhat increased through the addition of the
+        # thumbnail).
+        full_format = 'WEBP'
+        full_mime_type = 'image/webp'
+        try:
+          buffered_full = io.BytesIO()
+          object_to_render.save(buffered_full, format=full_format, quality=90)
+        except (OSError, ValueError):
+          logging.warning(
+              'WEBP full image generation failed, falling back to JPEG.')
+          full_format = 'JPEG'
+          full_mime_type = 'image/jpeg'
+          buffered_full = io.BytesIO()
+          object_to_render.save(buffered_full, format=full_format)
+        full_bytes = buffered_full.getvalue()
+        full_base64_str = base64.b64encode(full_bytes).decode('ascii')
+        full_image_dimensions_str = (
+            f'{object_to_render.width}x{object_to_render.height}'
+        )
+        link_title = (
+            f'Click to view full size image ({full_image_dimensions_str}, '
+            'may be large)'
+        )
+
+        # By specifying a "download" attribute, we allow the browser to offer
+        # the option to save the full-size image as a local file, rather than
+        # necessarily automatically displaying it directly in a new tab.
+        download_url = f'rendered_image_{element_id}.{full_format.lower()}'
+        final_html = (
+            f'<a href="data:{full_mime_type};base64,{full_base64_str}" '
+            f'title="{html.escape(link_title, quote=True)}" '
+            f'download="{download_url}" target="_blank">'
+            f'{img_tag_html}'
+            f'</a>'
+            f'{caption_html}'
+        )
+
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception(
+            'Failed to generate full image link for PIL.Image.Image: %s', e
+        )
+        error_suffix = (
+            f'<i>[Error generating full image link: {html.escape(str(e))}]</i>'
+        )
+        final_html = f'<div>{img_tag_html}</div>{caption_html}{error_suffix}'
+
+    else:
+      raise ValueError(f'Unknown ImageRenderingMode: {mode}')
+
+    return HTMLObjectRendering(html=final_html, collapsible=False)
+
   def _render_evaluation_summary(
       self,
       object_to_render: Any,
@@ -1195,6 +1363,7 @@ class HTMLRenderer:
     """Returns a list of default renderers for various object types."""
     return [
         HTMLRenderer._render_bytes,
+        HTMLRenderer._render_image,
         HTMLRenderer._render_result,
         HTMLRenderer._render_evaluation_summary,
         HTMLRenderer._render_agent_state,
