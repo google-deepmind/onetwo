@@ -258,9 +258,13 @@ class CacheEnabled(Generic[CachedType]):
 
   Attributes:
     disable_caching: Whether caching is enabled for this object.
+    raise_exceptions_as_is: Whether the exceptions raised by the cached methods
+      using this object are raised as is. The default behaviour is to convert
+      the exceptions into 'ValueError's before being raised again.
   """
 
   disable_caching: bool = False
+  raise_exceptions_as_is: bool = False
   _cache_handler: SimpleCache[CachedType] | None = dataclasses.field(
       init=False,
       default=None,
@@ -738,9 +742,11 @@ def cache_method(
         else:
           value = method(*((self,) + args), **kwargs)
       except Exception as err:  # pylint: disable=broad-except
-        raise ValueError(
-            f'Error raised while executing method {method}:\n{err}\n'
-        ) from err
+        error_message = f'Error raised while executing method {method}:\n{err}'
+        if self.raise_exceptions_as_is:
+          logging.error(error_message)
+          raise err
+        raise ValueError(f'{error_message}\n') from err
       except KeyboardInterrupt as err:
         # Note that KeyboardInterrupt is not a subclass of Exception, so we need
         # to handle it separately.

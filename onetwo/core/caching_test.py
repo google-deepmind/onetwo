@@ -21,6 +21,7 @@ import os
 import pprint
 
 from absl import flags
+from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import batching
@@ -85,6 +86,10 @@ class KeyMakerForTest(caching.CacheKeyMaker):
       return args[0] + args[1]
     else:
       return args[0] + kwargs['b']
+
+
+class RandomError(Exception):
+  """A random exception class."""
 
 
 @dataclasses.dataclass
@@ -184,6 +189,11 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       yield text + ' done'
 
     return stream()
+
+  @caching.cache_method()
+  def method_that_raises_error(self, **kwargs):
+    del kwargs
+    raise RandomError('Random error.')
 
 
 class SomeClass:
@@ -412,6 +422,29 @@ class CacheDecorationTest(parameterized.TestCase):
       self.assertListEqual(
           list(contents.values()), ['test done', 'it done', 'it2 done']
       )
+
+  def test_propagate_exception_as_value_error(self):
+    backend = ClassWithCachedMethods()
+    error_regex = (
+        r'^Error raised while executing method <function'
+        r' .*\.method_that_raises_error at.*>:\nRandom error.\n$'
+    )
+    with self.assertRaisesRegex(ValueError, error_regex):
+      _ = asyncio.run(backend.method_that_raises_error(a='test'))
+
+  def test_propagate_exception_as_is_after_logging(self):
+    backend = ClassWithCachedMethods(raise_exceptions_as_is=True)
+    with self.assertLogs(level='ERROR') as logs:
+      log_level = logging.get_verbosity()
+      logging.set_verbosity(logging.ERROR)
+      with self.assertRaisesWithLiteralMatch(RandomError, 'Random error.'):
+        _ = asyncio.run(backend.method_that_raises_error(a='test'))
+      logging.set_verbosity(log_level)
+    error_regex = (
+        r'.*Error raised while executing method <function'
+        r' .*\.method_that_raises_error at.*>:\nRandom error.$'
+    )
+    self.assertRegex(logs.output[0], error_regex)
 
 
 @batching.add_batching
