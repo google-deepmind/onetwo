@@ -37,7 +37,7 @@ async def _add_async(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def _add_executable(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 
@@ -99,7 +99,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     env = python_tool_use.PythonToolUseEnvironment(config=config)
     state = tuple()
     with self.assertRaisesRegex(ValueError, 'Environment not started'):
-      executing.run(env.run_code(sandbox_state=state, code='x = 1 + 2'))
+      executing.run(env.run_code(sandbox_state=state, code='x = 1 + 2'))  # pytype: disable=wrong-keyword-args
 
   def test_start_unsafe_and_stop_manually(self):
     config = python_tool_use.PythonToolUseEnvironmentConfig()
@@ -108,7 +108,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     executing.run(env.start_unsafe())
 
     state = tuple()
-    result = executing.run(env.run_code(sandbox_state=state, code='x = 1 + 2'))
+    result = executing.run(env.run_code(sandbox_state=state, code='x = 1 + 2'))  # pytype: disable=wrong-keyword-args
 
     expected_final_result = python_tool_use.RunCodeResult(
         code='x = 1 + 2',
@@ -147,11 +147,11 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
             'print(y + 4)\nexit()',
         ]
         for code in code_blocks:
-          result = await env.run_code(sandbox_state=state, code=code)
+          result = await env.run_code(sandbox_state=state, code=code)  # pytype: disable=wrong-keyword-args
           state += (code,)
         return result, len(env._sandbox_cache._objects)
 
-    final_result, num_sandboxes = executing.run(wrapper())
+    final_result, num_sandboxes = executing.run(wrapper())  # pytype: disable=wrong-arg-count
 
     expected_final_result = python_tool_use.RunCodeResult(
         code='print(y + 4)\nexit()',
@@ -265,7 +265,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
       step_results = []
       with python_tool_use.PythonToolUseEnvironment(config=config) as env:
         for step in steps:
-          result = await env.run_code(
+          result = await env.run_code(  # pytype: disable=wrong-keyword-args
               sandbox_state=step.sandbox_state, code=step.code
           )
           step_results.append(
@@ -275,7 +275,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
           )
       return step_results
 
-    step_results = executing.run(wrapper())
+    step_results = executing.run(wrapper())  # pytype: disable=wrong-arg-count
 
     # Compare the results to what was expected.
     for i, step_result in enumerate(step_results):
@@ -339,7 +339,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
         max_retries_on_timeout=max_retries_on_timeout,
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
-      result = executing.run(env.run_code(sandbox_state=tuple(), code='1 + 2'))
+      result = executing.run(env.run_code(sandbox_state=tuple(), code='1 + 2'))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('should_return_correct_final_result'):
       self.assertRunCodeResultEqualIgnoringTiming(expected_final_result, result)
@@ -363,7 +363,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       result = executing.run(
-          env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
+          env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})  # pytype: disable=wrong-keyword-args
       )
 
     self.assertEqual('ab', result)
@@ -388,7 +388,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     # Before we call `env.register()`, `tool_use.run_tool` should invoke the
     # default implementation, which simply looks up 'f' in the function
     # registry.
-    result_before = executing.run(tool_use.run_tool('f', args, kwargs))
+    result_before = executing.run(tool_use.run_tool('f', args, kwargs))  # pytype: disable=wrong-arg-count
     with self.subTest('before_registering_environment'):
       self.assertEqual('f_in_registry: a b', result_before)
 
@@ -397,7 +397,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     # name 'f' in the environment.
     with env, routing.RegistryContext():
       env.register()
-      result_after = executing.run(tool_use.run_tool('f', args, kwargs))
+      result_after = executing.run(tool_use.run_tool('f', args, kwargs))  # pytype: disable=wrong-arg-count
     with self.subTest('after_registering_environment'):
       self.assertEqual('f_in_environment: a b', result_after)
 
@@ -410,7 +410,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       result = executing.run(
-          env.run_code(sandbox_state=tuple(), code='add("a", "b")')
+          env.run_code(sandbox_state=tuple(), code='add("a", "b")')  # pytype: disable=wrong-keyword-args
       )
 
     self.assertRunCodeResultEqualIgnoringTiming(
@@ -429,7 +429,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       with self.assertRaises(ValueError):
         executing.run(
-            env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
+            env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})  # pytype: disable=wrong-keyword-args
         )
 
   def test_run_tool_error_unexpected_argument(self):
@@ -440,7 +440,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       with self.assertRaises(TypeError):
         executing.run(
-            env.run_tool(tool_name='double', tool_args=[], tool_kwargs={'y': 3})
+            env.run_tool(tool_name='double', tool_args=[], tool_kwargs={'y': 3})  # pytype: disable=wrong-keyword-args
         )
 
 

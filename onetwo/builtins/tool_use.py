@@ -52,7 +52,7 @@ def run_tool(
   )
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def default_run_tool(
     tool_name: str, tool_args: tuple[Any, ...], tool_kwargs: dict[str, Any]
 ) -> Any:

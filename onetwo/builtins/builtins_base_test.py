@@ -106,7 +106,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     fn.configure(impl)
 
-    self.assertExecutableResultEqual(fn(1), expected_output)
+    self.assertExecutableResultEqual(fn(1), expected_output)  # pytype: disable=wrong-arg-count
 
   def test_configurable_with_typevar(self):
     @builtins_base.Builtin[int]
@@ -116,7 +116,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     fn.configure(normal_function_with_typevar)
 
-    self.assertExecutableResultEqual(fn(1, [2, 3]), 3)
+    self.assertExecutableResultEqual(fn(1, [2, 3]), 3)  # pytype: disable=wrong-arg-count
 
   def test_configure_with_partial(self):
     """Verifies error gets raised when configuring with functools.partial."""
@@ -145,7 +145,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       def add_one(self, a: int) -> int:
         return a + 1
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       def add_one_decorated(self, a: int) -> int:
         return a + 1
 
@@ -156,12 +156,12 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     fn.configure(provider.add_one)
 
     with self.subTest('works_without_make_executable_decorator'):
-      self.assertExecutableResultEqual(fn(1), 2)
+      self.assertExecutableResultEqual(fn(1), 2)  # pytype: disable=wrong-arg-count
 
     fn.configure(provider.add_one_decorated)
 
     with self.subTest('works_with_make_executable_decorator'):
-      self.assertExecutableResultEqual(fn(1), 2)
+      self.assertExecutableResultEqual(fn(1), 2)  # pytype: disable=wrong-arg-count
 
   def test_binds_at_execution(self):
     @builtins_base.Builtin[int]
@@ -178,7 +178,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     # We want to ensure that if we switch the function after creating the
     # executable, we will point to the new function.
     fn.configure(f1)
-    e = fn(1)
+    e = fn(1)  # pytype: disable=wrong-arg-count
     with self.subTest('executes_with_f1'):
       self.assertExecutableResultEqual(e, 2)
     fn.configure(f2)
@@ -222,13 +222,13 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     with self.subTest('calls_the_right_function'):
       fn.configure(correct)
-      self.assertExecutableResultEqual(fn(1), 2)
+      self.assertExecutableResultEqual(fn(1), 2)  # pytype: disable=wrong-arg-count
 
       fn.configure(correct_nodefault)
-      self.assertExecutableResultEqual(fn(1), 2)
+      self.assertExecutableResultEqual(fn(1), 2)  # pytype: disable=wrong-arg-count
       # Test that we can pass arguments that are not implemented
       # (they will be ignored).
-      self.assertExecutableResultEqual(fn(a=1, b=''), 2)
+      self.assertExecutableResultEqual(fn(a=1, b=''), 2)  # pytype: disable=wrong-keyword-args
 
     with self.subTest('configure_error_if_additional_args_have_no_values'):
       with self.assertRaisesRegex(
@@ -239,9 +239,9 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     with self.subTest('configure_correctly_if_additional_args_have_values'):
       fn.configure(correct_additional_optional)
-      self.assertExecutableResultEqual(fn(a=1), 3)
+      self.assertExecutableResultEqual(fn(a=1), 3)  # pytype: disable=wrong-keyword-args
       fn.configure(correct_additional, c=2)
-      self.assertExecutableResultEqual(fn(a=1), 3)
+      self.assertExecutableResultEqual(fn(a=1), 3)  # pytype: disable=wrong-keyword-args
 
     fn.configure(correct_additional_optional)
     with self.subTest('configure_error_when_args_not_in_base_signature'):
@@ -249,7 +249,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
           ValueError,
           'Unknown argument c passed when calling the builtin',
       ):
-        _ = executing.run(fn(a=1, c=2))
+        _ = executing.run(fn(a=1, c=2))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('accepts_wrong_return_type'):
       # Note that the return type is not checked at decoration time.
@@ -257,7 +257,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       fn.configure(incorrect_return)  # pytype: disable=wrong-arg-types
       # This should work even though the return type did not match
       # the original signature.
-      self.assertExecutableResultEqual(fn(1, 1), '2')
+      self.assertExecutableResultEqual(fn(1, 1), '2')  # pytype: disable=wrong-arg-count
 
     with self.subTest('raises_error_if_signature_does_not_match'):
       with self.assertRaisesRegex(ValueError, 'missing'):
@@ -287,17 +287,17 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
         fn.configure(add, d=1)
     fn.configure(add, b=1)
     with self.subTest('configured_b_value_is_used'):
-      self.assertExecutableResultEqual(fn(1, c=2), 4)
-      self.assertExecutableResultEqual(fn(1), 2)
+      self.assertExecutableResultEqual(fn(1, c=2), 4)  # pytype: disable=wrong-arg-count
+      self.assertExecutableResultEqual(fn(1), 2)  # pytype: disable=wrong-arg-count
 
     with self.subTest('configured_b_value_is_overridden'):
-      self.assertExecutableResultEqual(fn(1, c=2, b=3), 6)
-      self.assertExecutableResultEqual(fn(1, b=3), 4)
+      self.assertExecutableResultEqual(fn(1, c=2, b=3), 6)  # pytype: disable=wrong-arg-count
+      self.assertExecutableResultEqual(fn(1, b=3), 4)  # pytype: disable=wrong-arg-count
 
     fn.update(b=2)
     with self.subTest('updated_b_value_is_used'):
-      self.assertExecutableResultEqual(fn(1, c=2), 5)
-      self.assertExecutableResultEqual(fn(1), 3)
+      self.assertExecutableResultEqual(fn(1, c=2), 5)  # pytype: disable=wrong-arg-count
+      self.assertExecutableResultEqual(fn(1), 3)  # pytype: disable=wrong-arg-count
 
     with self.subTest('update_unknown_args_raises_error'):
       with self.assertRaisesRegex(
@@ -309,23 +309,23 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     fn.configure(add, c=1)
     with self.subTest('None_parameter_must_have_a_default'):
       with self.assertRaises(TypeError):
-        _ = executing.run(fn(1))
-      self.assertExecutableResultEqual(fn(1, 2), 4)
+        _ = executing.run(fn(1))  # pytype: disable=wrong-arg-count
+      self.assertExecutableResultEqual(fn(1, 2), 4)  # pytype: disable=wrong-arg-count
 
     fn.configure(add, b=1, c=1)
     with self.subTest('multiple_values_configured'):
-      self.assertExecutableResultEqual(fn(1), 3)
-      self.assertExecutableResultEqual(fn(1, b=2), 4)
+      self.assertExecutableResultEqual(fn(1), 3)  # pytype: disable=wrong-arg-count
+      self.assertExecutableResultEqual(fn(1, b=2), 4)  # pytype: disable=wrong-arg-count
 
     fn.update(c=2)
     with self.subTest('multiple_values_configured'):
-      self.assertExecutableResultEqual(fn(1), 4)
-      self.assertExecutableResultEqual(fn(1, b=2), 5)
+      self.assertExecutableResultEqual(fn(1), 4)  # pytype: disable=wrong-arg-count
+      self.assertExecutableResultEqual(fn(1, b=2), 5)  # pytype: disable=wrong-arg-count
 
     with self.subTest('None_value_reverts_to_default'):
       # If None is passed as the value of a parameter but we had set a default
       # for it, we use the default.
-      self.assertExecutableResultEqual(fn(1, b=None), 4)
+      self.assertExecutableResultEqual(fn(1, b=None), 4)  # pytype: disable=wrong-arg-count
 
   def test_base_args_ignored_by_impl(self):
 
@@ -342,14 +342,14 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     fn.configure(impl_ignores_b_has_kwargs)
     with self.subTest('b_value_from_call_should_be_used'):
-      self.assertExecutableResultEqual(fn(a=1, b=2), 3)
+      self.assertExecutableResultEqual(fn(a=1, b=2), 3)  # pytype: disable=wrong-keyword-args
 
     def impl_ignores_b_has_no_kwargs(a: int) -> int:
       return other_fn(a)
 
     fn.configure(impl_ignores_b_has_no_kwargs)
     with self.subTest('b_value_popped_and_ignored'):
-      self.assertExecutableResultEqual(fn(a=1, b=2), 2)
+      self.assertExecutableResultEqual(fn(a=1, b=2), 2)  # pytype: disable=wrong-keyword-args
 
   def test_extra_args(self):
     @builtins_base.Builtin[int]
@@ -362,13 +362,13 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     fn.configure(impl, a=1)
     with self.subTest('should_pass_extra_args'):
-      self.assertExecutableResultEqual(fn(b=2, c=3), 6)
+      self.assertExecutableResultEqual(fn(b=2, c=3), 6)  # pytype: disable=wrong-keyword-args
 
     with self.subTest('accepts_unused_args'):
-      self.assertExecutableResultEqual(fn(b=2, c=3, d=4), 6)
+      self.assertExecutableResultEqual(fn(b=2, c=3, d=4), 6)  # pytype: disable=wrong-keyword-args
 
     with self.subTest('override_preset_vars'):
-      self.assertExecutableResultEqual(fn(a=2, b=2, c=3), 7)
+      self.assertExecutableResultEqual(fn(a=2, b=2, c=3), 7)  # pytype: disable=wrong-keyword-args
 
   @parameterized.named_parameters(
       ('with_defaults', {'c': 2}, 4),
@@ -381,12 +381,12 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       del a, b, c
       return 0
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     def add(a: int, b: int | None = None, c: int = 0) -> int:
       return a + b + c
 
     fn.configure(add, b=1)  # The `add` executable will be used.
-    self.assertExecutableResultEqual(fn(1, **defaults), expected)
+    self.assertExecutableResultEqual(fn(1, **defaults), expected)  # pytype: disable=wrong-arg-count
 
   def test_wrapping(self):
     """Tests that we the properties of the wrapped function."""
@@ -416,7 +416,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     fn.update(b=2)
     r2 = routing.copy_registry()
     # We create an executable to run in two different contexts.
-    executable = fn(1, c=2)
+    executable = fn(1, c=2)  # pytype: disable=wrong-arg-count
 
     # We switch the context and store the results for each context.
     with routing.RegistryContext():
@@ -456,8 +456,8 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     # value set by `_BuiltinWrapper.update` is supposed to be applied, but the
     # mechanism is slightly different. The latter case occurs, for example, when
     # calling functions from `builtins/callbacks.py` from a prompt template.
-    executable = fn(1, c=2)
-    executable_with_none = fn(1, b=None, c=2)
+    executable = fn(1, c=2)  # pytype: disable=wrong-arg-count
+    executable_with_none = fn(1, b=None, c=2)  # pytype: disable=wrong-arg-count
 
     with self.subTest('value_of_b_initially_defaults_to_0'):
       self.assertEqual(3, executing.run(executable))

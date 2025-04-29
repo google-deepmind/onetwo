@@ -106,7 +106,7 @@ async def llm_callback(
   tracing.execution_context.get().inputs['request'] = prompt
 
   if samples is None:
-    executable = llm.generate_text(
+    executable = llm.generate_text(  # pytype: disable=wrong-arg-count
         prompt, include_details=True, **engine_param_overrides
     )
     assert isinstance(executable, executing.FunctionExecWrapper), (
@@ -132,7 +132,7 @@ async def llm_callback(
       reply = context.iterated_reply
 
   else:
-    replies = await llm.generate_texts(
+    replies = await llm.generate_texts(  # pytype: disable=wrong-arg-count
         prompt, samples, include_details=True, **engine_param_overrides,
     )
     replies = list(replies)
@@ -181,7 +181,7 @@ async def generate_text(
   # a parameter of the choose function.
   tracing.execution_context.get().inputs['request'] = prefix
 
-  reply = await llm.generate_text(
+  reply = await llm.generate_text(  # pytype: disable=wrong-arg-count
       prefix,
       temperature=temperature,
       max_tokens=max_tokens,
@@ -221,7 +221,7 @@ async def generate_texts(
   # a parameter of the choose function.
   tracing.execution_context.get().inputs['request'] = prefix
 
-  reply = await llm.generate_texts(
+  reply = await llm.generate_texts(  # pytype: disable=wrong-arg-count
       prefix,
       samples=samples,
       temperature=temperature,
@@ -289,7 +289,7 @@ async def generate_object(
   # We manually add the prefix as an input even though it is not technically
   # a parameter of the llm function.
   tracing.execution_context.get().inputs['request'] = prompt
-  reply = await llm.generate_object(prompt, cls, **engine_param_overrides)
+  reply = await llm.generate_object(prompt, cls, **engine_param_overrides)  # pytype: disable=wrong-arg-count
 
   tracing.execution_context.get().outputs[results.MAIN_OUTPUT] = reply
   return reply
@@ -351,7 +351,7 @@ async def choose(
   # a parameter of the choose function.
   tracing.execution_context.get().inputs['request'] = prefix
 
-  choices, scores = await llm.rank(
+  choices, scores = await llm.rank(  # pytype: disable=wrong-arg-count
       prefix, candidates, top_k=top_k, include_details=True
   )
 

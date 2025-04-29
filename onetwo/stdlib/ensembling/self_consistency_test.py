@@ -28,14 +28,14 @@ from onetwo.stdlib.reasoning import chain_of_thought
 # reasoning and answer, with the sampling key appended to the answer to show
 # how many times it was called. Here we show that SelfConsistency can be
 # used to wrap strategies with arbitrary numbers of arguments.
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def two_arg_cot(arg1: str, arg2: str):
   key = caching.context_sampling_key.get()
   return chain_of_thought.CoTReply(reasoning=arg1, answer=f'{arg2}-{key}')
 
 
 # Variant of `two_arg_cot` that returns None for the first sample.
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def two_arg_cot_first_sample_none(arg1: str, arg2: str):
   key = caching.context_sampling_key.get()
   answer = f'{arg2}-{key}' if key else None
@@ -51,7 +51,7 @@ async def filter_none_async(output: chain_of_thought.CoTReply):
   return filter_none_sync(output)
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def filter_none_executable(output: chain_of_thought.CoTReply):
   return filter_none_sync(output)
 
@@ -67,7 +67,7 @@ async def score_by_trailing_int_async(args, kwargs, output):
   return score_by_trailing_int_sync(args, kwargs, output)
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def score_by_trailing_int_executable(args, kwargs, output):
   return score_by_trailing_int_sync(args, kwargs, output)
 
@@ -82,7 +82,7 @@ async def bucketize_by_trailing_int_mod_2_async(output):
   return bucketize_by_trailing_int_mod_2_sync(output)
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def bucketize_by_trailing_int_mod_2_executable(output):
   return bucketize_by_trailing_int_mod_2_sync(output)
 
@@ -111,7 +111,7 @@ async def select_highest_trailing_int_async(
   return select_highest_trailing_int_sync(bucket, predictions_with_scores)
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def select_highest_trailing_int_executable(
     bucket: Any,
     predictions_with_scores: Sequence[tuple[chain_of_thought.CoTReply, float]],
@@ -140,7 +140,7 @@ class SelfConsistencyTest(parameterized.TestCase):
 
     # Notice that the self-consistency variant takes exactly the same arguments
     # as the underlying strategy, but returns a distribution over answers.
-    res_cot_sc = executing.run(cot_sc('a', 'b'))
+    res_cot_sc = executing.run(cot_sc('a', 'b'))  # pytype: disable=wrong-arg-count
     expected_res_cot_sc = [
         (chain_of_thought.CoTReply(reasoning='a', answer='b-'), 0.25),
         (chain_of_thought.CoTReply(reasoning='a', answer='b-1'), 0.25),
@@ -154,7 +154,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     # SelfConsistency strategy with ExtractConsensus. This makes the interface
     # the same as the original strategy, so it can be used interchangeably.
     cot_sc_consensus = self_consistency.ExtractConsensus(inner=cot_sc)
-    res_cot_sc_consensus = executing.run(cot_sc_consensus('a', 'b'))
+    res_cot_sc_consensus = executing.run(cot_sc_consensus('a', 'b'))  # pytype: disable=wrong-arg-count
     # The consensus answer is the answer with the highest score. By default,
     # in case of a tie (like in this case), the first answer is selected.
     expected_res_cot_sc_consensus = chain_of_thought.CoTReply(
@@ -190,7 +190,7 @@ class SelfConsistencyTest(parameterized.TestCase):
         (chain_of_thought.CoTReply(reasoning='a', answer='b-4'), 0.25),
     ]
 
-    sc_result = executing.run(sc_strategy('a', 'b'))
+    sc_result = executing.run(sc_strategy('a', 'b'))  # pytype: disable=wrong-arg-count
     self.assertEqual(expected_sc_result, sc_result, sc_result)
 
   @parameterized.named_parameters(
@@ -215,7 +215,7 @@ class SelfConsistencyTest(parameterized.TestCase):
         (chain_of_thought.CoTReply(reasoning='a', answer='b-'), 0.0),
     ]
 
-    sc_result = executing.run(sc_strategy('a', 'b'))
+    sc_result = executing.run(sc_strategy('a', 'b'))  # pytype: disable=wrong-arg-count
     with self.subTest('self_consistency_distribution_based_on_custom_scorer'):
       self.assertEqual(expected_sc_result, sc_result, sc_result)
 
@@ -223,7 +223,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     expected_consensus_result = chain_of_thought.CoTReply(
         reasoning='a', answer='b-4'
     )
-    consensus_result = executing.run(consensus_strategy('a', 'b'))
+    consensus_result = executing.run(consensus_strategy('a', 'b'))  # pytype: disable=wrong-arg-count
     with self.subTest('consensus_answer_is_the_one_with_highest_score'):
       self.assertEqual(
           expected_consensus_result,
@@ -256,7 +256,7 @@ class SelfConsistencyTest(parameterized.TestCase):
         (chain_of_thought.CoTReply(reasoning='a', answer='b-3'), 0.4),
     ]
 
-    sc_result = executing.run(sc_strategy('a', 'b'))
+    sc_result = executing.run(sc_strategy('a', 'b'))  # pytype: disable=wrong-arg-count
     self.assertEqual(expected_sc_result, sc_result, sc_result)
 
   @parameterized.named_parameters(
@@ -285,7 +285,7 @@ class SelfConsistencyTest(parameterized.TestCase):
         (chain_of_thought.CoTReply(reasoning='a', answer='b-3'), 0.4),
     ]
 
-    sc_result = executing.run(sc_strategy('a', 'b'))
+    sc_result = executing.run(sc_strategy('a', 'b'))  # pytype: disable=wrong-arg-count
     self.assertEqual(expected_sc_result, sc_result, sc_result)
 
 

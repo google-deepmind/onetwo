@@ -246,7 +246,7 @@ class PythonSandbox(metaclass=abc.ABCMeta):
         sandbox had to be stopped prematurely due to an exception).
     """
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @abc.abstractmethod
   def run(self, code: str) -> SandboxResult:
     """Returns the result after running the given code in the sandbox.

@@ -108,7 +108,7 @@ def compile_strategies(
       function.
   """
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def _execute_and_add_example(
       executable: executing.Executable,
       example: Example,
@@ -133,7 +133,7 @@ def compile_strategies(
     yield [_execute_and_add_example(exec, example) for exec in executables]
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def naive_comparison_critic(
     answers: Sequence[str | content_lib.ChunkList],
     example: Example,
@@ -209,7 +209,7 @@ async def naive_comparison_critic(
     critic_prompt += 'A good answer could look something like this:\n'
     critic_prompt += example[reference_answer_key].lstrip().rstrip() + '\n\n'
   critic_prompt += 'The best answer for the question above is Answer'
-  res = await llm.generate_text(
+  res = await llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt=critic_prompt,
       max_tokens=3,
       stop=['.', '\n'],
@@ -267,7 +267,7 @@ def apply_critic_to_answers(
     Stream of critic's values on the stream of answers.
   """
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def _apply_critic(
       executables: Sequence[executing.Executable[tuple[_Result, Example]]],
   ) -> tuple[_CriticResult, Example]:
@@ -434,7 +434,7 @@ def compare_with_critic(
   )
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def naive_evaluation_critic(
     answer: str | _ChunkList,
     example: Example,
@@ -519,7 +519,7 @@ Prediction: {answer}
 Does prediction agree with target? (yes/no): """,
       ),
   ]
-  res = await llm.chat(messages=messages, stop=['Question:'])
+  res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
   res = cast(str, res).strip()
 
   # Defaults in case no reason is provided.

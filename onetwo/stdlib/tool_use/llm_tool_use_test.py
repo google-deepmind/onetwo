@@ -33,7 +33,7 @@ async def _add_async(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def _add_executable(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 

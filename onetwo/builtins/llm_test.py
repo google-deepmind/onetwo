@@ -38,7 +38,7 @@ _SEPARATOR: Final[str] = ' @@@ '
 
 def score_factory(score_by_prefix_suffix_pair: Mapping[tuple[str, str], float]):
   """Utility method for constructing a scoring function."""
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   def _score_text(
       prompt: str | _ChunkList,
       targets: Sequence[str],
@@ -64,7 +64,7 @@ def score_factory(score_by_prefix_suffix_pair: Mapping[tuple[str, str], float]):
   return _score_text
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def _generate_text_returns_prompt_and_stop(
     prompt: str | _ChunkList,
     *,
@@ -129,7 +129,7 @@ class LlmTest(parameterized.TestCase):
     llm.reset_defaults()
 
   def test_generate_texts(self):
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     def generate_test_function(
         prompt: str | _ChunkList,
         *,
@@ -148,15 +148,15 @@ class LlmTest(parameterized.TestCase):
     # By default generate_texts is configured to call generate_text multiple
     # times, so we do not need to configure it to use it.
     llm.generate_text.configure(generate_test_function)
-    result = executing.run(llm.generate_text(prompt='hello'))
+    result = executing.run(llm.generate_text(prompt='hello'))  # pytype: disable=wrong-keyword-args
     # As mentioned above calling generate_texts will automatically use
     # generate_text multiple times.
-    results = executing.run(llm.generate_texts(prompt='hello', samples=2))
+    results = executing.run(llm.generate_texts(prompt='hello', samples=2))  # pytype: disable=wrong-keyword-args
     self.assertEqual('hello done ', result)
     self.assertEqual(['hello done ', 'hello done 1'], results)
 
   def test_generate_object(self):
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     def generate_test_function(
         prompt: str | _ChunkList,
         cls: type[_T],
@@ -170,7 +170,7 @@ class LlmTest(parameterized.TestCase):
       return 1
 
     llm.generate_object.configure(generate_test_function)
-    result = executing.run(llm.generate_object(prompt='hello', cls=int))
+    result = executing.run(llm.generate_object(prompt='hello', cls=int))  # pytype: disable=wrong-keyword-args
     self.assertEqual(1, result)
 
   @parameterized.named_parameters(
@@ -222,7 +222,7 @@ class LlmTest(parameterized.TestCase):
     }
     llm.score_text.configure(score_factory(score_by_prefix_suffix_pair))
 
-    exe = llm.select(
+    exe = llm.select(  # pytype: disable=wrong-keyword-args
         prompt=prompt,
         options=targets,
         include_details=include_details,
@@ -300,7 +300,7 @@ class LlmTest(parameterized.TestCase):
     }
     llm.score_text.configure(score_factory(score_by_prefix_suffix_pair))
 
-    exe = llm.rank(
+    exe = llm.rank(  # pytype: disable=wrong-keyword-args
         prompt=prompt,
         options=targets,
         include_details=include_details,
@@ -311,7 +311,7 @@ class LlmTest(parameterized.TestCase):
     self.assertEqual(result, expected_result)
 
   def test_count_tokens(self):
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     def tokenize(content: str | _ChunkList) -> Sequence[int]:
       if isinstance(content, _ChunkList):
         content = str(content)
@@ -319,7 +319,7 @@ class LlmTest(parameterized.TestCase):
       return [len(chunk) for chunk in content.split()]
 
     llm.tokenize.configure(tokenize)
-    result = executing.run(llm.count_tokens(content='hello world'))
+    result = executing.run(llm.count_tokens(content='hello world'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(result, 2)
 
   @parameterized.named_parameters(
@@ -363,7 +363,7 @@ class LlmTest(parameterized.TestCase):
     # We configure only the generate_text function. By default chat is
     # configured with an implementation that is based on generate_text.
     llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
-    result = executing.run(llm.chat(messages, formatter=formatter))
+    result = executing.run(llm.chat(messages, formatter=formatter))  # pytype: disable=wrong-arg-count
     if formatter == formatting.FormatterName.DEFAULT:
       result, stop = result.split(_SEPARATOR)
       with self.subTest('stop_seq_added_as_expected'):
@@ -376,7 +376,7 @@ class LlmTest(parameterized.TestCase):
     llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
     with self.assertRaises(NotImplementedError):
       _ = executing.run(
-          llm.chat(
+          llm.chat(  # pytype: disable=wrong-arg-count
               [_Message(role=_PredefinedRole.USER, content='Hello')],
               formatter=formatting.FormatterName.API,
           )
@@ -423,7 +423,7 @@ class LlmTest(parameterized.TestCase):
     # configured with an implementation that is based on generate_text.
     llm.generate_text.configure(_generate_text_returns_prompt_and_stop)
     result = executing.run(
-        llm.instruct(
+        llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             assistant_prefix=assistant_prefix,
             formatter=formatter,

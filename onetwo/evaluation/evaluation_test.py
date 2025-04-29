@@ -101,7 +101,7 @@ async def simple_strategy(question: str, option: int, **kwargs) -> str:
   """Simple strategy that requires `question` and `option` args."""
   if _GROUND_TRUTH_KEY in kwargs:
     del kwargs[_GROUND_TRUTH_KEY]  # Never look at ground truth when evalutaing!
-  result = await llm.generate_text(prompt=question)
+  result = await llm.generate_text(prompt=question)  # pytype: disable=wrong-keyword-args
   another_option = kwargs.get('another_option', None)
   if another_option is not None:
     return f'{result} option={option} another_option={another_option}'
@@ -214,7 +214,7 @@ class EvaluateTest(parameterized.TestCase):
     async def _strategy(example_id: int, **kwargs) -> str:
       del kwargs  # Not used.
       # Receives f'{example_id}_generated'.
-      result = await llm.generate_text(prompt=str(example_id))
+      result = await llm.generate_text(prompt=str(example_id))  # pytype: disable=wrong-keyword-args
       return cast(str, result).replace('_generated', '')
 
     def _keep_track_of_execution_order(
@@ -428,16 +428,16 @@ class CompareWithCriticTest(parameterized.TestCase):
 
     fake_example = {'fake_example_key': 'fake_example_value'}
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def some_executable(a: int, b: int):
       return f'{a}_{b}', fake_example
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def some_comparison_critic(answers, example):
       del example
       return '+'.join(answers)
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def some_evaluation_critic(answer, example):
       del example
       return answer
@@ -495,15 +495,15 @@ class CompareWithCriticTest(parameterized.TestCase):
     # This way default critic always chooses the first answer.
     llm.generate_text.configure(_generate_text)
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def strategy_a(question, **unused_kwargs):
       del unused_kwargs
-      return await llm.generate_text(prompt=f'{question}_a')
+      return await llm.generate_text(prompt=f'{question}_a')  # pytype: disable=wrong-keyword-args
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def strategy_b(question, **unused_kwargs):
       del unused_kwargs
-      return await llm.generate_text(prompt=f'{question}_b')
+      return await llm.generate_text(prompt=f'{question}_b')  # pytype: disable=wrong-keyword-args
 
     questions = ['question 1', 'question 2', 'question 3', 'question 4']
     reference_answers = ['answer 1', 'answer 2', 'answer 3', 'answer 4']

@@ -533,7 +533,7 @@ def f1(a, b, c):
   return a + b + c
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def f2(a, b, c):
   """Executable test hook."""
   return a + b + c

@@ -68,7 +68,7 @@ _Bucket = TypeVar('_Bucket')
 _PredictionsWithScores: TypeAlias = Sequence[tuple[_O, float]]
 
 
-@tracing.trace
+@tracing.trace  # pytype: disable=wrong-arg-types
 def select_first_highest_scoring_output(
     bucket: Any, predictions_with_scores: _PredictionsWithScores
 ) -> _O | None:

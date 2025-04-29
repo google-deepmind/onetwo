@@ -30,7 +30,7 @@ section_start = composing.section_start
 section_end = composing.section_end
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 def f(
     context: composing.Context, content: str, role: content_lib.RoleType = None
 ) -> content_lib.Chunk:
@@ -45,7 +45,7 @@ def f(
   return content_lib.Chunk(content, role=role)
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 def c(
     context: composing.Context, content: Any, role: content_lib.RoleType = None
 ) -> content_lib.ChunkList:
@@ -59,7 +59,7 @@ def c(
     return content_lib.ChunkList([content_lib.Chunk(content, role=role)])
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 async def j(
     context: composing.Context,
     template: str,
@@ -78,13 +78,13 @@ async def j(
   return content_lib.Chunk(result[prompt_templating.PROMPT_PREFIX], role=role)
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 def generate_text(context: composing.Context, **kwargs) -> ...:
   """Composable version of the llm.generate_text function."""
-  return llm.generate_text(context.prefix, **kwargs)
+  return llm.generate_text(context.prefix, **kwargs)  # pytype: disable=wrong-arg-count
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 async def chat(
     context: composing.Context,
     **kwargs,
@@ -92,7 +92,7 @@ async def chat(
   """Composable version of the llm.chat function."""
   return content_lib.ChunkList([
       content_lib.Chunk(
-          await llm.chat(context.to_messages(), **kwargs),
+          await llm.chat(context.to_messages(), **kwargs),  # pytype: disable=wrong-arg-count
           role=content_lib.PredefinedRole.MODEL,
       )
   ])
@@ -115,21 +115,21 @@ async def select(
   """
   common_prefix = context.prefix
   text_options = [text for text, _ in options]
-  value, index, _ = await llm.select(
+  value, index, _ = await llm.select(  # pytype: disable=wrong-arg-count
       common_prefix, text_options, include_details=True
   )
   return value, options[index][1]
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 def generate_object(
     context: composing.Context, cls: type[Any], **kwargs
 ) -> ...:
   """Composable version of the llm.generate_object function."""
-  return llm.generate_object(context.prefix, cls, **kwargs)
+  return llm.generate_object(context.prefix, cls, **kwargs)  # pytype: disable=wrong-arg-count
 
 
-@composing.make_composable
+@composing.make_composable  # pytype: disable=wrong-arg-types
 async def instruct(
     context: composing.Context,
     assistant_prefix: str | None = None,
@@ -141,7 +141,7 @@ async def instruct(
   # wrap this into an ExecutableWithPostprocessing which adds the
   # assistant_prefix, or change the prefix directly and call instruct with
   # the unchanged prefix (requires to deep-copy the prefix).
-  result = await llm.instruct(context.prefix, assistant_prefix, **kwargs)
+  result = await llm.instruct(context.prefix, assistant_prefix, **kwargs)  # pytype: disable=wrong-arg-count
   if assistant_prefix is None:
     return result
   else:
