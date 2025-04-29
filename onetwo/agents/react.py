@@ -306,7 +306,7 @@ REACT_FEWSHOTS = default_react_exemplars(
 class ReActPromptProtocol(Protocol):
   """Interface for prompt usable with ReActAgent.prompt."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @abc.abstractmethod
   async def __call__(
       self,
@@ -351,7 +351,7 @@ class ReActPromptJ2(
   # Overriding default value of attribute defined in templating.JinjaTemplate.
   text: str = DEFAULT_REACT_PROMPT_TEXT
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self,
       force_finish: bool,
@@ -522,7 +522,7 @@ class ReActPromptComposable(ReActPromptProtocol):
       e += composables.f('\n', role=content_lib.PredefinedRole.USER)
     return e
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self,
       force_finish: bool,
@@ -836,7 +836,7 @@ class ReActAgent(
           # Note that if we assume that the environment is always registered at
           # the time we reach here, calling `environment.run_tool` like below is
           # equivalent to calling the builtin `tool_use.run_tool`.
-          next_step.observation = await environment.run_tool(
+          next_step.observation = await environment.run_tool(  # pytype: disable=wrong-keyword-args
               tool_name=next_step.action.function_name,
               tool_args=next_step.action.args,
               tool_kwargs=next_step.action.kwargs,

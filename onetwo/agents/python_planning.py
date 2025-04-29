@@ -295,7 +295,7 @@ exit()""",
 class PythonPlanningPromptProtocol(Protocol):
   """Interface for prompt usable with PythonPlanningAgent.prompt."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @abc.abstractmethod
   async def __call__(
       self,
@@ -337,7 +337,7 @@ class PythonPlanningPromptJ2(
 
   instruction: str = DEFAULT_PYTHON_PLANNING_INSTRUCTION
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self,
       exemplars: list[PythonPlanningState],
@@ -452,7 +452,7 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       e += self._render_state(exemplar)
     return e
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self,
       exemplars: list[PythonPlanningState],
@@ -598,7 +598,7 @@ class PythonPlanningAgent(
     )
 
     sandbox_state = _sandbox_state_from_agent_state(state)
-    result = await environment.run_code(
+    result = await environment.run_code(  # pytype: disable=wrong-keyword-args
         sandbox_state=sandbox_state, code=_parse_llm_reply_code(llm_reply)
     )
 

@@ -113,7 +113,7 @@ Input: qN
         description=description, few_shots=few_shots
     )
 
-    state_0 = executing.run(agent.initialize_state(inputs=inputs))
+    state_0 = executing.run(agent.initialize_state(inputs=inputs))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('state_should_initially_contain_just_the_inputs'):
       self.assertEqual(
@@ -135,7 +135,7 @@ Input: qN
     max_steps = 2
     updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_0, max_steps=max_steps)
+            agent.stream_updates(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
 
@@ -145,7 +145,7 @@ Input: qN
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_2, max_steps=max_steps)
+            agent.stream_updates(initial_state=state_2, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
     state_4 = sum(second_round_of_updates, state_2)
@@ -216,7 +216,7 @@ Input: qN
     )
 
     next_step_candidates = executing.run(
-        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)
+        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)  # pytype: disable=wrong-keyword-args
     )
 
     with self.subTest('should_return_the_expected_next_step_candidates'):
@@ -268,7 +268,7 @@ Input: qN
     )
 
     output = executing.run(
-        agent(inputs=inputs, max_steps=max_steps, stop_condition=stop_condition)
+        agent(inputs=inputs, max_steps=max_steps, stop_condition=stop_condition)  # pytype: disable=wrong-keyword-args
     )
 
     with self.subTest('correct_output'):
@@ -303,7 +303,7 @@ Input: qN
     )
 
     output, final_state = executing.run(
-        agent(inputs=inputs, max_steps=max_steps, return_final_state=True)
+        agent(inputs=inputs, max_steps=max_steps, return_final_state=True)  # pytype: disable=wrong-keyword-args
     )
 
     with self.subTest('correct_output'):
@@ -458,7 +458,7 @@ tb\
     )
 
     next_step_candidates = executing.run(
-        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)
+        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)  # pytype: disable=wrong-keyword-args
     )
 
     with self.subTest('should_return_the_expected_next_step_candidates'):
@@ -496,7 +496,7 @@ tb\
         description=description, few_shots=few_shots
     )
 
-    output = executing.run(agent(inputs=inputs, max_steps=max_steps))
+    output = executing.run(agent(inputs=inputs, max_steps=max_steps))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('should_make_repeated_llm_calls_up_to_max_steps'):
       self.assertLen(llm_backend.prompts, max_steps)

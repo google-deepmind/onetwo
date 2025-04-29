@@ -84,11 +84,11 @@ class LogScoredListAgent(
   ) -> list[_SU]:
     """Overridden from base class (Agent)."""
     if not self.sampling_is_deterministic:
-      steps = await self.inner_agent.sample_next_step(
+      steps = await self.inner_agent.sample_next_step(  # pytype: disable=wrong-keyword-args
           state=self.extract_output(state), num_candidates=num_candidates
       )
     else:
-      dist = await self.inner_agent.get_next_step_distribution(
+      dist = await self.inner_agent.get_next_step_distribution(  # pytype: disable=wrong-arg-count
           self.extract_output(state)
       )
       steps = sorted(dist, key=lambda x: x.score, reverse=True)[:num_candidates]
@@ -159,7 +159,7 @@ class ResamplingAgentTest(parameterized.TestCase):
     # ['a', 'a', 'b'], ['c', 'b', 'b'], ['c', 'd', 'a']
     # The scorer prefers 'a' over 'c' or 'd' and 'c'or 'd' over 'b'.
     # At the first step, 'a' will be picked, then 'c', then 'a'.
-    result = executing.run(agent(inputs='test'))
+    result = executing.run(agent(inputs='test'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(result, 'a c a')
 
   def test_sample_next_step_with_ranker(self):
@@ -176,7 +176,7 @@ class ResamplingAgentTest(parameterized.TestCase):
     # ['a', 'a', 'b'], ['c', 'b', 'b'], ['c', 'd', 'a']
     # The ranker will pick according to alphabetical order, so it will pick
     # 'a', then 'a b', then 'a b a'.
-    result = executing.run(agent(inputs='test'))
+    result = executing.run(agent(inputs='test'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(result, 'a b a')
 
   def test_sample_next_step_with_selector(self):
@@ -194,7 +194,7 @@ class ResamplingAgentTest(parameterized.TestCase):
     # ['a', 'a', 'b'], ['c', 'b', 'b'], ['c', 'd', 'a']
     # The ranker will pick according to alphabetical order, so it will pick
     # 'a', then 'a b', then 'a b a'.
-    result = executing.run(agent(inputs='test'))
+    result = executing.run(agent(inputs='test'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(result, 'a b a')
 
 
@@ -226,7 +226,7 @@ class BeamSearchTest(parameterized.TestCase):
         inner_agent, critic, beam_size=2, max_candidates=2,
         diversify_beam=diversify_beam
     )
-    result = executing.run(agent(inputs='test'))
+    result = executing.run(agent(inputs='test'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(expected_result, result)
 
   @parameterized.named_parameters(
@@ -277,7 +277,7 @@ class BeamSearchTest(parameterized.TestCase):
         diversify_beam=True  # Useful for deterministic sampling.
     )
     result, final_state = executing.run(
-        agent(inputs='', return_final_state=True)
+        agent(inputs='', return_final_state=True)  # pytype: disable=wrong-keyword-args
     )
     with self.subTest('produces_expected_result'):
       self.assertEqual(expected_result, result)
@@ -300,7 +300,7 @@ class BeamSearchTest(parameterized.TestCase):
     agent = optimization.BeamSearch(
         wrapper, ranker, beam_size=2, max_candidates=2,
     )
-    result = executing.run(agent(inputs=''))
+    result = executing.run(agent(inputs=''))  # pytype: disable=wrong-keyword-args
     with self.subTest('produces_expected_result'):
       self.assertIn(result, ['hello$', 'hallo$', 'hello_world$', 'world$'])
 

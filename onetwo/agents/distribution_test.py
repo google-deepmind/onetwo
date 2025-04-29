@@ -95,8 +95,8 @@ class DistributionAgentTest(parameterized.TestCase):
 
     with self.subTest('distribution_is_uniform'):
       dist = executing.run(
-          agent.get_next_step_distribution(
-              state=agent.initialize_state(inputs='1')
+          agent.get_next_step_distribution(  # pytype: disable=wrong-keyword-args
+              state=agent.initialize_state(inputs='1')  # pytype: disable=wrong-keyword-args
           )
       )
       self.assertSequenceEqual(
@@ -105,8 +105,8 @@ class DistributionAgentTest(parameterized.TestCase):
 
     with self.subTest('samples_are_correct'):
       samples = executing.run(
-          agent.sample_next_step(
-              state=agent.initialize_state(inputs='1'), num_candidates=5
+          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+              state=agent.initialize_state(inputs='1'), num_candidates=5  # pytype: disable=wrong-keyword-args
           )
       )
       samples = [s.update for s in samples]
@@ -114,8 +114,8 @@ class DistributionAgentTest(parameterized.TestCase):
 
     with self.subTest('samples_and_scores_are_correct'):
       samples_with_scores = executing.run(
-          agent.sample_next_step(
-              state=agent.initialize_state(inputs='1'), num_candidates=5
+          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+              state=agent.initialize_state(inputs='1'), num_candidates=5  # pytype: disable=wrong-keyword-args
           )
       )
       self.assertContainsSubset(
@@ -160,8 +160,8 @@ class ReweightedDistributionAgentTest(parameterized.TestCase):
         top_p=top_p,
         top_k=top_k,
     )
-    state = outer_agent.initialize_state('test')
-    result = executing.run(outer_agent.get_next_step_distribution(state=state))
+    state = outer_agent.initialize_state('test')  # pytype: disable=wrong-arg-count
+    result = executing.run(outer_agent.get_next_step_distribution(state=state))  # pytype: disable=wrong-keyword-args
     # We round off the distribution to make the comparison easier.
     result = [(s.update, round(s.score, 2)) for s in result]
     # Also to avoid issues when comparing floats, we convert everything to

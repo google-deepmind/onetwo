@@ -354,7 +354,7 @@ class ReactTest(parameterized.TestCase):
     num_candidates = 2
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       next_step_candidates = executing.run(
-          agent.sample_next_step(
+          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
               state=prev_state, num_candidates=num_candidates, environment=env
           )
       )
@@ -414,7 +414,7 @@ class ReactTest(parameterized.TestCase):
     )
 
     (output, final_state), execution_result = executing.run(
-        agent(inputs=question, return_final_state=True),
+        agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
         enable_tracing=True,
     )
     leaf_results = execution_result.get_leaf_results()
@@ -527,7 +527,7 @@ class ReactTest(parameterized.TestCase):
     )
 
     (output, final_state), execution_result = executing.run(
-        agent(inputs=question, return_final_state=True),
+        agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
         enable_tracing=True,
     )
     leaf_results = execution_result.get_leaf_results()
@@ -598,7 +598,7 @@ class ReactTest(parameterized.TestCase):
     )
 
     (output, final_state), execution_result = executing.run(
-        agent(inputs=question, return_final_state=True),
+        agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
         enable_tracing=True,
     )
     leaf_results = execution_result.get_leaf_results()

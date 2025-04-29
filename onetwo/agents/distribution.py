@@ -121,7 +121,7 @@ class DistributionAgent(
       probabilities of the corresponding update, they cannot be summed over the
       sampled candidates.
     """
-    distribution = await self.get_next_step_distribution(state, environment)
+    distribution = await self.get_next_step_distribution(state, environment)  # pytype: disable=wrong-arg-count
     values = [d.update for d in distribution]
     probabilities = [d.score for d in distribution]
     # This requires the updates to be hashable.

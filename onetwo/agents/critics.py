@@ -126,9 +126,9 @@ def ranker_from_scorer(
   Returns:
     A RankingFunction.
   """
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def ranker(states_and_updates: Sequence[tuple[_S, _U]]) -> list[int]:
-    executables = [scorer(s[0], s[1]) for s in states_and_updates]
+    executables = [scorer(s[0], s[1]) for s in states_and_updates]  # pytype: disable=wrong-arg-count
     scores = await executing.par_iter(executables)
     sorted_updates = sorted(
         enumerate(scores), key=lambda x: x[1], reverse=True
@@ -152,7 +152,7 @@ async def _select_k_best(
       selected.append(0)
       break
     else:
-      best_index = await critic(current_list)
+      best_index = await critic(current_list)  # pytype: disable=wrong-arg-count
       current_list.pop(best_index)
       selected.append(best_index)
   return selected
@@ -173,7 +173,7 @@ def ranker_from_selector(
     A RankingFunction.
   """
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def ranker(states_and_updates: Sequence[tuple[_S, _U]]) -> list[int]:
     return await _select_k_best(
         states_and_updates, selector, len(states_and_updates)
@@ -187,7 +187,7 @@ class ScoreFromUpdates(
 ):
   """Scoring function that extracts the score directly from the update."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self, state: _S, update: agents_base.ScoredUpdate[_U]
   ) -> float:
@@ -208,7 +208,7 @@ class ScoreFromUpdateList(
 ):
   """Scoring function that extracts the score from an update list."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self, state: _ListOfScoredUpdates, update: _ScoredUpdate
   ) -> float:

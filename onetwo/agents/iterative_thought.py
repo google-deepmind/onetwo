@@ -75,7 +75,7 @@ Step #{{ state.updates|length + 1 }}:\
 class IterativeThoughtPromptProtocol(Protocol):
   """Interface for prompt usable with IterativeThoughtAgent.prompt."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @abc.abstractmethod
   async def __call__(
       self,
@@ -111,7 +111,7 @@ class IterativeThoughtPromptJ2(
   # Overriding default value of attribute defined in templating.JinjaTemplate.
   text: str = ITERATIVE_THOUGHT_PROMPT
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self,
       description: str,
@@ -261,7 +261,7 @@ The next step could be one of the following (one per row):
 class IterativeThoughtProposerPromptProtocol(Protocol):
   """Interface for prompt usable with IterativeThoughtProposerAgent.prompt."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @abc.abstractmethod
   async def __call__(
       self,
@@ -299,7 +299,7 @@ class IterativeThoughtProposerPromptJ2(
   # Overriding default value of attribute defined in templating.JinjaTemplate.
   text: str = ITERATIVE_THOUGHT_PROPOSER_PROMPT
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
       self,
       description: str,

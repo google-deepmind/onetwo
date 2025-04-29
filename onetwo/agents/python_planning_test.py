@@ -350,7 +350,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
 
     num_candidates = 2
     next_step_candidates = executing.run(
-        agent.start_environment_and_sample_next_step(
+        agent.start_environment_and_sample_next_step(  # pytype: disable=wrong-keyword-args
             state=prev_state, num_candidates=num_candidates
         )
     )
@@ -430,7 +430,7 @@ print(error_message)
     )
 
     result = executing.run(
-        agent.start_environment_and_sample_next_step(
+        agent.start_environment_and_sample_next_step(  # pytype: disable=wrong-keyword-args
             state=prev_state, num_candidates=1
         )
     )
@@ -470,7 +470,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
         max_steps=1,
     )
 
-    output = executing.run(agent(inputs=question))
+    output = executing.run(agent(inputs=question))  # pytype: disable=wrong-keyword-args
     self.assertEqual('Tuebingen: 91,877, Zuerich: 402,762', output)
 
   def test_execute_with_exit(self):
@@ -499,7 +499,7 @@ print('Tuebingen: %s, Zuerich: %s' % (population1, population2))
         max_steps=10,
     )
 
-    output = executing.run(agent(inputs=question))
+    output = executing.run(agent(inputs=question))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('should_return_the_correct_output'):
       # We'll only get the correct output if the code blocks up through `exit()`
@@ -543,7 +543,7 @@ print('Zuerich population: %s' % population)
         max_steps=1,
     )
 
-    output = executing.run(agent(inputs=question))
+    output = executing.run(agent(inputs=question))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)

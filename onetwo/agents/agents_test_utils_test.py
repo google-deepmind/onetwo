@@ -48,8 +48,8 @@ class DistributionAgentTest(parameterized.TestCase):
   def test_next_step_distribution(self, words, prefix, expected):
     async def wrapper(words: dict[str, float], prefix: str) -> list[_SU]:
       agent = agents_test_utils.DistributionAgentForTest(words)
-      state = await agent.initialize_state(prefix)
-      return await agent.get_next_step_distribution(state)
+      state = await agent.initialize_state(prefix)  # pytype: disable=wrong-arg-count
+      return await agent.get_next_step_distribution(state)  # pytype: disable=wrong-arg-count
 
     res = executing.run(wrapper(words, prefix))
     res_as_dict = {
@@ -103,7 +103,7 @@ class DistributionAgentTest(parameterized.TestCase):
     agent = agents_test_utils.DistributionAgentForTest(
         {'hello': 0.1, 'hallo': 0.2, 'hello_world': 0.4, 'world': 0.3}
     )
-    res = executing.run(agent(inputs=prefix))
+    res = executing.run(agent(inputs=prefix))  # pytype: disable=wrong-keyword-args
     self.assertIn(res, expected)
 
 
@@ -111,16 +111,16 @@ class StringAgentTest(parameterized.TestCase):
 
   def test_sample_next_step(self):
     agent = agents_test_utils.StringAgent(sequence=['a', 'b', 'c', 'd'])
-    state = executing.run(agent.initialize_state(inputs='test'))
+    state = executing.run(agent.initialize_state(inputs='test'))  # pytype: disable=wrong-keyword-args
 
     result = executing.run(
-        agent.sample_next_step(state=state, num_candidates=2)
+        agent.sample_next_step(state=state, num_candidates=2)  # pytype: disable=wrong-keyword-args
     )
     with self.subTest('first_call_returns_first_steps_in_sequence'):
       self.assertEqual(result, ['a', 'b'])
 
     result = executing.run(
-        agent.sample_next_step(state=state, num_candidates=2)
+        agent.sample_next_step(state=state, num_candidates=2)  # pytype: disable=wrong-keyword-args
     )
     with self.subTest('second_call_returns_next_steps_in_sequence'):
       self.assertEqual(result, ['c', 'd'])
@@ -134,7 +134,7 @@ class StringAgentTest(parameterized.TestCase):
     agent = agents_test_utils.StringAgent(
         max_length=max_length, sequence=sequence
     )
-    result = executing.run(agent(inputs='test'))
+    result = executing.run(agent(inputs='test'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(expected_result, result)
 
 

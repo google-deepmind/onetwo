@@ -130,7 +130,7 @@ class AgentTest(parameterized.TestCase):
     agent = StringAgent(max_length=5)
 
     # First we construct an initial state from the inputs.
-    state_0 = executing.run(agent.initialize_state(inputs='q'))
+    state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('state_should_initially_contain_just_the_inputs'):
       self.assertEqual(StringAgentState(inputs='q', updates=[]), state_0)
@@ -146,7 +146,7 @@ class AgentTest(parameterized.TestCase):
     max_steps = 2
     updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_0, max_steps=max_steps)
+            agent.stream_updates(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
 
@@ -156,7 +156,7 @@ class AgentTest(parameterized.TestCase):
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_2, max_steps=max_steps)
+            agent.stream_updates(initial_state=state_2, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
     state_4 = sum(second_round_of_updates, state_2)
@@ -166,7 +166,7 @@ class AgentTest(parameterized.TestCase):
     # configured within the agent itself.
     third_round_of_updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_4, max_steps=max_steps)
+            agent.stream_updates(initial_state=state_4, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
     state_5 = sum(third_round_of_updates, state_4)
@@ -211,11 +211,11 @@ class AgentTest(parameterized.TestCase):
   def test_stream_states(self):
     # Here we show how to stream the intermediate states of an agent.
     agent = StringAgent(max_length=5)
-    state_0 = executing.run(agent.initialize_state(inputs='q'))
+    state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
     max_steps = 2
     states = list(
         executing.stream(
-            agent.stream_states(initial_state=state_0, max_steps=max_steps)
+            agent.stream_states(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
 
@@ -229,7 +229,7 @@ class AgentTest(parameterized.TestCase):
       )
 
     final_state = executing.run(
-        agent.stream_states(initial_state=state_0, max_steps=max_steps)
+        agent.stream_states(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
     )
 
     with self.subTest('run_should_return_the_sequence_of_states'):
@@ -239,10 +239,10 @@ class AgentTest(parameterized.TestCase):
 
   def test_stream_states_with_environment(self):
     agent = StringAgentWithEnvironment(max_length=5)
-    state_0 = executing.run(agent.initialize_state(inputs='q'))
+    state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
     max_steps = 2
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def wrapper() -> tuple[list[str], list[str], list[str]]:
       async with agent.start_environment() as env:
         # Here we call `stream_states` twice with the same environment and then
@@ -250,12 +250,12 @@ class AgentTest(parameterized.TestCase):
         # is stateful and can accumulate modifications over the course of its
         # lifetime.
         states_1 = []
-        async for state in agent.stream_states(
+        async for state in agent.stream_states(  # pytype: disable=wrong-keyword-args
             initial_state=state_0, max_steps=max_steps, environment=env
         ):
           states_1.append(state)
         states_2 = []
-        async for state in agent.stream_states(
+        async for state in agent.stream_states(  # pytype: disable=wrong-keyword-args
             initial_state=state_0, max_steps=max_steps, environment=env
         ):
           states_2.append(state)
@@ -291,7 +291,7 @@ class AgentTest(parameterized.TestCase):
   def test_sample_next_step(self):
     agent = StringAgent()
     next_step_candidates = executing.run(
-        agent.sample_next_step(
+        agent.sample_next_step(  # pytype: disable=wrong-keyword-args
             state=StringAgentState(inputs='q', updates=['1']), num_candidates=3
         )
     )
@@ -311,7 +311,7 @@ class AgentTest(parameterized.TestCase):
   )
   def test_execute(self, max_steps, max_length, expected_output):
     agent = StringAgent(max_length=max_length)
-    output = executing.run(agent(inputs='q', max_steps=max_steps))
+    output = executing.run(agent(inputs='q', max_steps=max_steps))  # pytype: disable=wrong-keyword-args
     self.assertEqual(expected_output, output)
 
   @parameterized.named_parameters(
@@ -322,14 +322,14 @@ class AgentTest(parameterized.TestCase):
     agent = StringAgent(max_length=5)
     stop_condition = lambda x: x.updates and x.updates[-1] == '2'
     output = executing.run(
-        agent(inputs='q', max_steps=max_steps, stop_condition=stop_condition)
+        agent(inputs='q', max_steps=max_steps, stop_condition=stop_condition)  # pytype: disable=wrong-keyword-args
     )
     self.assertEqual(expected_output, output)
 
   def test_execute_return_final_state(self):
     agent = StringAgent()
     output, final_state = executing.run(
-        agent(inputs='q', max_steps=3, return_final_state=True)
+        agent(inputs='q', max_steps=3, return_final_state=True)  # pytype: disable=wrong-keyword-args
     )
 
     with self.subTest('correct_output'):
@@ -343,7 +343,7 @@ class AgentTest(parameterized.TestCase):
 
   def test_execute_with_environment(self):
     agent = StringAgentWithEnvironment()
-    output = executing.run(agent(inputs='q', max_steps=3))
+    output = executing.run(agent(inputs='q', max_steps=3))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('correct_output'):
       self.assertEqual('1 2 3', output)

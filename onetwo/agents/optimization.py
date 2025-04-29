@@ -76,12 +76,12 @@ class ResamplingAgent(
       self, *, state: _S, num_candidates: int, environment: _E | None = None
   ) -> list[_U]:
     """See base class (Agent)."""
-    next_steps = await self.inner_agent.sample_next_step(
+    next_steps = await self.inner_agent.sample_next_step(  # pytype: disable=wrong-keyword-args
         state=state,
         num_candidates=self.extra_sampling_factor * num_candidates,
         environment=environment,
     )
-    ranked_updates_indices = await self.critic(
+    ranked_updates_indices = await self.critic(  # pytype: disable=wrong-arg-count
         [(state, next_step) for next_step in next_steps]
     )
     sorted_next_steps = [next_steps[i] for i in ranked_updates_indices]
@@ -153,7 +153,7 @@ class BeamSearch(
       self, inputs: _I, environment: _E | None = None
   ) -> _BSState:
     """See base class (Agent)."""
-    initial_state = await self.inner_agent.initialize_state(inputs, environment)
+    initial_state = await self.inner_agent.initialize_state(inputs, environment)  # pytype: disable=wrong-arg-count
     return BeamSearchState([initial_state] * self.beam_size)
 
   @contextlib.asynccontextmanager
@@ -193,7 +193,7 @@ class BeamSearch(
       multiplicities = collections.Counter(state.states)
       unique_states = list(multiplicities.keys())
       executables = [
-          self.inner_agent.sample_next_step(
+          self.inner_agent.sample_next_step(  # pytype: disable=wrong-keyword-args
               state=state,
               num_candidates=multiplicities[state]
               * (self.max_candidates or self.beam_size),
@@ -232,7 +232,7 @@ class BeamSearch(
       # started with, which is the beam size.
     else:
       executables = [
-          self.inner_agent.sample_next_step(
+          self.inner_agent.sample_next_step(  # pytype: disable=wrong-keyword-args
               state=inner_state,
               num_candidates=self.max_candidates or self.beam_size,
               environment=environment,
@@ -244,7 +244,7 @@ class BeamSearch(
       for inner_state, next_steps in zip(state.states, next_steps_lists):
         next_inner_steps.extend([(inner_state, step) for step in next_steps])
     # We sort the candidates using the critic.
-    sorted_states_indices = await self.critic(next_inner_steps)
+    sorted_states_indices = await self.critic(next_inner_steps)  # pytype: disable=wrong-arg-count
     # And we pick the top beam_size ones.
     best_states_and_updates = [
         next_inner_steps[sorted_states_indices[i]]
