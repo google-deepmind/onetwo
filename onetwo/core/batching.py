@@ -841,7 +841,7 @@ def stream_updates(  # pytype: disable=invalid-annotation
       wrapper = tracing.IteratorWithReturnValue(it)
       for i in wrapper:
         yield i
-    return wrapper.value
+    return wrapper.value  # pytype: disable=bad-return-type
 
   async def wrapper(callback: Callable[[Any], None]) -> Awaitable[_ReplyT]:
     # We add 1 because the first @trace call will decrease the depth by 1,
@@ -1190,9 +1190,9 @@ def batchable_method(
       del arguments['self']
       batched_function = utils.RuntimeParameter(implementation, self).value()
       if pass_self:
-        replies = await batched_function(self, [arguments])
+        replies = await batched_function(self, [arguments])  # pytype: disable=wrong-arg-count
       else:
-        replies = await batched_function([arguments])
+        replies = await batched_function([arguments])  # pytype: disable=bad-return-type,wrong-arg-count
       return replies[0]
 
     return wrapped

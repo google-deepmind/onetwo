@@ -211,7 +211,7 @@ class VertexAIAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
+    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)  # pytype: disable=wrong-arg-types
     llm.count_tokens.configure(self.count_tokens)
 
   def __post_init__(self) -> None:
@@ -289,7 +289,7 @@ class VertexAIAPI(
       )
     return response
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='VertexAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -324,7 +324,7 @@ class VertexAIAPI(
         healing_option=healing_option,
     )
 
-    response = self._generate_content(
+    response = self._generate_content(  # pytype: disable=wrong-keyword-args
         prompt=healed_prompt,
         samples=1,
         temperature=temperature,
@@ -341,7 +341,7 @@ class VertexAIAPI(
       )
     return response.text
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -376,7 +376,7 @@ class VertexAIAPI(
         healing_option=healing_option,
     )
 
-    response = self._generate_content(
+    response = self._generate_content(  # pytype: disable=wrong-keyword-args
         prompt=healed_prompt,
         samples=samples,
         temperature=temperature,
@@ -409,7 +409,7 @@ class VertexAIAPI(
     else:
       return await llm.default_chat(messages, formatter, **kwargs)
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -509,7 +509,7 @@ class VertexAIAPI(
     )
     return reply
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='VertexAIAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -541,7 +541,7 @@ class VertexAIAPI(
     responses = self._embed_model.get_embeddings([input_content])
     return responses[0].values
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='VertexAIAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',

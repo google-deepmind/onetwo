@@ -219,7 +219,7 @@ class LLMForTest(backends_base.Backend):
           f'(type {type(self.default_reply)!r})'
       )
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
   )
@@ -250,7 +250,7 @@ class LLMForTest(backends_base.Backend):
       return produce_reply(reply)
     else:
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       async def iterate(
           reply,
       ) -> AsyncIterator[str | tuple[str, Mapping[str, Any]]]:
@@ -259,7 +259,7 @@ class LLMForTest(backends_base.Backend):
 
       return iterate(reply)
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
   )
@@ -288,7 +288,7 @@ class LLMForTest(backends_base.Backend):
       content = content.to_simple_string()
     return len(content.split(' ')) * [123]
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def generate_object(
       self, prompt: str | content_lib.ChunkList, cls: Type[_T]
   ) -> _T:

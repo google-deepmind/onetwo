@@ -41,7 +41,7 @@ def _llm(reply_by_prompt: Mapping[str, str]) -> Callable[[Context], str]:
   @tracing.trace('llm')
   async def llm(context: Context) -> str:
     return reply_by_prompt[context.prefix]
-  return llm
+  return llm  # pytype: disable=bad-return-type
 
 
 class TemplatingTest(parameterized.TestCase):

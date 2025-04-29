@@ -230,7 +230,7 @@ class _AppendNode(Composable):
   content: str | Chunk | ChunkList | None = None
 
   @override
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def iterate(
       self, context: Context, iteration_depth: int = 1
   ) -> AsyncIterator[list[ChunkList]]:
@@ -239,7 +239,7 @@ class _AppendNode(Composable):
     return (await self.execute(context))
 
   @override
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   def execute(
       self, context: Context
   ) -> Any:
@@ -270,7 +270,7 @@ class _AppendNode(Composable):
     return str(self)
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 def _noop():
   pass
 
@@ -480,7 +480,7 @@ def make_composable(
   return inner
 
 
-@make_composable
+@make_composable  # pytype: disable=wrong-arg-types
 def set_context(
     context: Context, context_to_set: dict[str, Any] | Context
 ) -> ChunkList:
@@ -489,7 +489,7 @@ def set_context(
   return ChunkList()
 
 
-@make_composable
+@make_composable  # pytype: disable=wrong-arg-types
 def get_context(
     context: Context, context_holder: Context
 ) -> ChunkList:
@@ -506,7 +506,7 @@ class SectionInfo:
   hidden: bool
 
 
-@make_composable
+@make_composable  # pytype: disable=wrong-arg-types
 def section_start(
     context: Context, name: str, hidden: bool = False
 ) -> ChunkList:
@@ -537,7 +537,7 @@ def section_start(
   return ChunkList()
 
 
-@make_composable
+@make_composable  # pytype: disable=wrong-arg-types
 def section_end(context: Context) -> ChunkList:
   """Signals the end of a section.
 
@@ -561,7 +561,7 @@ def section_end(context: Context) -> ChunkList:
   return ChunkList()
 
 
-@make_composable
+@make_composable  # pytype: disable=wrong-arg-types
 def get_var(context: Context, var_name: str) -> ChunkList:
   """Composable that returns the value of a context variable.
 
@@ -637,7 +637,7 @@ async def _fork(
     The result of calling (or awaiting) fn on the executed options.
   """
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   def run_all(
       *to_be_executed: ChunkList | executing.Executable,
   ) -> Sequence[ChunkList]:

@@ -21,7 +21,7 @@ from onetwo.core import executing
 from onetwo.core import sampling
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def process(request: str, suffix: str = '') -> tuple[str, str]:
   key = caching.context_sampling_key.get()
   return (request+suffix, key)
@@ -64,7 +64,7 @@ class SamplingTest(parameterized.TestCase):
     )
 
     # Dynamic creation
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def dynamic_executable():
       return await executing.serial(
           sampling.repeat_and_execute(process('test1'), 3),
@@ -130,16 +130,16 @@ class SamplingTest(parameterized.TestCase):
     sampler = sampling.Repeated(process)
     # Note that we pass in both a positional and a keyword argument to verify
     # that the sampler is correctly passing them through.
-    res = executing.run(sampler('test', suffix='-a', num_samples=3))
+    res = executing.run(sampler('test', suffix='-a', num_samples=3))  # pytype: disable=wrong-arg-count
     expected = [('test-a', ''), ('test-a', '1'), ('test-a', '2')]
     self.assertEqual(expected, res, res)
 
   def test_round_robin_sampler(self):
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def strategy1(request, **kwargs):
       return await process(f'{request}-1', **kwargs)
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def strategy2(request, **kwargs):
       return await process(f'{request}-2', **kwargs)
 
@@ -150,7 +150,7 @@ class SamplingTest(parameterized.TestCase):
 
     # Note that we pass in both a positional and a keyword argument to verify
     # that the sampler is correctly passing them through.
-    res = executing.run(sampler('test', suffix='-a', num_samples=5))
+    res = executing.run(sampler('test', suffix='-a', num_samples=5))  # pytype: disable=wrong-arg-count
     expected = [
         ('test-1-a', ''),
         ('test-2-a', '1'),
@@ -162,7 +162,7 @@ class SamplingTest(parameterized.TestCase):
       self.assertEqual(expected, res, res)
 
     # This time we omit the suffix kwarg for simplicity.
-    res = executing.run(sampler(request='test', num_samples=5, start_index=1))
+    res = executing.run(sampler(request='test', num_samples=5, start_index=1))  # pytype: disable=wrong-keyword-args
     expected = [
         ('test-2', '1'),
         ('test-1', '2'),

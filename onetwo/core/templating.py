@@ -925,7 +925,7 @@ class JinjaTemplate:
     parsed_prompt.globals.update(self._callbacks)
     return parsed_prompt
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def _iterate_through_prompt(
       self,
       context: PromptTemplateContext,
@@ -967,7 +967,7 @@ class JinjaTemplate:
     self._prompt_done = True
     yield ''
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def _execute_reply(
       self, context: PromptTemplateContext
   ) -> AsyncIterator[str]:
@@ -996,7 +996,7 @@ class JinjaTemplate:
           context.iterable_reply = None
         yield ''  # This won't be used.
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def _iterate_through_reply(
       self, context: PromptTemplateContext
   ) -> AsyncIterator[str]:
@@ -1132,7 +1132,7 @@ class JinjaTemplate:
         iterable_reply=iterable_reply,
     )
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name=utils.FromInstance('name'))
   async def render_stream(
       self,
@@ -1143,7 +1143,7 @@ class JinjaTemplate:
     async for outputs in self._render(2, kwargs):
       yield outputs
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name=utils.FromInstance('name'))
   async def render(
       self,

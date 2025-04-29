@@ -212,7 +212,7 @@ class GeminiAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(
+    llm.chat.configure(  # pytype: disable=wrong-arg-types
         self.chat,
         formatter=formatting.FormatterName.API,
         temperature=self.temperature,
@@ -367,7 +367,7 @@ class GeminiAPI(
       )
     return response
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GeminiAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -378,7 +378,7 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
   def generate_text(
       self,
       prompt: str | content_lib.ChunkList,
@@ -399,7 +399,7 @@ class GeminiAPI(
     healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
         original_prompt=prompt, healing_option=healing_option
     )
-    response = self._generate_content(
+    response = self._generate_content(  # pytype: disable=wrong-keyword-args
         prompt=healed_prompt,
         samples=1,
         temperature=temperature,
@@ -430,7 +430,7 @@ class GeminiAPI(
     else:
       return await llm.default_chat(messages, formatter, **kwargs)
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -510,7 +510,7 @@ class GeminiAPI(
     )
     return reply
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GeminiAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -532,7 +532,7 @@ class GeminiAPI(
         content=content,
     )
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GeminiAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',

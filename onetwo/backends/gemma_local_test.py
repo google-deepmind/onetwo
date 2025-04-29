@@ -71,7 +71,7 @@ class GemmaTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with mock_backend('a b') as backend:
       prompt = 'Something'
       result = executing.run(
-          llm.generate_text(prompt=prompt, stop=[' '])
+          llm.generate_text(prompt=prompt, stop=[' '])  # pytype: disable=wrong-keyword-args
       )
       with self.subTest('returns_correct_reply'):
         self.assertEqual(result, 'a')
@@ -88,7 +88,7 @@ class GemmaTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with mock_backend('a b') as backend:
       prompt = 'Something'
       result = executing.run(
-          llm.generate_text(prompt=prompt, stop=[' '], include_details=True)
+          llm.generate_text(prompt=prompt, stop=[' '], include_details=True)  # pytype: disable=wrong-keyword-args
       )
       reply, details = result
       with self.subTest('returns_correct_reply_and_details'):

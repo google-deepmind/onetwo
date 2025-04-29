@@ -73,7 +73,7 @@ class ModelServer:
       batching._enable_batching.set(False)  # pylint: disable=protected-access
 
       try:
-        res = await llm.tokenize(content)
+        res = await llm.tokenize(content)  # pytype: disable=wrong-arg-count
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
       return res
@@ -92,7 +92,7 @@ class ModelServer:
       # onetwo.run().
       batching._enable_batching.set(False)  # pylint: disable=protected-access
       try:
-        res = await llm.generate_text(
+        res = await llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -116,7 +116,7 @@ class ModelServer:
       # onetwo.run().
       batching._enable_batching.set(False)  # pylint: disable=protected-access
       try:
-        res = await llm.count_tokens(content)
+        res = await llm.count_tokens(content)  # pytype: disable=wrong-arg-count
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
       return res

@@ -62,7 +62,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
     prompt = 'Task: Answer the question.\nQuestion:Why?\nAnswer:'
     try:
-      _ = executing.run(llm.instruct(prompt=prompt))
+      _ = executing.run(llm.instruct(prompt=prompt))  # pytype: disable=wrong-keyword-args
     except ValueError as e:
       # If llm.instruct inadvertently uses the default formatter rather than the
       # API formatter, the above prompt will raise an error due to the phrases
@@ -74,7 +74,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.chat(
+        llm.chat(  # pytype: disable=wrong-keyword-args
             messages=[_Message(content=prompt_text, role=_PredefinedRole.USER)],
             stop=['\n\n'],
             max_tokens=512,
@@ -95,7 +95,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt_text,
             stop=['\n\n'],
             max_tokens=512,
@@ -121,7 +121,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     # Same query to see if it has been cached.
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt_text,
             stop=['\n\n'],
             max_tokens=512,
@@ -139,7 +139,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     # Same query but different parameters, run generate request again.
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt_text,
             stop=['different'],
             max_tokens=512,

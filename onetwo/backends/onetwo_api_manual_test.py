@@ -71,7 +71,7 @@ def main(argv: Sequence[str]) -> None:
     Answer: 12.
     Question: Differentiate $\\frac{1}{\\log(x)}$.
   """
-  res = executing.run(llm.generate_text(
+  res = executing.run(llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt=prompt_text,
       stop=['\n\n'],
   ))
@@ -79,7 +79,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.1 Same query to see if it has been cached.')
-  res = executing.run(llm.generate_text(
+  res = executing.run(llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt=prompt_text,
       stop=['\n\n'],
   ))
@@ -87,7 +87,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.2 Same query but different parameters, run requests again.')
-  res = executing.run(llm.generate_text(
+  res = executing.run(llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt=prompt_text,
       temperature=0.,
       stop=['\n\n'],
@@ -97,7 +97,7 @@ def main(argv: Sequence[str]) -> None:
     pprint.pprint(res)
   print('2. Repeated generate request.')
   exe = executing.par_iter(sampling.repeat(
-      executable=llm.generate_text(
+      executable=llm.generate_text(  # pytype: disable=wrong-keyword-args
           prompt='Today is', temperature=0.5, stop=['.']),
       num_repeats=5,
   ))
@@ -107,9 +107,9 @@ def main(argv: Sequence[str]) -> None:
     pprint.pprint(res)
   print('3. Three batched generate queries.')
   exe = executing.par_iter([
-      llm.generate_text(prompt='In summer', stop=['.']),
-      llm.generate_text(prompt='In winter', max_tokens=32),
-      llm.generate_text(prompt='In autumn'),
+      llm.generate_text(prompt='In summer', stop=['.']),  # pytype: disable=wrong-keyword-args
+      llm.generate_text(prompt='In winter', max_tokens=32),  # pytype: disable=wrong-keyword-args
+      llm.generate_text(prompt='In autumn'),  # pytype: disable=wrong-keyword-args
   ])
   res = executing.run(exe)
   if _PRINT_DEBUG.value:

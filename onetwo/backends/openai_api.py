@@ -198,7 +198,7 @@ class OpenAIAPI(
       formatter = formatting.FormatterName.DEFAULT
     else:
       formatter = formatting.FormatterName.API
-    llm.chat.configure(self.chat, formatter=formatter)
+    llm.chat.configure(self.chat, formatter=formatter)  # pytype: disable=wrong-arg-types
     llm.instruct.configure(llm.default_instruct, formatter=formatter)
 
   def __post_init__(self) -> None:
@@ -408,7 +408,7 @@ class OpenAIAPI(
     """Generate necessary number of string completions using available api."""
     if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
       # Use native string completion api.
-      response = self._completions(
+      response = self._completions(  # pytype: disable=wrong-keyword-args
           prompt=prompt,
           include_details=include_details,
           samples=samples,
@@ -426,7 +426,7 @@ class OpenAIAPI(
               role=content_lib.PredefinedRole.SYSTEM,
           )
       ]
-      response = self._chat_completions(
+      response = self._chat_completions(  # pytype: disable=wrong-keyword-args
           messages=ask_for_completion_messages,
           include_details=include_details,
           samples=samples,
@@ -435,7 +435,7 @@ class OpenAIAPI(
 
     return response
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='OpenAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -493,7 +493,7 @@ class OpenAIAPI(
         else text
     )
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='OpenAIAPI.generate_texts')
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
@@ -584,7 +584,7 @@ class OpenAIAPI(
           f'Got: {formatter.value}'
       )
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -602,5 +602,5 @@ class OpenAIAPI(
   ) -> str:
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
-    response = self._chat_completions(messages, include_details=False, **kwargs)
+    response = self._chat_completions(messages, include_details=False, **kwargs)  # pytype: disable=wrong-keyword-args
     return response.choices[0].message.content

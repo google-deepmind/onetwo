@@ -62,7 +62,7 @@ class RegistryReference:
 class _Registry(MutableMapping[str, _RegistryEntry]):
   """Registry to store the mapping between names and functions."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(self, destination: str, *args, **kwargs) -> Any:
     # We call the registry function.
     result = _function_registry_var.get()[destination](*args, **kwargs)

@@ -67,10 +67,10 @@ def main(argv: Sequence[str]) -> None:
     load_end = time.time()
     print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def check_and_complete(prompt_text, **other_args):
     # TODO: Where should we store 8196 and model name?
-    token_count = await llm.count_tokens(
+    token_count = await llm.count_tokens(  # pytype: disable=wrong-keyword-args
         content=prompt_text,
     )
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
@@ -83,7 +83,7 @@ def main(argv: Sequence[str]) -> None:
       )
       print(warning_msg)
       logging.warning(warning_msg)
-    res = await llm.generate_text(prompt=prompt_text, **other_args)
+    res = await llm.generate_text(prompt=prompt_text, **other_args)  # pytype: disable=wrong-keyword-args
     return res
 
   time1 = time.time()
@@ -184,7 +184,7 @@ def main(argv: Sequence[str]) -> None:
     print('ValueError not raised.')
 
   print('6.1 Safety settings: default may raise warnings')
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]  # pytype: disable=wrong-arg-count
   executable = executing.par_iter(execs)
   value_error_raised = False
   try:
@@ -206,7 +206,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('6.2 Safety settings: disable safety settings')
   llm.generate_text.update(safety_settings=gemini_api.SAFETY_DISABLED)
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]  # pytype: disable=wrong-arg-count
   executable = executing.par_iter(execs)
 
   res = executing.run(executable)
@@ -216,7 +216,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('7.1 Generate text without healing.')
   # Expect something weird to happen.
-  executable = llm.generate_text(
+  executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt='When I sat on ',
       temperature=0.,
       max_tokens=10,
@@ -227,7 +227,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
   print('7.2 Generate text with space healing.')
-  executable = llm.generate_text(
+  executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt='When I sat on ',
       temperature=0.,
       max_tokens=10,
@@ -260,7 +260,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('9. Check that generate_texts is working.')
   res = executing.run(
-      llm.generate_texts(
+      llm.generate_texts(  # pytype: disable=wrong-keyword-args
           prompt=prompt_text,
           samples=3,
           stop=['\n\n'],
@@ -273,7 +273,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('10.1 Check that chat is working (API formatting).')
   res = executing.run(
-      llm.chat(
+      llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.SYSTEM,
@@ -303,7 +303,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('10.2 Check that chat completes the model prefix.')
   res = executing.run(
-      llm.chat(
+      llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.USER,
@@ -327,7 +327,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('10.3 Check that chat is working (Default formatting).')
   res = executing.run(
-      llm.chat(
+      llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.SYSTEM,

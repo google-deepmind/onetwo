@@ -118,7 +118,7 @@ class EngineForTest:
 
 
 def plan(num_requests, engine_from_id):
-  @make_executable
+  @make_executable  # pytype: disable=wrong-arg-types
   async def send_request(engine, request):
     return await routing.function_registry[engine](request)
 
@@ -466,11 +466,11 @@ class RoutingTest(parameterized.TestCase):
     def f2(i: int) -> str:
       return f'f2:{i}'
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def f_call(i: int) -> str:
       return routing.function_registry('f', i=i)
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def wrapper():
       reply1 = await f_call(0)
       with routing.RegistryContext():
@@ -501,19 +501,19 @@ class RoutingTest(parameterized.TestCase):
     def f2(i: int) -> str:
       return f'f2:{i}'
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def call(i: int) -> AsyncIterator[str]:
       for _ in range(3):
         yield await routing.function_registry('f', i=i)
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def register_and_call(fn: int, i: int) -> AsyncIterator[str]:
       with routing.RegistryContext():
         routing.function_registry['f'] = f1 if fn == 1 else f2
         for _ in range(3):
           yield await routing.function_registry('f', i=i)
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def register_each_time(fn: int, i: int) -> AsyncIterator[str]:
       for _ in range(3):
         with routing.RegistryContext():

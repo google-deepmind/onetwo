@@ -86,10 +86,10 @@ def main(argv: Sequence[str]) -> None:
     load_end = time.time()
     print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def check_and_complete(prompt_text, **other_args):
     """Check if the prompt is too long and complete it."""
-    token_count = await llm.count_tokens(
+    token_count = await llm.count_tokens(  # pytype: disable=wrong-keyword-args
         content=prompt_text,
     )
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
@@ -103,7 +103,7 @@ def main(argv: Sequence[str]) -> None:
       )
       print(warning_msg)
       logging.warning(warning_msg)
-    res = await llm.generate_text(prompt=prompt_text, **other_args)
+    res = await llm.generate_text(prompt=prompt_text, **other_args)  # pytype: disable=wrong-keyword-args
     return res
 
   time1 = time.time()
@@ -218,7 +218,7 @@ def main(argv: Sequence[str]) -> None:
     print('ValueError not raised.')
 
   print('6.1 Safety settings: default may raise warnings')
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]  # pytype: disable=wrong-arg-count
   executable = executing.par_iter(execs)
   value_error_raised = False
   try:
@@ -240,7 +240,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('6.2 Safety settings: disable safety settings')
   llm.generate_text.update(safety_settings=vertexai_api.SAFETY_DISABLED)
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(16)]  # pytype: disable=wrong-arg-count
   executable = executing.par_iter(execs)
 
   res = executing.run(executable)
@@ -281,7 +281,7 @@ def main(argv: Sequence[str]) -> None:
       raise err
 
   print('8. Check that generate_texts is working.')
-  exe = llm.generate_texts(
+  exe = llm.generate_texts(  # pytype: disable=wrong-keyword-args
       prompt=prompt_text,
       samples=3,
       stop=['\n\n'],
@@ -292,7 +292,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
   print('8.1 Same query but include details.')
-  exe = llm.generate_texts(
+  exe = llm.generate_texts(  # pytype: disable=wrong-keyword-args
       prompt=prompt_text,
       samples=3,
       stop=['\n\n'],
@@ -306,7 +306,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('9.1 Check that chat is working (API formatting).')
   res = executing.run(
-      llm.chat(
+      llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.SYSTEM,
@@ -338,7 +338,7 @@ def main(argv: Sequence[str]) -> None:
   value_error_raised = False
   try:
     _ = executing.run(
-        llm.chat(
+        llm.chat(  # pytype: disable=wrong-keyword-args
             messages=[
                 content_lib.Message(
                     role=content_lib.PredefinedRole.USER,
@@ -367,7 +367,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('9.3 Check that chat is working (Default formatting).')
   res = executing.run(
-      llm.chat(
+      llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.SYSTEM,

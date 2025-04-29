@@ -88,7 +88,7 @@ def main(argv: Sequence[str]) -> None:
       Question: Differentiate $\\frac{1}{\\log(x)}$.
     """
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             stop=['\n\n'],
             max_tokens=5,
@@ -101,7 +101,7 @@ def main(argv: Sequence[str]) -> None:
     print('1.1 Same query to see if it has been cached.')
     counters_before = backend._counters
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             stop=['\n\n'],
             max_tokens=5,
@@ -123,7 +123,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('1.2 Same query but different parameters, run requests again.')
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             temperature=0.0,
             stop=['\n\n'],
@@ -137,7 +137,7 @@ def main(argv: Sequence[str]) -> None:
     print('2. Repeated generate request.')
     exe = executing.par_iter(
         sampling.repeat(
-            executable=llm.generate_text(
+            executable=llm.generate_text(  # pytype: disable=wrong-arg-count
                 'Today is', temperature=0.5, max_tokens=5, stop=['.']
             ),
             num_repeats=5,
@@ -150,9 +150,9 @@ def main(argv: Sequence[str]) -> None:
 
     print('3. Three batched generate queries.')
     exe = executing.par_iter([
-        llm.generate_text(prompt='In summer', max_tokens=5),
-        llm.generate_text(prompt='In winter', max_tokens=7),
-        llm.generate_text(prompt='In autumn', max_tokens=9),
+        llm.generate_text(prompt='In summer', max_tokens=5),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In winter', max_tokens=7),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In autumn', max_tokens=9),  # pytype: disable=wrong-keyword-args
     ])
     res = executing.run(exe)
     if _PRINT_DEBUG.value:
@@ -161,7 +161,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('4. Check that a non-zero score is returned.')
     res = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt='In winter',
             max_tokens=5,
             include_details=True,
@@ -179,7 +179,7 @@ def main(argv: Sequence[str]) -> None:
     # For `gpt-3.5-turbo-instruct` this seems to generate empty replies, because
     # most of them start with `\n\n`. Good test case!
     res = executing.run(
-        llm.generate_texts(
+        llm.generate_texts(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             samples=3,
             temperature=0.5,
@@ -196,7 +196,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6. Calling instruct: without fewshots.')
     res = executing.run(
-        llm.instruct(
+        llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt='Compose a sentence starting with H.',
             temperature=0.5,
             max_tokens=15,
@@ -208,7 +208,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6.1 Calling instruct: with fewshots.')
     res = executing.run(
-        llm.instruct(
+        llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt='Compose a sentence starting with H.',
             temperature=0.5,
             max_tokens=15,
@@ -221,7 +221,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6.2 Calling instruct and providing the prefix: without fewshots.')
     res = executing.run(
-        llm.instruct(
+        llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt='Compose a sentence starting with H.',
             assistant_prefix='His',
             temperature=0.5,
@@ -234,7 +234,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6.2 Calling instruct and providing the prefix: with fewshots.')
     res = executing.run(
-        llm.instruct(
+        llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt='Compose a sentence starting with H.',
             assistant_prefix='His',
             temperature=0.5,
@@ -248,7 +248,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('7. Calling chat.')
     res = executing.run(
-        llm.chat(
+        llm.chat(  # pytype: disable=wrong-keyword-args
             messages=[
                 content_lib.Message(
                     role=content_lib.PredefinedRole.SYSTEM,

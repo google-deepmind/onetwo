@@ -102,14 +102,14 @@ class ExecutableWithContext(
       yield (await cls.maybe_execute(content, context))
 
   @abc.abstractmethod
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def execute(
       self,
       context: _C,
   ) -> _T:
     ...
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def iterate(
       self, context: _C, iteration_depth: int = 1
   ) -> AsyncIterator[_T]:
@@ -183,7 +183,7 @@ class SerialExecutableWithContext(
       self.nodes = self.empty_result()
 
   @override
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def execute(self, context: _C) -> _A:
     if len(self.nodes) == 1:
       result = await self.nodes[0].execute(context)
@@ -202,7 +202,7 @@ class SerialExecutableWithContext(
     self._result = result
     return result
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def iterate(
       self, context: _C, iteration_depth: int = 1
   ) -> AsyncIterator[_A]:

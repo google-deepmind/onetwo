@@ -93,7 +93,7 @@ def repeat(
         str(i + start_index), copy.deepcopy(executable)
     )
     if update_result_fn is not None:
-      wrapper = _update_result_with_sample_id(
+      wrapper = _update_result_with_sample_id(  # pytype: disable=wrong-keyword-args
           wrapper, update_result_fn, sample_id=i
       )
     wrappers.append(wrapper)
@@ -128,7 +128,7 @@ def repeat_and_execute(  # pytype: disable=invalid-annotation
 class Sampler(Generic[_O], Protocol):
   """Interface for generating samples from a conditional distribution."""
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @abc.abstractmethod
   async def __call__(
       self,

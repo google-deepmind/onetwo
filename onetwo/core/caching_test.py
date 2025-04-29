@@ -179,10 +179,10 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
   def method_with_implicit_arg(self, **kwargs) -> str:
     return kwargs['a'] + kwargs['b']
 
-  @executing.make_executable
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(is_sampled=False)
   def method_which_returns_executable(self, text: str) -> str:
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     def stream():
       for i in range(1, len(text)):
         yield text[:i]
@@ -393,7 +393,7 @@ class CacheDecorationTest(parameterized.TestCase):
 
     # Iterative execution
     stream = []
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def wrapper():
       nonlocal stream
       # Fill in the cache (by full execution).
@@ -709,7 +709,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
   def test_does_not_repeat_calls_in_progress(self):
     backend = ClassCachedWithSimpleFunctionCache()
 
-    executable = backend.method_that_is_batched(a='some')
+    executable = backend.method_that_is_batched(a='some')  # pytype: disable=wrong-keyword-args
     executables = sampling.repeat(executable, 5)
     result = executing.run(executing.par_iter(executables))
 
