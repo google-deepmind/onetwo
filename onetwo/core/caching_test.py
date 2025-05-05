@@ -725,6 +725,27 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           },
       )
 
+  def test_sampling_keys_with_exception(self):
+    observed_sample_keys = []
+
+    @executing.make_executable
+    async def maybe_raise(index: int):
+      observed_sample_keys.append(caching.context_sampling_key.get())
+      if index == 1:
+        raise ValueError(f'Test exception for {index}')
+
+    @executing.make_executable
+    async def repeated_raising_code():
+      for i in range(5):
+        executable = caching.SamplingKeyUpdater(str(i), maybe_raise(i))
+        try:
+          await executable
+        except ValueError:
+          pass
+
+    executing.run(repeated_raising_code())
+    self.assertEqual(observed_sample_keys, ['', '1', '2', '3', '4'])
+
   def test_write_to_and_load_from_disk(self):
     cache_filename = 'my_cache.json'
     cache_dir = self.create_tempdir()

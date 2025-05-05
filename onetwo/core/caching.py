@@ -823,15 +823,19 @@ class SamplingKeyUpdater(executing.Executable):
 
   async def _aexec(self) -> Any:
     context_sampling_key.set(self._update_sampling_key())
-    result = await self.wrapped
-    context_sampling_key.set(self.base_key)
+    try:
+      result = await self.wrapped
+    finally:
+      context_sampling_key.set(self.base_key)
     return result
 
   async def _aiterate(self, iteration_depth: int = 1) -> Any:
     context_sampling_key.set(self._update_sampling_key())
-    async for r in self.wrapped.with_depth(iteration_depth):
-      yield r
-    context_sampling_key.set(self.base_key)
+    try:
+      async for r in self.wrapped.with_depth(iteration_depth):
+        yield r
+    finally:
+      context_sampling_key.set(self.base_key)
 
 
 @dataclasses.dataclass
