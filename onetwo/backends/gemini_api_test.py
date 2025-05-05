@@ -91,16 +91,16 @@ def _get_and_register_backend(**kwargs) -> gemini_api.GeminiAPI:
   return backend
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def check_length_and_generate(
     prompt_text: str,
     max_token_count: int = _MOCK_COUNT_TOKENS_RETURN + 1,
     **other_args,
 ) -> Any:
-  token_count = await llm.count_tokens(content=prompt_text)
+  token_count = await llm.count_tokens(content=prompt_text)  # pytype: disable=wrong-keyword-args
   if token_count > max_token_count:
     raise ValueError('Prompt has too many tokens!')
-  res = await llm.generate_text(prompt=prompt_text, **other_args)
+  res = await llm.generate_text(prompt=prompt_text, **other_args)  # pytype: disable=wrong-keyword-args
   return res
 
 
@@ -460,7 +460,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_generate_texts(self):
     _ = _get_and_register_backend()
     prompt = 'Something'
-    results = executing.run(llm.generate_texts(prompt=prompt, samples=3))
+    results = executing.run(llm.generate_texts(prompt=prompt, samples=3))  # pytype: disable=wrong-keyword-args
     self.assertLen(results, 3)
     self.assertListEqual(list(results), ['a' * 10, 'a' * 10, 'a' * 10])
 
@@ -468,7 +468,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
     prompt = 'Task: Answer the question.\nQuestion:Why?\nAnswer:'
     try:
-      _ = executing.run(llm.instruct(prompt=prompt))
+      _ = executing.run(llm.instruct(prompt=prompt))  # pytype: disable=wrong-keyword-args
     except ValueError as e:
       # If llm.instruct inadvertently uses the default formatter rather than the
       # API formatter, the above prompt will raise an error due to the phrases
@@ -479,7 +479,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     msg_user = _Message(role=_PredefinedRole.USER, content='Hello model')
     msg_model = _Message(role=_PredefinedRole.MODEL, content='Hello user')
-    result = executing.run(llm.chat(messages=[msg_user]))
+    result = executing.run(llm.chat(messages=[msg_user]))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('single_msg_returns_correct_result'):
       self.assertEqual(result, 'a' * 10)
@@ -492,7 +492,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with self.subTest('single_msg_sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
 
-    result = executing.run(llm.chat(messages=[msg_model, msg_user]))
+    result = executing.run(llm.chat(messages=[msg_model, msg_user]))  # pytype: disable=wrong-keyword-args
 
     with self.subTest('multiple_msg_returns_correct_result'):
       self.assertEqual(result, 'a' * 10)
@@ -509,17 +509,17 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend(temperature=0.1)
     self.generate_content_response_function = RespondWithTextAndTemperature('a')
     with self.subTest('uses_backend_default'):
-      res = executing.run(llm.generate_text(prompt='Something'))
+      res = executing.run(llm.generate_text(prompt='Something'))  # pytype: disable=wrong-keyword-args
       self.assertEqual(res, 'a 0.1')
 
     with self.subTest('uses_updated_default'):
       llm.generate_text.update(temperature=0.2)
-      res = executing.run(llm.generate_text(prompt='Something'))
+      res = executing.run(llm.generate_text(prompt='Something'))  # pytype: disable=wrong-keyword-args
       self.assertEqual(res, 'a 0.2')
 
     with self.subTest('uses_override'):
       res = executing.run(
-          llm.generate_text(prompt='Something', temperature=0.3)
+          llm.generate_text(prompt='Something', temperature=0.3)  # pytype: disable=wrong-keyword-args
       )
       self.assertEqual(res, 'a 0.3')
 
@@ -533,18 +533,18 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         )
     ]
     with self.subTest('uses_backend_default'):
-      llm.chat(messages=messages)
-      res = executing.run(llm.chat(messages=messages))
+      llm.chat(messages=messages)  # pytype: disable=wrong-keyword-args
+      res = executing.run(llm.chat(messages=messages))  # pytype: disable=wrong-keyword-args
       self.assertEqual(res, 'a 0.1')
 
     with self.subTest('uses_updated_default'):
       llm.chat.update(temperature=0.2)
-      res = executing.run(llm.chat(messages=messages))
+      res = executing.run(llm.chat(messages=messages))  # pytype: disable=wrong-keyword-args
       self.assertEqual(res, 'a 0.2')
 
     with self.subTest('uses_override'):
       res = executing.run(
-          llm.chat(messages=messages, temperature=0.3)
+          llm.chat(messages=messages, temperature=0.3)  # pytype: disable=wrong-keyword-args
       )
       self.assertEqual(res, 'a 0.3')
 
@@ -552,24 +552,24 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend(temperature=0.1)
     self.generate_content_response_function = RespondWithTextAndTemperature('a')
     with self.subTest('uses_backend_default'):
-      res = executing.run(llm.instruct(prompt='Something'))
+      res = executing.run(llm.instruct(prompt='Something'))  # pytype: disable=wrong-keyword-args
       self.assertEqual(res, 'a 0.1')
 
     with self.subTest('uses_updated_default'):
       llm.instruct.update(temperature=0.2)
-      res = executing.run(llm.instruct(prompt='Something'))
+      res = executing.run(llm.instruct(prompt='Something'))  # pytype: disable=wrong-keyword-args
       self.assertEqual(res, 'a 0.2')
 
     with self.subTest('uses_override'):
       res = executing.run(
-          llm.instruct(prompt='Something', temperature=0.3)
+          llm.instruct(prompt='Something', temperature=0.3)  # pytype: disable=wrong-keyword-args
       )
       self.assertEqual(res, 'a 0.3')
 
   def test_truncation(self):
     _ = _get_and_register_backend()
     result = executing.run(
-        llm.generate_text(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt='something', include_details=True, max_tokens=2
         )
     )
@@ -656,7 +656,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
 
     # Test llm.generate_text.
-    executable = llm.generate_text(
+    executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
         prompt=prompt,
         healing_option=healing_option,
     )
@@ -680,7 +680,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
     msg_user = _Message(role=_PredefinedRole.USER, content=prompt)
     msg_model = _Message(role=_PredefinedRole.MODEL, content='I am model!')
-    executable = llm.chat(
+    executable = llm.chat(  # pytype: disable=wrong-keyword-args
         messages=[msg_model, msg_user],
         healing_option=healing_option,
     )

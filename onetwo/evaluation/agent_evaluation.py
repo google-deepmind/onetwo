@@ -131,7 +131,7 @@ class AggregationFunction(Protocol):
     ...
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def _execute_with_tracing(
     strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
     *args: _Args.args,
@@ -180,16 +180,16 @@ async def _execute_with_tracing(
   async def wrapper(*args: _Args.args, **kwargs: _Args.kwargs) -> _O:
     return await utils.call_and_maybe_await(strategy, *args, **kwargs)
 
-  prediction = await wrapper(*args, **kwargs)
+  prediction = await wrapper(*args, **kwargs)  # pytype: disable=wrong-arg-types
 
   # Harvest the trace that was defined in the wrapper function above.
   trace = copy.deepcopy(tracing.execution_context.get(None))
-  if len(trace.stages) != 1:
+  if len(trace.stages) != 1:  # pytype: disable=attribute-error
     raise ValueError(
         'Expected exactly one stage in the trace:'
         f' {pprint.pformat(trace, width=160)}'
     )
-  trace = trace.stages[0]
+  trace = trace.stages[0]  # pytype: disable=attribute-error
 
   # If the underlying function was already being traced, then the outer trace
   # layer defined via the wrapper will be redundant, and we can omit it.
@@ -213,7 +213,7 @@ async def _execute_with_tracing(
   return prediction, trace
 
 
-@executing.make_executable
+@executing.make_executable  # pytype: disable=wrong-arg-types
 async def _evaluate_example(
     strategy: Callable[[_I], _O] | Callable[[_I], executing.Executable[_O]],
     example: Example,
