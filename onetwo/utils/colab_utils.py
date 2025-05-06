@@ -79,7 +79,7 @@ def diff_cache_data(
   def _diff_dict(before: dict[Any, Any], after: dict[Any, Any]):
     return {k: v for k, v in after.items() if k not in before or v != before[k]}
 
-  return caching._CacheData(  # pylint: disable=protected-access
+  return caching._CacheData(  # pylint: disable=protected-access  # pytype: disable=wrong-arg-types
       counters=collections.Counter(_diff_dict(before.counters, after.counters)),
       values_by_key=_diff_dict(before.values_by_key, after.values_by_key),
       num_used_values_by_key=_diff_dict(
