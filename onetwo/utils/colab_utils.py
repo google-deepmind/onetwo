@@ -20,7 +20,9 @@ statements, in cases where such output tends to be useful in a colab workflow.
 logged content requires extra work in order to access.)
 """
 
+import collections
 from collections.abc import Mapping, Sequence
+import copy
 import dataclasses
 import os
 from typing import Any
@@ -54,6 +56,40 @@ def _get_cache_size(backend: Any) -> int:
   # accessing the private `_cache_handler` attribute.
   cache_handler = backend._cache_handler  # pylint: disable=protected-access
   return cache_handler.get_key_count()
+
+
+def diff_cache_data(
+    *, before: caching._CacheData, after: caching._CacheData  # pylint: disable=protected-access
+) -> caching._CacheData:
+  """Returns the difference between the two given cache data objects.
+
+  Note that this is not a perfect diff, as values_by_key maps key to a list of
+  entries, and counters map to counts of the events, but this function leaves
+  all entries which are in some way modified (ex. if there was a new entry in
+  values_by_key that has a different sampling key).
+
+  Args:
+    before: The cache data object to compare.
+    after: The cache data object to compare.
+
+  Returns:
+    The difference between the two given cache data objects.
+  """
+
+  def _diff_dict(before: dict[Any, Any], after: dict[Any, Any]):
+    return {k: v for k, v in after.items() if k not in before or v != before[k]}
+
+  return caching._CacheData(  # pylint: disable=protected-access
+      counters=collections.Counter(_diff_dict(before.counters, after.counters)),
+      values_by_key=_diff_dict(before.values_by_key, after.values_by_key),
+      num_used_values_by_key=_diff_dict(
+          before.num_used_values_by_key, after.num_used_values_by_key
+      ),
+      sample_id_by_sampling_key_by_key=_diff_dict(
+          before.sample_id_by_sampling_key_by_key,
+          after.sample_id_by_sampling_key_by_key,
+      ),
+  )
 
 
 # TODO: Consider moving the bulk of this class to `core/caching.py`,
@@ -208,7 +244,67 @@ class CachedBackends(Mapping[str, caching.FileCacheEnabled]):
     for backend_name in self._backends:
       self.load_backend_cache(backend_name, overwrite=overwrite)
 
-  def save_caches(self, *, cache_directory: str | None = None):
+  # pylint: disable=protected-access
+  def extract_cache_data(self) -> dict[str, caching._CacheData]:
+    """Returns a mapping of backend name to a copy of its cache data."""
+    result = {}
+    for backend_name in self._backends:
+      cache_handler = self._backends[backend_name]._cache_handler
+      if not isinstance(cache_handler, caching.SimpleFunctionCache):
+        raise ValueError(
+            f'Backend {backend_name} has an unsupported cache type'
+            f' ({type(cache_handler)}). Current implementation of BackendCaches'
+            ' only supports SimpleFunctionCache.'
+        )
+      cache_data = cache_handler._cache_data
+      result[backend_name] = copy.deepcopy(cache_data)
+    return result
+
+  def subtract_cache_data(self, cache_data: dict[str, caching._CacheData]):
+    """Updates all currently managed backend caches to contain the just diff.
+
+    This can be used, for example, to determine which specific contents were
+    added to the backend caches during a given experiment run. E.g., if one
+    were to run a large number of experiments in parallel, all starting from
+    the same (potentially large) existing cache file, it can be useful at the
+    end of the experiments to save to file just the contents that were added
+    to each backend cache during the given experiment run (to avoid expensive
+    file I/O on large amounts of duplicate content) and then merge all of those
+    diffs together with the original cache file to create a single new
+    all-encompassing cache file for each backend at the very end.
+
+    Args:
+      cache_data: The cache data to diff against. In the motivating use case,
+        this would typically represent the "original" contents of the backend
+        caches prior to the current experiment run.
+    """
+    for backend_name in self._backends:
+      self_cache_handler = self._backends[backend_name]._cache_handler
+      if not isinstance(self_cache_handler, caching.SimpleFunctionCache):
+        print(f'Backend {backend_name} is not a SimpleFunctionCache.')
+        continue
+      self_cache_data = self_cache_handler._cache_data
+      self_cache_size = _get_cache_size(self._backends[backend_name])
+
+      if backend_name not in cache_data:
+        print(f'Backend {backend_name} not found in cache data to subtract.')
+        continue
+      other_cache_data = cache_data[backend_name]
+
+      self_cache_handler._cache_data = diff_cache_data(
+          after=self_cache_data, before=other_cache_data
+      )
+
+      new_cache_size = _get_cache_size(self._backends[backend_name])
+
+      print(f'{backend_name}: {self_cache_size} => {new_cache_size}')
+      # pylint: enable=protected-access
+
+  def save_caches(
+      self,
+      *,
+      cache_directory: str | None = None,
+  ):
     """Saves the caches of all the currently managed backends.
 
     Args:

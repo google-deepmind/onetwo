@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import collections
 import dataclasses
 import os
 
@@ -21,6 +22,9 @@ from absl.testing import parameterized
 from onetwo.backends import backends_base
 from onetwo.core import caching
 from onetwo.utils import colab_utils
+
+
+CacheData = caching._CacheData  # pylint: disable=protected-access
 
 
 @dataclasses.dataclass
@@ -41,7 +45,166 @@ class TestBackend(caching.FileCacheEnabled, backends_base.Backend):
     return self.return_value
 
 
+def _create_cache_data(
+    counters,
+    values_by_key,
+    num_used_values_by_key,
+    sample_id_by_sampling_key_by_key,
+) -> CacheData:
+  counters = counters or {}
+  values_by_key = values_by_key or {}
+  num_used_values_by_key = num_used_values_by_key or {}
+  sample_id_by_sampling_key_by_key = sample_id_by_sampling_key_by_key or {}
+
+  nested_sample_id_dict = collections.defaultdict(
+      lambda: collections.defaultdict(str)
+  )
+  for key, inner_dict in sample_id_by_sampling_key_by_key.items():
+    nested_sample_id_dict[key].update(inner_dict)
+
+  return CacheData(
+      counters=collections.Counter(counters),
+      values_by_key=collections.defaultdict(list, values_by_key),
+      num_used_values_by_key=collections.defaultdict(
+          int, num_used_values_by_key
+      ),
+      sample_id_by_sampling_key_by_key=nested_sample_id_dict,
+  )
+
+
 class CachedBackendsTest(parameterized.TestCase):
+
+  def test_diff_cache_data(self):
+    empty_cache_data = CacheData()
+    cache_data1 = _create_cache_data(
+        counters={'a': 1, 'b': 2},
+        values_by_key={'k1': ['v1a', 'v1b'], 'k2': ['v2']},
+        num_used_values_by_key={'k1': 1},
+        sample_id_by_sampling_key_by_key={'k1': {'sk1': 'sid1'}},
+    )
+    cache_data2 = _create_cache_data(
+        counters={'a': 1, 'c': 3},  # 'b' removed, 'c' added
+        values_by_key={
+            'k1': ['v1a', 'v1c'],
+            'k3': ['v3'],
+        },  # 'k1' modified, 'k2' removed, 'k3' added
+        num_used_values_by_key={'k1': 2},  # 'k1' modified
+        sample_id_by_sampling_key_by_key={
+            'k1': {'sk1': 'sid2'}
+        },  # 'k1' modified
+    )
+    cache_data3 = _create_cache_data(
+        counters={'a': 1, 'b': 2, 'd': 4},  # 'd' added
+        values_by_key={
+            'k1': ['v1a', 'v1b'],
+            'k2': ['v2'],
+            'k4': ['v4'],
+        },  # 'k4' added
+        num_used_values_by_key={'k1': 1, 'k4': 1},  # 'k4' added
+        sample_id_by_sampling_key_by_key={
+            'k1': {'sk1': 'sid1'},
+            'k4': {'sk4': 'sid4'},
+        },  # 'k4' added
+    )
+
+    with self.subTest('both_empty'):
+      diff = colab_utils.diff_cache_data(
+          before=empty_cache_data, after=empty_cache_data
+      )
+      self.assertEqual(empty_cache_data, diff)
+
+    with self.subTest('before_empty'):
+      diff = colab_utils.diff_cache_data(
+          before=empty_cache_data, after=cache_data1
+      )
+      self.assertEqual(cache_data1, diff)
+
+    with self.subTest('after_empty'):
+      diff = colab_utils.diff_cache_data(
+          before=cache_data1, after=empty_cache_data
+      )
+      self.assertEqual(empty_cache_data, diff)
+
+    with self.subTest('no_change'):
+      diff = colab_utils.diff_cache_data(before=cache_data1, after=cache_data1)
+      self.assertEqual(empty_cache_data, diff)
+
+    with self.subTest('mixed_changes_add_modify_remove'):
+      expected_diff = _create_cache_data(
+          counters={'c': 3},  # 'a' unchanged, 'b' removed, 'c' added
+          values_by_key={
+              'k1': ['v1a', 'v1c'],
+              'k3': ['v3'],
+          },  # 'k1' modified, 'k2' removed, 'k3' added
+          num_used_values_by_key={'k1': 2},  # 'k1' modified
+          sample_id_by_sampling_key_by_key={
+              'k1': {'sk1': 'sid2'}
+          },  # 'k1' modified
+      )
+      diff = colab_utils.diff_cache_data(before=cache_data1, after=cache_data2)
+      self.assertEqual(expected_diff, diff)
+
+    with self.subTest('only_additions'):
+      expected_diff = _create_cache_data(
+          counters=collections.Counter({'d': 4}),
+          values_by_key={'k4': ['v4']},
+          num_used_values_by_key={'k4': 1},
+          sample_id_by_sampling_key_by_key={'k4': {'sk4': 'sid4'}},
+      )
+      diff = colab_utils.diff_cache_data(before=cache_data1, after=cache_data3)
+      self.assertEqual(expected_diff, diff)
+
+  def test_subtract_cache_data(self):
+    cache_dir1 = self.create_tempdir()
+    cache_dir2 = self.create_tempdir()
+
+    backends1 = colab_utils.CachedBackends(
+        own_cache_directory=cache_dir1.full_path
+    )
+    backend1 = TestBackend(
+        cache_filename=backends1.get_cache_path('model_subtract'),
+        return_value='val1',
+    )
+    backends1['model_subtract'] = backend1
+
+    backends2 = colab_utils.CachedBackends(
+        own_cache_directory=cache_dir2.full_path
+    )
+    backend2 = TestBackend(
+        cache_filename=backends2.get_cache_path('model_subtract'),
+        return_value='val2',
+    )
+    backends2['model_subtract'] = backend2
+
+    # backend1: arg1 -> val1, arg2 -> val1
+    _ = asyncio.run(backend1.get_value('arg1'))
+    _ = asyncio.run(backend1.get_value('arg2'))
+    backend1.save_cache()
+
+    # backend2: arg1 -> val2 (different value), arg3 -> val2
+    _ = asyncio.run(backend2.get_value('arg1'))
+    _ = asyncio.run(backend2.get_value('arg3'))
+    backend2.save_cache()
+
+    with self.subTest('subtract_populated_from_populated'):
+      expected_cache_data = _create_cache_data(
+          counters=None,
+          values_by_key={
+              "('arg1',)": ['val1'],
+              "('arg3',)": ['val1'],
+          },
+          num_used_values_by_key=None,
+          sample_id_by_sampling_key_by_key=None,
+      )
+
+      cache_data = backends2.extract_cache_data()
+      backends1.subtract_cache_data(cache_data)
+
+      cache_handler1 = backend1._cache_handler  # pylint: disable=protected-access
+      self.assertIsInstance(cache_handler1, caching.SimpleFunctionCache)
+      cache_handler1._calls_in_progress.clear()  # pylint: disable=protected-access
+      self.assertSequenceEqual(list(expected_cache_data.values_by_key.values()), list(cache_handler1._cache_data.values_by_key.values()))  # pylint: disable=protected-access
+      self.assertEqual(2, colab_utils._get_cache_size(backend1))  # pylint: disable=protected-access
 
   @parameterized.named_parameters(
       ('base_case', 'search_engine', 'search_engine.json'),
@@ -202,6 +365,7 @@ class CachedBackendsTest(parameterized.TestCase):
     # back to it.
     with self.subTest('user1_2nd_call_for_arg3_should_hit_additional_cache'):
       self.assertEqual('b', asyncio.run(backend1.get_value('arg3')))
+
 
 if __name__ == '__main__':
   absltest.main()
