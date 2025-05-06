@@ -696,12 +696,23 @@ def _is_update_list_state(object_to_render: Any) -> bool:
   )
 
 
+def truncate_and_escape(
+    object_as_string: str, max_length: int | None = None
+) -> str:
+  """Returns a truncated and escaped version of the given string."""
+  if max_length is not None and len(object_as_string) > max_length:
+    object_as_string = object_as_string[:max_length] + '...'
+  # Note that it is important to perform the truncation before the escaping,
+  # so as to avoid accidentally cutting off part of an HTML tag. The caller
+  # should also take care to not accidentally escape a string that has already
+  # been escaped, as that can lead to unintuitive results.
+  return html.escape(object_as_string)
+
+
 def _as_string(object_to_render: Any, max_length: int | None = None) -> str:
   """Returns an appropriate string representation for rendering in HTML."""
   object_as_string = repr(object_to_render)
-  if max_length is not None and len(object_as_string) > max_length:
-    object_as_string = object_as_string[: max_length] + '...'
-  return html.escape(object_as_string)
+  return truncate_and_escape(object_as_string, max_length)
 
 
 @dataclasses.dataclass
@@ -782,6 +793,65 @@ class HTMLRenderer:
         f'<span style="color:blue">{updated_reply}</span></p>'
     )
 
+  def render_dict(
+      self,
+      object_to_render: Mapping[Any, Any],
+      *,
+      title: str,
+      element_id: str,
+      levels_to_expand: int,
+      ancestor_ids: set[int] | None = None,
+      collapsed_html: str | None = None,
+  ) -> HTMLObjectRendering:
+    """Returns an HTML rendering of the dict using the given collapsed_html.
+
+    Note that this is not a rendering function in itself (since it doesn't
+    match the standard signature for rendering functions), but is a helper
+    method that can be used to implement custom rendering of dict-like objects.
+    A common use case would be in a custom renderer, which constructs a
+    temporary dict containing the contents of the original object that should
+    be shown when expanded, along with a custom collapsed_html to be shown
+    when the object is in collapsed state, and then calls this method to
+    construct the full HTML.
+
+    Args:
+      object_to_render: The dict (or other Mapping) to render.
+      title: The title to be shown in boldface continually (both when collapsed
+        and when expanded). If `None`, then falls back to the title from the
+        rendering returned by `render_object` or the object's type name.
+      element_id: The id to be used for the outermost HTML element returned by
+        this function. Ids for inner elements are expected to be constructed by
+        appending suffixes to this id.
+      levels_to_expand: The number of levels in the hierarchy below this one to
+        expand by default, for elements that are capable of
+        expanding/collapsing. When making recursive calls for rendering child
+        nodes, levels_to_expand is expected to be reduced by 1.
+      ancestor_ids: Set of object IDs currently in the rendering call stack,
+        passed down for cycle detection.
+      collapsed_html: The HTML rendering of the object to use when it is in
+        collapsed state. If `None`, then it will fall back to the default.
+    """
+    lines = []
+    lines.append(title)
+    lines.append('<ul>')
+    for i, (key, value) in enumerate(object_to_render.items()):
+      lines.append(
+          self.render_object_as_collapsible_list_element(
+              value,
+              title=f'{key}:',
+              element_id=f'{element_id}-{i}',
+              levels_to_expand=levels_to_expand-1,
+              ancestor_ids=ancestor_ids
+          )
+      )
+    lines.append('</ul>')
+
+    return HTMLObjectRendering(
+        html='\n'.join(lines),
+        collapsed_html=collapsed_html,
+        expanded=(levels_to_expand > 0),
+    )
+
   def _render_dict_like_object(
       self,
       object_to_render: Any,
@@ -810,24 +880,13 @@ class HTMLRenderer:
     if self._string_representation_can_fit_on_single_line(object_to_render):
       return None
 
-    lines = []
-    lines.append(title)
-    lines.append('<ul>')
-    for i, (key, value) in enumerate(object_as_dict.items()):
-      lines.append(
-          self.render_object_as_collapsible_list_element(
-              value,
-              title=f'{key}:',
-              element_id=f'{element_id}-{i}',
-              levels_to_expand=levels_to_expand-1,
-              ancestor_ids=ancestor_ids
-          )
-      )
-    lines.append('</ul>')
-
-    return HTMLObjectRendering(
-        html='\n'.join(lines),
-        expanded=(levels_to_expand > 0),
+    return self.render_dict(
+        object_as_dict,
+        title=title,
+        element_id=element_id,
+        levels_to_expand=levels_to_expand,
+        ancestor_ids=ancestor_ids,
+        collapsed_html=None,  # Fall back to the default.
     )
 
   def _render_result(

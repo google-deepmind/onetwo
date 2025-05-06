@@ -872,6 +872,48 @@ class EvaluationSummaryTest(parameterized.TestCase):
 class HTMLRendererTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
+      # Basic truncation behavior in absence of special characters.
+      ('basic_no_max', None, 'basic', 'basic'),
+      ('basic_max_gt_len', 6, 'basic', 'basic'),
+      ('basic_max_eq_len', 5, 'basic', 'basic'),
+      ('basic_max_lt_len', 4, 'basic', 'basi...'),
+      # HTML escaping behavior without truncation.
+      ('escape_no_max_special_chars', None, 'a<b&c"d', 'a&lt;b&amp;c&quot;d'),
+      ('escape_max_gt_len_special_chars', 6, 'a<b&c', 'a&lt;b&amp;c'),
+      ('escape_max_eq_len_special_chars', 5, 'a<b&c', 'a&lt;b&amp;c'),
+      # Interaction of truncation with HTML escaping.
+      ('truncate_some_special_kept', 7, 'a<b&c>d_efgh', 'a&lt;b&amp;c&gt;d...'),
+      ('truncate_special_at_cutoff', 3, 'ab<def', 'ab&lt;...'),
+      ('truncate_special_after_cutoff', 2, 'ab<def', 'ab...'),
+      ('truncate_special_around_cutoff', 5, 'a<b>&<d>e', 'a&lt;b&gt;&amp;...'),
+      # Edge cases for max_length with special characters.
+      ('truncate_max_0_with_special', 0, '<test>', '...'),
+      ('truncate_max_0_no_special', 0, 'test', '...'),
+      ('truncate_max_1_first_char_special', 1, '<test>', '&lt;...'),
+      ('truncate_max_1_second_char_special', 1, 'a<test>', 'a...'),
+      # Empty string.
+      ('empty_str_max_gt_0', 1, '', ''),
+      ('empty_str_max_0', 0, '', ''),
+      ('empty_str_no_max', None, '', ''),
+      # Illustration of the issues that can occur when attempting to escape a
+      # string that has already been escaped (the caller needs to take care to
+      # avoid doing this).
+      (
+          'double_escape_no_trunc',
+          30,
+          '&lt;tag&amp;val&quot;',
+          '&amp;lt;tag&amp;amp;val&amp;quot;',
+      ),
+      # Original '&amp;key' truncated to max_length 3 becomes '&am...', which
+      # when escaped becomes '&amp;am...'.
+      ('double_escape_truncate_mid_pseudo_entity', 3, '&amp;key', '&amp;am...'),
+  )
+  def test_truncate_and_escape(self, max_length, original, expected):
+    self.assertEqual(
+        expected, results.truncate_and_escape(original, max_length=max_length)
+    )
+
+  @parameterized.named_parameters(
       dict(
           testcase_name='int',
           object_to_render=123,
@@ -922,6 +964,68 @@ class HTMLRendererTest(parameterized.TestCase):
     )
     with self.subTest('html'):
       self.assertEqual(expected_html, rendering.html)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='empty_dict',
+          object_to_render={},
+          title='empty_dict',
+          collapsed_html=None,
+          expected_html="""\
+empty_dict
+<ul>
+</ul>""",
+          expected_collapsed_html=None,
+      ),
+      dict(
+          testcase_name='dict_with_multiple_elements',
+          object_to_render={'a': 1, 'b': 2},
+          title='dict_with_multiple_elements',
+          collapsed_html=None,
+          expected_html="""\
+dict_with_multiple_elements
+<ul>
+<li><b>a:</b> 1</li>
+<li><b>b:</b> 2</li>
+</ul>""",
+          expected_collapsed_html=None,
+      ),
+      dict(
+          testcase_name='dict_with_multiple_elements_and_custom_collapsed_html',
+          object_to_render={'a': 1, 'b': 2},
+          title='dict_with_multiple_elements_and_custom_collapsed_html',
+          collapsed_html='<b>custom</b>',
+          expected_html="""\
+dict_with_multiple_elements_and_custom_collapsed_html
+<ul>
+<li><b>a:</b> 1</li>
+<li><b>b:</b> 2</li>
+</ul>""",
+          expected_collapsed_html='<b>custom</b>',
+      ),
+  )
+  def test_render_dict(
+      self,
+      object_to_render,
+      title,
+      collapsed_html,
+      expected_html,
+      expected_collapsed_html,
+  ):
+    renderer = results.HTMLRenderer()
+    rendering = renderer.render_dict(
+        object_to_render,
+        title=title,
+        element_id='0',
+        levels_to_expand=1,
+        collapsed_html=collapsed_html,
+    )
+
+    with self.subTest('html'):
+      self.assertEqual(expected_html, rendering.html)
+
+    with self.subTest('collapsed_html'):
+      self.assertEqual(expected_collapsed_html, rendering.collapsed_html)
 
   @parameterized.named_parameters(
       ('empty_result', results.ExecutionResult()),
