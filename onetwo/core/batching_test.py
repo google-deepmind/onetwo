@@ -514,7 +514,8 @@ class BatchingTest(parameterized.TestCase):
 
   def test_stream_updates(self):
 
-    @tracing.trace  # This will trace the output.
+    # This will trace the output.
+    @tracing.trace  # pytype: disable=wrong-arg-types
     async def process(value):
       return value + 1
 
@@ -550,7 +551,7 @@ class BatchingTest(parameterized.TestCase):
     batches = []
 
     @batching.batch_function(batch_size=3)
-    @tracing.trace
+    @tracing.trace  # pytype: disable=wrong-arg-types
     async def process(requests):
       batches.append(requests)
       return requests
@@ -1118,13 +1119,13 @@ class BatchingTest(parameterized.TestCase):
           replies.append(r)
       return replies
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     @batching.batchable_function(implementation=process_batch)
     def process(request: int | Exception) -> int:
       del request
       pass  # pytype: disable=bad-return-type
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def process_with_error_handling(x: int | Exception) -> int | str:
       try:
         return await process(x)
@@ -1236,7 +1237,7 @@ class BatchingTest(parameterized.TestCase):
             replies.append(r)
         return replies
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       @batching.batchable_method(
           implementation=utils.FromInstance('process_batch')
       )
@@ -1244,7 +1245,7 @@ class BatchingTest(parameterized.TestCase):
         del request
         pass  # pytype: disable=bad-return-type
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       async def process_with_error_handling(
           self, x: int | Exception
       ) -> int | str:
@@ -1331,7 +1332,7 @@ class BatchingTest(parameterized.TestCase):
       expected_results,
       expected_error_message_if_not_caught,
   ):
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     @batching.batch_function_with_threadpool(batch_size=2)
     def process(request: int | Exception) -> int:
       if isinstance(request, Exception):
@@ -1339,7 +1340,7 @@ class BatchingTest(parameterized.TestCase):
       else:
         return request
 
-    @executing.make_executable
+    @executing.make_executable  # pytype: disable=wrong-arg-types
     async def process_with_error_handling(x: int | Exception) -> int | str:
       try:
         return await process(x)
@@ -1417,7 +1418,7 @@ class BatchingTest(parameterized.TestCase):
     @batching.add_batching
     class C:
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       @batching.batch_method_with_threadpool(batch_size=2)
       def process(self, request: int | Exception) -> int:
         if isinstance(request, Exception):
@@ -1425,7 +1426,7 @@ class BatchingTest(parameterized.TestCase):
         else:
           return request
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       async def process_with_error_handling(
           self, x: int | Exception
       ) -> int | str:
@@ -1552,7 +1553,7 @@ class BatchingTest(parameterized.TestCase):
     class C:
       processed = []
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       @batching.to_thread_pool_method(num_workers=2)
       def process(self, request: int, sleep_time: int = 0) -> int:
         time.sleep(sleep_time)
@@ -1577,7 +1578,7 @@ class BatchingTest(parameterized.TestCase):
   ):
     class C:
 
-      @executing.make_executable
+      @executing.make_executable  # pytype: disable=wrong-arg-types
       @batching.to_thread_pool_method(num_workers=2)
       def process(self, request: int) -> int:
         if request == 2:
