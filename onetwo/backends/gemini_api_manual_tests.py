@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Sequence
+import json
 import os
 import pprint
 import time
@@ -31,6 +32,10 @@ from onetwo.core import sampling
 
 
 
+
+# gemini-2.0-flash.
+# See https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-0-flash  # pylint: disable=line-too-long
+_MAX_INPUT_TOKENS = 1048576
 
 _API_KEY = flags.DEFINE_string('api_key', default=None, help='GenAI API key.')
 _CACHE_DIR = flags.DEFINE_string(
@@ -74,11 +79,10 @@ def main(argv: Sequence[str]) -> None:
         content=prompt_text,
     )
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
-    max_token_count = 30720  # See https://ai.google.dev/models/gemini.
-    if token_count > max_token_count:
+    if token_count > _MAX_INPUT_TOKENS:
       warning_msg = (
           f'Warning: Prompt token length ({token_count}) exceeds maximal input'
-          f'token length ({max_token_count}) and '
+          f'token length ({_MAX_INPUT_TOKENS}) and '
           f'will be truncated on the server side: {prompt_text[:100]}\n.'
       )
       print(warning_msg)
@@ -150,7 +154,7 @@ def main(argv: Sequence[str]) -> None:
   try:
     # This call should fail and raise ValueError in _batch_generate.
     _ = executing.run(
-        check_and_complete(', '.join(map(str, list(range(10000)))))
+        check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS)))))
     )
   except ValueError as err:
     if 'GeminiAPI.generate_content raised' not in repr(err):
@@ -167,7 +171,7 @@ def main(argv: Sequence[str]) -> None:
   exe = executing.par_iter([
       check_and_complete(prompt_text='In summer', max_tokens=1),
       check_and_complete(prompt_text='In winter', max_tokens=32),
-      check_and_complete(', '.join(map(str, list(range(20000))))),
+      check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),
   ])
   value_error_raised = False
   try:
@@ -275,10 +279,6 @@ def main(argv: Sequence[str]) -> None:
   res = executing.run(
       llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
-              content_lib.Message(
-                  role=content_lib.PredefinedRole.SYSTEM,
-                  content='You are a helpful and insightful chatbot.',
-              ),
               content_lib.Message(
                   role=content_lib.PredefinedRole.USER,
                   content='What is the capital of France?',
@@ -397,6 +397,29 @@ def main(argv: Sequence[str]) -> None:
     backend.save_cache(overwrite=True)
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
+
+  print('12. Check response_schema and response_mime_type.')
+  executable = (
+      c.c('What is the capital of France? ')
+      + c.store(
+          'answer',
+          c.generate_text(
+              response_mime_type='application/json',
+              response_schema={
+                  'type': 'object',
+                  'properties': {'answer': {'type': 'string'}},
+              },
+          ),
+      )
+  )
+  _ = executing.run(executable)
+  try:
+    answer = json.loads(executable['answer'])
+    if _PRINT_DEBUG.value:
+      print('Returned value:', answer)
+  except json.JSONDecodeError as e:
+    success = False
+    print('Returned value is not a valid JSON:', executable['answer'], e)
 
   print('PASS' if success else 'FAIL')
 

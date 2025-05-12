@@ -44,10 +44,10 @@ _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 _ChunkList: TypeAlias = content_lib.ChunkList
 
 # Available models are listed at https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini.  # pylint: disable=line-too-long
-# input_token_limit=32760, output_token_limit=8192.
-DEFAULT_GENERATE_MODEL: Final[str] = 'gemini-1.0-pro'
-# input_token_limit=16384, output_token_limit=2048.
-DEFAULT_MULTIMODAL_MODEL: Final[str] = 'gemini-1.0-pro-vision'
+# input_token_limit=1048576, output_token_limit=8192.
+DEFAULT_GENERATE_MODEL: Final[str] = 'gemini-2.0-flash'
+# input_token_limit=1048576, output_token_limit=2048.
+DEFAULT_MULTIMODAL_MODEL: Final[str] = 'gemini-2.0-flash'
 # input_token_limit=3072.
 DEFAULT_EMBED_MODEL: Final[str] = 'textembedding-gecko@003'
 
@@ -258,6 +258,9 @@ class VertexAIAPI(
     if isinstance(prompt, content_lib.ChunkList):
       prompt = _convert_chunk_list_to_parts_list(prompt)
 
+    response_mime_type = kwargs.pop('response_mime_type', None)
+    response_schema = kwargs.pop('response_schema', None)
+
     generation_config = generative_models.GenerationConfig(
         candidate_count=samples,
         stop_sequences=stop,
@@ -265,6 +268,8 @@ class VertexAIAPI(
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
+        response_mime_type=response_mime_type,
+        response_schema=response_schema,
     )
     try:
       # TODO: Trace this external API call.  # pylint: disable=g-bad-todo
@@ -481,12 +486,17 @@ class VertexAIAPI(
     )
     content_parts = _convert_chunk_list_to_parts_list(healed_content)
 
+    response_mime_type = kwargs.pop('response_mime_type', None)
+    response_schema = kwargs.pop('response_schema', None)
+
     generation_config = generative_models.GenerationConfig(
         stop_sequences=stop,
         max_output_tokens=max_tokens,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
+        response_mime_type=response_mime_type,
+        response_schema=response_schema,
     )
 
     chat = chat_model.start_chat(history=history[:-1])

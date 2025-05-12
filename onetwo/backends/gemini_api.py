@@ -332,6 +332,8 @@ class GeminiAPI(
   ) -> generation_types.GenerateContentResponse:
     """Generate content."""
     prompt = _convert_chunk_list_to_contents_type(prompt)
+    response_mime_type = kwargs.pop('response_mime_type', None)
+    response_schema = kwargs.pop('response_schema', None)
 
     generation_config = genai.GenerationConfig(
         candidate_count=samples,
@@ -340,6 +342,8 @@ class GeminiAPI(
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
+        response_mime_type=response_mime_type,
+        response_schema=response_schema,
     )
     try:
       # TODO: Trace this external API call.
@@ -455,6 +459,8 @@ class GeminiAPI(
     temperature = kwargs.pop('temperature', None)
     top_k = kwargs.pop('top_k', None)
     top_p = kwargs.pop('top_p', None)
+    response_mime_type = kwargs.pop('response_mime_type', None)
+    response_schema = kwargs.pop('response_schema', None)
 
     if len(messages) == 1:
       if messages[0].role != content_lib.PredefinedRole.USER:
@@ -485,6 +491,8 @@ class GeminiAPI(
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
+        response_mime_type=response_mime_type,
+        response_schema=response_schema,
     )
     healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
         original_prompt=messages[-1].content,
