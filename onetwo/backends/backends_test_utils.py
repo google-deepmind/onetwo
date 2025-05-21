@@ -309,3 +309,74 @@ class LLMForTest(backends_base.Backend):
     llm.generate_object.configure(self.generate_object)
     llm.count_tokens.configure(self.count_tokens)
     llm.tokenize.configure(self.tokenize)
+
+
+@batching.add_batching
+@dataclasses.dataclass
+class EmbedderForTest(backends_base.Backend):
+  """Mock Embedder backend.
+
+  Attributes:
+    batch_size: Number of separate requests that are sent simultaneously.
+    wait_time_before_reply: Time that it takes to produce each reply.
+    reply_by_content: Mapping from content (string or ChunkList) to embedding.
+    default_embedding: Default embedding if content not found in
+      reply_by_content.
+    contents: All contents that were received as `embed` requests, in the order
+      received.
+    unexpected_contents: Contents that were not found in `reply_by_content`.
+  """
+
+  batch_size: int = 1
+  wait_time_before_reply: datetime.timedelta = datetime.timedelta(seconds=0.0)
+
+  reply_by_content: Mapping[
+      str | content_lib.ChunkList, Sequence[float] | Exception
+  ] = dataclasses.field(default_factory=dict)
+  default_embedding: Sequence[float] = dataclasses.field(default_factory=list)
+
+  contents: list[str | content_lib.ChunkList] = dataclasses.field(
+      init=False, default_factory=list
+  )
+  unexpected_contents: list[str | content_lib.ChunkList] = dataclasses.field(
+      init=False, default_factory=list
+  )
+
+  def _get_embed_reply(
+      self, content: str | content_lib.ChunkList
+  ) -> Sequence[float]:
+    """Returns the reply for the given content, while updating counters."""
+    self.contents.append(content)
+
+    if content in self.reply_by_content:
+      reply = self.reply_by_content[content]
+      if isinstance(reply, Exception):
+        raise reply
+      return reply
+
+    # Try converting ChunkList to string if direct match fails.
+    if isinstance(content, content_lib.ChunkList):
+      content_str = content.to_simple_string()
+      if content_str in self.reply_by_content:
+        reply = self.reply_by_content[content_str]
+        if isinstance(reply, Exception):
+          raise reply
+        return reply
+
+    self.unexpected_contents.append(content)
+    return self.default_embedding
+
+  # TODO: Remove the pytype disable once the bug is fixed.
+  # (Here and elsewhere in this file, and throughout the OneTwo codebase.)
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+  )
+  def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
+    reply = self._get_embed_reply(content)
+    time.sleep(self.wait_time_before_reply.total_seconds())
+    return reply
+
+  def register(self, name: str | None = None):
+    del name
+    llm.embed.configure(self.embed)
