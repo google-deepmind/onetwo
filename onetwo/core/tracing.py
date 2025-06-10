@@ -1,4 +1,4 @@
-# Copyright 2024 DeepMind Technologies Limited.
+# Copyright 2025 DeepMind Technologies Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -248,7 +248,7 @@ def stream_updates(
 
 
 async def report_update(update: Any, name: str | None = None):
-  tracer = execution_tracer.get()
+  tracer = execution_tracer.get(None)
   # With this sleep, we make sure that the calls to update_outputs can be
   # interleaved if there are multiple parallel calls to report_update.
   await asyncio.sleep(0)
