@@ -34,6 +34,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import datetime
 import pprint
 import random
+import re
 import time
 from typing import Any, Final, Protocol, TypeAlias, TypeVar, cast
 
@@ -238,6 +239,22 @@ async def naive_comparison_critic(
           'critic_prompt': critic_prompt,
       }
   }
+
+
+def _validate_example_keys(
+    example: Example, question_key: str, golden_answer_key: str
+) -> None:
+  """Validates that the example contains the required keys."""
+  if question_key not in example:
+    raise ValueError(
+        f'Example does not contain the question key {question_key}:\n'
+        f'{pprint.pformat(example)}'
+    )
+  if golden_answer_key not in example:
+    raise ValueError(
+        f'Example does not contain the golden answer key {golden_answer_key}:\n'
+        f'{pprint.pformat(example)}'
+    )
 
 
 def apply_critic_to_answers(
@@ -463,20 +480,11 @@ async def naive_evaluation_critic(
   Raises:
     ValueError:
       If example does not contain the question key. Or use_reference_answer is
-      True and example doed not contain the reference answer key. Or if critic
+      True and example does not contain the reference answer key. Or if critic
       returned a string that does not consist of a single integer, i.e., can not
       be used with int().
   """
-  if question_key not in example:
-    raise ValueError(
-        f'Example does not contain the question key {question_key}:\n'
-        f'{pprint.pformat(example)}'
-    )
-  if golden_answer_key not in example:
-    raise ValueError(
-        f'Example does not contain the golden answer key {golden_answer_key}:\n'
-        f'{pprint.pformat(example)}'
-    )
+  _validate_example_keys(example, question_key, golden_answer_key)
   question = example[question_key]
   golden_answer = example[golden_answer_key]
   messages = [
@@ -571,6 +579,168 @@ Does prediction agree with target? (yes/no): """,
       }
   }
   return (is_correct, extra_evaluation_info)
+
+
+@executing.make_executable  # pytype: disable=wrong-arg-types
+async def naive_fuzzy_evaluation_critic(
+    answer: str | _ChunkList,
+    example: Example,
+    question_key: str = _QUESTION_KEY,
+    golden_answer_key: str = _GOLDEN_ANSWER_KEY,
+) -> MetricResult:
+  """Naive implementation of a fuzzy evaluation critic strategy.
+
+  Like the naive_evaluation_critic, but instead of returning a binary rating
+  (yes/no), it returns a continuous score between 0 and 1.
+
+  Args:
+    answer: Candidate answer for the question (contained in the example) that a
+      critic needs to evaluate.
+    example: Example that contains the question and the golden answer.
+    question_key: Key of the element in the example dictionary that contains the
+      question.
+    golden_answer_key: Key of the element in the example dictionary that
+      contains the golden answer.
+
+  Returns:
+    A tuple (SingleMetricValue, ExtraInfo).
+
+  Raises:
+    ValueError:
+      If example does not contain the question key. Or use_reference_answer is
+      True and example does not contain the reference answer key. Or if critic
+      returned a string that cannot be parsed.
+  """
+  _validate_example_keys(example, question_key, golden_answer_key)
+  question = example[question_key]
+  golden_answer = example[golden_answer_key]
+  messages = [
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Please evaluate the predicted answer against the target answer, in'
+          ' the context of the given question. Give your rating as a float'
+          ' between 0.0 and 1.0, where 1 indicates a perfect semantic match and'
+          ' 0 indicates no similarity. Then give the reason for your'
+          ' rating.\n\n1.0: Perfect semantic equivalence, conveying the same'
+          ' information and nuance.\n0.8-0.9: Very strong alignment, perhaps'
+          ' minor stylistic differences or slight omissions that do not alter'
+          ' core meaning.\n0.5-0.7: Moderate alignment, captures some key'
+          ' aspects but might be incomplete, slightly off-topic, or contain'
+          ' minor inaccuracies.\n0.1-0.4: Weak alignment, only vaguely related'
+          ' or contains significant inaccuracies.\n0.0: No meaningful semantic'
+          ' overlap.\n\nQuestion: Circumference of a circle with radius'
+          ' 1cm?\nTarget: 2pi cm\nPrediction: 6.28 centimenter\nScore'
+          ' prediction against target in [0.0, 1.0]: ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '1.0\nReason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate'
+          ' enough answer.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          """
+
+Question: Which U.S. President authorized the use of atomic bombs during World War II?
+Target: Harry S. Truman
+Prediction: Harry Truman
+Score prediction against target in [0.0, 1.0]: """,
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '0.9\nReason: Clearly the correct answer, only the middle initial is'
+          ' missing.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          """
+
+Question: What is a "black hole"?
+Target: A region of spacetime where gravity is so strong that nothing, not even light, can escape.
+Prediction: A black hole is like a vacuum cleaner in space that sucks everything up.
+Score prediction against target in [0.0, 1.0]: """,
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '0.3\nReason: We can give some credit for recognizing the basic'
+          ' concept, but there is a significant lack of scientific precision.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          """
+
+Question: How many green shapes are there in the picture?
+Target: 12
+Prediction: There are 3 green squares and 9 green circles.
+Score prediction against target in [0.0, 1.0]: """,
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '0.9\nReason: The answer is more specific than the target but the'
+          ' numbers add up to the target value.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          """
+
+Question: Which Beatles are shown in the picture?
+Target: Paul and George
+Prediction: [Paul McCartney, George Harrison, Ringo Starr]
+Score prediction against target in [0.0, 1.0]: """,
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '0.6\nReason: Format and last names do not matter much here, but the'
+          ' answer contains one extra person.',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          f"""
+
+Question: {question}
+Target: {golden_answer}
+Prediction: {answer}
+Score prediction against target in [0.0, 1.0]: """,
+      ),
+  ]
+  res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
+  res = cast(str, res).strip()
+
+  # Defaults in case no reason is provided.
+  rating = res
+  reason = ''
+
+  # Attempt to parse the reason from the response.
+  separators = ['\nReason: ', '\nreason: ', '\n**Reason:** ', '\n**reason:** ']
+  for separator in separators:
+    if separator in res:
+      rating, reason = res.split(separator, 1)
+      break
+
+  # Normalize the reason.
+  reason = reason.split('\n\n')[0].strip()
+
+  # Attempt to parse the score from the response, only allow simple floats.
+  simple_float_pattern = r'\d+(\.\d+)?'
+  match = re.search(simple_float_pattern, rating)
+  if match:
+    score = float(match.group(0))
+    score = max(0.0, min(1.0, score))
+  else:
+    raise ValueError(
+        'Critic is expected to include a floating point score. Instead '
+        f'it generated an unexpected result:\n{res}'
+    )
+  extra_evaluation_info = {
+      example[question_key]: {
+          'golden_answer': example[golden_answer_key],
+          'candidate_answer': answer,
+          'answer_is_correct': score,
+          'reason': reason,
+          'critic_prompt': messages,
+      }
+  }
+  return (score, extra_evaluation_info)
 
 
 def evaluate(

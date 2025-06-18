@@ -411,6 +411,137 @@ Does prediction agree with target? (yes/no): """
     with self.subTest('critic_prompt_in_extra_info_should_be_correct_text'):
       self.assertEqual(expected_critic_prompt_text, critic_prompt_text)
 
+  @parameterized.named_parameters(
+      ('perfect_match', '1.0\nReason: Perfect match', 1.0, 'Perfect match'),
+      (
+          'moderate_match',
+          '0.5\nReason: Somewhat related',
+          0.5,
+          'Somewhat related',
+      ),
+      (
+          'poor_match',
+          '0.25\nReason: Not really related',
+          0.25,
+          'Not really related',
+      ),
+      (
+          'score_with_bold',
+          '**0.8**\n**Reason:** Close enough',
+          0.8,
+          'Close enough',
+      ),
+      (
+          'score_with_extra_text',
+          'float:0.6\nReason: It is because...',
+          0.6,
+          'It is because...',
+      ),
+  )
+  def test_naive_fuzzy_evaluation_critic_produces_correct_output(
+      self, critic_llm_reply, expected_value, expected_reason
+  ):
+    question = 'some question'
+    prediction = 'some prediction'
+    llm.generate_text.configure(
+        _fake_generate_text_returns_anything,
+        return_value=critic_llm_reply,
+    )
+    rating, extra_info = executing.run(
+        evaluation.naive_fuzzy_evaluation_critic(
+            prediction,
+            example={'question': question, 'golden_answer': 'bla'},
+        )
+    )
+
+    # The critic prompt in the extra info is a list of chunks, or a single
+    # string. We merge them into a single string here to make the test
+    # independent of the implementation details of the critic.
+    critic_prompt = extra_info[question]['critic_prompt']
+    if isinstance(critic_prompt, list):
+      prompt_text = ''.join(x.content for x in critic_prompt)
+    else:
+      prompt_text = str(critic_prompt)
+    logging.info('Naive fuzzy evaluation critic prompt:\n%s', prompt_text)
+
+    # This is the expected plain text version of the prompt that is sent to the
+    # critic (i.e., with the content chunks concatenated, and roles ignored).
+    # We explicitly check the full prompt text to avoid any misunderstandings
+    # in the critic implementation regarding newlines, indentations, etc.
+    expected_prompt_text = """\
+Please evaluate the predicted answer against the target answer, in the context of the given question. Give your rating as a float between 0.0 and 1.0, where 1 indicates a perfect semantic match and 0 indicates no similarity. Then give the reason for your rating.
+
+1.0: Perfect semantic equivalence, conveying the same information and nuance.
+0.8-0.9: Very strong alignment, perhaps minor stylistic differences or slight omissions that do not alter core meaning.
+0.5-0.7: Moderate alignment, captures some key aspects but might be incomplete, slightly off-topic, or contain minor inaccuracies.
+0.1-0.4: Weak alignment, only vaguely related or contains significant inaccuracies.
+0.0: No meaningful semantic overlap.
+
+Question: Circumference of a circle with radius 1cm?
+Target: 2pi cm
+Prediction: 6.28 centimenter
+Score prediction against target in [0.0, 1.0]: 1.0
+Reason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate enough answer.
+
+Question: Which U.S. President authorized the use of atomic bombs during World War II?
+Target: Harry S. Truman
+Prediction: Harry Truman
+Score prediction against target in [0.0, 1.0]: 0.9
+Reason: Clearly the correct answer, only the middle initial is missing.
+
+Question: What is a "black hole"?
+Target: A region of spacetime where gravity is so strong that nothing, not even light, can escape.
+Prediction: A black hole is like a vacuum cleaner in space that sucks everything up.
+Score prediction against target in [0.0, 1.0]: 0.3
+Reason: We can give some credit for recognizing the basic concept, but there is a significant lack of scientific precision.
+
+Question: How many green shapes are there in the picture?
+Target: 12
+Prediction: There are 3 green squares and 9 green circles.
+Score prediction against target in [0.0, 1.0]: 0.9
+Reason: The answer is more specific than the target but the numbers add up to the target value.
+
+Question: Which Beatles are shown in the picture?
+Target: Paul and George
+Prediction: [Paul McCartney, George Harrison, Ringo Starr]
+Score prediction against target in [0.0, 1.0]: 0.6
+Reason: Format and last names do not matter much here, but the answer contains one extra person.
+
+Question: some question
+Target: bla
+Prediction: some prediction
+Score prediction against target in [0.0, 1.0]: """
+
+    with self.subTest('should_return_correct_numeric_rating'):
+      self.assertEqual(expected_value, rating)
+
+    with self.subTest('extra_info_should_be_keyed_by_question'):
+      self.assertIn(question, extra_info)
+
+    with self.subTest('should_return_reason_in_extra_info'):
+      self.assertEqual(expected_reason, extra_info[question]['reason'])
+
+    with self.subTest('critic_prompt_in_extra_info_should_be_correct_type'):
+      self.assertEqual(list, type(critic_prompt))
+      self.assertEqual(content_lib.Message, type(critic_prompt[0]))
+
+    with self.subTest('critic_prompt_in_extra_info_should_be_correct_text'):
+      self.assertEqual(expected_prompt_text, prompt_text)
+
+  def test_naive_fuzzy_evaluation_critic_llm_reply_error_handling(self):
+    llm.generate_text.configure(
+        _fake_generate_text_returns_anything, return_value='bla'
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Critic is expected to include a floating point score'
+    ):
+      _ = executing.run(
+          evaluation.naive_fuzzy_evaluation_critic(
+              'answer 1',
+              example={'question': 'bla', 'golden_answer': 'bla'},
+          )
+      )
+
 
 class CompareWithCriticTest(parameterized.TestCase):
 
