@@ -235,12 +235,12 @@ class UtilsTest(parameterized.TestCase):
       return i
 
     async def plan():
-      return await asyncio.gather(*[af(i) for i in range(10)])
+      return await asyncio.gather(*[af(i) for i in range(10)])  # pytype: disable=wrong-arg-types
 
     start = time.perf_counter()
     res = []
     for i in range(10):
-      res.append(f(i))
+      res.append(f(i))  # pytype: disable=wrong-arg-types
     end = time.perf_counter()
 
     with self.subTest('blocking_should_return_correct_results'):
@@ -271,7 +271,7 @@ class UtilsTest(parameterized.TestCase):
       return i
 
     async def plan(start):
-      return await asyncio.gather(*[af(i) for i in range(start, start + 5)])
+      return await asyncio.gather(*[af(i) for i in range(start, start + 5)])  # pytype: disable=wrong-arg-types
 
     start = time.perf_counter()
     with multiprocessing.pool.ThreadPool(10) as pool:
@@ -322,7 +322,7 @@ class UtilsTest(parameterized.TestCase):
     t2 = ClassForTest()
 
     async def plan(instance):
-      return await asyncio.gather(*[instance.af(i) for i in range(10)])
+      return await asyncio.gather(*[instance.af(i) for i in range(10)])  # pytype: disable=wrong-arg-count
 
     async def run_both():
       return await asyncio.gather(plan(t1), plan(t2))
@@ -330,8 +330,8 @@ class UtilsTest(parameterized.TestCase):
     start = time.perf_counter()
     res = []
     for i in range(0, 20, 2):
-      res.append(t1.f(i))
-      res.append(t2.f(i + 1))
+      res.append(t1.f(i))  # pytype: disable=wrong-arg-count
+      res.append(t2.f(i + 1))  # pytype: disable=wrong-arg-count
     end = time.perf_counter()
 
     with self.subTest('blocking_should_return_correct_results'):
@@ -362,7 +362,7 @@ class UtilsTest(parameterized.TestCase):
     class FailOnFirstNCalls:
       n: int = 0
 
-      @utils.with_retry(
+      @utils.with_retry(  # pytype: disable=wrong-arg-types
           max_retries=max_retries,
           initial_base_delay=initial_base_delay,
           max_base_delay=max_base_delay,
@@ -433,7 +433,7 @@ class UtilsTest(parameterized.TestCase):
     class FailOnFirstNCalls:
       n: int = 0
 
-      @utils.with_retry(
+      @utils.with_retry(  # pytype: disable=wrong-arg-types
           max_retries=max_retries,
           initial_base_delay=initial_base_delay,
           max_base_delay=max_base_delay,
