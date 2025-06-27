@@ -393,12 +393,15 @@ class ReActPromptComposable(ReActPromptProtocol):
   we can extend this to support multimodal ReAct states too.
 
   Attributes:
+    prompt_prefix: The text to prepend to the prompt. This is useful for adding
+      a preamble to the prompt.
     instruction_role: The role to use for the instruction parts of the prompt,
       which describe the available tools or the overall task.
     response_role: The role to use for the response parts of the prompt, i.e.
       those that will be provided by the model.
   """
 
+  prompt_prefix: str = ''
   instruction_role: content_lib.PredefinedRole = (
       content_lib.PredefinedRole.USER
   )
@@ -535,6 +538,8 @@ class ReActPromptComposable(ReActPromptProtocol):
     """See ReActPromptProtocol."""
 
     e = composables.c(content_lib.ChunkList())
+    if self.prompt_prefix:
+      e += composables.c(self.prompt_prefix)
     e += self._build_tools_description(tools)
     e += self._build_react_fewshots(exemplars, stop_prefix)
     e += self._build_question(state, stop_prefix)

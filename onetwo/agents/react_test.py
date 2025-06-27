@@ -222,6 +222,48 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_return_the_llm_reply'):
       self.assertEqual(f'#ERROR#: {error_message}', prompt_outputs)
 
+  def test_prompt_with_prefix(self):
+    question = 'What is the total population of Tuebingen and Zuerich?'
+    exemplars = react.REACT_FEWSHOTS
+    stop_prefix = ''
+    stop_sequences = ['[Question]', '[Observe]']
+
+    config = _get_environment_config_with_python()
+
+    prompt_prefix = 'My custom prefix.'
+    prompt = react.ReActPromptComposable(prompt_prefix=prompt_prefix)
+
+    state = react.ReActState(
+        inputs=question,
+        updates=[],
+    )
+
+    llm_reply = (
+        '[Thought]: Now we need to add the populations of Tuebingen and'
+        ' Zuerich. We can use the Python tool for that.\n[Act]:'
+        " `tool_code('91877 + 402762')`\nBla bla"
+    )
+    llm_backend = backends_test_utils.LLMForTest(
+        reply_by_prompt_regex={f'^{prompt_prefix}': [llm_reply]},
+        default_reply=DEFAULT_REPLY,
+    )
+    llm_backend.register()
+
+    prompt_outputs, _ = executing.run(
+        prompt(
+            tools=config.tools,
+            exemplars=exemplars,
+            stop_prefix=stop_prefix,
+            stop_sequences=stop_sequences,
+            state=state,
+            force_finish=False,
+        ),
+        enable_tracing=True,
+    )
+
+    with self.subTest('should_return_the_llm_reply'):
+      self.assertEqual(llm_reply, prompt_outputs)
+
   @parameterized.named_parameters(
       (
           'act_tool_call_no_thought',
