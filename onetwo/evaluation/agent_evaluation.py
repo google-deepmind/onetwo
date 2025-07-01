@@ -562,4 +562,4 @@ def write_evaluation_summary_as_json(
   for filename, data_object in object_by_file.items():
     logging.info('Writing json file: %s', filename)
     with open(os.path.join(output_dir, filename), 'w') as f:
-      json.dump(data_object, f, indent=4, default=str)
+      json.dump(data_object, f, indent=4, default=str, sort_keys=True)
