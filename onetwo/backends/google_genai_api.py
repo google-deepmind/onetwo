@@ -1,0 +1,526 @@
+# Copyright 2025 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""OneTwo connector for the Google GenAI API.
+
+See https://cloud.google.com/vertex-ai/generative-ai/docs/sdks/overview
+"""
+
+import collections
+from collections.abc import Mapping, Sequence
+import dataclasses
+import pprint
+from typing import Any, Final, TypeAlias, Union, cast
+
+from absl import logging
+from google import genai
+import google.auth.credentials
+from google.genai import client
+from google.genai import types as genai_types
+from onetwo.backends import backends_base
+from onetwo.builtins import formatting
+from onetwo.builtins import llm
+from onetwo.builtins import llm_utils
+from onetwo.core import batching
+from onetwo.core import caching
+from onetwo.core import content as content_lib
+from onetwo.core import executing
+from onetwo.core import tracing
+from onetwo.core import utils
+
+
+
+
+
+_ChunkList: TypeAlias = content_lib.ChunkList
+_TokenHealingOption: TypeAlias = llm.TokenHealingOption
+
+# Available models are listed at
+# https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+# input_token_limit=1,048,576, output_token_limit=65,535.
+DEFAULT_GENERATE_MODEL: Final[str] = 'publishers/google/models/gemini-2.5-flash'
+DEFAULT_MULTIMODAL_MODEL: Final[str] = (
+    'publishers/google/models/gemini-2.5-flash'
+)
+# input_token_limit=2048.
+DEFAULT_EMBED_MODEL: Final[str] = (
+    'publishers/google/models/gemini-embedding-001'
+)
+
+# Refer to
+# https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/configure-safety-filters
+SAFETY_DISABLED: Final[Sequence[genai_types.SafetySetting]] = [
+    genai_types.SafetySetting(
+        category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    genai_types.SafetySetting(
+        category=genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    genai_types.SafetySetting(
+        category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+    genai_types.SafetySetting(
+        category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
+    ),
+]
+
+
+def _convert_chunk_list_to_contents_type(
+    prompt: str | _ChunkList,
+) -> genai_types.ContentListUnion:
+  """Convert ChunkList to the type compatible with the SDK's contents type."""
+  if isinstance(prompt, content_lib.ChunkList):
+    contents = []
+    for c in prompt:
+      match c.content_type:
+        case 'str':
+          contents.append(genai_types.Part(text=c.content))
+        case 'bytes' | 'image/jpeg':
+          contents.append(
+              genai_types.Part(inline_data=genai_types.Blob(
+                  mime_type='image/jpeg', data=cast(bytes, c.content)))
+          )
+        case 'video/mp4':
+          contents.append(
+              genai_types.Part(inline_data=genai_types.Blob(
+                  mime_type='video/mp4', data=cast(bytes, c.content)))
+          )
+        case _:
+          contents.append(genai_types.Part(text=str(c.content)))
+    return contents
+  return prompt
+
+
+def _truncate(text: str, max_tokens: int | None = None) -> str:
+  """Truncates text to the given number of tokens."""
+  # Unfortunately, when setting a max_output_tokens value in the API that is
+  # smaller than what the model would naturally generate, the response is
+  # empty with a finish_reason of "MAX_TOKENS". So we need to do post-hoc
+  # truncation.
+  # However we don't want to tokenize the answer in order to know its exact
+  # token length, so instead we approximately truncate by counting characters.
+  if max_tokens is None:
+    return text
+  else:
+    return text[: max_tokens * 3]
+
+
+@batching.add_batching  # Methods of this class are batched.
+@dataclasses.dataclass
+class GoogleGenAIAPI(
+    caching.FileCacheEnabled,  # Methods of this class are cached.
+    backends_base.Backend,
+):
+  """Google GenAI API.
+
+  Attributes:
+    disable_caching: Whether caching is enabled for this object (inherited from
+      CacheEnabled).
+    cache_filename: Name of the file (full path) where the cache is stored
+      (inherited from FileCacheEnabled)
+    batch_size: Number of requests (generate_text or chat or generate_embedding)
+      that is grouped together when sending them to GenAI API. GenAI API does
+      not explicitly support batching (i.e. multiple requests can't be passed
+      via arguments). Instead we send multiple requests from separate threads.
+    vertexai: Whether to use the Vertex AI API.
+    api_key: GenAI API key string.
+    api_key_file: Full quialified path to a file that contains GenAI API key on
+      its first line. Only one of api_key or api_key_file can be provided. If
+      neither of them is set, it is searched in the GOOGLE_API_KEY environment
+      variable.
+    credentials: Google Auth credentials.
+    project: Google Cloud project ID.
+    location: Google Cloud project location.
+    debug_config: Debug config for the API.
+    http_options: HTTP options for the API.
+    generate_model_name: Name of the model to use for `generate` requests.
+    chat_model_name: Name of the model to use for `chat` requests.
+    embed_model_name: Name of the model to use for `embed` requests. replies.
+      Default is 1.
+    enable_streaming: Whether to enable streaming replies from generate_text.
+    max_qps: Maximum queries per second for the backend (if None, no rate
+      limiting is applied).
+    max_retries: Maximum number of times to retry a request in case of an
+      exception.
+    temperature: Temperature parameter (float) for LLM generation (can be set as
+      a default and can be overridden per request).
+    max_tokens: Maximum number of tokens to generate (can be set as a default
+      and can be overridden per request).
+    stop: Stop sequences (as a list of strings) for LLM text generation (can be
+      set as a default and can be overridden per request).
+    top_p: Top-p parameter (float) for LLM text generation (can be set as a
+      default and can be overridden per request).
+    top_k: Top-k parameter (int) for LLM text generation (can be set as a
+      default and can be overridden per request).
+  """
+
+  batch_size: int = 1
+  vertexai: bool | None = None
+  api_key: str | None = None
+  api_key_file: str | None = None
+  credentials: google.auth.credentials.Credentials | None = None
+  project: str | None = None
+  location: str | None = None
+  debug_config: client.DebugConfig | None = None
+  http_options: (
+      Union[genai_types.HttpOptions, genai_types.HttpOptionsDict] | None
+  ) = None
+  generate_model_name: str = DEFAULT_GENERATE_MODEL
+  chat_model_name: str = DEFAULT_GENERATE_MODEL
+  embed_model_name: str = DEFAULT_EMBED_MODEL
+  enable_streaming: bool = False
+  max_qps: float | None = None
+  max_retries: int = 0
+
+  # Generation parameters
+  temperature: float | None = None
+  max_tokens: int | None = None
+  stop: Sequence[str] | None = None
+  top_p: float | None = None
+  top_k: int | None = None
+
+  # Attributes not set by constructor.
+  _client: genai.Client = dataclasses.field(
+      init=False
+  )
+  _available_models: dict[str, Any] = dataclasses.field(
+      init=False, default_factory=dict
+  )
+  # Used for logging by the batching.add_logging wrapper function in
+  # batching.batch_method_with_threadpool decorator.
+  _counters: collections.Counter[str] = dataclasses.field(
+      init=False, default_factory=collections.Counter
+  )
+
+  def register(self, name: str | None = None) -> None:
+    """See parent class."""
+    del name
+    # Reset all the defaults in case some other backend was already registered.
+    # Indeed, we rely on certain builtins configured with OneTwo defaults.
+    llm.reset_defaults()
+    llm.generate_text.configure(
+        self.generate_text,
+        temperature=self.temperature,
+        max_tokens=self.max_tokens,
+        stop=self.stop,
+        top_p=self.top_p,
+        top_k=self.top_k,
+    )
+    llm.embed.configure(self.embed)
+    llm.chat.configure(  # pytype: disable=wrong-arg-types
+        self.chat,
+        formatter=formatting.FormatterName.API,
+        temperature=self.temperature,
+        max_tokens=self.max_tokens,
+        stop=self.stop,
+        top_p=self.top_p,
+        top_k=self.top_k,
+    )
+    llm.count_tokens.configure(self.count_tokens)
+    llm.instruct.configure(
+        llm.default_instruct, formatter=formatting.FormatterName.API
+    )
+
+  def _get_api_key(self) -> str | None:
+    """Retrieve GenAI API key.
+
+    If one of the attributes api_key_file or api_key_file are provided we
+    retrieve the key from there. Otherwise we return `None`.
+
+    Returns:
+      API key if it was located, otherwise None.
+    """
+    if self.api_key_file is not None and self.api_key:
+      raise ValueError('Cannot use both api_key_file and api_key.')
+    if self.api_key:
+      return self.api_key
+    if self.api_key_file is not None:
+      if not os.path.exists(self.api_key_file):
+        raise ValueError(f'File {self.api_key_file} does not exist.')
+      with open(self.api_key_file, 'r') as f:
+        return f.readline().strip()
+    return None
+
+  def _verify_available_models(self):
+    """Verify that specified models are available and support all methods."""
+    available_models = {m.name: m for m in self._genai_client.models.list()}
+    logging.info('Available models:')
+    for model_name, model in available_models.items():
+      logging.info('Model: %s', model_name)
+      logging.info('%s', pprint.pformat(model))
+    self._available_models = available_models
+    if self.generate_model_name not in available_models:
+      raise ValueError(f'Model {self.generate_model_name} not available.')
+    if self.chat_model_name not in available_models:
+      raise ValueError(f'Model {self.chat_model_name} not available.')
+    if self.embed_model_name not in available_models:
+      raise ValueError(f'Model {self.embed_model_name} not available.')
+
+  def __post_init__(self) -> None:
+    # Create cache.
+    self._cache_handler = caching.SimpleFunctionCache(
+        cache_filename=self.cache_filename,
+    )
+    # Configure GenAI client.
+    self._genai_client = genai.Client(
+        vertexai=self.vertexai,
+        api_key=self._get_api_key(),
+        credentials=self.credentials,
+        project=self.project,
+        location=self.location,
+        debug_config=self.debug_config,
+        http_options=self.http_options,
+    )
+    self._verify_available_models()
+
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
+  def _generate_content(
+      self,
+      *,
+      prompt: str | content_lib.ChunkList,
+      samples: int = 1,
+      temperature: float | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      **kwargs,  # Optional genai specific arguments.
+  ) -> genai_types.GenerateContentResponse:
+    """Generate content using the configured generation model."""
+    prompt = _convert_chunk_list_to_contents_type(prompt)
+    generation_config = genai_types.GenerateContentConfig(
+        candidate_count=samples,
+        temperature=temperature,
+        stop_sequences=stop,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs,
+    )
+    try:
+      response = self._genai_client.models.generate_content(
+          model=self.generate_model_name,
+          contents=prompt,
+          config=generation_config,
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'GoogleGenAIAPI.generate_content raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(prompt)[:100]}'
+      ) from err
+    empty = True
+    for candidate in response.candidates:
+      if candidate and candidate.content.parts:
+        empty = False
+    if empty:
+      response_msg = pprint.pformat(response.candidates)
+      raise ValueError(
+          'GoogleGenAIAPI.generate_text returned no answers. This may be'
+          f' caused by safety filters:\n{response_msg}'
+      )
+    return response
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.generate_text')
+  @caching.cache_method(  # Cache this method.
+      name='generate_text',
+      is_sampled=True,  # Two calls with same args may return different replies.
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
+  )
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
+  def generate_text(
+      self,
+      prompt: str | content_lib.ChunkList,
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      decoding_constraint: str | None = None,
+      include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,  # Optional genai specific arguments.
+  ) -> str | tuple[str, Mapping[str, Any]]:
+    """See builtins.llm.generate_text."""
+    self._counters['generate_text'] += 1
+    del decoding_constraint
+    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=prompt, healing_option=healing_option
+    )
+
+    response = self._generate_content(  # pytype: disable=wrong-keyword-args
+        prompt=healed_prompt,
+        samples=1,
+        temperature=temperature,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs,
+    )
+    raw = response.text
+    truncated = _truncate(raw, max_tokens)
+    reply = llm_utils.maybe_heal_reply(
+        reply_text=truncated,
+        original_prompt=prompt,
+        healing_option=healing_option,
+    )
+    return (reply, {'text': raw}) if include_details else reply
+
+  @tracing.trace(name='GoogleGenAIAPI.chat')
+  async def chat(
+      self,
+      messages: Sequence[content_lib.Message],
+      formatter: formatting.FormatterName = formatting.FormatterName.API,
+      **kwargs,
+  ) -> str:
+    """See builtins.llm.chat."""
+    if formatter == formatting.FormatterName.API:
+      return await self.chat_via_api(messages, **kwargs)
+    else:
+      return await llm.default_chat(messages, formatter, **kwargs)
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @caching.cache_method(  # Cache this stochastic method.
+      name='chat',
+      is_sampled=True,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def chat_via_api(
+      self,
+      messages: Sequence[content_lib.Message],
+      **kwargs,
+  ) -> str:
+    """See builtins.llm.chat."""
+    self._counters['chat'] += 1
+
+    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+    max_tokens = kwargs.pop('max_tokens', None)
+    temperature = kwargs.pop('temperature', None)
+    stop = kwargs.pop('stop', None)
+    top_k = kwargs.pop('top_k', None)
+    top_p = kwargs.pop('top_p', None)
+
+    if len(messages) == 1:
+      if messages[0].role != content_lib.PredefinedRole.USER:
+        raise ValueError(
+            'When using the native Gemini API chat interface and passing a '
+            'single message, it must be a user message.'
+        )
+
+    history = []
+    for msg in messages:
+      match msg.role:
+        case content_lib.PredefinedRole.USER:
+          role = 'user'
+        case content_lib.PredefinedRole.MODEL:
+          role = 'model'
+        case _:
+          raise ValueError(f'Unsupported role: {msg.role}')
+      history.append(
+          genai_types.Content(
+              role=role, parts=[genai_types.Part(text=msg.content)]
+          )
+      )
+    generation_config = genai_types.GenerateContentConfig(
+        candidate_count=1,
+        stop_sequences=stop,
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs
+    )
+    healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    healed_content = _convert_chunk_list_to_contents_type(healed_content)
+    chat = self._genai_client.chats.create(
+        model=self.chat_model_name,
+        history=history[:-1],
+        config=generation_config,
+    )
+    response = chat.send_message(
+        message=healed_content,
+        config=generation_config,
+    )
+    reply = llm_utils.maybe_heal_reply(
+        reply_text=response.text,
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    return reply
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.embed')
+  @caching.cache_method(  # Cache this deterministic method.
+      name='embed',
+      is_sampled=False,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def embed(
+      self, content: str | content_lib.ChunkList
+  ) -> genai_types.EmbedContentResponse:
+    """See builtins.llm.embed."""
+    self._counters['embed'] += 1
+
+    return self._genai_client.models.embed_content(
+        model=self.embed_model_name,
+        contents=content,
+    )
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.count_tokens')
+  @caching.cache_method(  # Cache this method.
+      name='count_tokens',
+      is_sampled=False,  # Method is deterministic.
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def count_tokens(self, content: str | content_lib.ChunkList) -> int:
+    """See builtins.llm.count_tokens."""
+    self._counters['count_tokens'] += 1
+
+    try:
+      response = self._genai_client.models.count_tokens(
+          model=self.generate_model_name,
+          contents=content,
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'GoogleGenAIAPI.count_tokens raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(content)[:100]}'
+      ) from err
+    return response.total_tokens
