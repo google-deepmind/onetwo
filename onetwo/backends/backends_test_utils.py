@@ -228,6 +228,7 @@ class LLMForTest(backends_base.Backend):
       prompt: str | content_lib.ChunkList,
       stop: Sequence[str] | None = None,
       include_details: bool = False,
+      **kwargs,  # pylint: disable=unused-argument
   ) -> str | tuple[str, Mapping[str, Any]]:
     reply = self._get_generate_text_reply(prompt)
 
