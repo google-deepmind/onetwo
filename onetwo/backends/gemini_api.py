@@ -149,6 +149,10 @@ class GeminiAPI(
       limiting is applied).
     max_retries: Maximum number of times to retry a request in case of an
       exception.
+    verify_availability: Whether to verify that the specified models are
+      available and support all methods. If False, the user is responsible for
+      ensuring that the models are available and support all methods. This
+      should be disabled when using the API with rate limiting.
     temperature: Temperature parameter (float) for LLM generation (can be set as
       a default and can be overridden per request).
     max_tokens: Maximum number of tokens to generate (can be set as a default
@@ -170,6 +174,7 @@ class GeminiAPI(
   enable_streaming: bool = False
   max_qps: float | None = None
   max_retries: int = 0
+  verify_availability: bool = True
 
   # Generation parameters
   temperature: float | None = None
@@ -247,65 +252,80 @@ class GeminiAPI(
     return None
 
   def _verify_available_models(self):
-    """Verify that specified models are available and support all methods."""
-    available_models = {m.name: m for m in genai.list_models()}
-    logging.info('Available models:')
-    for model_name, model in available_models.items():
-      logging.info('Model: %s', model_name)
-      logging.info('%s', pprint.pformat(model))
-    self._available_models = available_models
-    # TODO: Consider checking availability only for the models that
-    # the user is planning to use. Revisit after the "API CL".
-    if self.generate_model_name not in available_models:
-      raise ValueError(f'Model {self.generate_model_name} not available.')
-    if self.chat_model_name not in available_models:
-      raise ValueError(f'Model {self.chat_model_name} not available.')
-    if self.embed_model_name not in available_models:
-      raise ValueError(f'Model {self.embed_model_name} not available.')
-    if 'generateContent' not in (
-        available_models[self.generate_model_name].supported_generation_methods
-    ):
-      raise ValueError(
-          f'Model {self.generate_model_name} does not support generateContent.'
+    """Verify that specified models are available and support all methods.
+
+    Note that `genai.list_models()` queries the API and may fail due to rate
+    limit.
+    """
+    try:
+      if self.verify_availability:
+        available_models = {m.name: m for m in genai.list_models()}
+        logging.info('Available models:')
+        for model_name, model in available_models.items():
+          logging.info('Model: %s', model_name)
+          logging.info('%s', pprint.pformat(model))
+        self._available_models = available_models
+        # TODO: Consider checking availability only for the models
+        # that the user is planning to use. Revisit after the "API CL".
+        if self.generate_model_name not in available_models:
+          raise ValueError(f'Model {self.generate_model_name} not available.')
+        if self.chat_model_name not in available_models:
+          raise ValueError(f'Model {self.chat_model_name} not available.')
+        if self.embed_model_name not in available_models:
+          raise ValueError(f'Model {self.embed_model_name} not available.')
+        if 'generateContent' not in (
+            available_models[
+                self.generate_model_name
+            ].supported_generation_methods
+        ):
+          raise ValueError(
+              f'Model {self.generate_model_name} does not support'
+              ' generateContent.'
+          )
+        if 'countTokens' not in (
+            available_models[
+                self.generate_model_name
+            ].supported_generation_methods
+        ):
+          raise ValueError(
+              f'Model {self.generate_model_name} does not support countTokens.'
+          )
+        if 'embedContent' not in (
+            available_models[self.embed_model_name].supported_generation_methods
+        ):
+          raise ValueError(
+              f'Model {self.embed_model_name} does not support embedContent.'
+          )
+      generation_config = genai.GenerationConfig(
+          candidate_count=1,  # Using 1 as the default.
+          stop_sequences=self.stop,
+          # No default set as we handle truncation (the API truncation returns
+          # an empty response).
+          max_output_tokens=None,
+          temperature=self.temperature,
+          top_p=self.top_p,
+          top_k=self.top_k,
       )
-    if 'countTokens' not in (
-        available_models[self.generate_model_name].supported_generation_methods
-    ):
-      raise ValueError(
-          f'Model {self.generate_model_name} does not support countTokens.'
+      self._generate_model = genai.GenerativeModel(
+          self.generate_model_name, generation_config=generation_config
       )
-    if 'embedContent' not in (
-        available_models[self.embed_model_name].supported_generation_methods
-    ):
-      raise ValueError(
-          f'Model {self.embed_model_name} does not support embedContent.'
+      self._chat_model = genai.GenerativeModel(
+          self.chat_model_name, generation_config=generation_config
       )
-    generation_config = genai.GenerationConfig(
-        candidate_count=1,  # Using 1 as the default.
-        stop_sequences=self.stop,
-        # No default set as we handle truncation (the API truncation returns
-        # an empty response).
-        max_output_tokens=None,
-        temperature=self.temperature,
-        top_p=self.top_p,
-        top_k=self.top_k,
-    )
-    self._generate_model = genai.GenerativeModel(
-        self.generate_model_name, generation_config=generation_config
-    )
-    self._chat_model = genai.GenerativeModel(
-        self.chat_model_name, generation_config=generation_config
-    )
-    self._embed_model = genai.GenerativeModel(self.embed_model_name)
-    logging.info(
-        'Registered models:\n'
-        'Default for generate/count_tokens: %s\n'
-        'Default for chat: %s\n'
-        'Default for embed: %s',
-        self.generate_model_name,
-        self.chat_model_name,
-        self.embed_model_name,
-    )
+      self._embed_model = genai.GenerativeModel(self.embed_model_name)
+      logging.info(
+          'Registered models:\n'
+          'Default for generate/count_tokens: %s\n'
+          'Default for chat: %s\n'
+          'Default for embed: %s',
+          self.generate_model_name,
+          self.chat_model_name,
+          self.embed_model_name,
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'GeminiAPI._verify_available_models raised err:\n{err}\n'
+      ) from err
 
   def __post_init__(self) -> None:
     # Create cache.
