@@ -86,12 +86,12 @@ class LLMForTest(backends_base.Backend):
       specifying an empty regex (''). If multiple regexes match the same prompt,
       then will return the reply associated with whichever of the regexes it
       happened to evaluate first.
-    reply_by_prompt_bytes_regex: Same as `reply_by_prompt_regex`, but for
-      use with prompts of type `content_lib.ChunkList`. The key is a bytes regex
-      that will be matched against the bytes representation of the ChunkList,
-      as obtained by calling `utils.get_bytes_for_hashing`. If there was no
-      match for the prompt bytes, we fall back to matching the prompt string
-      against the other mappings, such as `reply_by_prompt_regex`, etc.
+    reply_by_prompt_bytes_regex: Same as `reply_by_prompt_regex`, but for use
+      with prompts of type `content_lib.ChunkList`. The key is a bytes regex
+      that will be matched against the bytes representation of the ChunkList, as
+      obtained by calling `utils.get_bytes_for_hashing`. If there was no match
+      for the prompt bytes, we fall back to matching the prompt string against
+      the other mappings, such as `reply_by_prompt_regex`, etc.
     reply_by_prompt_target: Mapping from prompt+target to score.
     default_reply: Default reply if not found in reply_by_prompt, or a function
       to be used by default for determining the reply from the prompt.
@@ -300,8 +300,15 @@ class LLMForTest(backends_base.Backend):
     else:
       return result
 
-  def register(self, name: str | None = None):
+  def register(
+      self,
+      name: str | None = None,
+      register_tokenize: bool = True,
+      register_embed: bool = True,
+  ):
     del name
+    # Not used for now.
+    del register_embed
     llm.generate_text.configure(self.generate_text)
     llm.chat.configure(
         llm.default_chat, formatter=formatting.FormatterName.CONCAT
@@ -309,7 +316,8 @@ class LLMForTest(backends_base.Backend):
     llm.score_text.configure(self.score_text)
     llm.generate_object.configure(self.generate_object)
     llm.count_tokens.configure(self.count_tokens)
-    llm.tokenize.configure(self.tokenize)
+    if register_tokenize:
+      llm.tokenize.configure(self.tokenize)
 
 
 @batching.add_batching
