@@ -16,7 +16,6 @@
 
 from collections.abc import Callable, Sequence
 import dataclasses
-
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
 
@@ -102,7 +101,8 @@ class RespondWithTextAndTemperature(
 
 
 class GoogleGenaiApiTest(
-    parameterized.TestCase, core_test_utils.CounterAssertions,
+    parameterized.TestCase,
+    core_test_utils.CounterAssertions,
 ):
 
   def setUp(self):
@@ -122,9 +122,7 @@ class GoogleGenaiApiTest(
         )
     )
     self.enter_context(
-        mock.patch.object(
-            genai, 'Client', return_value=self._mock_genai_client
-        )
+        mock.patch.object(genai, 'Client', return_value=self._mock_genai_client)
     )
 
     self._mock_genai_client.models.list.return_value = _mock_list_models()
@@ -317,12 +315,172 @@ class GoogleGenaiApiTest(
         role=content_lib.PredefinedRole.MODEL, content='Hello user'
     )
 
+    mock_chat = mock.MagicMock()
+    self._mock_genai_client.chats.create.return_value = mock_chat
+    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text='Hello')]
+                )
+            )
+        ]
+    )
+
+    # First call, no history.
     _ = executing.run(llm.chat(messages=[msg_user]))
+    with self.subTest('ChatCreatedAndEmptyHistory'):
+      self._mock_genai_client.chats.create.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
+      self.assertEmpty(mock_kwargs['history'])
+    with self.subTest('FirstMessageSent'):
+      mock_chat.send_message.assert_called_once()
+      _, mock_kwargs = mock_chat.send_message.call_args
+      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+
+    self._mock_genai_client.chats.create.reset_mock()
+    mock_chat.send_message.reset_mock()
+
+    # Second call, with one message in the history.
     _ = executing.run(llm.chat(messages=[msg_model, msg_user]))
+    with self.subTest('ChatCreatedWithHistory'):
+      self._mock_genai_client.chats.create.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
+      self.assertLen(mock_kwargs['history'], 1)
+      self.assertEqual(mock_kwargs['history'][0].role, 'model')
+      self.assertEqual(mock_kwargs['history'][0].parts[0].text, 'Hello user')
+    with self.subTest('SecondMessageSent'):
+      mock_chat.send_message.assert_called_once()
+      _, mock_kwargs = mock_chat.send_message.call_args
+      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
 
     self.assertCounterEqual(
         backend._counters,
         Counter(chat=2, chat_via_api_batches=2),
+    )
+
+  def test_chat_with_system_instruction(self):
+    backend = _get_and_register_backend()
+    msg_system = content_lib.Message(
+        role=content_lib.PredefinedRole.SYSTEM, content='System message'
+    )
+    msg_user = content_lib.Message(
+        role=content_lib.PredefinedRole.USER, content='Hello model'
+    )
+
+    mock_chat = mock.MagicMock()
+    self._mock_genai_client.chats.create.return_value = mock_chat
+    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text='Hello')]
+                )
+            )
+        ]
+    )
+
+    # First call, with system instruction.
+    _ = executing.run(llm.chat(messages=[msg_system, msg_user]))
+    with self.subTest('FirstChatCreatedAndEmptyHistory'):
+      self._mock_genai_client.chats.create.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
+      self.assertEmpty(mock_kwargs['history'])
+    with self.subTest('FirstMessageSentWithSystemInstruction'):
+      mock_chat.send_message.assert_called_once()
+      _, mock_kwargs = mock_chat.send_message.call_args
+      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+      config = mock_kwargs['config']
+      self.assertEqual(config.system_instruction, 'System message')
+
+    self._mock_genai_client.chats.create.reset_mock()
+    mock_chat.send_message.reset_mock()
+
+    # Second call, with system instruction passed as a kwarg.
+    _ = executing.run(
+        llm.chat(messages=[msg_user], system_instruction='System message 2')
+    )
+    with self.subTest('SecondChatCreatedAndEmptyHistory'):
+      self._mock_genai_client.chats.create.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
+      self.assertEmpty(mock_kwargs['history'])
+    with self.subTest('SecondMessageSentWithSystemInstruction'):
+      mock_chat.send_message.assert_called_once()
+      _, mock_kwargs = mock_chat.send_message.call_args
+      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+      config = mock_kwargs['config']
+      self.assertEqual(config.system_instruction, 'System message 2')
+
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(chat=2, chat_via_api_batches=2),
+    )
+
+  def test_chat_replace_unsupported_roles(self):
+    backend = _get_and_register_backend(replace_unsupported_roles=True)
+
+    mock_chat = mock.MagicMock()
+    self._mock_genai_client.chats.create.return_value = mock_chat
+    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text='Hello')]
+                )
+            )
+        ]
+    )
+
+    executing.run(
+        llm.chat(
+            messages=[
+                content_lib.Message(
+                    role=content_lib.PredefinedRole.SYSTEM,
+                    content='System message',
+                ),
+                content_lib.Message(
+                    role='system',
+                    content='System message 2',
+                ),
+                content_lib.Message(
+                    role=content_lib.PredefinedRole.CONTEXT,
+                    content='Context message',
+                ),
+                content_lib.Message(
+                    role='context',
+                    content='Context message 2',
+                ),
+                content_lib.Message(
+                    role=content_lib.PredefinedRole.USER,
+                    content='Hello model',
+                ),
+            ]
+        )
+    )
+
+    with self.subTest('ChatCreatedWithCorrectHistory'):
+      self._mock_genai_client.chats.create.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
+      called_history = mock_kwargs['history']
+
+      self.assertEqual(called_history[0].role, 'user')
+      self.assertEqual(called_history[0].parts[0].text, 'System message')
+      self.assertEqual(called_history[1].role, 'user')
+      self.assertEqual(called_history[1].parts[0].text, 'System message 2')
+      self.assertEqual(called_history[2].role, 'user')
+      self.assertEqual(called_history[2].parts[0].text, 'Context message')
+      self.assertEqual(called_history[3].role, 'user')
+      self.assertEqual(called_history[3].parts[0].text, 'Context message 2')
+
+    with self.subTest('CorrectMessageSent'):
+      mock_chat.send_message.assert_called_once()
+      _, mock_kwargs = mock_chat.send_message.call_args
+      called_message = mock_kwargs['message']
+      self.assertEqual(called_message[0].text, 'Hello model')
+
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(chat=1, chat_via_api_batches=1),
     )
 
   @parameterized.named_parameters(

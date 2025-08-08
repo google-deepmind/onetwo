@@ -92,13 +92,19 @@ def _convert_chunk_list_to_contents_type(
           contents.append(genai_types.Part(text=c.content))
         case 'bytes' | 'image/jpeg':
           contents.append(
-              genai_types.Part(inline_data=genai_types.Blob(
-                  mime_type='image/jpeg', data=cast(bytes, c.content)))
+              genai_types.Part(
+                  inline_data=genai_types.Blob(
+                      mime_type='image/jpeg', data=cast(bytes, c.content)
+                  )
+              )
           )
         case 'video/mp4':
           contents.append(
-              genai_types.Part(inline_data=genai_types.Blob(
-                  mime_type='video/mp4', data=cast(bytes, c.content)))
+              genai_types.Part(
+                  inline_data=genai_types.Blob(
+                      mime_type='video/mp4', data=cast(bytes, c.content)
+                  )
+              )
           )
         case _:
           contents.append(genai_types.Part(text=str(c.content)))
@@ -118,6 +124,19 @@ def _truncate(text: str, max_tokens: int | None = None) -> str:
     return text
   else:
     return text[: max_tokens * 3]
+
+
+def _replace_if_unsupported_role(
+    message: content_lib.Message,
+) -> content_lib.Message:
+  """Replaces unsupported roles with 'user'."""
+  replace_roles = {
+      content_lib.PredefinedRole.CONTEXT,
+      content_lib.PredefinedRole.SYSTEM,
+  }
+  if message.role in (replace_roles | {role.value for role in replace_roles}):
+    message.role = content_lib.PredefinedRole.USER
+  return message
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -157,6 +176,8 @@ class GoogleGenAIAPI(
       limiting is applied).
     max_retries: Maximum number of times to retry a request in case of an
       exception.
+    replace_unsupported_roles: Whether to replace roles `system` and `context`
+      with role 'user' in chat requests.
     temperature: Temperature parameter (float) for LLM generation (can be set as
       a default and can be overridden per request).
     max_tokens: Maximum number of tokens to generate (can be set as a default
@@ -186,6 +207,7 @@ class GoogleGenAIAPI(
   enable_streaming: bool = False
   max_qps: float | None = None
   max_retries: int = 0
+  replace_unsupported_roles: bool = False
 
   # Generation parameters
   temperature: float | None = None
@@ -195,9 +217,7 @@ class GoogleGenAIAPI(
   top_k: int | None = None
 
   # Attributes not set by constructor.
-  _client: genai.Client = dataclasses.field(
-      init=False
-  )
+  _client: genai.Client = dataclasses.field(init=False)
   _available_models: dict[str, Any] = dataclasses.field(
       init=False, default_factory=dict
   )
@@ -392,6 +412,8 @@ class GoogleGenAIAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
+    if self.replace_unsupported_roles:
+      messages = [_replace_if_unsupported_role(msg) for msg in messages]
     if formatter == formatting.FormatterName.API:
       return await self.chat_via_api(messages, **kwargs)
     else:
@@ -422,28 +444,32 @@ class GoogleGenAIAPI(
     stop = kwargs.pop('stop', None)
     top_k = kwargs.pop('top_k', None)
     top_p = kwargs.pop('top_p', None)
+    system_instruction = kwargs.pop('system_instruction', None)
 
-    if len(messages) == 1:
-      if messages[0].role != content_lib.PredefinedRole.USER:
-        raise ValueError(
-            'When using the native Gemini API chat interface and passing a '
-            'single message, it must be a user message.'
+    # In case the caller does not specify a system instruction, we accept the
+    # first message as a system instruction if it has a system role.
+    if (
+        system_instruction is None
+        and len(messages) > 1
+        and messages[0].role
+        in (
+            content_lib.PredefinedRole.SYSTEM,
+            content_lib.PredefinedRole.SYSTEM.value,
         )
+    ):
+      system_instruction = messages[0].content
+      messages = messages[1:]
 
-    history = []
-    for msg in messages:
-      match msg.role:
-        case content_lib.PredefinedRole.USER:
-          role = 'user'
-        case content_lib.PredefinedRole.MODEL:
-          role = 'model'
-        case _:
-          raise ValueError(f'Unsupported role: {msg.role}')
-      history.append(
-          genai_types.Content(
-              role=role, parts=[genai_types.Part(text=msg.content)]
-          )
-      )
+    history = [
+        genai_types.Content(
+            role=msg.role.value
+            if isinstance(msg.role, content_lib.PredefinedRole)
+            else msg.role,
+            parts=[genai_types.Part(text=msg.content)],
+        )
+        for msg in messages
+    ]
+
     generation_config = genai_types.GenerateContentConfig(
         candidate_count=1,
         stop_sequences=stop,
@@ -451,7 +477,8 @@ class GoogleGenAIAPI(
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
-        **kwargs
+        system_instruction=system_instruction,
+        **kwargs,
     )
     healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
         original_prompt=messages[-1].content,

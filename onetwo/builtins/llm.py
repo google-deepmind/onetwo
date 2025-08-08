@@ -59,7 +59,7 @@ async def generate_text(
     decoding_constraint: str | None = None,
     include_details: bool = False,
     healing_option: TokenHealingOption = TokenHealingOption.NONE,
-    ) -> str | tuple[str, Mapping[str, Any]]:
+) -> str | tuple[str, Mapping[str, Any]]:
   """Interface of the generate_text built-in function.
 
   Complete the provided prompt with the LLM and return the completion. This is
@@ -69,8 +69,8 @@ async def generate_text(
   higher level builtin functions.
 
   Args:
-    prompt: A string (which will have to be parsed into a _ChunkList)
-      or a _ChunkList.
+    prompt: A string (which will have to be parsed into a _ChunkList) or a
+      _ChunkList.
     temperature: Optional temperature parameter (float).
     max_tokens: Optional maximum number of tokens to generate (int).
     stop: Optional Sequence of strings on which to stop the generation.
@@ -126,14 +126,14 @@ def generate_texts(
     decoding_constraint: str | None = None,
     include_details: bool = False,
     healing_option: TokenHealingOption = TokenHealingOption.NONE,
-    ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
+) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
   """Interface of the generate_texts built-in function.
 
   Version of `generate_text` that generates multiple samples.
 
   Args:
-    prompt: A string (which will have to be parsed into a _ChunkList)
-      or a _ChunkList.
+    prompt: A string (which will have to be parsed into a _ChunkList) or a
+      _ChunkList.
     samples: Number of samples to generate for this prompt.
     temperature: Optional temperature parameter (float).
     max_tokens: Optional maximum number of tokens to generate (int).
@@ -180,7 +180,7 @@ def _default_generate_texts(
     decoding_constraint: str | None = None,
     include_details: bool = False,
     healing_option: TokenHealingOption = TokenHealingOption.NONE,
-    ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
+) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
   """Default implementation via repeatedly calling generate_text(_with_details).
 
   Args:
@@ -337,9 +337,9 @@ def instruct(
       assistant's response will start from this string. E.g., "This story
       happened on a Planet called".
     formatter: The formatter to use (see `formatting.FormatterName`).
-    **kwargs: Optional arguments to be passed to the generate_text function
-      or to the formatter. We assume that formatter-specific arguments (if
-      present) are all gathered in kwargs['formatter_kwargs'] as a dict.
+    **kwargs: Optional arguments to be passed to the generate_text function or
+      to the formatter. We assume that formatter-specific arguments (if present)
+      are all gathered in kwargs['formatter_kwargs'] as a dict.
 
   Returns:
     The string returned from LLM.
@@ -384,17 +384,12 @@ def chat(
   the last message.
 
   Args:
-    messages: A Sequence of Message(s). Messages can have any roles. Among them
-      ROLE_MODEL and ROLE_INSTRUCTIONS roles have special semantics. Instructuns
-      role can be used to describe the rules that assistant is expected to
-      follow when generating (or completing) the messages, e.g., "Start every
-      answer by quoting Shakespeare". The first non-empty message with role
-      ROLE_INSTRUCTIONS will be used to form the rules, the others will be
-      ignored.
+    messages: A Sequence of Message(s). Supported roles of the messages depend
+      on the backend used.
     formatter: The formatter to use (see `formatting.FormatterName`).
-    **kwargs: Optional arguments to be passed to the generate_text function
-      or to the formatter. We assume that formatter-specific arguments (if
-      present) are all gathered in kwargs['formatter_kwargs'] as a dict.
+    **kwargs: Optional arguments to be passed to the generate_text function or
+      to the formatter. We assume that formatter-specific arguments (if present)
+      are all gathered in kwargs['formatter_kwargs'] as a dict.
 
   Returns:
     The string returned from LLM. The response always corresponds to the
@@ -429,9 +424,7 @@ async def default_chat(
         'API formatting is not supported in this implementation of `chat`'
         ' builtin.'
     )
-  elif (
-      formatter == formatting.FormatterName.NONE
-  ):
+  elif formatter == formatting.FormatterName.NONE:
     # Concatenate all messages into a single ChunkList.
     chunk_list = _ChunkList()
     for msg in messages:
@@ -468,8 +461,8 @@ def select(
     options: Possible completions to choose from.
     include_details: If False, return only the selected option, otherwise return
       a tuple (see returned value below).
-    healing_option: Type of token healing applied to the prompt (`NONE`
-      by default).
+    healing_option: Type of token healing applied to the prompt (`NONE` by
+      default).
 
   Returns:
     The selected option if include_details=False (default), or a tuple of
@@ -496,12 +489,12 @@ def rank(
   Args:
     prompt: The prompt asking for a choice among options.
     options: Possible completions to choose from.
-    top_k: The maximum number of options to return (ranked). If top_k=0,
-      all options will be ranked and returned.
+    top_k: The maximum number of options to return (ranked). If top_k=0, all
+      options will be ranked and returned.
     include_details: If False, return only the top k options, otherwise return a
       tuple (see returned value below).
-    healing_option: Type of token healing applied to the prompt (`NONE`
-      by default).
+    healing_option: Type of token healing applied to the prompt (`NONE` by
+      default).
 
   Returns:
     The top k options if include_details=False (default), or a tuple of
@@ -582,7 +575,7 @@ async def generate_object(
     top_k: int | None = None,
     top_p: float | None = None,
     healing_option: TokenHealingOption = TokenHealingOption.NONE,
-    ) -> _T:
+) -> _T:
   """Interface of the generate_object builtin function.
 
   Args:
@@ -620,5 +613,6 @@ def reset_defaults():
   select.configure(_default_select_via_score)
   # Default `rank` uses `score_text`.
   rank.configure(_default_rank_via_score)
+
 
 reset_defaults()
