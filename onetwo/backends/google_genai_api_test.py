@@ -554,7 +554,7 @@ class GoogleGenaiApiTest(
         exp_contents_type,
     )
 
-  def test_count_tokens(self):
+  def test_count_tokens_string(self):
     backend = _get_and_register_backend()
     handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
 
@@ -564,6 +564,156 @@ class GoogleGenaiApiTest(
     self.assertCounterEqual(
         backend._counters,
         Counter(count_tokens=1, count_tokens_batches=1),
+    )
+    self.assertCounterEqual(
+        handler._cache_data.counters,
+        Counter(add_new=1, get_miss=1),
+    )
+    self.assertEqual(
+        self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
+        'Something',
+    )
+
+  def test_count_tokens_chunk_list(self):
+    backend = _get_and_register_backend()
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    _ = executing.run(
+        llm.count_tokens(
+            content=content_lib.ChunkList(
+                chunks=[content_lib.Chunk(content='Something')]
+            )
+        )
+    )
+
+    self._mock_genai_client.models.count_tokens.assert_called_once()
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(count_tokens=1, count_tokens_batches=1),
+    )
+    self.assertCounterEqual(
+        handler._cache_data.counters,
+        Counter(add_new=1, get_miss=1),
+    )
+    self.assertEqual(
+        self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
+        [genai_types.Part(text='Something')],
+    )
+
+  def test_tokenize_string(self):
+    backend = _get_and_register_backend()
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    # We mock the return value of compute_tokens to return a constant value.
+    mock_tokens = [1, 2, 3, 4, 5]
+    self._mock_genai_client.models.compute_tokens.return_value = (
+        genai_types.ComputeTokensResponse(
+            tokens_info=[genai_types.TokensInfo(token_ids=mock_tokens)]
+        )
+    )
+    content = 'Something'
+    res = executing.run(llm.tokenize(content=content))
+
+    self.assertEqual(res, mock_tokens)
+    self.assertEqual(
+        self._mock_genai_client.models.compute_tokens.call_args[1]['contents'],
+        'Something',
+    )
+    self._mock_genai_client.models.compute_tokens.assert_called_once()
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(tokenize=1, tokenize_batches=1),
+    )
+    self.assertCounterEqual(
+        handler._cache_data.counters,
+        Counter(add_new=1, get_miss=1),
+    )
+
+  def test_tokenize_chunk_list(self):
+    backend = _get_and_register_backend()
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    # We mock the return value of compute_tokens to return a constant value.
+    mock_tokens = [1, 2, 3, 4, 5]
+    self._mock_genai_client.models.compute_tokens.return_value = (
+        genai_types.ComputeTokensResponse(
+            tokens_info=[genai_types.TokensInfo(token_ids=mock_tokens)]
+        )
+    )
+    content = content_lib.ChunkList(
+        chunks=[content_lib.Chunk(content='Something')]
+    )
+    res = executing.run(llm.tokenize(content=content))
+
+    self.assertEqual(res, mock_tokens)
+    self.assertEqual(
+        self._mock_genai_client.models.compute_tokens.call_args[1]['contents'],
+        [genai_types.Part(text='Something')],
+    )
+    self._mock_genai_client.models.compute_tokens.assert_called_once()
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(tokenize=1, tokenize_batches=1),
+    )
+    self.assertCounterEqual(
+        handler._cache_data.counters,
+        Counter(add_new=1, get_miss=1),
+    )
+
+  def test_embed_string(self):
+    backend = _get_and_register_backend()
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    # We mock the return value of embed_content to return a constant value.
+    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+        )
+    )
+    content = 'Something'
+    res = executing.run(llm.embed(content=content))
+
+    self.assertEqual(res, mock_embedding)
+    self.assertEqual(
+        self._mock_genai_client.models.embed_content.call_args[1]['contents'],
+        'Something',
+    )
+    self._mock_genai_client.models.embed_content.assert_called_once()
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(embed=1, embed_batches=1),
+    )
+    self.assertCounterEqual(
+        handler._cache_data.counters,
+        Counter(add_new=1, get_miss=1),
+    )
+
+  def test_embed_chunk_list(self):
+    backend = _get_and_register_backend()
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    # We mock the return value of embed_content to return a constant value.
+    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+        )
+    )
+    content = content_lib.ChunkList(
+        chunks=[content_lib.Chunk(content='Something')]
+    )
+    res = executing.run(llm.embed(content=content))
+
+    self.assertEqual(res, mock_embedding)
+    self.assertEqual(
+        self._mock_genai_client.models.embed_content.call_args[1]['contents'],
+        [genai_types.Part(text='Something')],
+    )
+    self._mock_genai_client.models.embed_content.assert_called_once()
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(embed=1, embed_batches=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,

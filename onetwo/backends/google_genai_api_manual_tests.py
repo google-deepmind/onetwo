@@ -47,22 +47,20 @@ flags.mark_flags_as_mutual_exclusive(['api_key', 'location'])
 _CACHE_DIR = flags.DEFINE_string(
     'cache_dir',
     default='.',
-    help='Directory where the cache will be stored.'
+    help='Directory where the cache will be stored.',
 )
 _LOAD_CACHE = flags.DEFINE_bool(
     'load_cache_file',
     default=False,
-    help='Whether we should read the cache stored in file.'
+    help='Whether we should read the cache stored in file.',
 )
 _SAVE_CACHE = flags.DEFINE_bool(
     'save_cache_file',
     default=False,
-    help='Whether we should save the cache stored in file.'
+    help='Whether we should save the cache stored in file.',
 )
 _PRINT_DEBUG = flags.DEFINE_bool(
-    'print_debug',
-    default=False,
-    help='Debug logging.'
+    'print_debug', default=False, help='Debug logging.'
 )
 
 
@@ -121,40 +119,48 @@ def main(argv: Sequence[str]) -> None:
     Answer: 12.
     Question: Differentiate $\\frac{1}{\\log(x)}$.
   """
-  res = executing.run(check_and_complete(
-      prompt_text=prompt_text,
-      stop=['\n\n'],
-      max_tokens=5,
-  ))
+  res = executing.run(
+      check_and_complete(
+          prompt_text=prompt_text,
+          stop=['\n\n'],
+          max_tokens=5,
+      )
+  )
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.1 Same query to see if it has been cached.')
-  res = executing.run(check_and_complete(
-      prompt_text=prompt_text,
-      stop=['\n\n'],
-      max_tokens=5,
-  ))
+  res = executing.run(
+      check_and_complete(
+          prompt_text=prompt_text,
+          stop=['\n\n'],
+          max_tokens=5,
+      )
+  )
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.2 Same query but different parameters, run requests again.')
-  res = executing.run(check_and_complete(
-      prompt_text=prompt_text,
-      temperature=0.,
-      stop=['\n\n'],
-      max_tokens=5,
-  ))
+  res = executing.run(
+      check_and_complete(
+          prompt_text=prompt_text,
+          temperature=0.0,
+          stop=['\n\n'],
+          max_tokens=5,
+      )
+  )
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('2. Repeated generate request.')
-  exe = executing.par_iter(sampling.repeat(
-      executable=check_and_complete(
-          'Today is', temperature=0.5, max_tokens=5, stop=['.']
-      ),
-      num_repeats=5,
-  ))
+  exe = executing.par_iter(
+      sampling.repeat(
+          executable=check_and_complete(
+              'Today is', temperature=0.5, max_tokens=5, stop=['.']
+          ),
+          num_repeats=5,
+      )
+  )
   res = executing.run(exe)
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
@@ -211,7 +217,7 @@ def main(argv: Sequence[str]) -> None:
   # Expect something weird to happen.
   executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt='When I sat on ',
-      temperature=0.,
+      temperature=0.0,
       max_tokens=10,
       healing_option=llm.TokenHealingOption.NONE,
   )
@@ -222,7 +228,7 @@ def main(argv: Sequence[str]) -> None:
   print('7.2 Generate text with space healing.')
   executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
       prompt='When I sat on ',
-      temperature=0.,
+      temperature=0.0,
       max_tokens=10,
       healing_option=llm.TokenHealingOption.SPACE_HEALING,
   )
@@ -398,18 +404,15 @@ def main(argv: Sequence[str]) -> None:
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
 
   print('12. Check response_schema and response_mime_type.')
-  executable = (
-      c.c('What is the capital of France? ')
-      + c.store(
-          'answer',
-          c.generate_text(
-              response_mime_type='application/json',
-              response_schema={
-                  'type': 'object',
-                  'properties': {'answer': {'type': 'string'}},
-              },
-          ),
-      )
+  executable = c.c('What is the capital of France? ') + c.store(
+      'answer',
+      c.generate_text(
+          response_mime_type='application/json',
+          response_schema={
+              'type': 'object',
+              'properties': {'answer': {'type': 'string'}},
+          },
+      ),
   )
   _ = executing.run(executable)
   try:
@@ -421,15 +424,52 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value is not a valid JSON:', executable['answer'], e)
 
   print('13. Check thinking config.')
-  res = executing.run(llm.generate_text(  # pytype: disable=wrong-keyword-args
-      prompt='solve x^2 + 4x + 4 = 0',
-      thinking_config=genai_types.ThinkingConfig(
-          include_thoughts=True,
-          thinking_budget=1024,
-      ),
-  ))
+  res = executing.run(
+      llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='solve x^2 + 4x + 4 = 0',
+          thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=True,
+              thinking_budget=1024,
+          ),
+      )
+  )
   if _PRINT_DEBUG.value:
     print('Returned value:', res)
+
+  if backend.vertexai:
+    print('14. Check that tokenize is working.')
+    content = content_lib.ChunkList(
+        chunks=[
+            content_lib.Chunk(
+                content='The quick brown fox jumps over the lazy dog.',
+            )
+        ]
+    )
+    res = executing.run(llm.tokenize(content=content))  # pytype: disable=wrong-keyword-args
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
+    if not isinstance(res, list) or not all(isinstance(x, int) for x in res):
+      success = False
+      print('Returned value is not a list of ints:', res)
+  else:
+    print('14. Skipping tokenize because it is not supported by Gemini API.')
+
+  print('15. Check that embed is working.')
+  content = content_lib.ChunkList(
+      chunks=[
+          content_lib.Chunk(
+              content='The quick brown fox jumps over the lazy dog.',
+          )
+      ]
+  )
+  res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+  if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
+    success = False
+    print('Returned value is not a list of floats:', res)
 
   print('PASS' if success else 'FAIL')
 

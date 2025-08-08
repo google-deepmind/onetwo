@@ -143,7 +143,6 @@ class GeminiAPI(
     generate_model_name: Name of the model to use for `generate` requests.
     chat_model_name: Name of the model to use for `chat` requests.
     embed_model_name: Name of the model to use for `embed` requests. replies.
-      Default is 1.
     enable_streaming: Whether to enable streaming replies from generate_text.
     max_qps: Maximum queries per second for the backend (if None, no rate
       limiting is applied).

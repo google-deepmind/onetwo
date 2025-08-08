@@ -159,6 +159,9 @@ class GoogleGenAIAPI(
 ):
   """Google GenAI API.
 
+  This class supports both Vertex AI and Gemini API.
+  The `tokenize` method is only supported using Vertex AI.
+
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
       CacheEnabled).
@@ -181,8 +184,7 @@ class GoogleGenAIAPI(
     http_options: HTTP options for the API.
     generate_model_name: Name of the model to use for `generate` requests.
     chat_model_name: Name of the model to use for `chat` requests.
-    embed_model_name: Name of the model to use for `embed` requests. replies.
-      Default is 1.
+    embed_model_name: Name of the model to use for `embed` requests.
     enable_streaming: Whether to enable streaming replies from generate_text.
     max_qps: Maximum queries per second for the backend (if None, no rate
       limiting is applied).
@@ -239,8 +241,19 @@ class GoogleGenAIAPI(
       init=False, default_factory=collections.Counter
   )
 
-  def register(self, name: str | None = None) -> None:
-    """See parent class."""
+  def register(
+      self,
+      name: str | None = None,
+      register_tokenize: bool = True,
+      register_embed: bool = True,
+  ) -> None:
+    """See parent class.
+
+    Args:
+      name: Name to use for registration.
+      register_tokenize: Whether to register the tokenize function.
+      register_embed: Whether to register the embed function.
+    """
     del name
     # Reset all the defaults in case some other backend was already registered.
     # Indeed, we rely on certain builtins configured with OneTwo defaults.
@@ -253,7 +266,8 @@ class GoogleGenAIAPI(
         top_p=self.top_p,
         top_k=self.top_k,
     )
-    llm.embed.configure(self.embed)
+    if register_embed:
+      llm.embed.configure(self.embed)
     llm.chat.configure(  # pytype: disable=wrong-arg-types
         self.chat,
         formatter=formatting.FormatterName.API,
@@ -263,7 +277,9 @@ class GoogleGenAIAPI(
         top_p=self.top_p,
         top_k=self.top_k,
     )
-    llm.count_tokens.configure(self.count_tokens)
+    if register_tokenize:
+      llm.tokenize.configure(self.tokenize)
+      llm.count_tokens.configure(self.count_tokens)
     llm.instruct.configure(
         llm.default_instruct, formatter=formatting.FormatterName.API
     )
@@ -550,16 +566,36 @@ class GoogleGenAIAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def embed(
-      self, content: str | content_lib.ChunkList
-  ) -> genai_types.EmbedContentResponse:
+  def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
-
-    return self._genai_client.models.embed_content(
-        model=self._embed_model_name(),
-        contents=content,
-    )
+    content = _convert_chunk_list_to_contents_type(content)
+    try:
+      response = self._genai_client.models.embed_content(
+          model=self._embed_model_name(),
+          contents=content,
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'GoogleGenAIAPI.embed raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(content)[:100]}'
+      ) from err
+    if not response.embeddings:
+      raise ValueError(
+          'GoogleGenAIAPI.embed returned no embeddings for request:\n'
+          f'{pprint.pformat(content)[:100]}'
+      )
+    if len(response.embeddings) != 1:
+      raise ValueError(
+          'GoogleGenAIAPI.embed returned more than one embedding for request:\n'
+          f'{pprint.pformat(content)[:100]}'
+      )
+    if not response.embeddings[0].values:
+      raise ValueError(
+          'GoogleGenAIAPI.embed returned no embedding values for request:\n'
+          f'{pprint.pformat(content)[:100]}'
+      )
+    return response.embeddings[0].values
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.count_tokens')
@@ -576,7 +612,7 @@ class GoogleGenAIAPI(
   def count_tokens(self, content: str | content_lib.ChunkList) -> int:
     """See builtins.llm.count_tokens."""
     self._counters['count_tokens'] += 1
-
+    content = _convert_chunk_list_to_contents_type(content)
     try:
       response = self._genai_client.models.count_tokens(
           model=self._generate_model_name(),
@@ -587,4 +623,49 @@ class GoogleGenAIAPI(
           f'GoogleGenAIAPI.count_tokens raised err:\n{err}\n'
           f'for request:\n{pprint.pformat(content)[:100]}'
       ) from err
+    if not response.total_tokens:
+      raise ValueError(
+          'GoogleGenAIAPI.count_tokens returned no total tokens for request:\n'
+          f'{pprint.pformat(content)[:100]}'
+      )
     return response.total_tokens
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.tokenize')
+  @caching.cache_method(  # Cache this deterministic method.
+      name='tokenize',
+      is_sampled=False,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
+    """See builtins.llm.tokenize."""
+    self._counters['tokenize'] += 1
+    try:
+      response = self._genai_client.models.compute_tokens(
+          model=self._generate_model_name(),
+          contents=_convert_chunk_list_to_contents_type(content),
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'GoogleGenAIAPI.tokenize raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(content)[:100]}'
+      ) from err
+
+    tokens_info = response.tokens_info
+    if not tokens_info or len(tokens_info) != 1:
+      raise ValueError(
+          'GoogleGenAIAPI.tokenize returned no tokens or more than one tokens'
+          f' info for request:\n{pprint.pformat(content)[:100]}'
+      )
+    token_ids = tokens_info[0].token_ids
+    if not token_ids:
+      raise ValueError(
+          'GoogleGenAIAPI.tokenize returned no token IDs for request:\n'
+          f'{pprint.pformat(content)[:100]}'
+      )
+    return token_ids
