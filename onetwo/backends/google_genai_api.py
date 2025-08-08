@@ -46,16 +46,28 @@ from onetwo.core import utils
 _ChunkList: TypeAlias = content_lib.ChunkList
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 
+
+@dataclasses.dataclass(frozen=True)
+class ModelName:
+  vertex_ai: str
+  gemini_api: str
+
+
 # Available models are listed at
+# Vertex AI:
 # https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+# Gemini API: https://ai.google.dev/gemini-api/docs/models
+
 # input_token_limit=1,048,576, output_token_limit=65,535.
-DEFAULT_GENERATE_MODEL: Final[str] = 'publishers/google/models/gemini-2.5-flash'
-DEFAULT_MULTIMODAL_MODEL: Final[str] = (
-    'publishers/google/models/gemini-2.5-flash'
+DEFAULT_GENERATE_MODEL: Final[ModelName] = ModelName(
+    vertex_ai='publishers/google/models/gemini-2.5-flash',
+    gemini_api='models/gemini-2.5-flash',
 )
+DEFAULT_MULTIMODAL_MODEL: Final[ModelName] = DEFAULT_GENERATE_MODEL
 # input_token_limit=2048.
-DEFAULT_EMBED_MODEL: Final[str] = (
-    'publishers/google/models/gemini-embedding-001'
+DEFAULT_EMBED_MODEL: Final[ModelName] = ModelName(
+    vertex_ai='publishers/google/models/gemini-embedding-001',
+    gemini_api='models/gemini-embedding-001',
 )
 
 # Refer to
@@ -201,9 +213,9 @@ class GoogleGenAIAPI(
   http_options: (
       Union[genai_types.HttpOptions, genai_types.HttpOptionsDict] | None
   ) = None
-  generate_model_name: str = DEFAULT_GENERATE_MODEL
-  chat_model_name: str = DEFAULT_GENERATE_MODEL
-  embed_model_name: str = DEFAULT_EMBED_MODEL
+  generate_model_name: str | ModelName = DEFAULT_GENERATE_MODEL
+  chat_model_name: str | ModelName = DEFAULT_GENERATE_MODEL
+  embed_model_name: str | ModelName = DEFAULT_EMBED_MODEL
   enable_streaming: bool = False
   max_qps: float | None = None
   max_retries: int = 0
@@ -276,6 +288,30 @@ class GoogleGenAIAPI(
         return f.readline().strip()
     return None
 
+  def _generate_model_name(self) -> str:
+    if isinstance(self.generate_model_name, ModelName):
+      if self.vertexai:
+        return self.generate_model_name.vertex_ai
+      else:
+        return self.generate_model_name.gemini_api
+    return self.generate_model_name
+
+  def _chat_model_name(self) -> str:
+    if isinstance(self.chat_model_name, ModelName):
+      if self.vertexai:
+        return self.chat_model_name.vertex_ai
+      else:
+        return self.chat_model_name.gemini_api
+    return self.chat_model_name
+
+  def _embed_model_name(self) -> str:
+    if isinstance(self.embed_model_name, ModelName):
+      if self.vertexai:
+        return self.embed_model_name.vertex_ai
+      else:
+        return self.embed_model_name.gemini_api
+    return self.embed_model_name
+
   def _verify_available_models(self):
     """Verify that specified models are available and support all methods."""
     available_models = {m.name: m for m in self._genai_client.models.list()}
@@ -284,12 +320,13 @@ class GoogleGenAIAPI(
       logging.info('Model: %s', model_name)
       logging.info('%s', pprint.pformat(model))
     self._available_models = available_models
-    if self.generate_model_name not in available_models:
-      raise ValueError(f'Model {self.generate_model_name} not available.')
-    if self.chat_model_name not in available_models:
-      raise ValueError(f'Model {self.chat_model_name} not available.')
-    if self.embed_model_name not in available_models:
-      raise ValueError(f'Model {self.embed_model_name} not available.')
+    if self._generate_model_name() not in available_models:
+      raise ValueError(f'Model {self._generate_model_name()} not available.')
+    if self._chat_model_name() not in available_models:
+      raise ValueError(f'Model {self._chat_model_name()} not available.')
+    # Embed models are not listed in the available models for Vertex AI API.
+    if not self.vertexai and self._embed_model_name() not in available_models:
+      raise ValueError(f'Model {self._embed_model_name()} not available.')
 
   def __post_init__(self) -> None:
     # Create cache.
@@ -332,7 +369,7 @@ class GoogleGenAIAPI(
     )
     try:
       response = self._genai_client.models.generate_content(
-          model=self.generate_model_name,
+          model=self._generate_model_name(),
           contents=prompt,
           config=generation_config,
       )
@@ -486,7 +523,7 @@ class GoogleGenAIAPI(
     )
     healed_content = _convert_chunk_list_to_contents_type(healed_content)
     chat = self._genai_client.chats.create(
-        model=self.chat_model_name,
+        model=self._chat_model_name(),
         history=history[:-1],
         config=generation_config,
     )
@@ -520,7 +557,7 @@ class GoogleGenAIAPI(
     self._counters['embed'] += 1
 
     return self._genai_client.models.embed_content(
-        model=self.embed_model_name,
+        model=self._embed_model_name(),
         contents=content,
     )
 
@@ -542,7 +579,7 @@ class GoogleGenAIAPI(
 
     try:
       response = self._genai_client.models.count_tokens(
-          model=self.generate_model_name,
+          model=self._generate_model_name(),
           contents=content,
       )
     except Exception as err:  # pylint: disable=broad-except

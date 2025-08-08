@@ -55,17 +55,17 @@ def _mock_list_models() -> Sequence[genai_types.Model]:
   }
   return [
       genai_types.Model(
-          name=google_genai_api.DEFAULT_GENERATE_MODEL,
+          name=google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api,
           supported_actions=['generateContent', 'countTokens'],
           **fake_base_params,
       ),
       genai_types.Model(
-          name=google_genai_api.DEFAULT_MULTIMODAL_MODEL,
+          name=google_genai_api.DEFAULT_MULTIMODAL_MODEL.gemini_api,
           supported_actions=['generateContent', 'countTokens'],
           **fake_base_params,
       ),
       genai_types.Model(
-          name=google_genai_api.DEFAULT_EMBED_MODEL,
+          name=google_genai_api.DEFAULT_EMBED_MODEL.gemini_api,
           supported_actions=['embedContent'],
           **fake_base_params,
       ),
@@ -129,6 +129,29 @@ class GoogleGenaiApiTest(
 
   def test_generate_text(self):
     backend = _get_and_register_backend()
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    res = executing.run(llm.generate_text(prompt='Something1'))
+    res2 = executing.run(llm.generate_text(prompt='Something2'))
+
+    self.assertEqual(res, 'text')
+    self.assertEqual(res2, 'text')
+    self.assertEqual(
+        self._mock_genai_client.models.generate_content.call_count, 2
+    )
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(generate_text=2, generate_text_batches=2),
+    )
+    self.assertCounterEqual(
+        handler._cache_data.counters,
+        Counter(add_new=2, get_miss=2),
+    )
+
+  def test_generate_text_with_model_string(self):
+    backend = _get_and_register_backend(
+        generate_model_name=google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api
+    )
     handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
 
     res = executing.run(llm.generate_text(prompt='Something1'))
