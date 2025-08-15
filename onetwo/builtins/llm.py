@@ -598,13 +598,18 @@ async def generate_object(
   )
 
 
-def reset_defaults():
-  """Resets default implementations for all builtins in this file."""
+def reset_defaults(
+    reset_tokenize: bool = True,
+):
+  """Resets default implementations for all builtins in this file.
+
+  Args:
+    reset_tokenize: Whether to reset the default implementation of tokenization
+      related builtins (e.g., `count_tokens`).
+  """
   # Keep all module level `some_builtin.configure(...)` commands in this method.
   # Default `generate_texts` uses `generate_text`.
   generate_texts.configure(_default_generate_texts)
-  # Default `count_tokens` uses `tokenize`.
-  count_tokens.configure(_default_count_tokens)
   # Default `instruct` uses `chat`.
   instruct.configure(default_instruct)
   # Default `chat` uses `generate_text`.
@@ -613,6 +618,10 @@ def reset_defaults():
   select.configure(_default_select_via_score)
   # Default `rank` uses `score_text`.
   rank.configure(_default_rank_via_score)
+
+  if reset_tokenize:
+    # Default `count_tokens` uses `tokenize`.
+    count_tokens.configure(_default_count_tokens)
 
 
 reset_defaults()

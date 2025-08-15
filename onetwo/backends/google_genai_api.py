@@ -189,6 +189,10 @@ class GoogleGenAIAPI(
       default and can be overridden per request).
     top_k: Top-k parameter (int) for LLM text generation (can be set as a
       default and can be overridden per request).
+    generate_text_kwargs: Additional default parameter values to apply in calls
+      to `llm.generate_text`.
+    chat_kwargs: Additional default parameter values to apply in calls
+      to `llm.chat`.
   """
 
   batch_size: int = 1
@@ -217,6 +221,10 @@ class GoogleGenAIAPI(
   top_p: float | None = None
   top_k: int | None = None
 
+  # Additional optional parameters for use during backend registration
+  generate_text_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  chat_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
   # Attributes not set by constructor.
   _genai_client: genai.Client = dataclasses.field(init=False)
   _available_models: dict[str, Any] = dataclasses.field(
@@ -244,7 +252,7 @@ class GoogleGenAIAPI(
     del name
     # Reset all the defaults in case some other backend was already registered.
     # Indeed, we rely on certain builtins configured with OneTwo defaults.
-    llm.reset_defaults()
+    llm.reset_defaults(reset_tokenize=register_tokenize)
     llm.generate_text.configure(
         self.generate_text,
         temperature=self.temperature,
@@ -252,6 +260,7 @@ class GoogleGenAIAPI(
         stop=self.stop,
         top_p=self.top_p,
         top_k=self.top_k,
+        **self.generate_text_kwargs,
     )
     if register_embed:
       llm.embed.configure(self.embed)
@@ -263,6 +272,7 @@ class GoogleGenAIAPI(
         stop=self.stop,
         top_p=self.top_p,
         top_k=self.top_k,
+        **self.chat_kwargs,
     )
     if register_tokenize:
       llm.tokenize.configure(self.tokenize)
