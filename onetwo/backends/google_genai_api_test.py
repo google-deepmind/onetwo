@@ -510,7 +510,7 @@ class GoogleGenaiApiTest(
       (
           'str_prompt',
           'this is a prompt',
-          'this is a prompt',
+          [genai_types.Part(text='this is a prompt')],
       ),
       (
           'chunk_str',
@@ -548,9 +548,9 @@ class GoogleGenaiApiTest(
           ],
       ),
   )
-  def test_convert_chunk_list_to_contents_type(self, prompt, exp_contents_type):
+  def test_convert_chunk_list_to_content_list(self, prompt, exp_contents_type):
     self.assertEqual(
-        google_genai_api._convert_chunk_list_to_contents_type(prompt),
+        google_genai_api._convert_chunk_list_to_content_list(prompt),
         exp_contents_type,
     )
 
@@ -571,7 +571,7 @@ class GoogleGenaiApiTest(
     )
     self.assertEqual(
         self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
-        'Something',
+        [genai_types.Part(text='Something')]
     )
 
   def test_count_tokens_chunk_list(self):
@@ -617,7 +617,7 @@ class GoogleGenaiApiTest(
     self.assertEqual(res, mock_tokens)
     self.assertEqual(
         self._mock_genai_client.models.compute_tokens.call_args[1]['contents'],
-        'Something',
+        [genai_types.Part(text='Something')],
     )
     self._mock_genai_client.models.compute_tokens.assert_called_once()
     self.assertCounterEqual(
@@ -677,7 +677,7 @@ class GoogleGenaiApiTest(
     self.assertEqual(res, mock_embedding)
     self.assertEqual(
         self._mock_genai_client.models.embed_content.call_args[1]['contents'],
-        'Something',
+        [genai_types.Part(text='Something')],
     )
     self._mock_genai_client.models.embed_content.assert_called_once()
     self.assertCounterEqual(

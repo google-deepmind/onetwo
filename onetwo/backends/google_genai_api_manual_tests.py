@@ -68,7 +68,9 @@ def main(argv: Sequence[str]) -> None:
   success = True
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
+
   fname = os.path.join(_CACHE_DIR.value, 'google_gemini_api.json')
+
   api_key = _API_KEY.value
   if api_key is not None:
     backend = google_genai_api.GoogleGenAIAPI(api_key=api_key, batch_size=4)
@@ -82,6 +84,16 @@ def main(argv: Sequence[str]) -> None:
   else:
     raise ValueError('Either --api_key or (--project, --location) must be set.')
   backend.register()
+
+  # Disable (or limit) thinking by default to reduce cost and avoid subtle
+  # interactions with the `max_tokens` parameter (which gets applied to the sum
+  # of the thinking tokens and actual output tokens).
+  thinking_config = genai_types.ThinkingConfig(
+      include_thoughts=False,
+      thinking_budget=0,
+  )
+  llm.generate_text.update(thinking_config=thinking_config)
+  llm.chat.update(thinking_config=thinking_config)
 
   if _LOAD_CACHE.value:
     print('Loading cache from file %s', fname)
@@ -344,6 +356,27 @@ def main(argv: Sequence[str]) -> None:
           temperature=0.5,
           formatter=formatting.FormatterName.DEFAULT,
           max_tokens=15,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('10.4 Check that chat is working (API formatting) with chunk list.')
+  res = executing.run(
+      llm.chat(  # pytype: disable=wrong-keyword-args
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content=content_lib.ChunkList([
+                      content_lib.Chunk('Please answer the question:\n'),
+                      content_lib.Chunk('What is the capital of France?'),
+                  ]),
+              ),
+          ],
+          temperature=0.5,
+          max_tokens=15,
+          stop=['.'],
       )
   )
   if _PRINT_DEBUG.value:

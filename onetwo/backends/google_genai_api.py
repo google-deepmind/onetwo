@@ -92,50 +92,37 @@ SAFETY_DISABLED: Final[Sequence[genai_types.SafetySetting]] = [
 ]
 
 
-def _convert_chunk_list_to_contents_type(
+def _convert_chunk_list_to_content_list(
     prompt: str | _ChunkList,
-) -> genai_types.ContentListUnion:
-  """Convert ChunkList to the type compatible with the SDK's contents type."""
-  if isinstance(prompt, content_lib.ChunkList):
-    contents = []
-    for c in prompt:
-      match c.content_type:
-        case 'str':
-          contents.append(genai_types.Part(text=c.content))
-        case 'bytes' | 'image/jpeg':
-          contents.append(
-              genai_types.Part(
-                  inline_data=genai_types.Blob(
-                      mime_type='image/jpeg', data=cast(bytes, c.content)
-                  )
-              )
-          )
-        case 'video/mp4':
-          contents.append(
-              genai_types.Part(
-                  inline_data=genai_types.Blob(
-                      mime_type='video/mp4', data=cast(bytes, c.content)
-                  )
-              )
-          )
-        case _:
-          contents.append(genai_types.Part(text=str(c.content)))
-    return contents
-  return prompt
+) -> list[genai_types.Content]:
+  """Converts ChunkList to the type compatible with SDK's chat history."""
+  if isinstance(prompt, str):
+    return [genai_types.Part(text=prompt)]
 
-
-def _truncate(text: str, max_tokens: int | None = None) -> str:
-  """Truncates text to the given number of tokens."""
-  # Unfortunately, when setting a max_output_tokens value in the API that is
-  # smaller than what the model would naturally generate, the response is
-  # empty with a finish_reason of "MAX_TOKENS". So we need to do post-hoc
-  # truncation.
-  # However we don't want to tokenize the answer in order to know its exact
-  # token length, so instead we approximately truncate by counting characters.
-  if max_tokens is None:
-    return text
-  else:
-    return text[: max_tokens * 3]
+  contents = []
+  for c in prompt:
+    match c.content_type:
+      case 'str':
+        contents.append(genai_types.Part(text=c.content))
+      case 'bytes' | 'image/jpeg':
+        contents.append(
+            genai_types.Part(
+                inline_data=genai_types.Blob(
+                    mime_type='image/jpeg', data=cast(bytes, c.content)
+                )
+            )
+        )
+      case 'video/mp4':
+        contents.append(
+            genai_types.Part(
+                inline_data=genai_types.Blob(
+                    mime_type='video/mp4', data=cast(bytes, c.content)
+                )
+            )
+        )
+      case _:
+        contents.append(genai_types.Part(text=str(c.content)))
+  return contents
 
 
 def _replace_if_unsupported_role(
@@ -231,7 +218,7 @@ class GoogleGenAIAPI(
   top_k: int | None = None
 
   # Attributes not set by constructor.
-  _client: genai.Client = dataclasses.field(init=False)
+  _genai_client: genai.Client = dataclasses.field(init=False)
   _available_models: dict[str, Any] = dataclasses.field(
       init=False, default_factory=dict
   )
@@ -374,7 +361,7 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> genai_types.GenerateContentResponse:
     """Generate content using the configured generation model."""
-    prompt = _convert_chunk_list_to_contents_type(prompt)
+    prompt = _convert_chunk_list_to_content_list(prompt)
     generation_config = genai_types.GenerateContentConfig(
         candidate_count=samples,
         temperature=temperature,
@@ -442,6 +429,7 @@ class GoogleGenAIAPI(
     response = self._generate_content(  # pytype: disable=wrong-keyword-args
         prompt=healed_prompt,
         samples=1,
+        max_output_tokens=max_tokens,
         temperature=temperature,
         stop=stop,
         top_k=top_k,
@@ -449,9 +437,8 @@ class GoogleGenAIAPI(
         **kwargs,
     )
     raw = response.text
-    truncated = _truncate(raw, max_tokens)
     reply = llm_utils.maybe_heal_reply(
-        reply_text=truncated,
+        reply_text=raw,
         original_prompt=prompt,
         healing_option=healing_option,
     )
@@ -518,7 +505,7 @@ class GoogleGenAIAPI(
             role=msg.role.value
             if isinstance(msg.role, content_lib.PredefinedRole)
             else msg.role,
-            parts=[genai_types.Part(text=msg.content)],
+            parts=_convert_chunk_list_to_content_list(msg.content),
         )
         for msg in messages
     ]
@@ -537,14 +524,13 @@ class GoogleGenAIAPI(
         original_prompt=messages[-1].content,
         healing_option=healing_option,
     )
-    healed_content = _convert_chunk_list_to_contents_type(healed_content)
     chat = self._genai_client.chats.create(
         model=self._chat_model_name(),
         history=history[:-1],
         config=generation_config,
     )
     response = chat.send_message(
-        message=healed_content,
+        message=_convert_chunk_list_to_content_list(healed_content),
         config=generation_config,
     )
     reply = llm_utils.maybe_heal_reply(
@@ -569,7 +555,7 @@ class GoogleGenAIAPI(
   def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
-    content = _convert_chunk_list_to_contents_type(content)
+    content = _convert_chunk_list_to_content_list(content)
     try:
       response = self._genai_client.models.embed_content(
           model=self._embed_model_name(),
@@ -612,7 +598,7 @@ class GoogleGenAIAPI(
   def count_tokens(self, content: str | content_lib.ChunkList) -> int:
     """See builtins.llm.count_tokens."""
     self._counters['count_tokens'] += 1
-    content = _convert_chunk_list_to_contents_type(content)
+    content = _convert_chunk_list_to_content_list(content)
     try:
       response = self._genai_client.models.count_tokens(
           model=self._generate_model_name(),
@@ -648,7 +634,7 @@ class GoogleGenAIAPI(
     try:
       response = self._genai_client.models.compute_tokens(
           model=self._generate_model_name(),
-          contents=_convert_chunk_list_to_contents_type(content),
+          contents=_convert_chunk_list_to_content_list(content),
       )
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
