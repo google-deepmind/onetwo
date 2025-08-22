@@ -177,6 +177,10 @@ class GoogleGenAIAPI(
       limiting is applied).
     max_retries: Maximum number of times to retry a request in case of an
       exception.
+    initial_base_delay: Initial delay in seconds for retrying a request in case
+      of an exception.
+    max_base_delay: Maximum delay in seconds for retrying a request in case of
+      an exception.
     replace_unsupported_roles: Whether to replace roles `system` and `context`
       with role 'user' in chat requests.
     temperature: Temperature parameter (float) for LLM generation (can be set as
@@ -191,8 +195,8 @@ class GoogleGenAIAPI(
       default and can be overridden per request).
     generate_text_kwargs: Additional default parameter values to apply in calls
       to `llm.generate_text`.
-    chat_kwargs: Additional default parameter values to apply in calls
-      to `llm.chat`.
+    chat_kwargs: Additional default parameter values to apply in calls to
+      `llm.chat`.
   """
 
   batch_size: int = 1
@@ -212,6 +216,8 @@ class GoogleGenAIAPI(
   enable_streaming: bool = False
   max_qps: float | None = None
   max_retries: int = 0
+  initial_base_delay: int = 1
+  max_base_delay: int = 32
   replace_unsupported_roles: bool = False
 
   # Generation parameters
@@ -420,7 +426,11 @@ class GoogleGenAIAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+  )  # pytype: disable=wrong-arg-types
   def generate_text(
       self,
       prompt: str | content_lib.ChunkList,
@@ -481,7 +491,11 @@ class GoogleGenAIAPI(
       is_sampled=True,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+  )
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -563,7 +577,11 @@ class GoogleGenAIAPI(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+  )
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -606,7 +624,11 @@ class GoogleGenAIAPI(
       is_sampled=False,  # Method is deterministic.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+  )
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
@@ -639,7 +661,11 @@ class GoogleGenAIAPI(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+  )
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
