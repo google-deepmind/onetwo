@@ -449,8 +449,8 @@ def with_retry(
     function: _FunctionToDecorate,
     *,
     max_retries: int | FromInstance[InterruptedError] = 0,
-    initial_base_delay: int = 1,
-    max_base_delay: int = 32,
+    initial_base_delay: int | FromInstance[InterruptedError] = 1,
+    max_base_delay: int | FromInstance[InterruptedError] = 32,
     retriable_error_filter: Callable[[Exception], bool] = lambda e: True,
 ) -> _FunctionToDecorate:
   """Decorates a method or function with ability to retry on errors.
@@ -478,9 +478,13 @@ def with_retry(
   def wrapper_impl(*args, **kwargs) -> _ReturnType:
     self = args[0] if is_method(function) else None
     max_retries_value = RuntimeParameter[int](max_retries, self).value()
+    initial_base_delay_value = RuntimeParameter[int](
+        initial_base_delay, self
+    ).value()
+    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
     if not max_retries_value:
       return function(*args, **kwargs)
-    base_delay = initial_base_delay
+    base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
         return function(*args, **kwargs)
@@ -489,8 +493,8 @@ def with_retry(
           raise e
         # Increase base_delay after 2 consecutive errors at the current value.
         if i % 2 == 1:
-          if base_delay < max_base_delay:
-            base_delay = min(max_base_delay, 2 * base_delay)
+          if base_delay < max_base_delay_value:
+            base_delay = min(max_base_delay_value, 2 * base_delay)
         actual_delay = base_delay * (1 + random.random())
         logging.info('Retry #%s: %ss (%s)', i, actual_delay, str(e))
         if i < max_retries_value:
