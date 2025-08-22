@@ -239,6 +239,7 @@ class GoogleGenAIAPI(
   def register(
       self,
       name: str | None = None,
+      register_generate: bool = True,
       register_tokenize: bool = True,
       register_embed: bool = True,
   ) -> None:
@@ -246,6 +247,8 @@ class GoogleGenAIAPI(
 
     Args:
       name: Name to use for registration.
+      register_generate: Whether to register the generation related functions,
+        including generate_text, chat, and instruct.
       register_tokenize: Whether to register the tokenize function.
       register_embed: Whether to register the embed function.
     """
@@ -253,33 +256,36 @@ class GoogleGenAIAPI(
     # Reset all the defaults in case some other backend was already registered.
     # Indeed, we rely on certain builtins configured with OneTwo defaults.
     llm.reset_defaults(reset_tokenize=register_tokenize)
-    llm.generate_text.configure(
-        self.generate_text,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        stop=self.stop,
-        top_p=self.top_p,
-        top_k=self.top_k,
-        **self.generate_text_kwargs,
-    )
+    if register_generate:
+      llm.generate_text.configure(
+          self.generate_text,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+          top_k=self.top_k,
+          **self.generate_text_kwargs,
+      )
     if register_embed:
       llm.embed.configure(self.embed)
-    llm.chat.configure(  # pytype: disable=wrong-arg-types
-        self.chat,
-        formatter=formatting.FormatterName.API,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        stop=self.stop,
-        top_p=self.top_p,
-        top_k=self.top_k,
-        **self.chat_kwargs,
-    )
+    if register_generate:
+      llm.chat.configure(  # pytype: disable=wrong-arg-types
+          self.chat,
+          formatter=formatting.FormatterName.API,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+          top_k=self.top_k,
+          **self.chat_kwargs,
+      )
     if register_tokenize:
       llm.tokenize.configure(self.tokenize)
       llm.count_tokens.configure(self.count_tokens)
-    llm.instruct.configure(
-        llm.default_instruct, formatter=formatting.FormatterName.API
-    )
+    if register_generate:
+      llm.instruct.configure(
+          llm.default_instruct, formatter=formatting.FormatterName.API
+      )
 
   def _get_api_key(self) -> str | None:
     """Retrieve GenAI API key.
