@@ -52,8 +52,13 @@ def c(
   """Composable chunk created from content."""
   del context
   if isinstance(content, content_lib.Chunk):
+    if role:
+      content.role = role
     return content_lib.ChunkList([content])
   elif isinstance(content, content_lib.ChunkList):
+    if role:
+      for chunk in content:
+        chunk.role = role
     return content
   else:
     return content_lib.ChunkList([content_lib.Chunk(content, role=role)])
@@ -131,9 +136,7 @@ def generate_object(
 
 @composing.make_composable  # pytype: disable=wrong-arg-types
 async def instruct(
-    context: composing.Context,
-    assistant_prefix: str | None = None,
-    **kwargs
+    context: composing.Context, assistant_prefix: str | None = None, **kwargs
 ) -> ...:
   """Composable version of the llm.instruct function."""
   # TODO: We are awaiting llm.instruct which means we cannot

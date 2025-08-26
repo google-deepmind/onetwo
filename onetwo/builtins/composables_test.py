@@ -62,7 +62,8 @@ def generate_test_function(
 async def chat_test_function(messages: Sequence[Message], **kwargs) -> str:
   del kwargs
   return ','.join(
-      ','.join(c.content for c in m.get_chunk_list()) for m in messages)
+      ','.join(c.content for c in m.get_chunk_list()) for m in messages
+  )
 
 
 class ComposablesTest(parameterized.TestCase):
@@ -125,10 +126,7 @@ class ComposablesTest(parameterized.TestCase):
   def test_select(self):
 
     @executing.make_executable
-    def score(
-        prompt: str | ChunkList,
-        targets: Sequence[str]
-    ) -> str:
+    def score(prompt: str | ChunkList, targets: Sequence[str]) -> str:
       del prompt
       # We score by the length of the target.
       return [float(len(target)) for target in targets]
@@ -299,6 +297,81 @@ class ComposablesTest(parameterized.TestCase):
     _ = executing.run(composable)
     with self.subTest('prefix'):
       self.assertEqual(content_lib.ChunkList(), context.prefix)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='string_content_with_explicit_role',
+          content='test',
+          role=PredefinedRole.USER,
+          expected_result=ChunkList([Chunk('test', role=PredefinedRole.USER)]),
+      ),
+      dict(
+          testcase_name='string_content_without_role',
+          content='test',
+          role=None,
+          expected_result=ChunkList([Chunk('test', role=None)]),
+      ),
+      dict(
+          testcase_name='chunk_with_explicit_role',
+          content=Chunk('test'),
+          role=PredefinedRole.USER,
+          expected_result=ChunkList([Chunk('test', role=PredefinedRole.USER)]),
+      ),
+      dict(
+          testcase_name='chunk_without_role',
+          content=Chunk('test'),
+          role=None,
+          expected_result=ChunkList([Chunk('test', role=None)]),
+      ),
+      dict(
+          testcase_name='chunk_with_role_to_be_overwritten',
+          content=Chunk('test', role=PredefinedRole.USER),
+          role=PredefinedRole.SYSTEM,
+          expected_result=ChunkList(
+              [Chunk('test', role=PredefinedRole.SYSTEM)]
+          ),
+      ),
+      dict(
+          testcase_name='chunk_list_with_explicit_role',
+          content=ChunkList([Chunk('test1'), Chunk('test2')]),
+          role=PredefinedRole.USER,
+          expected_result=ChunkList([
+              Chunk('test1', role=PredefinedRole.USER),
+              Chunk('test2', role=PredefinedRole.USER),
+          ]),
+      ),
+      dict(
+          testcase_name='chunk_list_without_role',
+          content=ChunkList([Chunk('test1'), Chunk('test2')]),
+          role=None,
+          expected_result=ChunkList([
+              Chunk('test1', role=None),
+              Chunk('test2', role=None),
+          ]),
+      ),
+      dict(
+          testcase_name='chunk_list_with_roles_to_be_overwritten',
+          content=ChunkList([
+              Chunk('test1', role=PredefinedRole.USER),
+              Chunk('test2', role=PredefinedRole.MODEL),
+              Chunk('test3', role=PredefinedRole.SYSTEM),
+          ]),
+          role=PredefinedRole.SYSTEM,
+          expected_result=ChunkList([
+              Chunk('test1', role=PredefinedRole.SYSTEM),
+              Chunk('test2', role=PredefinedRole.SYSTEM),
+              Chunk('test3', role=PredefinedRole.SYSTEM),
+          ]),
+      ),
+  )
+  def test_chunk_with_role(self, content, role, expected_result):
+    context = composing.Context()
+    composable = c.c(content, role=role)
+    composable += composing.get_context(context)
+
+    # Inspect the prefix from the context which contains a ChunkList.
+    _ = executing.run(composable)
+    self.assertEqual(expected_result, context.prefix)
 
   def test_jinja(self):
 
