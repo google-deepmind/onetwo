@@ -18,7 +18,7 @@ import abc
 from collections.abc import Mapping, Sequence
 import copy
 import pprint
-from typing import Any, Final, final, TypeAlias
+from typing import Any, Final, TypeAlias, final
 
 import aenum
 from onetwo.core import content as content_lib
@@ -82,7 +82,7 @@ class Formatter(metaclass=abc.ABCMeta):
     self._kwargs = kwargs
 
   @abc.abstractmethod
-  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+  def is_role_supported(self, role: str | _PredefinedRole) -> bool:
     """Returns whether the role is supported by this formatter.
 
     Any role for which this method returns False will be ignored or raise an
@@ -136,9 +136,7 @@ class Formatter(metaclass=abc.ABCMeta):
   ) -> _ChunkList:
     """Returns formatted ChunkList."""
     if isinstance(content, str) or isinstance(content, _ChunkList):
-      content = [
-          _Message(role=_PredefinedRole.USER, content=content)
-      ]
+      content = [_Message(role=_PredefinedRole.USER, content=content)]
     if isinstance(content, _Message):
       # Form a sequence of messages.
       content = [content]
@@ -195,7 +193,7 @@ class DefaultFormatter(Formatter):
         _PredefinedRole.CONTEXT: 'Context',
     }
 
-  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+  def is_role_supported(self, role: str | _PredefinedRole) -> bool:
     """Overridden from base class (Formatter)."""
     return role in self.role_map
 
@@ -308,12 +306,13 @@ class ConcatFormatter(Formatter):
 
   """
 
-  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+  def is_role_supported(self, role: str | _PredefinedRole) -> bool:
     """Overridden from base class (Formatter)."""
     return True
 
   def is_already_formatted(
-      self, content: Sequence[content_lib.Message]) -> bool:
+      self, content: Sequence[content_lib.Message]
+  ) -> bool:
     """Overridden from base class (Formatter)."""
     return False
 
@@ -324,6 +323,9 @@ class ConcatFormatter(Formatter):
     """Overridden from base class (Formatter)."""
     result = content_lib.ChunkList()
     for msg in content:
+      if isinstance(msg.content, content_lib.ChunkList):
+        for chunk in msg.content:
+          chunk.role = None
       result += msg.content
     return result
 

@@ -31,7 +31,7 @@ _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 class FormatterForTest(formatting.Formatter):
   """Formatter for testing."""
 
-  def is_role_supported(self, role: str| _PredefinedRole) -> bool:
+  def is_role_supported(self, role: str | _PredefinedRole) -> bool:
     """Overridden from base class (Formatter)."""
     return role in {_PredefinedRole.USER, _PredefinedRole.MODEL}
 
@@ -70,9 +70,7 @@ class FormattingTest(parameterized.TestCase):
     ]
     expected = _ChunkList([
         _Chunk(content='<user>This is a user message.</user>\n'),
-        _Chunk(
-            content='<model>This is an assistant message.</model>\n'
-        ),
+        _Chunk(content='<model>This is an assistant message.</model>\n'),
     ])
     self.assertEqual(expected, FormatterForTest().format(content))
 
@@ -130,9 +128,7 @@ class DefaultFormatterTest(parameterized.TestCase):
       (
           'with_single_system_msg',
           (
-              _Message(
-                  role=_PredefinedRole.SYSTEM, content='Any instructions'
-              ),
+              _Message(role=_PredefinedRole.SYSTEM, content='Any instructions'),
               _Message(role=_PredefinedRole.USER, content='Hello!'),
           ),
           False,
@@ -281,9 +277,7 @@ class ConcatFormatterTest(parameterized.TestCase):
               _Message(role=_PredefinedRole.USER, content='How are you?'),
               _Message(role=_PredefinedRole.MODEL, content='I am'),
           ),
-          (
-              'Any instructionsHello!Hey.How are you?I am'
-          ),
+          'Any instructionsHello!Hey.How are you?I am',
       ),
       (
           'several_msgs_including_empty_msgs',
@@ -297,9 +291,7 @@ class ConcatFormatterTest(parameterized.TestCase):
               _Message(role=_PredefinedRole.USER, content='How are you?'),
               _Message(role=_PredefinedRole.MODEL, content='I am'),
           ),
-          (
-              'Any instructionsHello!Hey.How are you?I am'
-          ),
+          'Any instructionsHello!Hey.How are you?I am',
       ),
       (
           'several_msgs_including_newlines',
@@ -310,14 +302,49 @@ class ConcatFormatterTest(parameterized.TestCase):
               _Message(role=_PredefinedRole.USER, content='\nHow are you?\n'),
               _Message(role=_PredefinedRole.MODEL, content='I am\n'),
           ),
+          'Instructions\n\nHello!\nHey.\n\nHow are you?\nI am\n',
+      ),
+      (
+          'chunk_list_without_role',
           (
-              'Instructions\n\nHello!\nHey.\n\nHow are you?\nI am\n'
+              _Message(
+                  role=_PredefinedRole.USER,
+                  content=_ChunkList([
+                      _Chunk('Any instructions'),
+                      _Chunk('Hello!'),
+                  ]),
+              ),
           ),
+          'Any instructionsHello!',
+      ),
+      (
+          'chunk_list_with_role',
+          (
+              _Message(
+                  role=_PredefinedRole.USER,
+                  content=_ChunkList([
+                      _Chunk('Any instructions', role=_PredefinedRole.SYSTEM),
+                      _Chunk('Hello!', role=_PredefinedRole.MODEL),
+                  ]),
+              ),
+              _Message(
+                  role=_PredefinedRole.MODEL,
+                  content=_ChunkList([
+                      _Chunk('Hey.', role=_PredefinedRole.USER),
+                      _Chunk('How are you?', role=_PredefinedRole.USER),
+                  ]),
+              ),
+          ),
+          'Any instructionsHello!Hey.How are you?',
       ),
   )
   def test_format(self, messages, expected_result):
     formatter = formatting.ConcatFormatter()
     res = formatter.format(messages)
+    # The formatter should not set the role of the chunks, and if they are
+    # already present in the Chunks of a ChunkList, it should remove them.
+    for chunk in res:
+      self.assertIsNone(chunk.role)
     self.assertEqual(expected_result, str(res))
 
 
