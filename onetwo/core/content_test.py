@@ -507,6 +507,88 @@ class ContentTest(parameterized.TestCase):
     chunk = _Chunk(chunk_content)
     self.assertEqual(expected, chunk.is_empty())
 
+  @parameterized.named_parameters(
+      ('empty_str', _Chunk(''), 'Chunk(, role=None)'),
+      ('empty_bytes', _Chunk(b''), 'Chunk(<bytes>, role=None)'),
+      (
+          'empty_pil',
+          _Chunk(PIL.Image.Image()),
+          'Chunk(<image/jpeg>, role=None)',
+      ),
+      ('str', _Chunk('abc'), 'Chunk(abc, role=None)'),
+      ('bytes', _Chunk(b'123'), 'Chunk(<bytes>, role=None)'),
+      (
+          'pil',
+          _Chunk(PIL.Image.new(mode='RGB', size=(2, 2))),
+          'Chunk(<image/jpeg>, role=None)',
+      ),
+      (
+          'empty_str_with_role',
+          _Chunk('', role=content_lib.PredefinedRole.USER),
+          'Chunk(, role=PredefinedRole.USER)',
+      ),
+      (
+          'str_with_role',
+          _Chunk('abc', role=content_lib.PredefinedRole.MODEL),
+          'Chunk(abc, role=PredefinedRole.MODEL)',
+      ),
+      (
+          'pil_with_role',
+          _Chunk(PIL.Image.Image(), role=content_lib.PredefinedRole.MODEL),
+          'Chunk(<image/jpeg>, role=PredefinedRole.MODEL)',
+      ),
+      (
+          'bytes_with_role',
+          _Chunk(b'123', role=content_lib.PredefinedRole.SYSTEM),
+          'Chunk(<bytes>, role=PredefinedRole.SYSTEM)',
+      ),
+  )
+  def test_chunk_repr(self, chunk, expected_repr):
+    self.assertEqual(repr(chunk), expected_repr)
+
+  @parameterized.named_parameters(
+      (
+          'empty_chunk_list',
+          _ChunkList([]),
+          'ChunkList()',
+      ),
+      (
+          'single_chunk',
+          _ChunkList([_Chunk('abc')]),
+          'ChunkList(Chunk(abc, role=None))',
+      ),
+      (
+          'multiple_chunks',
+          _ChunkList(
+              [_Chunk('abc'), _Chunk(b'123'), _Chunk(PIL.Image.Image())]
+          ),
+          (
+              'ChunkList(Chunk(abc, role=None), Chunk(<bytes>, role=None),'
+              ' Chunk(<image/jpeg>, role=None))'
+          ),
+      ),
+      (
+          'single_chunk_with_role',
+          _ChunkList([_Chunk('abc', role=content_lib.PredefinedRole.USER)]),
+          'ChunkList(Chunk(abc, role=PredefinedRole.USER))',
+      ),
+      (
+          'multiple_chunks_with_roles',
+          _ChunkList([
+              _Chunk('abc', role=content_lib.PredefinedRole.USER),
+              _Chunk(b'123', role=content_lib.PredefinedRole.MODEL),
+              _Chunk(PIL.Image.Image(), role=content_lib.PredefinedRole.SYSTEM),
+          ]),
+          (
+              'ChunkList(Chunk(abc, role=PredefinedRole.USER), Chunk(<bytes>,'
+              ' role=PredefinedRole.MODEL), Chunk(<image/jpeg>,'
+              ' role=PredefinedRole.SYSTEM))'
+          ),
+      ),
+  )
+  def test_chunk_list_repr(self, chunk_list, expected_repr):
+    self.assertEqual(repr(chunk_list), expected_repr)
+
 
 class MessageTest(parameterized.TestCase):
 

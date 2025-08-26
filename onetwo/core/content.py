@@ -222,6 +222,15 @@ class Chunk:
     else:
       return f'<{self.content_type}>'
 
+  def __repr__(self) -> str:
+    # For debug purposes. This function is lossless on string and lossy on any
+    # other content. To idea is to have a concise representation of the chunks
+    # that can be used for debugging.
+    if self.content_type in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']:
+      return f'Chunk({self.content}, role={self.role})'
+    else:
+      return f'Chunk(<{self.content_type}>, role={self.role})'
+
   def is_empty(self) -> bool:
     """Returns True if the chunk is empty."""
     match self.content:
@@ -381,7 +390,7 @@ class ChunkList:
     # For debug purposes.
     return (
         'ChunkList('
-        + ', '.join([f"'{str(chunk)}'" for chunk in self.chunks])
+        + ', '.join([f'{repr(chunk)}' for chunk in self.chunks])
         + ')'
     )
 
@@ -576,7 +585,7 @@ class Message:
   def create_normalized(
       cls,
       role: str | PredefinedRole,
-      content: str | ChunkList | Sequence[Chunk]
+      content: str | ChunkList | Sequence[Chunk],
   ) -> 'Message':
     """Returns a message with the given role and normalized content."""
     if isinstance(content, str):
