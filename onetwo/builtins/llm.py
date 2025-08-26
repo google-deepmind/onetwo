@@ -599,29 +599,41 @@ async def generate_object(
 
 
 def reset_defaults(
+    reset_generate: bool = True,
     reset_tokenize: bool = True,
+    reset_embed: bool = True,
 ):
   """Resets default implementations for all builtins in this file.
 
   Args:
+    reset_generate: Whether to reset the default implementations of all
+      generation related builtins (e.g., `generate_text`, `generate_texts`,
+      `chat`, `instruct`, `select`, `rank`).
     reset_tokenize: Whether to reset the default implementation of tokenization
       related builtins (e.g., `count_tokens`).
+    reset_embed: Whether to reset the default implementation of embed
+      related builtins (e.g., `embed`).
   """
   # Keep all module level `some_builtin.configure(...)` commands in this method.
-  # Default `generate_texts` uses `generate_text`.
-  generate_texts.configure(_default_generate_texts)
-  # Default `instruct` uses `chat`.
-  instruct.configure(default_instruct)
-  # Default `chat` uses `generate_text`.
-  chat.configure(default_chat)
-  # Default `select` uses `score_text`.
-  select.configure(_default_select_via_score)
-  # Default `rank` uses `score_text`.
-  rank.configure(_default_rank_via_score)
+  if reset_generate:
+    # Default `generate_texts` uses `generate_text`.
+    generate_texts.configure(_default_generate_texts)
+    # Default `instruct` uses `chat`.
+    instruct.configure(default_instruct)
+    # Default `chat` uses `generate_text`.
+    chat.configure(default_chat)
+    # Default `select` uses `score_text`.
+    select.configure(_default_select_via_score)
+    # Default `rank` uses `score_text`.
+    rank.configure(_default_rank_via_score)
 
   if reset_tokenize:
     # Default `count_tokens` uses `tokenize`.
     count_tokens.configure(_default_count_tokens)
+
+  if reset_embed:
+    # No default implementation for embed.
+    pass
 
 
 reset_defaults()

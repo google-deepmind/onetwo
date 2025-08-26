@@ -259,9 +259,13 @@ class GoogleGenAIAPI(
       register_embed: Whether to register the embed function.
     """
     del name
-    # Reset all the defaults in case some other backend was already registered.
-    # Indeed, we rely on certain builtins configured with OneTwo defaults.
-    llm.reset_defaults(reset_tokenize=register_tokenize)
+    # Reset the defaults for the functions being registered.
+    llm.reset_defaults(
+        reset_generate=register_generate,
+        reset_tokenize=register_tokenize,
+        reset_embed=register_embed,
+    )
+
     if register_generate:
       llm.generate_text.configure(
           self.generate_text,
