@@ -21,7 +21,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, Final, TypeAlias, Union, cast
+from typing import Any, Final, TypeAlias, Union
 
 from absl import logging
 from google import genai
@@ -38,6 +38,7 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
+from PIL import Image
 
 
 
@@ -92,36 +93,30 @@ SAFETY_DISABLED: Final[Sequence[genai_types.SafetySetting]] = [
 ]
 
 
-def _convert_chunk_list_to_content_list(
+def _convert_chunk_list_to_part_list(
     prompt: str | _ChunkList,
-) -> list[genai_types.Content]:
+) -> list[genai_types.Part]:
   """Converts ChunkList to the type compatible with SDK's chat history."""
   if isinstance(prompt, str):
     return [genai_types.Part(text=prompt)]
 
   contents = []
   for c in prompt:
-    match c.content_type:
-      case 'str':
-        contents.append(genai_types.Part(text=c.content))
-      case 'bytes' | 'image/jpeg':
+    match c.content:
+      case str() as text_content:
+        contents.append(genai_types.Part(text=text_content))
+      case bytes() as bytes_content:
         contents.append(
             genai_types.Part(
                 inline_data=genai_types.Blob(
-                    mime_type='image/jpeg', data=cast(bytes, c.content)
+                    mime_type=c.content_type, data=bytes_content
                 )
             )
         )
-      case 'video/mp4':
-        contents.append(
-            genai_types.Part(
-                inline_data=genai_types.Blob(
-                    mime_type='video/mp4', data=cast(bytes, c.content)
-                )
-            )
-        )
+      case Image.Image() as pil_image:
+        contents.append(pil_image)
       case _:
-        contents.append(genai_types.Part(text=str(c.content)))
+        raise TypeError(f'Unsupported content type: {type(c.content)}')
   return contents
 
 
@@ -387,7 +382,7 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> genai_types.GenerateContentResponse:
     """Generate content using the configured generation model."""
-    prompt = _convert_chunk_list_to_content_list(prompt)
+    prompt = _convert_chunk_list_to_part_list(prompt)
     generation_config = genai_types.GenerateContentConfig(
         candidate_count=samples,
         temperature=temperature,
@@ -539,7 +534,7 @@ class GoogleGenAIAPI(
             role=msg.role.value
             if isinstance(msg.role, content_lib.PredefinedRole)
             else msg.role,
-            parts=_convert_chunk_list_to_content_list(msg.content),
+            parts=_convert_chunk_list_to_part_list(msg.content),
         )
         for msg in messages
     ]
@@ -564,7 +559,7 @@ class GoogleGenAIAPI(
         config=generation_config,
     )
     response = chat.send_message(
-        message=_convert_chunk_list_to_content_list(healed_content),
+        message=_convert_chunk_list_to_part_list(healed_content),
         config=generation_config,
     )
     reply = llm_utils.maybe_heal_reply(
@@ -593,7 +588,7 @@ class GoogleGenAIAPI(
   def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
-    content = _convert_chunk_list_to_content_list(content)
+    content = _convert_chunk_list_to_part_list(content)
     try:
       response = self._genai_client.models.embed_content(
           model=self._embed_model_name(),
@@ -640,7 +635,7 @@ class GoogleGenAIAPI(
   def count_tokens(self, content: str | content_lib.ChunkList) -> int:
     """See builtins.llm.count_tokens."""
     self._counters['count_tokens'] += 1
-    content = _convert_chunk_list_to_content_list(content)
+    content = _convert_chunk_list_to_part_list(content)
     try:
       response = self._genai_client.models.count_tokens(
           model=self._generate_model_name(),
@@ -680,7 +675,7 @@ class GoogleGenAIAPI(
     try:
       response = self._genai_client.models.compute_tokens(
           model=self._generate_model_name(),
-          contents=_convert_chunk_list_to_content_list(content),
+          contents=_convert_chunk_list_to_part_list(content),
       )
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(

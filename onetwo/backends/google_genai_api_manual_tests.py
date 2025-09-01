@@ -29,6 +29,7 @@ from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
+from PIL import Image
 
 
 
@@ -416,10 +417,9 @@ def main(argv: Sequence[str]) -> None:
       'bird.jpg',
   )
   with open(image_path, 'rb') as f:
-    image_bytes = f.read()
     executable = (
         c.c('What is the following image? ')
-        + c.c(image_bytes)
+        + c.c(Image.open(f))
         + c.store('answer', c.generate_text())
     )
     _ = executing.run(executable)

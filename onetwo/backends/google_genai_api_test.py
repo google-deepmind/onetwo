@@ -513,8 +513,15 @@ class GoogleGenaiApiTest(
           [genai_types.Part(text='this is a prompt')],
       ),
       (
-          'chunk_str',
+          'chunk_str_empty_content_type',
           _ChunkList(chunks=[_Chunk(content='this is a prompt')]),
+          [genai_types.Part(text='this is a prompt')],
+      ),
+      (
+          'chunk_str',
+          _ChunkList(
+              chunks=[_Chunk(content='this is a prompt', content_type='str')]
+          ),
           [genai_types.Part(text='this is a prompt')],
       ),
       (
@@ -547,10 +554,27 @@ class GoogleGenaiApiTest(
               ),
           ],
       ),
+      (
+          'chunk_mixed',
+          _ChunkList(
+              chunks=[
+                  _Chunk(content='text part'),
+                  _Chunk(content=b'image part', content_type='image/png'),
+              ]
+          ),
+          [
+              genai_types.Part(text='text part'),
+              genai_types.Part(
+                  inline_data=genai_types.Blob(
+                      mime_type='image/png', data=b'image part'
+                  )
+              ),
+          ],
+      ),
   )
-  def test_convert_chunk_list_to_content_list(self, prompt, exp_contents_type):
+  def test_convert_chunk_list_to_part_list(self, prompt, exp_contents_type):
     self.assertEqual(
-        google_genai_api._convert_chunk_list_to_content_list(prompt),
+        google_genai_api._convert_chunk_list_to_part_list(prompt),
         exp_contents_type,
     )
 
@@ -571,7 +595,7 @@ class GoogleGenaiApiTest(
     )
     self.assertEqual(
         self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
-        [genai_types.Part(text='Something')]
+        [genai_types.Part(text='Something')],
     )
 
   def test_count_tokens_chunk_list(self):
