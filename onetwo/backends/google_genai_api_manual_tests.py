@@ -35,8 +35,8 @@ from PIL import Image
 
 
 
-# gemini-2.0-flash.
-# See https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-0-flash  # pylint: disable=line-too-long
+# gemini-2.5-flash.
+# See https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash  # pylint: disable=line-too-long
 _MAX_INPUT_TOKENS = 1048576
 
 _API_KEY = flags.DEFINE_string('api_key', default=None, help='GenAI API key.')
@@ -63,6 +63,11 @@ _SAVE_CACHE = flags.DEFINE_bool(
 _PRINT_DEBUG = flags.DEFINE_bool(
     'print_debug', default=False, help='Debug logging.'
 )
+_THREADPOOL_SIZE = flags.DEFINE_integer(
+    'threadpool_size',
+    default=4,
+    help='Number of threads to use in the threadpool.',
+)
 
 
 def main(argv: Sequence[str]) -> None:
@@ -74,13 +79,15 @@ def main(argv: Sequence[str]) -> None:
 
   api_key = _API_KEY.value
   if api_key is not None:
-    backend = google_genai_api.GoogleGenAIAPI(api_key=api_key, batch_size=4)
+    backend = google_genai_api.GoogleGenAIAPI(
+        api_key=api_key, threadpool_size=_THREADPOOL_SIZE.value,
+    )
   elif _PROJECT.value is not None and _LOCATION.value is not None:
     backend = google_genai_api.GoogleGenAIAPI(
         vertexai=True,
         project=_PROJECT.value,
         location=_LOCATION.value,
-        batch_size=4,
+        threadpool_size=_THREADPOOL_SIZE.value,
     )
   else:
     raise ValueError('Either --api_key or (--project, --location) must be set.')

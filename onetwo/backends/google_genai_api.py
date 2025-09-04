@@ -149,10 +149,10 @@ class GoogleGenAIAPI(
       CacheEnabled).
     cache_filename: Name of the file (full path) where the cache is stored
       (inherited from FileCacheEnabled)
-    batch_size: Number of requests (generate_text or chat or generate_embedding)
-      that is grouped together when sending them to GenAI API. GenAI API does
-      not explicitly support batching (i.e. multiple requests can't be passed
-      via arguments). Instead we send multiple requests from separate threads.
+    threadpool_size: Number of threads to use in the threadpool when the
+      execution is not batched. If 0, then no threadpool will be used and we use
+      batching instead. If >0, then requests will be executed as they come
+      without batching. *Note that this is not compatible with streaming*.
     vertexai: Whether to use the Vertex AI API.
     api_key: GenAI API key string.
     api_key_file: Full quialified path to a file that contains GenAI API key on
@@ -194,7 +194,7 @@ class GoogleGenAIAPI(
       `llm.chat`.
   """
 
-  batch_size: int = 1
+  threadpool_size: int = 1
   vertexai: bool | None = None
   api_key: str | None = None
   api_key_file: str | None = None
@@ -421,16 +421,7 @@ class GoogleGenAIAPI(
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
   )
-  @batching.batch_method_with_threadpool(
-      batch_size=utils.FromInstance('batch_size'),
-      wrapper=batching.add_logging,
-  )
-  @utils.with_retry(
-      max_retries=utils.FromInstance('max_retries'),
-      initial_base_delay=utils.FromInstance('initial_base_delay'),
-      max_base_delay=utils.FromInstance('max_base_delay'),
-  )  # pytype: disable=wrong-arg-types
-  def generate_text(
+  async def generate_text(
       self,
       prompt: str | content_lib.ChunkList,
       *,
@@ -445,6 +436,41 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
+    return await self._generate_text(
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        decoding_constraint=decoding_constraint,
+        include_details=include_details,
+        healing_option=healing_option,
+        **kwargs,
+    )
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+  )  # pytype: disable=wrong-arg-types
+  def _generate_text(
+      self,
+      prompt: str | content_lib.ChunkList,
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      decoding_constraint: str | None = None,
+      include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,
+  ) -> str | tuple[str, Mapping[str, Any]]:
     self._counters['generate_text'] += 1
     del decoding_constraint
     healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
@@ -469,7 +495,13 @@ class GoogleGenAIAPI(
     )
     return (reply, {'text': raw}) if include_details else reply
 
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.chat')
+  @caching.cache_method(  # Cache this stochastic method.
+      name='chat',
+      is_sampled=True,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
+  )
   async def chat(
       self,
       messages: Sequence[content_lib.Message],
@@ -480,26 +512,19 @@ class GoogleGenAIAPI(
     if self.replace_unsupported_roles:
       messages = [_replace_if_unsupported_role(msg) for msg in messages]
     if formatter == formatting.FormatterName.API:
-      return await self.chat_via_api(messages, **kwargs)
+      return await self._chat_via_api(messages, **kwargs)
     else:
       return await llm.default_chat(messages, formatter, **kwargs)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
-  @caching.cache_method(  # Cache this stochastic method.
-      name='chat',
-      is_sampled=True,
-      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
   )
   @utils.with_retry(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )
-  @batching.batch_method_with_threadpool(
-      batch_size=utils.FromInstance('batch_size'),
-      wrapper=batching.add_logging,
-  )
-  def chat_via_api(
+  )  # pytype: disable=wrong-arg-types
+  def _chat_via_api(
       self,
       messages: Sequence[content_lib.Message],
       **kwargs,
@@ -576,17 +601,22 @@ class GoogleGenAIAPI(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
+  async def embed(
+      self, content: str | content_lib.ChunkList
+  ) -> Sequence[float]:
+    """See builtins.llm.embed."""
+    return await self._embed(content)
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
   @utils.with_retry(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )
-  @batching.batch_method_with_threadpool(
-      batch_size=utils.FromInstance('batch_size'),
-      wrapper=batching.add_logging,
-  )
-  def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
-    """See builtins.llm.embed."""
+  )  # pytype: disable=wrong-arg-types
+  def _embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
+    """Inner method for llm.embed."""
     self._counters['embed'] += 1
     content = _convert_chunk_list_to_part_list(content)
     try:
@@ -623,17 +653,20 @@ class GoogleGenAIAPI(
       is_sampled=False,  # Method is deterministic.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
+  async def count_tokens(self, content: str | content_lib.ChunkList) -> int:
+    """See builtins.llm.count_tokens."""
+    return await self._count_tokens(content)
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
   @utils.with_retry(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )
-  @batching.batch_method_with_threadpool(
-      batch_size=utils.FromInstance('batch_size'),
-      wrapper=batching.add_logging,
-  )
-  def count_tokens(self, content: str | content_lib.ChunkList) -> int:
-    """See builtins.llm.count_tokens."""
+  )  # pytype: disable=wrong-arg-types
+  def _count_tokens(self, content: str | content_lib.ChunkList) -> int:
+    """Inner method for llm.count_tokens."""
     self._counters['count_tokens'] += 1
     content = _convert_chunk_list_to_part_list(content)
     try:
@@ -660,17 +693,22 @@ class GoogleGenAIAPI(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
+  async def tokenize(
+      self, content: str | content_lib.ChunkList
+  ) -> Sequence[int]:
+    """See builtins.llm.tokenize."""
+    return await self._tokenize(content)
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
   @utils.with_retry(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )
-  @batching.batch_method_with_threadpool(
-      batch_size=utils.FromInstance('batch_size'),
-      wrapper=batching.add_logging,
-  )
-  def tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
-    """See builtins.llm.tokenize."""
+  )  # pytype: disable=wrong-arg-types
+  def _tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
+    """Inner method for llm.tokenize."""
     self._counters['tokenize'] += 1
     try:
       response = self._genai_client.models.compute_tokens(

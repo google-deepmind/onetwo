@@ -40,7 +40,7 @@ _Chunk: TypeAlias = content_lib.Chunk
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 
 
-_BATCH_SIZE: Final[int] = 4
+_THREADPOOL_SIZE: Final[int] = 4
 
 _MOCK_COUNT_TOKENS_RETURN: Final[int] = 5
 
@@ -75,7 +75,7 @@ def _mock_list_models() -> Sequence[genai_types.Model]:
 def _get_and_register_backend(**kwargs) -> google_genai_api.GoogleGenAIAPI:
   """Get an instance of GoogleGenAIAPI and register its methods."""
   backend = google_genai_api.GoogleGenAIAPI(
-      api_key='some_key', batch_size=_BATCH_SIZE, **kwargs
+      api_key='some_key', threadpool_size=_THREADPOOL_SIZE, **kwargs
   )
   backend.register()
   return backend
@@ -141,7 +141,7 @@ class GoogleGenaiApiTest(
     )
     self.assertCounterEqual(
         backend._counters,
-        Counter(generate_text=2, generate_text_batches=2),
+        Counter(generate_text=2),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -164,7 +164,7 @@ class GoogleGenaiApiTest(
     )
     self.assertCounterEqual(
         backend._counters,
-        Counter(generate_text=2, generate_text_batches=2),
+        Counter(generate_text=2),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -183,7 +183,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.generate_content.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(generate_text=1, generate_text_batches=1),
+        Counter(generate_text=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -208,11 +208,11 @@ class GoogleGenaiApiTest(
     )
     self.assertCounterEqual(
         backend._counters,
-        Counter(generate_text=5, generate_text_batches=2),
+        Counter(generate_text=5),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
-        Counter(add_new=1, add_new_sample=4, get_miss=5),
+        Counter(add_new=1, add_new_sample=4, get_miss=1, get_hit_miss_sample=4),
     )
 
   def test_repeat_generate_text_cached(self):
@@ -243,16 +243,16 @@ class GoogleGenaiApiTest(
     )
     self.assertCounterEqual(
         backend._counters,
-        Counter(generate_text=6, generate_text_batches=3),
+        Counter(generate_text=6),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
         Counter(
             add_new=1,  # The first generate_text from the first run.
             add_new_sample=5,  # 4 from the first run and 1 from the second run.
-            get_miss=5,  # 4 from the first run and 1 from the second run.
+            get_miss=1,  # The first generate_text from the first run.
             get_hit=5,  # The second run hits the cache for the first 5 samples.
-            get_hit_miss_sample=1,  # The 6th generate_text from the second run
+            get_hit_miss_sample=5,  # 4 from 1st run + 1 from 2nd run.
         ),
     )
 
@@ -278,7 +278,6 @@ class GoogleGenaiApiTest(
         backend._counters,
         Counter(
             generate_text=5,
-            generate_text_batches=2,
         ),
     )
     self.assertCounterEqual(
@@ -309,7 +308,6 @@ class GoogleGenaiApiTest(
         backend._counters,
         Counter(
             generate_text=1,
-            generate_text_batches=1,
         ),
     )
     self.assertCounterEqual(
@@ -379,7 +377,7 @@ class GoogleGenaiApiTest(
 
     self.assertCounterEqual(
         backend._counters,
-        Counter(chat=2, chat_via_api_batches=2),
+        Counter(chat=2),
     )
 
   def test_chat_with_system_instruction(self):
@@ -436,7 +434,7 @@ class GoogleGenaiApiTest(
 
     self.assertCounterEqual(
         backend._counters,
-        Counter(chat=2, chat_via_api_batches=2),
+        Counter(chat=2),
     )
 
   def test_chat_replace_unsupported_roles(self):
@@ -503,7 +501,7 @@ class GoogleGenaiApiTest(
 
     self.assertCounterEqual(
         backend._counters,
-        Counter(chat=1, chat_via_api_batches=1),
+        Counter(chat=1),
     )
 
   @parameterized.named_parameters(
@@ -587,7 +585,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.count_tokens.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(count_tokens=1, count_tokens_batches=1),
+        Counter(count_tokens=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -613,7 +611,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.count_tokens.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(count_tokens=1, count_tokens_batches=1),
+        Counter(count_tokens=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -646,7 +644,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.compute_tokens.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(tokenize=1, tokenize_batches=1),
+        Counter(tokenize=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -677,7 +675,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.compute_tokens.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(tokenize=1, tokenize_batches=1),
+        Counter(tokenize=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -706,7 +704,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.embed_content.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(embed=1, embed_batches=1),
+        Counter(embed=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
@@ -737,7 +735,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.embed_content.assert_called_once()
     self.assertCounterEqual(
         backend._counters,
-        Counter(embed=1, embed_batches=1),
+        Counter(embed=1),
     )
     self.assertCounterEqual(
         handler._cache_data.counters,
