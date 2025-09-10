@@ -242,6 +242,23 @@ def tokenize(content: str | _ChunkList) -> Sequence[int]:
 
 
 @builtins_base.Builtin
+def detokenize(tokens: Sequence[int]) -> str | _ChunkList:
+  """Interface of the detokenize built-in function.
+
+  Args:
+    tokens: The tokens (Sequence[int]) to be detokenized.
+
+  Returns:
+    The detokenized string or ChunkList.
+  """
+  del tokens
+  raise NotImplementedError(
+      'The implementation should be provided at runtime by calling `configure`'
+      ' or `get_variant`. This function cannot be called directly.'
+  )
+
+
+@builtins_base.Builtin
 def count_tokens(content: str | _ChunkList) -> int:
   """Interface of the count_tokens built-in function.
 

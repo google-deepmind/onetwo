@@ -38,6 +38,7 @@ _SEPARATOR: Final[str] = ' @@@ '
 
 def score_factory(score_by_prefix_suffix_pair: Mapping[tuple[str, str], float]):
   """Utility method for constructing a scoring function."""
+
   @executing.make_executable  # pytype: disable=wrong-arg-types
   def _score_text(
       prompt: str | _ChunkList,
@@ -61,6 +62,7 @@ def score_factory(score_by_prefix_suffix_pair: Mapping[tuple[str, str], float]):
         score_by_prefix_suffix_pair[(healed_prompt, healed_target)]
         for healed_target in healed_targets
     ]
+
   return _score_text
 
 
@@ -109,9 +111,7 @@ class FormatterForTest(formatting.Formatter):
     result = _ChunkList()
     for msg in content:
       role = (
-          msg.role.value
-          if isinstance(msg.role, _PredefinedRole)
-          else msg.role
+          msg.role.value if isinstance(msg.role, _PredefinedRole) else msg.role
       )
       result += _Chunk(content=f'<{role}>{msg.content}</{role}>\n')
     return result
@@ -322,6 +322,16 @@ class LlmTest(parameterized.TestCase):
     result = executing.run(llm.count_tokens(content='hello world'))  # pytype: disable=wrong-keyword-args
     self.assertEqual(result, 2)
 
+  def test_detokenize(self):
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    def detokenize(tokens: Sequence[int]) -> str:
+      # We simply convert the integers to strings and join them with spaces.
+      return ' '.join([str(token) for token in tokens])
+
+    llm.detokenize.configure(detokenize)
+    result = executing.run(llm.detokenize(tokens=[1, 2, 3, 4]))  # pytype: disable=wrong-keyword-args
+    self.assertEqual(result, '1 2 3 4')
+
   @parameterized.named_parameters(
       (
           'user_only_no_formatter',
@@ -431,6 +441,7 @@ class LlmTest(parameterized.TestCase):
     )
     with self.subTest('prompt_formatted_as_expected'):
       self.assertEqual(result, expected_result)
+
 
 if __name__ == '__main__':
   absltest.main()
