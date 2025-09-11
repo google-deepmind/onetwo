@@ -18,6 +18,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import react
 from onetwo.backends import backends_test_utils
+from onetwo.core import constants
 from onetwo.core import executing
 from onetwo.stdlib.code_execution import python_execution_safe_subset
 from onetwo.stdlib.tool_use import llm_tool_use
@@ -417,6 +418,81 @@ class ReactTest(parameterized.TestCase):
     with self.subTest('should_return_the_expected_next_step_candidate'):
       self.assertEqual(expected_next_step_candidate, next_step_candidates[0])
 
+    with self.subTest('should_generate_only_the_expected_requests'):
+      self.assertEmpty(llm_backend.unexpected_prompts)
+
+  @parameterized.named_parameters(
+      ('j2_mismatch1', react.ReActPromptJ2, "finish(\"1')"),
+      ('comp_mismatch1', react.ReActPromptComposable, "finish(\"1')"),
+      ('j2_mismatch2', react.ReActPromptJ2, "finish('2\")"),
+      ('comp_mismatch2', react.ReActPromptComposable, "finish('2\")"),
+      ('j2_mismatch3', react.ReActPromptJ2, "finish(3'"),
+      ('comp_mismatch3', react.ReActPromptComposable, "finish(3'"),
+      ('j2_mismatch4', react.ReActPromptJ2, '`finish(\"This is the output`\")'),
+      ('comp_mismatch4', react.ReActPromptComposable,
+       '`finish(\"This is the output`\")'),
+      ('j2_mismatch5', react.ReActPromptJ2, "finish('This is the output')`"),
+      ('comp_mismatch5', react.ReActPromptComposable,
+       "finish('This is the output')`"),
+  )
+  def test_sample_next_step_malformed_finish(
+      self, prompt_class, malformed_phrase
+  ):
+    """Tests that agent returns an error observation for malformed finish calls.
+
+    When the LLM returns a `finish()` call with syntax errors (e.g.,
+    mismatched quotes or backticks), `parse_and_consume_call` will raise a
+    `ValueError`. This test ensures that the agent catches this error,
+    recognizes it as a potentially malformed finish call, and returns a
+    ReActStep with `is_finished=False` and an observation containing an
+    error message, informing that this is a potential malformed finish call.
+    This gives the agent a chance to recover in the next step.
+    See b/443895342.
+
+    Args:
+      prompt_class: The ReAct prompt class to use for the test.
+      malformed_phrase: The malformed finish() call string LLM can return
+      to test.
+    """
+    question = 'Some question.'
+    config = _get_environment_config_with_python()
+    prev_state = react.ReActState(inputs=question, updates=[])
+    # We configure LLM to return a malformed finish call.
+    llm_backend = backends_test_utils.LLMForTest(
+        reply_by_prompt_regex={
+            '': [f'[Thought]: I am done.\n[Act]: {malformed_phrase}'],
+        },
+        default_reply=DEFAULT_REPLY,
+    )
+    llm_backend.register()
+    agent = react.ReActAgent(
+        prompt=prompt_class(),
+        exemplars=react.REACT_FEWSHOTS,
+        environment_config=config,
+        max_steps=1,
+        stop_prefix='',
+    )
+    num_candidates = 1
+    with python_tool_use.PythonToolUseEnvironment(config=config) as env:
+      next_step_candidates = executing.run(
+          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+              state=prev_state, num_candidates=num_candidates, environment=env
+          )
+      )
+    self.assertLen(next_step_candidates, 1)
+    actual_step = next_step_candidates[0]
+    # Check that agent returns an error observation informing about attempted
+    # malformed finish call.
+    with self.subTest('should_return_step_with_error_observation'):
+      self.assertFalse(actual_step.is_finished)
+      self.assertEqual('I am done.', actual_step.thought)
+      self.assertIsNone(actual_step.action)
+      self.assertStartsWith(
+          actual_step.observation,
+          f'{constants.ERROR_STRING}: Failed to parse what looked like a'
+          ' finish() call. Please ensure it is formatted correctly including'
+          ' backticks if necessary:',
+      )
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
 

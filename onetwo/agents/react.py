@@ -643,22 +643,51 @@ def react_parse(
         thought_content = reply_text[thought_end:act_start].strip()
       part_after_act = reply_text[act_end:].strip()
 
-      _, fn, args, kwargs, fmt, _ = llm_tool_use.parse_and_consume_call(
-          text=part_after_act, context_vars=prompt_context.context_variables
-      )
-      # TODO: Come up with a more robust way of detecting whether the
-      # LLM has chosen to finish without depending on the name under which the
-      # Finish tool is registered.
-      is_finished = (fn.lower() == 'finish')
-      action = llm_tool_use.FunctionCall(
-          function_name=fn, args=args, kwargs=kwargs
-      )
-      return ReActStep(
-          is_finished=is_finished,
-          thought=thought_content,
-          action=action,
-          fmt=fmt,
-      )
+      try:  # Trying to mitigate incorrectly formatted finish tool call cases.
+        _, fn, args, kwargs, fmt, _ = llm_tool_use.parse_and_consume_call(
+            text=part_after_act, context_vars=prompt_context.context_variables
+        )
+        # TODO: Come up with a more robust way of detecting whether
+        # the LLM has chosen to finish without depending on the name under which
+        # the Finish tool is registered.
+        is_finished = fn.lower() == 'finish'
+        action = llm_tool_use.FunctionCall(
+            function_name=fn, args=args, kwargs=kwargs
+        )
+        return ReActStep(
+            is_finished=is_finished,
+            thought=thought_content,
+            action=action,
+            fmt=fmt,
+        )
+      except ValueError as e:
+        # While the outer try-except block catches all ValueErrors during
+        # parsing, this inner block provides a more specific error message if
+        # `parse_and_consume_call` fails on what appears to be a malformed
+        # `finish()` call. This allows the agent to receive a more
+        # actionable observation (e.g., 'Failed to parse finish() call')
+        # rather than a generic parsing error, helping it recover in the
+        # next step (e.g., b/443895342).
+        # The regex checks if the text that failed to parse starts with
+        # optional backticks (`*), followed by optional whitespaces (\s*),
+        # followed by the word "finish" ending at a word boundary (\b).
+        # If the regex matches, we assume the parsing failed due to
+        # bad syntax in what was intended to be a finish call, e.g.:
+        # - finish("mismatched quote')
+        # - finish('...')`)
+        if re.match(r'`*\s*finish\b', part_after_act):
+          return ReActStep(
+              is_finished=False,
+              thought=thought_content,
+              observation=(
+                  f'{constants.ERROR_STRING}: Failed to parse what looked like'
+                  ' a finish() call. Please ensure it is formatted correctly'
+                  f' including backticks if necessary: {e}'
+              ),
+          )
+        else:
+          # If it's not a finish call, raise for the outer handler.
+          raise e
     elif finish_start < act_start:
       # Finish is first.
       if thought_start < finish_start:
