@@ -29,6 +29,47 @@ from onetwo.core import utils
 from onetwo.stdlib.code_execution import python_execution
 
 
+def get_default_safe_callables() -> dict[str, Callable[..., Any]]:
+  """Returns the default set of callables considered safe for safe_eval."""
+  # Standard functions we always want to support.
+  return {
+      # Standalone functions.
+      'bool': bool,
+      'dict': dict,
+      'int': int,
+      'float': float,
+      'len': len,
+      'list': list,
+      'print': print,
+      'range': range,
+      'set': set,
+      'str': str,
+      # Methods.
+      'dict.clear': dict.clear,
+      'dict.copy': dict.copy,
+      'dict.fromkeys': dict.fromkeys,
+      'dict.get': dict.get,
+      'dict.items': dict.items,
+      'dict.keys': dict.keys,
+      'dict.pop': dict.pop,
+      'dict.popitem': dict.popitem,
+      'dict.setdefault': dict.setdefault,
+      'dict.update': dict.update,
+      'dict.values': dict.values,
+      'list.append': list.append,
+      'list.clear': list.clear,
+      'list.copy': list.copy,
+      'list.count': list.count,
+      'list.extend': list.extend,
+      'list.index': list.index,
+      'list.insert': list.insert,
+      'list.pop': list.pop,
+      'list.remove': list.remove,
+      'list.reverse': list.reverse,
+      'list.sort': list.sort,
+  }
+
+
 def _has_star_args(node: ast.Call) -> bool:
   """Returns True if the callable node has *args or **kwargs."""
   return any(isinstance(arg, ast.Starred) for arg in node.args) or any(
@@ -509,43 +550,7 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
 
   def _prepare_allowed_callables(self) -> Mapping[str, Callable[..., Any]]:
     """Prepares allowed callables for passing to `safe_eval`."""
-    # Standard functions we always want to support.
-    allowed_callables = {
-        # Standalone functions.
-        'bool': bool,
-        'dict': dict,
-        'int': int,
-        'float': float,
-        'len': len,
-        'list': list,
-        'print': print,
-        'range': range,
-        'set': set,
-        'str': str,
-        # Methods.
-        'dict.clear': dict.clear,
-        'dict.copy': dict.copy,
-        'dict.fromkeys': dict.fromkeys,
-        'dict.get': dict.get,
-        'dict.items': dict.items,
-        'dict.keys': dict.keys,
-        'dict.pop': dict.pop,
-        'dict.popitem': dict.popitem,
-        'dict.setdefault': dict.setdefault,
-        'dict.update': dict.update,
-        'dict.values': dict.values,
-        'list.append': list.append,
-        'list.clear': list.clear,
-        'list.copy': list.copy,
-        'list.count': list.count,
-        'list.extend': list.extend,
-        'list.index': list.index,
-        'list.insert': list.insert,
-        'list.pop': list.pop,
-        'list.remove': list.remove,
-        'list.reverse': list.reverse,
-        'list.sort': list.sort,
-    }
+    allowed_callables = get_default_safe_callables()
     # Custom hooks.
     allowed_callables.update(self.hooks)
     return allowed_callables
