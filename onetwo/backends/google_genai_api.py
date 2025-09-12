@@ -403,9 +403,10 @@ class GoogleGenAIAPI(
           f'for request:\n{pprint.pformat(prompt)[:100]}'
       ) from err
     empty = True
-    for candidate in response.candidates:
-      if candidate and candidate.content.parts:
-        empty = False
+    if response.candidates:
+      for candidate in response.candidates:
+        if candidate and candidate.content and candidate.content.parts:
+          empty = False
     if empty:
       response_msg = pprint.pformat(response.candidates)
       raise ValueError(
