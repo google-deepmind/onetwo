@@ -1125,6 +1125,26 @@ class _CacheData(
           self.values_by_key[key_hash].append(cached_value)
     return self
 
+  def __repr__(self):
+    """Returns a string representation of a `_CacheData` object.
+
+    The representation ignores the `values_by_key` attribute, since it clutters
+    the original representation and makes it unusable for debugging purposes.
+    """
+    class_name = self.__class__.__name__
+
+    fields = [
+        f'{f.name}={getattr(self, f.name)!r}'
+        for f in dataclasses.fields(self)
+        if f.name != 'values_by_key'
+    ]
+    fields.append(f'values_by_key=<dict with {len(self.values_by_key)} items>')
+
+    # _CacheData(counters=..., num_used_values_by_key=...,
+    #            sample_id_by_sampling_key_by_key=...,
+    #            values_by_key=...)
+    return f"{class_name}_repr({', '.join(fields)})"
+
 
 @dataclasses.dataclass
 class SimpleFunctionCache(
