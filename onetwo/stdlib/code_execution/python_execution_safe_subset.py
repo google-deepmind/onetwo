@@ -27,6 +27,7 @@ from typing import Any
 from onetwo.core import executing
 from onetwo.core import utils
 from onetwo.stdlib.code_execution import python_execution
+from onetwo.stdlib.code_execution import python_execution_multiprocess
 
 
 def get_default_safe_callables() -> dict[str, Callable[..., Any]]:
@@ -654,6 +655,86 @@ class PythonSandboxSafeSubsetFactory(python_execution.PythonSandboxFactory):
       raise ValueError('Restarts are not supported in PythonSandboxSafeSubset.')
 
     return PythonSandboxSafeSubset(
+        hooks=hooks or {},
+        hook_objects=hook_objects or {},
+    )
+
+
+@dataclasses.dataclass
+class PythonSandboxSafeSubsetMultiProcess(
+    python_execution_multiprocess.PythonSandboxMultiProcessWrapper
+):
+  """A multiprocessing sandbox using PythonSandboxSafeSubset as inner sandbox.
+
+  This class specializes `PythonSandboxMultiProcessWrapper` to use
+  `python_execution_safe_subset.PythonSandboxSafeSubset` for code execution
+  within the child process. This ensures that only a restricted, safe subset
+  of Python can be run, and that different instance of the sandbox will not
+  interfere with one another.
+
+  Attributes:
+    timeout: Maximum duration for a single `run()` call.
+    hooks: Mapping of hook names to functions.
+    hook_objects: Objects accessible by hook functions.
+    inner_sandbox_factory: Defaults to an instance of
+      `PythonSandboxSafeSubsetFactory`.
+  """
+
+  inner_sandbox_factory: python_execution.PythonSandboxFactory = (
+      dataclasses.field(default_factory=PythonSandboxSafeSubsetFactory)
+  )
+
+
+@dataclasses.dataclass
+class PythonSandboxSafeSubsetMultiProcessFactory(
+    python_execution.PythonSandboxFactory
+):
+  """Factory for creating PythonSandboxSafeSubsetMultiProcess instances."""
+
+  def create_sandbox(
+      self,
+      *,
+      timeout: datetime.timedelta = datetime.timedelta(seconds=10),
+      imports: Sequence[str] | str = tuple(),
+      hooks: Mapping[str, Callable[..., Any]] | None = None,
+      hook_objects: Mapping[str, Any] | None = None,
+      allow_restarts: bool = False,
+  ) -> PythonSandboxSafeSubsetMultiProcess:
+    """Returns a newly-created Python sandbox.
+
+    Overridden from base class (PythonSandboxFactory).
+
+    Args:
+      timeout: Maximum duration for a single `run()` call before it times out.
+      imports: Additional import statements to run at the start of the sandbox.
+        These are not supported in this sandbox implementation and should be
+        left blank.
+      hooks: Mapping from string to functions for the hooks the sandbox can
+        call.
+      hook_objects: Objects containing modifiable state of the hook functions.
+        Takes the form of a mapping of variable name to value. By default, this
+        is empty, but users of the sandbox are free to use this as a way to
+        bundle together with the sandbox some instances of objects whose life
+        cycle they want to have bound together with that of the sandbox, and
+        whose contents can be modified by the hook functions. One typical usage
+        pattern would be in the case where one of the hooks is a method of an
+        object -- in that case, we can store the object itself here. (See usage
+        example in the docstring of `PythonSandboxFactory`.)
+      allow_restarts: Whether the sandbox should continue accepting requests
+        after a restart. This feature is not supported in this sandbox
+        implementation and should be left as False.
+    """
+    if imports:
+      logging.warning(
+          'Imports are not supported in PythonSandboxSafeSubsetMultiProcess.'
+      )
+    if allow_restarts:
+      logging.warning(
+          'Restarts are not supported in PythonSandboxSafeSubsetMultiProcess.'
+      )
+
+    return PythonSandboxSafeSubsetMultiProcess(
+        timeout=timeout,
         hooks=hooks or {},
         hook_objects=hook_objects or {},
     )

@@ -15,8 +15,11 @@
 import asyncio
 import dataclasses
 import math
+
 import textwrap
+import time
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -25,6 +28,10 @@ from onetwo.core import iterating
 from onetwo.stdlib.code_execution import python_execution
 from onetwo.stdlib.code_execution import python_execution_safe_subset
 from onetwo.stdlib.code_execution import python_execution_test_utils
+
+import multiprocessing as mp_context
+
+_ExecutionStatus = python_execution.ExecutionStatus
 
 
 # Convenience wrapper to treat `safe_eval` as an ordinary function.
@@ -851,5 +858,308 @@ class PythonSandboxSafeSubsetTest(
       self.assertEqual({'var1': [1], 'var2': 1}, variables, variables)
 
 
+class PythonSandboxSafeSubsetMultiProcessTest(parameterized.TestCase):
+
+  async def run_code(self, sandbox, code):
+    async with sandbox.start() as sb:
+      return await sb.run(code)
+
+  @parameterized.named_parameters(
+      ('empty', '', '', None, _ExecutionStatus.SUCCESS, ''),
+      ('print', 'print(1+2)', '3\n', None, _ExecutionStatus.SUCCESS, ''),
+      ('simple_arithmetic', '1+2', '', 3, _ExecutionStatus.SUCCESS, ''),
+      ('variable', 'a=1\na', '', 1, _ExecutionStatus.SUCCESS, ''),
+      (
+          'list',
+          'l=[1,2]\nprint(l)\nl',
+          '[1, 2]\n',
+          [1, 2],
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'dict',
+          'd={"a":1}\nprint(d)\nd',
+          "{'a': 1}\n",
+          {'a': 1},
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'bool',
+          'x = True and False\nx',
+          '',
+          False,
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'compare',
+          '1 < 2 <= 2',
+          '',
+          True,
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'if_expr',
+          "'ok' if 1 < 2 else 'bad'",
+          '',
+          'ok',
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'if_stmt',
+          'if 1 > 2:\n  x = 1\nelse:\n  x = 2\nx',
+          '',
+          2,
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'list_append',
+          'l=[]\nl.append(1)\nl',
+          '',
+          [1],
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'dict_get',
+          'd={"a":1}\nd.get("a")',
+          '',
+          1,
+          _ExecutionStatus.SUCCESS,
+          '',
+      ),
+      (
+          'compile_error',
+          'print(1+)',
+          '',
+          None,
+          _ExecutionStatus.COMPILE_ERROR,
+          'SyntaxError',
+      ),
+      (
+          'runtime_error',
+          'print(no_such_variable)',
+          '',
+          None,
+          _ExecutionStatus.EXECUTION_ERROR,
+          'NameError',
+      ),
+      (
+          'disallowed_import',
+          'import os',
+          '',
+          None,
+          _ExecutionStatus.EXECUTION_ERROR,
+          'Code not supported',
+      ),
+      (
+          'disallowed_builtin',
+          'eval("1+1")',
+          '',
+          None,
+          _ExecutionStatus.EXECUTION_ERROR,
+          'Code not supported by this sandbox',
+      ),
+      (
+          'disallowed_attr',
+          'a = {}\na.__init__()',
+          '',
+          None,
+          _ExecutionStatus.EXECUTION_ERROR,
+          "Unknown callable: 'a.__init__'",
+      ),
+  )
+  def test_execution(
+      self,
+      code,
+      expected_stdout,
+      expected_value,
+      expected_status,
+      expected_message_part,
+  ):
+    sandbox = (
+        python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess()
+    )
+    result = asyncio.run(self.run_code(sandbox, code))
+    print(f'result: {result}')
+    print(f'expected_stdout: {expected_stdout}')
+    self.assertEqual(result.stdout, expected_stdout)
+    self.assertEqual(result.final_expression_value, expected_value)
+    self.assertEqual(result.execution_status, expected_status)
+    if expected_message_part:
+      self.assertIn(expected_message_part, result.status_message)
+
+  def test_stateful_execution(self):
+    sandbox = (
+        python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess()
+    )
+
+    async def main():
+      async with sandbox.start() as sb:
+        res1 = await sb.run('a = 10')
+        self.assertEqual(res1.execution_status, _ExecutionStatus.SUCCESS)
+        res2 = await sb.run('print(a + 5)')
+        self.assertEqual(res2.stdout, '15\n')
+        res3 = await sb.run('a')
+        self.assertEqual(res3.final_expression_value, 10)
+
+    asyncio.run(main())
+
+  def test_sync_hook(self):
+    hook_mock = mock.Mock(return_value='hook_result')
+    sandbox = (
+        python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess(
+            hooks={'my_hook': hook_mock}
+        )
+    )
+    code = "print(my_hook('test', key='val'))"
+    result = asyncio.run(self.run_code(sandbox, code))
+    self.assertEqual(result.stdout, 'hook_result\n')
+    hook_mock.assert_called_once_with('test', key='val')
+
+  def test_async_hook(self):
+    async_hook_mock = mock.AsyncMock(return_value='async_result')
+
+    async def hook_wrapper(*args, **kwargs):
+      return await async_hook_mock(*args, **kwargs)
+
+    sandbox = (
+        python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess(
+            hooks={'my_async_hook': hook_wrapper}
+        )
+    )
+    code = "my_async_hook('data')"
+    result = asyncio.run(self.run_code(sandbox, code))
+    self.assertEqual(result.final_expression_value, 'async_result')
+    async_hook_mock.assert_called_once_with('data')
+
+  def test_hook_with_exception(self):
+    def raising_hook(*args, **kwargs):  # pylint: disable=unused-argument
+      raise ValueError('Hook Failed')
+
+    sandbox = (
+        python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess(
+            hooks={'raising_hook': raising_hook}
+        )
+    )
+    code = 'raising_hook()'
+    result = asyncio.run(self.run_code(sandbox, code))
+    self.assertEqual(result.execution_status, _ExecutionStatus.EXECUTION_ERROR)
+    self.assertIn('ValueError', result.status_message)
+    self.assertIn('Hook Failed', result.status_message)
+    self.assertEqual(result.failure_details.hook_name, 'raising_hook')
+
+  def test_set_get_variables(self):
+    sandbox = (
+        python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess()
+    )
+
+    async def main():
+      async with sandbox.start() as sb:
+        await sb.set_variables(x=10, y='hello')
+        variables = await sb.get_variables('x', 'y', 'z')
+        self.assertEqual(variables, {'x': 10, 'y': 'hello', 'z': None})
+
+        result = await sb.run('print(x + 5)\nz = y + " world"')
+        self.assertEqual(result.stdout, '15\n')
+
+        variables = await sb.get_variables('x', 'y', 'z')
+        self.assertEqual(variables, {'x': 10, 'y': 'hello', 'z': 'hello world'})
+
+    asyncio.run(main())
+
+  def test_parallel_execution_and_isolation(self):
+    num_sandboxes = 3
+    hook_calls = {i: 0 for i in range(num_sandboxes)}
+    lock = asyncio.Lock()
+
+    async def my_parallel_hook(sandbox_id: int, data: str):
+      async with lock:
+        hook_calls[sandbox_id] += 1
+      await asyncio.sleep(5)  # Simulate some work
+      return f'Hook result for {sandbox_id}: {data}'
+
+    sandboxes = []
+    for i in range(num_sandboxes):
+
+      async def wrapper(data: str, sandbox_id=i):
+        return await my_parallel_hook(sandbox_id, data)
+
+      sb = python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess(
+          hooks={'my_hook': wrapper}
+      )
+      sandboxes.append(sb)
+
+    async def run_in_sandbox(
+        sb_idx: int,
+        sandbox: python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcess,
+    ):
+      code = f"""
+my_var = "sb_{sb_idx}"
+print("I am " + my_var)
+hook_result = my_hook("data_from_{sb_idx}")
+print("Var check: " + my_var)
+# Return a dictionary as the final expression
+{{'hook_result': hook_result, 'my_var': my_var}}
+      """
+      async with sandbox.start() as sb:
+        return await sb.run(code)
+
+    async def main():
+      tasks = [run_in_sandbox(i, sb) for i, sb in enumerate(sandboxes)]
+      return await asyncio.gather(*tasks)
+
+    start_time = time.monotonic()
+    run_results = asyncio.run(main())
+    end_time = time.monotonic()
+
+    print(
+        f'Total time for {num_sandboxes} parallel runs:'
+        f' {end_time - start_time:.2f}s'
+    )
+
+    for i in range(num_sandboxes):
+      result = run_results[i]
+      self.assertEqual(
+          result.execution_status,
+          _ExecutionStatus.SUCCESS,
+          msg=f'Sandbox {i} failed: {result.status_message}',
+      )
+      expected_stdout = f'I am sb_{i}\nVar check: sb_{i}\n'
+      self.assertEqual(result.stdout, expected_stdout)
+
+      # The final_expression_value should be the deserialized dictionary
+      returned_vars = result.final_expression_value
+      self.assertIsInstance(
+          returned_vars,
+          dict,
+          f'Sandbox {i}: final_expression_value is not a dict: {returned_vars}',
+      )
+
+      self.assertEqual(returned_vars.get('my_var'), f'sb_{i}')
+      expected_hook_result = f'Hook result for {i}: data_from_{i}'
+      self.assertEqual(returned_vars.get('hook_result'), expected_hook_result)
+
+      self.assertEqual(
+          hook_calls[i], 1, f'Hook for sandbox {i} not called exactly once'
+      )
+
+    self.assertLess(
+        end_time - start_time,
+        5 * num_sandboxes,
+        'Execution time suggests runs were not parallel.',
+    )
+
+
 if __name__ == '__main__':
+  try:
+    mp_context.set_start_method('spawn')
+  except RuntimeError:
+    # Context might already be set.
+    pass
   absltest.main()

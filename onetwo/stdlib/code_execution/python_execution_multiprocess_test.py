@@ -24,7 +24,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import executing
 from onetwo.stdlib.code_execution import python_execution
-from onetwo.stdlib.code_execution import python_execution_multiprocess_sandbox
+from onetwo.stdlib.code_execution import python_execution_multiprocess
 
 # Aliases
 _ExecutionStatus = python_execution.ExecutionStatus
@@ -46,7 +46,7 @@ class HandleHookMessageTest(parameterized.TestCase):
     hooks = {'my_hook': lambda x: x * 2}
     message = json.dumps({'hook': 'my_hook', 'args': [2], 'kwargs': {}})
     result = asyncio.run(
-        python_execution_multiprocess_sandbox.handle_hook_message(
+        python_execution_multiprocess.handle_hook_message(
             hooks, message, self.mock_connection, self.start_time
         )
     )
@@ -65,7 +65,7 @@ class HandleHookMessageTest(parameterized.TestCase):
     hooks = {'greet': my_async_hook}
     message = json.dumps({'hook': 'greet', 'args': ['World'], 'kwargs': {}})
     result = asyncio.run(
-        python_execution_multiprocess_sandbox.handle_hook_message(
+        python_execution_multiprocess.handle_hook_message(
             hooks, message, self.mock_connection, self.start_time
         )
     )
@@ -79,7 +79,7 @@ class HandleHookMessageTest(parameterized.TestCase):
     hooks = {'real_hook': lambda: 1}
     message = json.dumps({'hook': 'fake_hook', 'args': [], 'kwargs': {}})
     result = asyncio.run(
-        python_execution_multiprocess_sandbox.handle_hook_message(
+        python_execution_multiprocess.handle_hook_message(
             hooks, message, self.mock_connection, self.start_time
         )
     )
@@ -106,7 +106,7 @@ class HandleHookMessageTest(parameterized.TestCase):
     hooks = {'error_hook': error_hook}
     message = json.dumps({'hook': 'error_hook', 'args': [], 'kwargs': {}})
     result = asyncio.run(
-        python_execution_multiprocess_sandbox.handle_hook_message(
+        python_execution_multiprocess.handle_hook_message(
             hooks, message, self.mock_connection, self.start_time
         )
     )
@@ -131,7 +131,7 @@ class HandleHookMessageTest(parameterized.TestCase):
     self.mock_connection.send.side_effect = BrokenPipeError()
 
     result = asyncio.run(
-        python_execution_multiprocess_sandbox.handle_hook_message(
+        python_execution_multiprocess.handle_hook_message(
             hooks, message, self.mock_connection, self.start_time
         )
     )
@@ -143,7 +143,7 @@ class HandleHookMessageTest(parameterized.TestCase):
 
 
 class MockMultiProcessSandbox(
-    python_execution_multiprocess_sandbox.BaseMultiProcessSandbox
+    python_execution_multiprocess.BaseMultiProcessSandbox
 ):
   """A mock implementation of BaseMultiProcessSandbox for testing."""
 
@@ -268,9 +268,9 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
         asyncio, 'sleep', side_effect=mock_sleep, autospec=True
     ):
       with mock.patch.object(
-          python_execution_multiprocess_sandbox,
+          python_execution_multiprocess,
           'handle_hook_message',
-          wraps=python_execution_multiprocess_sandbox.handle_hook_message,
+          wraps=python_execution_multiprocess.handle_hook_message,
       ) as wrapped_handle:
         result = executing.run(sandbox.run('call_hook()'))
 
@@ -290,7 +290,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
         status_message='Hook handling failed',
     )
     with mock.patch.object(
-        python_execution_multiprocess_sandbox,
+        python_execution_multiprocess,
         'handle_hook_message',
         return_value=error_result,
     ) as mock_handle:
