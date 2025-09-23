@@ -33,6 +33,8 @@ from onetwo.core import utils
 from onetwo.stdlib.code_execution import python_execution
 from onetwo.stdlib.code_execution import python_execution_utils
 
+import multiprocessing as mp_context
+
 # Aliases
 _ExecutionStatus: TypeAlias = python_execution.ExecutionStatus
 _SandboxStatus: TypeAlias = python_execution.SandboxStatus
@@ -563,14 +565,15 @@ class PythonSandboxMultiProcessWrapper(BaseMultiProcessSandbox):
   _mp_context: Any = dataclasses.field(init=False, default=None)
 
   def __post_init__(self):
+    """Initializes the multiprocessing context."""
     try:
-      self._mp_context = multiprocessing.get_context('spawn')
+      self._mp_context = mp_context.get_context('spawn')
     except ValueError:
       logging.warning(
           "multiprocessing 'spawn' context not available, falling back to"
           ' default.'
       )
-      self._mp_context = multiprocessing.get_context()
+      self._mp_context = mp_context.get_context()
 
   def is_stateful(self) -> bool:
     """Returns whether variables are carried over from one call to the next.
@@ -623,7 +626,7 @@ class PythonSandboxMultiProcessWrapper(BaseMultiProcessSandbox):
 
     if self.hooks:
       if listener_thread:
-        listener_thread.join(timeout=10.0)  # Join the thread here
+        listener_thread.join(timeout=30.0)  # Join the thread here
         if listener_thread.is_alive():
           self.stop()
           raise RuntimeError(
