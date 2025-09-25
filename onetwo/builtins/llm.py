@@ -46,6 +46,11 @@ _Message: TypeAlias = content_lib.Message
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 TokenHealingOption: TypeAlias = llm_utils.TokenHealingOption
 
+_UNIMPLEMENTED_ERROR = NotImplementedError(
+    'The implementation should be provided at runtime by calling `configure`'
+    ' or `get_variant`. This function cannot be called directly.'
+)
+
 
 @builtins_base.Builtin[str | tuple[str, Mapping[str, Any]]]
 async def generate_text(
@@ -97,10 +102,7 @@ async def generate_text(
       include_details,
       healing_option,
   )
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @executing.make_executable
@@ -161,10 +163,7 @@ def generate_texts(
       include_details,
       healing_option,
   )
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @executing.make_executable
@@ -235,10 +234,7 @@ def tokenize(content: str | _ChunkList) -> Sequence[int]:
     A Sequence of token ids.
   """
   del content
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @builtins_base.Builtin
@@ -252,10 +248,7 @@ def detokenize(tokens: Sequence[int]) -> str | _ChunkList:
     The detokenized string or ChunkList.
   """
   del tokens
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @builtins_base.Builtin
@@ -269,10 +262,7 @@ def count_tokens(content: str | _ChunkList) -> int:
     The length of the tokenized string (number of tokens).
   """
   del content
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @executing.make_executable
@@ -294,10 +284,7 @@ def embed(content: str | _ChunkList) -> Sequence[float]:
     A Sequence of floats.
   """
   del content
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`'
-      ' or `get_variant`. This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @builtins_base.Builtin
@@ -318,10 +305,7 @@ def score_text(
     A Sequence of floats, one for each target.
   """
   del prompt, targets, healing_option
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`.'
-      ' This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @builtins_base.Builtin
@@ -362,10 +346,7 @@ def instruct(
     The string returned from LLM.
   """
   del prompt, assistant_prefix, formatter, kwargs
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`.'
-      ' This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @executing.make_executable
@@ -413,10 +394,7 @@ def chat(
       assistant role.
   """
   del messages, formatter, kwargs
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`.'
-      ' This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @executing.make_executable
@@ -487,10 +465,7 @@ def select(
     options).
   """
   del prompt, options, include_details, healing_option
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`.'
-      ' This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @builtins_base.Builtin
@@ -518,10 +493,7 @@ def rank(
     (sequence of top k options, sequence of scores for all options).
   """
   del prompt, options, top_k, include_details, healing_option
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`.'
-      ' This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 @executing.make_executable
@@ -609,10 +581,7 @@ async def generate_object(
     An object decoded from the LLM's constrained decoding.
   """
   del prompt, cls, temperature, max_tokens, top_k, top_p, healing_option
-  raise NotImplementedError(
-      'The implementation should be provided at runtime by calling `configure`.'
-      ' This function cannot be called directly.'
-  )
+  raise _UNIMPLEMENTED_ERROR
 
 
 def reset_defaults(
@@ -628,8 +597,8 @@ def reset_defaults(
       `chat`, `instruct`, `select`, `rank`).
     reset_tokenize: Whether to reset the default implementation of tokenization
       related builtins (e.g., `count_tokens`).
-    reset_embed: Whether to reset the default implementation of embed
-      related builtins (e.g., `embed`).
+    reset_embed: Whether to reset the default implementation of embed related
+      builtins (e.g., `embed`).
   """
   # Keep all module level `some_builtin.configure(...)` commands in this method.
   if reset_generate:
