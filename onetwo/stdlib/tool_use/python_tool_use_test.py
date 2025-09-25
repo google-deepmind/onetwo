@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import dataclasses
+import re
+import time
 from typing import Any
 
 from absl.testing import absltest
@@ -21,6 +23,7 @@ from onetwo.builtins import tool_use
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.stdlib.code_execution import python_execution
+from onetwo.stdlib.code_execution import python_execution_safe_subset
 from onetwo.stdlib.code_execution import python_execution_test_utils
 from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import python_tool_use
@@ -116,9 +119,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     )
 
     with self.subTest('run_code_should_succeed_after_start_unsafe'):
-      self.assertRunCodeResultEqualIgnoringTiming(
-          expected_final_result, result
-      )
+      self.assertRunCodeResultEqualIgnoringTiming(expected_final_result, result)
 
     with self.subTest('sandbox_should_stay_cached_until_stop_is_called'):
       self.assertLen(env._sandbox_cache._objects, 1)
@@ -260,6 +261,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
 
     # Run the steps and gather results.
     config = python_tool_use.PythonToolUseEnvironmentConfig()
+
     @executing.make_executable()
     async def wrapper() -> list[StepResult]:
       step_results = []
@@ -442,6 +444,56 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
         executing.run(
             env.run_tool(tool_name='double', tool_args=[], tool_kwargs={'y': 3})  # pytype: disable=wrong-keyword-args
         )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='safe_subset_sandbox',
+          sandbox_factory=python_execution_safe_subset.PythonSandboxSafeSubsetFactory,
+      ),
+      dict(
+          testcase_name='safe_subset_multiprocess_sandbox',
+          sandbox_factory=python_execution_safe_subset.PythonSandboxSafeSubsetMultiProcessFactory,
+      ),
+  )
+  def test_safe_subset_sandboxes(self, sandbox_factory):
+    def firstnumber(x):
+      matches = re.match(r'[^\d]*([\d\.,]+).*', str(x).replace(',', ''))
+      if matches:
+        try:
+          return float(matches.group(1))
+        except ValueError as e:
+          return f'Error: could not parse {x} as a number ({e})'
+      else:
+        return f'Error: could not parse {x} as a number'
+
+    first_number_tool = llm_tool_use.Tool(
+        name='firstnumber',
+        function=firstnumber,
+        description='Extracts the first number in a string.',
+        example="firstnumber('it is 1,203m high')  # return 1203.0",
+    )
+
+    config = python_tool_use.PythonToolUseEnvironmentConfig(
+        sandbox_factory=sandbox_factory(),
+        tools=[first_number_tool],
+    )
+
+    start_time = time.monotonic()
+    with python_tool_use.PythonToolUseEnvironment(config=config) as env:
+      result = executing.run(
+          env.run_code(
+              sandbox_state=("search_result = 'Tübingen 91,877'",),
+              code='firstnumber(search_result)',
+          )  # pytype: disable=wrong-keyword-args
+      )
+    end_time = time.monotonic()
+    self.assertEqual(91877.0, result.sandbox_result.final_expression_value)
+    self.assertLess(
+        end_time - start_time,
+        1,
+        'Execution time suggests that the sandbox'
+        f' {sandbox_factory.__name__} is slow.',
+    )
 
 
 if __name__ == '__main__':
