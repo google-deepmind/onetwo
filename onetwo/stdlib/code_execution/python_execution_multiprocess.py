@@ -419,14 +419,8 @@ def _sandbox_process_target(
     if code is None:
       continue
 
-    try:
-      loop = asyncio.get_event_loop_policy().get_event_loop()
-      if loop.is_closed():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    except RuntimeError:
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     async def execute_in_inner_sandbox():
       await inner_sandbox.set_variables(**context)
@@ -488,6 +482,9 @@ def _sandbox_process_target(
           ),
       }
       updated_context = context
+    finally:
+      if loop and not loop.is_closed():
+        loop.close()
 
     result_json = json.dumps(sandbox_result_dict)
     results_queue.put({

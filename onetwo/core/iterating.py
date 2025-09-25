@@ -83,7 +83,7 @@ def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
     Any exception that the coroutine may have raised.
   """
   try:
-    is_running = asyncio.get_event_loop().is_running()
+    is_running = asyncio.get_running_loop().is_running()
   except RuntimeError:
     is_running = False
   if is_running:
