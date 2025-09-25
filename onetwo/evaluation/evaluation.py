@@ -52,6 +52,8 @@ _GOLDEN_ANSWER_KEY: Final[str] = 'golden_answer'
 _Result = TypeVar('_Result')
 _CriticResult = TypeVar('_CriticResult')
 _ChunkList: TypeAlias = content_lib.ChunkList
+_Message: TypeAlias = content_lib.Message
+_PredefinedRole: TypeAlias = content_lib.PredefinedRole
 Example: TypeAlias = Mapping[str, Any]
 SingleMetricValue: TypeAlias = float
 ExtraInfo: TypeAlias = Mapping[str, Any]
@@ -136,7 +138,7 @@ def compile_strategies(
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
 async def naive_comparison_critic(
-    answers: Sequence[str | content_lib.ChunkList],
+    answers: Sequence[str | _ChunkList],
     example: Example,
     question_key: str = _QUESTION_KEY,
     reference_answer_key: str = _REFERENCE_ANSWER_KEY,
@@ -192,11 +194,11 @@ async def naive_comparison_critic(
 
   # Create a prompt for comparison.
   num_answers = len(possibly_shuffled_answers)
-  list_of_answers = content_lib.ChunkList()
+  list_of_answers = _ChunkList()
   for answer_id, answer in enumerate(possibly_shuffled_answers):
     list_of_answers += f'Answer {answer_id + 1}. ' + answer.lstrip().rstrip()
     list_of_answers += '\n'
-  critic_prompt = content_lib.ChunkList()
+  critic_prompt = _ChunkList()
   critic_prompt += f'Here are {num_answers} different answers:\n'
   critic_prompt += list_of_answers + '\n'
   critic_prompt += 'Here is a question (or task description):\n'
@@ -488,8 +490,8 @@ async def naive_evaluation_critic(
   question = example[question_key]
   golden_answer = example[golden_answer_key]
   messages = [
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           'Please judge whether the predicted answer means the same thing as'
           ' the target answer, in the context of the given question. Give your'
           ' rating (yes/no), and then give the reason for your rating.'
@@ -499,13 +501,13 @@ async def naive_evaluation_critic(
           'Prediction: 6.28 centimenter\n'
           'Does prediction agree with target? (yes/no): ',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           'yes\nReason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate'
           ' enough answer.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           """
 
 Question: Spell first 5 digits of pi.
@@ -513,12 +515,12 @@ Target: 3.1415
 Prediction: 3.14
 Does prediction agree with target? (yes/no): """,
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           'no\nReason: Answer 2 provides only 3 digits, while 5 were required.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           f"""
 
 Question: {question}
@@ -615,8 +617,8 @@ async def naive_fuzzy_evaluation_critic(
   question = example[question_key]
   golden_answer = example[golden_answer_key]
   messages = [
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           'Please evaluate the predicted answer against the target answer, in'
           ' the context of the given question. Give your rating as a float'
           ' between 0.0 and 1.0, where 1 indicates a perfect semantic match and'
@@ -632,13 +634,13 @@ async def naive_fuzzy_evaluation_critic(
           ' 1cm?\nTarget: 2pi cm\nPrediction: 6.28 centimenter\nScore'
           ' prediction against target in [0.0, 1.0]: ',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           '1.0\nReason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate'
           ' enough answer.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           """
 
 Question: Which U.S. President authorized the use of atomic bombs during World War II?
@@ -646,13 +648,13 @@ Target: Harry S. Truman
 Prediction: Harry Truman
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           '0.9\nReason: Clearly the correct answer, only the middle initial is'
           ' missing.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           """
 
 Question: What is a "black hole"?
@@ -660,13 +662,13 @@ Target: A region of spacetime where gravity is so strong that nothing, not even 
 Prediction: A black hole is like a vacuum cleaner in space that sucks everything up.
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           '0.3\nReason: We can give some credit for recognizing the basic'
           ' concept, but there is a significant lack of scientific precision.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           """
 
 Question: How many green shapes are there in the picture?
@@ -674,13 +676,13 @@ Target: 12
 Prediction: There are 3 green squares and 9 green circles.
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           '0.9\nReason: The answer is more specific than the target but the'
           ' numbers add up to the target value.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           """
 
 Question: Which Beatles are shown in the picture?
@@ -688,13 +690,13 @@ Target: Paul and George
 Prediction: [Paul McCartney, George Harrison, Ringo Starr]
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.MODEL,
+      _Message(
+          _PredefinedRole.MODEL,
           '0.6\nReason: Format and last names do not matter much here, but the'
           ' answer contains one extra person.',
       ),
-      content_lib.Message(
-          content_lib.PredefinedRole.USER,
+      _Message(
+          _PredefinedRole.USER,
           f"""
 
 Question: {question}

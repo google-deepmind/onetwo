@@ -46,7 +46,7 @@ class CallbacksTest(parameterized.TestCase):
     llm.reset_defaults()
 
     def generate(
-        prompt: str | content_lib.ChunkList,
+        prompt: str | ChunkList,
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -58,8 +58,7 @@ class CallbacksTest(parameterized.TestCase):
       return ' done'
 
     def score(
-        prompt: str | content_lib.ChunkList,
-        targets: Sequence[str]
+        prompt: str | ChunkList, targets: Sequence[str]
     ) -> Sequence[float]:
       del prompt
       # We score by the length of the target.

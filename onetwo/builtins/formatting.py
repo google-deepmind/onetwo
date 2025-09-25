@@ -310,20 +310,15 @@ class ConcatFormatter(Formatter):
     """Overridden from base class (Formatter)."""
     return True
 
-  def is_already_formatted(
-      self, content: Sequence[content_lib.Message]
-  ) -> bool:
+  def is_already_formatted(self, content: Sequence[_Message]) -> bool:
     """Overridden from base class (Formatter)."""
     return False
 
-  def _format(
-      self,
-      content: Sequence[content_lib.Message],
-  ) -> content_lib.ChunkList:
+  def _format(self, content: Sequence[_Message]) -> _ChunkList:
     """Overridden from base class (Formatter)."""
-    result = content_lib.ChunkList()
+    result = _ChunkList()
     for msg in content:
-      if isinstance(msg.content, content_lib.ChunkList):
+      if isinstance(msg.content, _ChunkList):
         for chunk in msg.content:
           chunk.role = None
       result += msg.content

@@ -76,7 +76,7 @@ def _convert_chunk_list_to_contents_type(
     prompt: str | _ChunkList,
 ) -> content_types.ContentsType:
   """Convert ChunkList to the type compatible with Gemini API's ContentsType."""
-  if isinstance(prompt, content_lib.ChunkList):
+  if isinstance(prompt, _ChunkList):
     converted = []
     for c in prompt:
       match c.content_type:
@@ -341,7 +341,7 @@ class GeminiAPI(
   def _generate_content(
       self,
       *,
-      prompt: str | content_lib.ChunkList,
+      prompt: str | _ChunkList,
       samples: int = 1,
       temperature: float | None = None,
       stop: Sequence[str] | None = None,
@@ -404,7 +404,7 @@ class GeminiAPI(
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
   def generate_text(
       self,
-      prompt: str | content_lib.ChunkList,
+      prompt: str | _ChunkList,
       *,
       temperature: float | None = None,
       max_tokens: int | None = None,
@@ -549,7 +549,7 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
+  def embed(self, content: str | _ChunkList) -> Sequence[float]:
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
 
@@ -571,7 +571,7 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def count_tokens(self, content: str | content_lib.ChunkList) -> int:
+  def count_tokens(self, content: str | _ChunkList) -> int:
     """See builtins.llm.count_tokens."""
     self._counters['count_tokens'] += 1
 
