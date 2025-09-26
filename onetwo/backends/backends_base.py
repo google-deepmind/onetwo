@@ -21,6 +21,9 @@ import dataclasses
 class Backend:
   """Interface for a class that registers its method."""
 
+  # A name for this backend instance.
+  name: str = ''
+
   # Name under which the methods are registered by default.
   _default_name: str = dataclasses.field(
       init=False,

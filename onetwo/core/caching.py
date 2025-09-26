@@ -261,14 +261,28 @@ class CacheEnabled(Generic[CachedType]):
     raise_exceptions_as_is: Whether the exceptions raised by the cached methods
       using this object are raised as is. The default behaviour is to convert
       the exceptions into 'ValueError's before being raised again.
+    cache: Cache handler to use for caching.
   """
 
   disable_caching: bool = False
   raise_exceptions_as_is: bool = False
-  _cache_handler: SimpleCache[CachedType] | None = dataclasses.field(
-      init=False,
+  cache: SimpleCache[CachedType] | None = dataclasses.field(
       default=None,
   )
+
+  # TODO: Remove the setters and getters once we have migrated all
+  # usages to the new cache field.
+  @property
+  def _cache_handler(self) -> SimpleCache[CachedType]:
+    cache = self.cache
+    if cache is None:
+      raise ValueError('Cache handler is not initialized.')
+    else:
+      return cache
+
+  @_cache_handler.setter
+  def _cache_handler(self, value: SimpleCache[CachedType]):
+    self.cache = value
 
 
 @dataclasses.dataclass
@@ -287,10 +301,23 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
 
   cache_filename: str | None = None
   # Override the type of cache handler.
-  _cache_handler: SimpleFileCache[CachedType] | None = dataclasses.field(
-      init=False,
+  cache: SimpleFileCache[CachedType] | None = dataclasses.field(
       default=None,
   )
+
+  # TODO: Remove the setters and getters once we have migrated all
+  # usages to the new cache field.
+  @property
+  def _cache_handler(self) -> SimpleFileCache[CachedType]:
+    cache = self.cache
+    if cache is None:
+      raise ValueError('Cache handler is not initialized.')
+    else:
+      return cache
+
+  @_cache_handler.setter
+  def _cache_handler(self, value: SimpleFileCache[CachedType]):
+    self.cache = value
 
   def load_cache(
       self,
@@ -312,9 +339,9 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
       cache_filename: If specified, then will load from the given file path;
         otherwise, by default will load from `self.cache_filename`.
     """
-    if self._cache_handler is None:
+    if self.cache is None:
       raise ValueError('Cache handler is not initialized.')
-    self._cache_handler.load(
+    self.cache.load(
         restore_mapping=restore_mapping,
         overwrite=overwrite,
         cache_filename=cache_filename,
@@ -336,11 +363,11 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
         otherwise, by default will save to the same file path from which the
         cache was originally loaded.
     """
-    if self._cache_handler is None:
+    if self.cache is None:
       raise ValueError('Cache handler is not initialized.')
     # Hint for the type checker.
-    assert self._cache_handler is not None
-    self._cache_handler.save(overwrite=overwrite, cache_filename=cache_filename)  # pytype: disable=attribute-error
+    assert self.cache is not None
+    self.cache.save(overwrite=overwrite, cache_filename=cache_filename)  # pytype: disable=attribute-error
 
 
 def _create_cache_key(
@@ -509,7 +536,7 @@ def return_first_and_cache_remaining(
   return values[0]
 
 
-def _get_cache_handler(
+def _get_cache(
     obj_with_cache: CacheEnabled[CachedType],
 ) -> SimpleCache[CachedType]:
   """Gets the cache handler of the given object.
@@ -529,15 +556,18 @@ def _get_cache_handler(
         "Decorator @cache_method is applied to a method whose class doesn't"
         ' inherit from CacheEnabled.'
     )
-  if getattr(obj_with_cache, '_cache_handler', None) is None:
+  if getattr(obj_with_cache, 'cache', None) is None:
     raise ValueError(
         "Decorator @cache_method is applied to a method whose class doesn't"
         ' have a cache handler.'
     )
-  cache_handler: SimpleCache[CachedType] = getattr(
-      obj_with_cache, '_cache_handler'
-  )
-  return cache_handler
+  cache = obj_with_cache.cache
+  if cache is None:
+    raise ValueError(
+        "Decorator @cache_method is applied to a method whose class doesn't"
+        ' have a cache handler.'
+    )
+  return cache
 
 
 # Unfortunately, pytype does not properly support decorators that change the
@@ -660,7 +690,7 @@ def cache_method(
       else:
         sampling_key = None
       key = maker.create_key(obj_with_cache, args, kwargs)
-      cache_handler = _get_cache_handler(obj_with_cache)
+      cache_handler = _get_cache(obj_with_cache)
       if obj_with_cache.disable_caching:
         value = None
       else:
@@ -702,7 +732,7 @@ def cache_method(
       if isinstance(value, executing.Executable):
 
         def callback(v: CachedType) -> CachedType:
-          _get_cache_handler(obj_with_cache).cache_value(
+          _get_cache(obj_with_cache).cache_value(
               key=key,
               sampling_key=sampling_key,
               value=v,
@@ -713,7 +743,7 @@ def cache_method(
             wrapped=value, postprocessing_callback=callback
         )
       else:
-        _get_cache_handler(obj_with_cache).cache_value(
+        _get_cache(obj_with_cache).cache_value(
             key=key,
             sampling_key=sampling_key,
             value=value,
@@ -1184,9 +1214,12 @@ class SimpleFunctionCache(
   ) -> None:
     """See base class (SimpleCache)."""
     try:
-      # We attempt to copy the value in order to see if it can be pickled.
-      # If this fails, we will not be able to store the cache and it may lead
-      # to issues when trying to load the cache data.
+      # Sanity check: Ensure the value can be safely cached and restored.
+      # We attempt to deep-copy the value before caching it. This acts as a
+      # robust test to verify that the object doesn't contain un-cacheable
+      # state, such as file handles or thread locks. An object that cannot be
+      # deep-copied would also fail to serialize correctly to our JSON cache
+      # file, so this check prevents corrupting the cache with problematic data.
       _ = copy.deepcopy(value)
     except Exception as e:
       raise ValueError(
