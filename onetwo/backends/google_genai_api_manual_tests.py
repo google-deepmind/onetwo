@@ -26,7 +26,6 @@ from onetwo.backends import google_genai_api
 from onetwo.builtins import composables as c
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
-from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
@@ -77,27 +76,21 @@ def main(argv: Sequence[str]) -> None:
     raise app.UsageError('Too many command-line arguments.')
 
   fname = os.path.join(_CACHE_DIR.value, 'google_gemini_api.json')
-  cache = caching.SimpleFunctionCache(cache_filename=fname)
 
   api_key = _API_KEY.value
   if api_key is not None:
-    vertexai = False
-    project = None
-    location = None
+    backend = google_genai_api.GoogleGenAIAPI(
+        api_key=api_key, threadpool_size=_THREADPOOL_SIZE.value,
+    )
   elif _PROJECT.value is not None and _LOCATION.value is not None:
-    vertexai = True
-    project = _PROJECT.value
-    location = _LOCATION.value
+    backend = google_genai_api.GoogleGenAIAPI(
+        vertexai=True,
+        project=_PROJECT.value,
+        location=_LOCATION.value,
+        threadpool_size=_THREADPOOL_SIZE.value,
+    )
   else:
     raise ValueError('Either --api_key or (--project, --location) must be set.')
-  backend = google_genai_api.GoogleGenAIAPI(
-      api_key=api_key,
-      vertexai=vertexai,
-      project=project,
-      location=location,
-      threadpool_size=_THREADPOOL_SIZE.value,
-      cache=cache,
-  )
   backend.register()
 
   # Disable (or limit) thinking by default to reduce cost and avoid subtle
@@ -113,7 +106,7 @@ def main(argv: Sequence[str]) -> None:
   if _LOAD_CACHE.value:
     print('Loading cache from file %s', fname)
     load_start = time.time()
-    cache.load()
+    backend.load_cache()
     load_end = time.time()
     print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
@@ -280,7 +273,7 @@ def main(argv: Sequence[str]) -> None:
   time2 = time.time()
   print('Took %.4fsec running requests.' % (time2 - time1))
   if _SAVE_CACHE.value:
-    cache.save(overwrite=True)
+    backend.save_cache(overwrite=True)
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
@@ -419,7 +412,7 @@ def main(argv: Sequence[str]) -> None:
   if _LOAD_CACHE.value:
     print('Loading cache from file %s', fname_mm)
     load_start = time.time()
-    cache.load()
+    backend.load_cache()
     load_end = time.time()
     print('Spent %.4fsec loading cache.', load_end - load_start)
 
@@ -446,7 +439,7 @@ def main(argv: Sequence[str]) -> None:
   time2 = time.time()
   print('Took %.4fsec running requests.' % (time2 - time1))
   if _SAVE_CACHE.value:
-    cache.save(overwrite=True)
+    backend.save_cache(overwrite=True)
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
 

@@ -21,13 +21,12 @@ logged content requires extra work in order to access.)
 """
 
 import collections
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 import copy
 import dataclasses
 import os
 from typing import Any
 
-from onetwo.backends import backends_base
 from onetwo.core import caching
 
 
@@ -49,6 +48,14 @@ def get_cache_filename(backend_name: Any) -> str:
   backend_name = backend_name.replace('.', '_')
   backend_name = backend_name.replace('-', '_')
   return f'{backend_name}.json'
+
+
+def _get_cache_size(backend: Any) -> int:
+  """Returns the number of keys in the cache of the given backend."""
+  # TODO: Provide a clean way to access the size of a cache without
+  # accessing the private `_cache_handler` attribute.
+  cache_handler = backend._cache_handler  # pylint: disable=protected-access
+  return cache_handler.get_key_count()
 
 
 def diff_cache_data(
@@ -89,7 +96,7 @@ def diff_cache_data(
 # and then just providing a thin wrapper here that adds the print statements
 # and other colab-specific code.
 @dataclasses.dataclass(kw_only=True)
-class CachedBackends(Mapping[str, backends_base.Backend]):
+class CachedBackends(Mapping[str, caching.FileCacheEnabled]):
   """Manages a set of backends with their caches.
 
   Can be treated as a mapping from backend name (arbitrary name for display and
@@ -142,21 +149,14 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
 
   # The backends whose caches are being managed by this object. Mapping of
   # backend name to backend object.
-  _backends: dict[str, backends_base.Backend] = dataclasses.field(
+  _backends: dict[str, caching.FileCacheEnabled] = dataclasses.field(
       default_factory=dict
   )
 
   def __getitem__(self, key: str):
     return self._backends[key]
 
-  def __setitem__(self, key: str, item: backends_base.Backend):
-    if item.name:
-      if key != item.name:
-        raise ValueError(
-            f'Backend name {key} does not match backend name {item.name}.'
-        )
-    else:
-      item.name = key
+  def __setitem__(self, key: str, item: caching.FileCacheEnabled):
     self._backends[key] = item
 
   def __delitem__(self, key: str):
@@ -184,45 +184,6 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         self.own_cache_directory, get_cache_filename(backend_name)
     )
 
-  def _simple_function_caches(
-      self,
-  ) -> Iterator[tuple[str, caching.SimpleFunctionCache]]:
-    """Yields backends that are FileCacheEnabled and use SimpleFunctionCache."""
-    for backend_name, backend in self._backends.items():
-      if not isinstance(backend, caching.CacheEnabled):
-        print(f'Backend {backend_name} is not CacheEnabled. Ignoring.')
-        continue
-      cache = backend.cache
-      if not isinstance(cache, caching.SimpleFunctionCache):
-        print(
-            f'Cache of backend {backend_name} is not a SimpleFunctionCache.'
-            ' Ignoring.'
-        )
-        continue
-      yield (backend_name, cache)
-
-  def get_backend_cache(
-      self, backend_name: str
-  ) -> caching.SimpleFunctionCache | None:
-    """Returns the cache for the given backend name."""
-    backend = self._backends.get(backend_name, None)
-    if backend is None:
-      raise ValueError(
-          f'No matching backend found for backend name: {backend_name}'
-      )
-    if not isinstance(backend, caching.CacheEnabled):
-      raise ValueError(
-          f'Backend {backend_name} is not CacheEnabled. Not loading.'
-      )
-    cache = backend.cache
-    if not isinstance(cache, caching.SimpleFunctionCache):
-      print(
-          f'Cache of backend {backend_name} is not a SimpleFunctionCache. Not'
-          ' loading.'
-      )
-      return
-    return cache
-
   def load_backend_cache(self, backend_name: str, *, overwrite: bool = True):
     """Checks if the cache file(s) already exist, in which case we load them.
 
@@ -233,19 +194,26 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         current in-memory cache contents, while merging in any additional
         content from the file(s).
     """
-    cache = self.get_backend_cache(backend_name)
-    if cache is None:
+    if backend_name not in self._backends:
+      raise ValueError(
+          f'No matching backend found for backend name: {backend_name}'
+      )
+    backend = self._backends[backend_name]
+    if not backend.cache_filename:
+      print(
+          f'No cache filename specified for {backend_name}. Not loading.'
+      )
       return
 
     cache_filenames = []
-    cache_file_basename = os.path.basename(cache.cache_filename)
+    cache_file_basename = os.path.basename(backend.cache_filename)
     if self.shared_cache_directory:
       shared_cache_filename = os.path.join(
           self.shared_cache_directory, cache_file_basename
       )
       cache_filenames.append(shared_cache_filename)
-    if cache.cache_filename and cache.cache_filename not in cache_filenames:
-      cache_filenames.append(cache.cache_filename)
+    if backend.cache_filename and backend.cache_filename not in cache_filenames:
+      cache_filenames.append(backend.cache_filename)
     if self.additional_cache_directories:
       for cache_directory in self.additional_cache_directories:
         cache_filename = os.path.join(cache_directory, cache_file_basename)
@@ -260,9 +228,9 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
     for cache_filename in cache_filenames:
       if os.path.exists(cache_filename):
         print(f'Loading cache from {cache_filename} ({overwrite=}).')
-        cache_size_before = cache.get_key_count()
-        cache.load(overwrite=overwrite, cache_filename=cache_filename)
-        cache_size_after = cache.get_key_count()
+        cache_size_before = _get_cache_size(backend)
+        backend.load_cache(overwrite=overwrite, cache_filename=cache_filename)
+        cache_size_after = _get_cache_size(backend)
         print(
             f'Loaded {cache_size_after - cache_size_before} items: '
             f'{cache_size_before} => {cache_size_after}.'
@@ -281,10 +249,7 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
     """Returns a mapping of backend name to a copy of its cache data."""
     result = {}
     for backend_name in self._backends:
-      backend = self._backends[backend_name]
-      if not isinstance(backend, caching.FileCacheEnabled):
-        continue
-      cache_handler = backend._cache_handler
+      cache_handler = self._backends[backend_name]._cache_handler
       if not isinstance(cache_handler, caching.SimpleFunctionCache):
         raise ValueError(
             f'Backend {backend_name} has an unsupported cache type'
@@ -313,20 +278,24 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         this would typically represent the "original" contents of the backend
         caches prior to the current experiment run.
     """
-    for backend_name, cache in self._simple_function_caches():
-      self_cache_data = cache._cache_data
-      self_cache_size = cache.get_key_count()
+    for backend_name in self._backends:
+      self_cache_handler = self._backends[backend_name]._cache_handler
+      if not isinstance(self_cache_handler, caching.SimpleFunctionCache):
+        print(f'Backend {backend_name} is not a SimpleFunctionCache.')
+        continue
+      self_cache_data = self_cache_handler._cache_data
+      self_cache_size = _get_cache_size(self._backends[backend_name])
 
       if backend_name not in cache_data:
         print(f'Backend {backend_name} not found in cache data to subtract.')
         continue
       other_cache_data = cache_data[backend_name]
 
-      cache._cache_data = diff_cache_data(
+      self_cache_handler._cache_data = diff_cache_data(
           after=self_cache_data, before=other_cache_data
       )
 
-      new_cache_size = cache.get_key_count()
+      new_cache_size = _get_cache_size(self._backends[backend_name])
 
       print(f'{backend_name}: {self_cache_size} => {new_cache_size}')
       # pylint: enable=protected-access
@@ -343,43 +312,43 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         directory. Otherwise, will save the caches to the location configured
         when the backend was created (typically under `own_cache_directory`).
     """
-    for backend_name, backend in self._backends.items():
-      if not isinstance(backend, caching.FileCacheEnabled):
-        print(f'Backend {backend_name} is not FileCacheEnabled. Not saving.')
-        continue
+    for backend in self._backends.values():
       cache_filename = backend.cache_filename
-      if not cache_filename:
-        print(f'No cache filename for backend {backend_name}. Not saving.')
-        continue
       if cache_directory:
         cache_filename = os.path.join(
-            cache_directory, os.path.basename(cache_filename)
-        )
+            cache_directory, os.path.basename(cache_filename))
       print(f'Saving cache to {cache_filename}.')
       backend.save_cache(cache_filename=cache_filename, overwrite=True)
 
   def print_cache_summary(self):
     """Prints a summary of the caches of all the currently managed backends."""
     print('Cache summary:')
-    for backend_name, cache in self._simple_function_caches():
-      cache_data = cache._cache_data  # pylint: disable=protected-access
-      calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
+    for backend_name, backend in self._backends.items():
+      # TODO: Provide a clean way to generate these kind of
+      # diagnostics without accessing private attributes.
+      cache_handler = backend._cache_handler  # pylint: disable=protected-access
+      if not isinstance(cache_handler, caching.SimpleFunctionCache):
+        raise ValueError(
+            f'Backend {backend_name} has an unsupported cache type'
+            f' ({type(cache_handler)}). Current implementation of BackendCaches'
+            ' only supports SimpleFunctionCache.'
+        )
+      cache_data = cache_handler._cache_data  # pylint: disable=protected-access
+      calls_in_progress = cache_handler._calls_in_progress  # pylint: disable=protected-access
 
-      print(f'* {backend_name}: {cache.cache_filename}')
-      print(f'  * Cache contains {cache.get_key_count()} items.')
+      print(f'* {backend_name}: {backend.cache_filename}')
+      print(f'  * Cache contains {_get_cache_size(backend)} items.')
       print(f'  * Counters: {cache_data.counters}')
       num_calls_in_progress = len(calls_in_progress)
       print(f'  * Calls in progress: {num_calls_in_progress}')
 
   def clear_all_calls_in_progress(self):
-    """Clears the record of in-progress calls for all CacheEnabled backends."""
     for backend_name, backend in self._backends.items():
-      if not isinstance(backend, caching.CacheEnabled):
+      cache_handler = backend._cache_handler  # pylint: disable=protected-access
+      if not isinstance(cache_handler, caching.SimpleFunctionCache):
+        # Only SimpleFunctionCache has a `_calls_in_progress` field.
         continue
-      cache = backend.cache
-      if not hasattr(cache, '_calls_in_progress'):
-        continue
-      calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
+      calls_in_progress = cache_handler._calls_in_progress  # pylint: disable=protected-access
       if calls_in_progress:
         print(f'Clearing calls in progress for {backend_name}.')
         print(f'BEFORE: {len(calls_in_progress)}')

@@ -136,7 +136,7 @@ def _replace_if_unsupported_role(
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class GoogleGenAIAPI(
-    caching.CacheEnabled,  # Methods of this class are cached.
+    caching.FileCacheEnabled,  # Methods of this class are cached.
     backends_base.Backend,
 ):
   """Google GenAI API.
@@ -147,7 +147,8 @@ class GoogleGenAIAPI(
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
       CacheEnabled).
-    cache: Cache handler to use for caching (inherited from CacheEnabled).
+    cache_filename: Name of the file (full path) where the cache is stored
+      (inherited from FileCacheEnabled)
     threadpool_size: Number of threads to use in the threadpool when the
       execution is not batched. If 0, then no threadpool will be used and we use
       batching instead. If >0, then requests will be executed as they come
@@ -352,8 +353,10 @@ class GoogleGenAIAPI(
       raise ValueError(f'Model {self._embed_model_name()} not available.')
 
   def __post_init__(self) -> None:
-    if self.cache is None:
-      self.cache = caching.SimpleFunctionCache()
+    # Create cache.
+    self._cache_handler = caching.SimpleFunctionCache(
+        cache_filename=self.cache_filename,
+    )
     # Configure GenAI client.
     self._genai_client = genai.Client(
         vertexai=self.vertexai,
