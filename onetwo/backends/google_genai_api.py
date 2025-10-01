@@ -133,6 +133,23 @@ def _replace_if_unsupported_role(
   return message
 
 
+def _raise_if_empty_response(
+    response: genai_types.GenerateContentResponse,
+) -> None:
+  """Raises an error if the response is empty."""
+  empty = True
+  if response.candidates:
+    for candidate in response.candidates:
+      if candidate and candidate.content and candidate.content.parts:
+        empty = False
+  if empty:
+    response_msg = pprint.pformat(response.candidates)
+    raise ValueError(
+        'GoogleGenAIAPI.generate_text returned no answers. This may be'
+        f' caused by safety filters:\n{response_msg}'
+    )
+
+
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class GoogleGenAIAPI(
@@ -402,17 +419,7 @@ class GoogleGenAIAPI(
           f'GoogleGenAIAPI.generate_content raised err:\n{err}\n'
           f'for request:\n{pprint.pformat(prompt)[:100]}'
       ) from err
-    empty = True
-    if response.candidates:
-      for candidate in response.candidates:
-        if candidate and candidate.content and candidate.content.parts:
-          empty = False
-    if empty:
-      response_msg = pprint.pformat(response.candidates)
-      raise ValueError(
-          'GoogleGenAIAPI.generate_text returned no answers. This may be'
-          f' caused by safety filters:\n{response_msg}'
-      )
+    _raise_if_empty_response(response)
     return response
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -588,6 +595,7 @@ class GoogleGenAIAPI(
         message=_convert_chunk_list_to_part_list(healed_content),
         config=generation_config,
     )
+    _raise_if_empty_response(response)
     reply = llm_utils.maybe_heal_reply(
         reply_text=response.text,
         original_prompt=messages[-1].content,

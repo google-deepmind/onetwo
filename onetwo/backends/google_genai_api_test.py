@@ -148,6 +148,38 @@ class GoogleGenaiApiTest(
         Counter(add_new=2, get_miss=2),
     )
 
+  def test_generate_text_with_unsafe_content(self):
+    backend = _get_and_register_backend()
+
+    # Empty content is returned when the prompt is unsafe.
+    self._mock_genai_client.models.generate_content.return_value = (
+        genai_types.GenerateContentResponse(
+            candidates=[genai_types.Candidate(content=None)]
+        )
+    )
+
+    # Assert the appropriate error is raised.
+    with self.assertRaises(
+        ValueError,
+        msg=(
+            'GoogleGenAIAPI.generate_text returned no answers. This may be'
+            ' caused by safety filters*'
+        ),
+    ):
+      executing.run(llm.generate_text(prompt='Some unsafe prompt'))
+
+    # Assert that the chat is called with the correct prompt.
+    self._mock_genai_client.models.generate_content.assert_called_once()
+    _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
+    print('#' * 80)
+    print(mock_kwargs)
+    print('#' * 80)
+    self.assertEqual(mock_kwargs['contents'][0].text, 'Some unsafe prompt')
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(generate_text=1),
+    )
+
   def test_generate_text_with_model_string(self):
     backend = _get_and_register_backend(
         generate_model_name=google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api
@@ -378,6 +410,38 @@ class GoogleGenaiApiTest(
     self.assertCounterEqual(
         backend._counters,
         Counter(chat=2),
+    )
+
+  def test_chat_with_unsafe_content(self):
+    backend = _get_and_register_backend()
+    msg_user = content_lib.Message(
+        role=content_lib.PredefinedRole.USER, content='Hello model'
+    )
+
+    mock_chat = mock.MagicMock()
+    self._mock_genai_client.chats.create.return_value = mock_chat
+    # Empty content is returned when the message is unsafe.
+    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+        candidates=[genai_types.Candidate(content=None)]
+    )
+
+    # Assert the appropriate error is raised.
+    with self.assertRaises(
+        ValueError,
+        msg=(
+            'GoogleGenAIAPI.generate_text returned no answers. This may be'
+            ' caused by safety filters*'
+        ),
+    ):
+      executing.run(llm.chat(messages=[msg_user]))
+
+    # Assert that the chat is called with the correct message.
+    mock_chat.send_message.assert_called_once()
+    _, mock_kwargs = mock_chat.send_message.call_args
+    self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+    self.assertCounterEqual(
+        backend._counters,
+        Counter(chat=1),
     )
 
   def test_chat_with_system_instruction(self):
