@@ -14,7 +14,9 @@
 
 """OneTwo connector for the Google GenAI API.
 
-See https://cloud.google.com/vertex-ai/generative-ai/docs/sdks/overview
+Based on https://github.com/googleapis/python-genai to access either
+- Gemini API: https://ai.google.dev/gemini-api/docs
+- VertexAI: https://cloud.google.com/vertex-ai/generative-ai/docs/sdks/overview
 """
 
 import collections

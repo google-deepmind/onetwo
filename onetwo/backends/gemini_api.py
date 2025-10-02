@@ -15,6 +15,7 @@
 """OneTwo connector for the Google GenAI API.
 
 See https://ai.google.dev/api/python/google/generativeai.
+This API is deprecated, prefer `google_genai_api` instead.
 """
 
 import collections
