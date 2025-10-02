@@ -770,7 +770,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
   def __init__(
       self,
       wrapped: Callable[..., Result],
-      args: tuple,  # pylint: disable=g-bare-generic
+      args: tuple[Any, ...],
       kwargs: dict[str, Any],
       *,
       non_executed_args: Sequence[str],

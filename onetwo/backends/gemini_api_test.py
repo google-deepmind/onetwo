@@ -106,14 +106,13 @@ async def check_length_and_generate(
 
 @dataclasses.dataclass
 class RespondWithTextAndTemperature(
-    Callable[[glm.GenerateContentRequest], Sequence[str]]):
+    Callable[[glm.GenerateContentRequest], Sequence[str]]
+):
   """Returns a fixed reply text, with temperature appended if specified."""
 
   reply: str
 
-  def __call__(
-      self, request: glm.GenerateContentRequest
-  ) -> Sequence[str]:
+  def __call__(self, request: glm.GenerateContentRequest) -> Sequence[str]:
     candidate_count = request.generation_config.candidate_count
     if request.generation_config.temperature:
       reply_text = f'{self.reply} {request.generation_config.temperature:.1f}'
@@ -159,9 +158,9 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     self.observed_generate_content_requests = []
     self.observed_count_tokens_requests = []
 
-    self.generate_content_response_function: Callable[
-        [glm.GenerateContentRequest], Sequence[str]
-    ] | None = None
+    self.generate_content_response_function: (
+        Callable[[glm.GenerateContentRequest], Sequence[str]] | None
+    ) = None
 
     def add_client_method(f):
       name = f.__name__
@@ -169,7 +168,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       return f
 
     @add_client_method
-    def generate_content(  # pylint: disable=unused-variable
+    def generate_content(
         request: glm.GenerateContentRequest,
         **kwargs,
     ) -> glm.GenerateContentResponse:
@@ -199,7 +198,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       return glm.GenerateContentResponse({'candidates': candidates})
 
     @add_client_method
-    def count_tokens(  # pylint: disable=unused-variable
+    def count_tokens(
         request: glm.CountTokensRequest,
         **kwargs,
     ) -> glm.CountTokensResponse:

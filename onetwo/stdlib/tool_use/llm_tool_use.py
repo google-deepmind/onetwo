@@ -375,7 +375,7 @@ def parse_and_consume_call(
     context_vars: Mapping[str, Any],
 ) -> tuple[
     list[str], str, tuple[Any, ...], dict[str, Any], ArgumentFormat, int
-]:  # pylint: disable=line-too-long
+]:
   """Determines the format and parses a function call.
 
   Args:
@@ -435,9 +435,10 @@ def render_response(fmt: ArgumentFormat | None, value: Any) -> str:
 
 
 def render_assignment_response(
-    targets: list[str], value: Any, name: str  # pylint: disable=unused-argument
+    targets: list[str], value: Any, name: str
 ) -> str:
   """Renders response when output is assigned to variables in context."""
+  del value
   return (
       f'I stored the output of {name} in the following variables:'
       f' {", ".join(targets)}.'

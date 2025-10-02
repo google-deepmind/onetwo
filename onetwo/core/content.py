@@ -382,11 +382,11 @@ class ChunkList:
   def __iter__(self) -> Iterator[Chunk]:
     return iter(self.chunks)
 
-  def __str__(self) -> str:  # pylint: disable=invalid-str-returned
+  def __str__(self) -> str:
     # This function is lossless on string and lossy on byte chunks.
     return ''.join([str(chunk) for chunk in self.chunks])
 
-  def __repr__(self) -> str:  # pylint: disable=invalid-str-returned
+  def __repr__(self) -> str:
     # For debug purposes.
     return (
         'ChunkList('
