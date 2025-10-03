@@ -379,9 +379,7 @@ def _sandbox_process_target(
     try:
       address = ('localhost', listener_port)
       conn = connection.Client(address, authkey=_AUTHKEY)
-      # Perform a simple handshake
-      connection.deliver_challenge(conn, authkey=_AUTHKEY)
-      connection.answer_challenge(conn, authkey=_AUTHKEY)
+
     except Exception as e:
       raise ValueError('Cannot connect to the main code, aborting') from e
 
@@ -600,8 +598,6 @@ class PythonSandboxMultiProcessWrapper(BaseMultiProcessSandbox):
       def start_connection():
         nonlocal listener
         self._sandbox_connection = listener.accept()
-        connection.answer_challenge(self._sandbox_connection, _AUTHKEY)
-        connection.deliver_challenge(self._sandbox_connection, _AUTHKEY)
         logging.info('Sandbox listener accepting connections.')
 
       listener_thread = threading.Thread(target=start_connection)
