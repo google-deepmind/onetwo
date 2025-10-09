@@ -184,6 +184,177 @@ class ExecutableAccuracyCallableTakingExampleAsArg:
     return float(target == prediction)
 
 
+# When tracing is disabled, we can only access the inputs and outputs.
+# The rest of the fields, including the default kwargs, are not populated.
+# When tracing is disabled, results and results_debug are the same.
+# TODO: Should we inspect the signature of the strategy and
+# populate the default kwargs accordingly?
+EXPECTED_AGENT_RESULTS_WITHOUT_TRACING = {
+    0: _EvaluationResult(
+        stage_name='StringAgent',
+        inputs={
+            'args': ['a'],
+            'kwargs': {},
+        },
+        outputs={'output': 'a b c'},
+        targets={'target': 'b'},
+        metrics={
+            'total_count': 1,
+            'error_count': 0,
+            'accuracy': 0.0,
+            'accuracy_count': 1,
+        },
+    ),
+    1: _EvaluationResult(
+        stage_name='StringAgent',
+        inputs={
+            'args': ['c'],
+            'kwargs': {},
+        },
+        outputs={'output': 'd e f'},
+        targets={'target': 'c'},
+        metrics={
+            'total_count': 1,
+            'error_count': 0,
+            'accuracy': 0.0,
+            'accuracy_count': 1,
+        },
+    ),
+}
+# When tracing is enabled, we can access the full inputs and outputs,
+# including the default kwargs.
+EXPECTED_AGENT_RESULTS_WITH_TRACING = {
+    0: _EvaluationResult(
+        stage_name='StringAgent',
+        inputs={
+            'inputs': 'a',
+            'initial_state': None,
+            'max_steps': None,
+            'stop_condition': None,
+            'return_final_state': True,
+        },
+        outputs={'output': 'a b c'},
+        targets={'target': 'b'},
+        metrics={
+            'total_count': 1,
+            'error_count': 0,
+            'accuracy': 0.0,
+            'accuracy_count': 1,
+        },
+    ),
+    1: _EvaluationResult(
+        stage_name='StringAgent',
+        inputs={
+            'inputs': 'c',
+            'initial_state': None,
+            'max_steps': None,
+            'stop_condition': None,
+            'return_final_state': True,
+        },
+        outputs={'output': 'd e f'},
+        targets={'target': 'c'},
+        metrics={
+            'total_count': 1,
+            'error_count': 0,
+            'accuracy': 0.0,
+            'accuracy_count': 1,
+        },
+    ),
+}
+# When tracing is enabled, results_debug is the same as results but with
+# the stages field populated.
+EXPECTED_AGENT_RESULTS_DEBUG_WITH_TRACING = {
+    0: _EvaluationResult(
+        stage_name='StringAgent',
+        inputs={
+            'inputs': 'a',
+            'initial_state': None,
+            'max_steps': None,
+            'stop_condition': None,
+            'return_final_state': True,
+        },
+        outputs={'output': 'a b c'},
+        stages=[
+            _ExecutionResult(
+                stage_name='SingleSampleAgent.sample_next_step',
+                inputs={
+                    'state': _UpdateListState(inputs='a', updates=[]),
+                    'num_candidates': 1,
+                },
+                outputs={'output': ['a']},
+            ),
+            _ExecutionResult(
+                stage_name='SingleSampleAgent.sample_next_step',
+                inputs={
+                    'state': _UpdateListState(inputs='a', updates=['a']),
+                    'num_candidates': 1,
+                },
+                outputs={'output': ['b']},
+            ),
+            _ExecutionResult(
+                stage_name='SingleSampleAgent.sample_next_step',
+                inputs={
+                    'state': _UpdateListState(inputs='a', updates=['a', 'b']),
+                    'num_candidates': 1,
+                },
+                outputs={'output': ['c']},
+            ),
+        ],
+        targets={'target': 'b'},
+        metrics={
+            'total_count': 1,
+            'error_count': 0,
+            'accuracy': 0.0,
+            'accuracy_count': 1,
+        },
+    ),
+    1: _EvaluationResult(
+        stage_name='StringAgent',
+        inputs={
+            'inputs': 'c',
+            'initial_state': None,
+            'max_steps': None,
+            'stop_condition': None,
+            'return_final_state': True,
+        },
+        outputs={'output': 'd e f'},
+        stages=[
+            _ExecutionResult(
+                stage_name='SingleSampleAgent.sample_next_step',
+                inputs={
+                    'state': _UpdateListState(inputs='c', updates=[]),
+                    'num_candidates': 1,
+                },
+                outputs={'output': ['d']},
+            ),
+            _ExecutionResult(
+                stage_name='SingleSampleAgent.sample_next_step',
+                inputs={
+                    'state': _UpdateListState(inputs='c', updates=['d']),
+                    'num_candidates': 1,
+                },
+                outputs={'output': ['e']},
+            ),
+            _ExecutionResult(
+                stage_name='SingleSampleAgent.sample_next_step',
+                inputs={
+                    'state': _UpdateListState(inputs='c', updates=['d', 'e']),
+                    'num_candidates': 1,
+                },
+                outputs={'output': ['f']},
+            ),
+        ],
+        targets={'target': 'c'},
+        metrics={
+            'total_count': 1,
+            'error_count': 0,
+            'accuracy': 0.0,
+            'accuracy_count': 1,
+        },
+    ),
+}
+
+
 class AgentEvaluationTest(parameterized.TestCase):
 
   def assertFileExists(self, filename: str):
@@ -193,29 +364,95 @@ class AgentEvaluationTest(parameterized.TestCase):
     )
 
   @parameterized.named_parameters(
-      (
-          'ordinary_function',
-          ordinary_identity_function,
-          'ordinary_identity_function',
-      ),
-      ('async_function', async_identity_function, 'async_identity_function'),
-      (
-          'executable_function',
-          executable_identity_function,
-          'executable_identity_function',
-      ),
-      (
-          'traced_ordinary_function',
-          traced_ordinary_identity_function,
-          'traced_ordinary_identity_function',
-      ),
-      (
-          'executable_traced_function',
-          executable_traced_identity_function,
-          'executable_traced_identity_function',
-      ),
+      {
+          'testcase_name': 'ordinary_function_tracing_enabled',
+          'strategy': ordinary_identity_function,
+          'enable_tracing': True,
+          'expected_stage_name': 'ordinary_identity_function',
+          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
+      },
+      {
+          'testcase_name': 'ordinary_function_tracing_disabled',
+          'strategy': ordinary_identity_function,
+          'enable_tracing': False,
+          'expected_stage_name': 'ordinary_identity_function',
+          'expected_inputs': [
+              {'args': ['a'], 'kwargs': {}},
+              {'args': ['c'], 'kwargs': {}},
+          ],
+      },
+      {
+          'testcase_name': 'async_function_tracing_enabled',
+          'strategy': async_identity_function,
+          'enable_tracing': True,
+          'expected_stage_name': 'async_identity_function',
+          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
+      },
+      {
+          'testcase_name': 'async_function_tracing_disabled',
+          'strategy': async_identity_function,
+          'enable_tracing': False,
+          'expected_stage_name': 'async_identity_function',
+          'expected_inputs': [
+              {'args': ['a'], 'kwargs': {}},
+              {'args': ['c'], 'kwargs': {}},
+          ],
+      },
+      {
+          'testcase_name': 'executable_function_tracing_enabled',
+          'strategy': executable_identity_function,
+          'enable_tracing': True,
+          'expected_stage_name': 'executable_identity_function',
+          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
+      },
+      {
+          'testcase_name': 'executable_function_tracing_disabled',
+          'strategy': executable_identity_function,
+          'enable_tracing': False,
+          'expected_stage_name': 'executable_identity_function',
+          'expected_inputs': [
+              {'args': ['a'], 'kwargs': {}},
+              {'args': ['c'], 'kwargs': {}},
+          ],
+      },
+      {
+          'testcase_name': 'traced_ordinary_function_tracing_enabled',
+          'strategy': traced_ordinary_identity_function,
+          'enable_tracing': True,
+          'expected_stage_name': 'traced_ordinary_identity_function',
+          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
+      },
+      {
+          'testcase_name': 'traced_ordinary_function_tracing_disabled',
+          'strategy': traced_ordinary_identity_function,
+          'enable_tracing': False,
+          'expected_stage_name': 'traced_ordinary_identity_function',
+          'expected_inputs': [
+              {'args': ['a'], 'kwargs': {}},
+              {'args': ['c'], 'kwargs': {}},
+          ],
+      },
+      {
+          'testcase_name': 'executable_traced_function_tracing_enabled',
+          'strategy': executable_traced_identity_function,
+          'enable_tracing': True,
+          'expected_stage_name': 'executable_traced_identity_function',
+          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
+      },
+      {
+          'testcase_name': 'executable_traced_function_tracing_disabled',
+          'strategy': executable_traced_identity_function,
+          'enable_tracing': False,
+          'expected_stage_name': 'executable_traced_identity_function',
+          'expected_inputs': [
+              {'args': ['a'], 'kwargs': {}},
+              {'args': ['c'], 'kwargs': {}},
+          ],
+      },
   )
-  def test_evaluate_simple_strategies(self, strategy, expected_stage_name):
+  def test_evaluate_simple_strategies(
+      self, strategy, enable_tracing, expected_stage_name, expected_inputs
+  ):
     examples = [
         {'question': 'a', 'answer': 'b'},
         {'question': 'c', 'answer': 'c'},
@@ -229,6 +466,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_results=True,
           output_results_debug=True,
           output_final_states=True,
+          enable_tracing=enable_tracing,
       )
       _reset_times(summary)
 
@@ -236,7 +474,7 @@ class AgentEvaluationTest(parameterized.TestCase):
     expected_results = {
         0: _EvaluationResult(
             stage_name=expected_stage_name,
-            inputs={'x': 'a'},
+            inputs=expected_inputs[0],
             outputs={'output': 'a'},
             targets={'target': 'b'},
             metrics={
@@ -248,7 +486,7 @@ class AgentEvaluationTest(parameterized.TestCase):
         ),
         1: _EvaluationResult(
             stage_name=expected_stage_name,
-            inputs={'x': 'c'},
+            inputs=expected_inputs[1],
             outputs={'output': 'c'},
             targets={'target': 'c'},
             metrics={
@@ -286,7 +524,23 @@ class AgentEvaluationTest(parameterized.TestCase):
           f'Incorrect EvaluationSummary contents:\n{summary}\n----\nDiff',
       )
 
-  def test_evaluate_agent(self):
+  @parameterized.named_parameters(
+      {
+          'testcase_name': 'with_tracing',
+          'enable_tracing': True,
+          'expected_results': EXPECTED_AGENT_RESULTS_WITH_TRACING,
+          'expected_results_debug': EXPECTED_AGENT_RESULTS_DEBUG_WITH_TRACING,
+      },
+      {
+          'testcase_name': 'without_tracing',
+          'enable_tracing': False,
+          'expected_results': EXPECTED_AGENT_RESULTS_WITHOUT_TRACING,
+          'expected_results_debug': EXPECTED_AGENT_RESULTS_WITHOUT_TRACING,
+      },
+  )
+  def test_evaluate_agent(
+      self, enable_tracing, expected_results, expected_results_debug
+  ):
     strategy = agents_test_utils.StringAgent(
         max_length=3, sequence=list(string.ascii_lowercase)
     )
@@ -303,6 +557,7 @@ class AgentEvaluationTest(parameterized.TestCase):
           output_results=True,
           output_results_debug=True,
           output_final_states=True,
+          enable_tracing=enable_tracing,
       )
       _reset_times(summary)
 
@@ -313,142 +568,8 @@ class AgentEvaluationTest(parameterized.TestCase):
             {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
         ),
         example_keys={0: 0, 1: 1},
-        results={
-            0: _EvaluationResult(
-                stage_name='StringAgent',
-                inputs={
-                    'inputs': 'a',
-                    'initial_state': None,
-                    'max_steps': None,
-                    'stop_condition': None,
-                    'return_final_state': True,
-                },
-                outputs={'output': 'a b c'},
-                targets={'target': 'b'},
-                metrics={
-                    'total_count': 1,
-                    'error_count': 0,
-                    'accuracy': 0.0,
-                    'accuracy_count': 1,
-                },
-            ),
-            1: _EvaluationResult(
-                stage_name='StringAgent',
-                inputs={
-                    'inputs': 'c',
-                    'initial_state': None,
-                    'max_steps': None,
-                    'stop_condition': None,
-                    'return_final_state': True,
-                },
-                outputs={'output': 'd e f'},
-                targets={'target': 'c'},
-                metrics={
-                    'total_count': 1,
-                    'error_count': 0,
-                    'accuracy': 0.0,
-                    'accuracy_count': 1,
-                },
-            ),
-        },
-        results_debug={
-            0: _EvaluationResult(
-                stage_name='StringAgent',
-                inputs={
-                    'inputs': 'a',
-                    'initial_state': None,
-                    'max_steps': None,
-                    'stop_condition': None,
-                    'return_final_state': True,
-                },
-                outputs={'output': 'a b c'},
-                stages=[
-                    _ExecutionResult(
-                        stage_name='SingleSampleAgent.sample_next_step',
-                        inputs={
-                            'state': _UpdateListState(inputs='a', updates=[]),
-                            'num_candidates': 1,
-                        },
-                        outputs={'output': ['a']},
-                    ),
-                    _ExecutionResult(
-                        stage_name='SingleSampleAgent.sample_next_step',
-                        inputs={
-                            'state': _UpdateListState(
-                                inputs='a', updates=['a']
-                            ),
-                            'num_candidates': 1,
-                        },
-                        outputs={'output': ['b']},
-                    ),
-                    _ExecutionResult(
-                        stage_name='SingleSampleAgent.sample_next_step',
-                        inputs={
-                            'state': _UpdateListState(
-                                inputs='a', updates=['a', 'b']
-                            ),
-                            'num_candidates': 1,
-                        },
-                        outputs={'output': ['c']},
-                    ),
-                ],
-                targets={'target': 'b'},
-                metrics={
-                    'total_count': 1,
-                    'error_count': 0,
-                    'accuracy': 0.0,
-                    'accuracy_count': 1,
-                },
-            ),
-            1: _EvaluationResult(
-                stage_name='StringAgent',
-                inputs={
-                    'inputs': 'c',
-                    'initial_state': None,
-                    'max_steps': None,
-                    'stop_condition': None,
-                    'return_final_state': True,
-                },
-                outputs={'output': 'd e f'},
-                stages=[
-                    _ExecutionResult(
-                        stage_name='SingleSampleAgent.sample_next_step',
-                        inputs={
-                            'state': _UpdateListState(inputs='c', updates=[]),
-                            'num_candidates': 1,
-                        },
-                        outputs={'output': ['d']},
-                    ),
-                    _ExecutionResult(
-                        stage_name='SingleSampleAgent.sample_next_step',
-                        inputs={
-                            'state': _UpdateListState(
-                                inputs='c', updates=['d']
-                            ),
-                            'num_candidates': 1,
-                        },
-                        outputs={'output': ['e']},
-                    ),
-                    _ExecutionResult(
-                        stage_name='SingleSampleAgent.sample_next_step',
-                        inputs={
-                            'state': _UpdateListState(
-                                inputs='c', updates=['d', 'e']
-                            ),
-                            'num_candidates': 1,
-                        },
-                        outputs={'output': ['f']},
-                    ),
-                ],
-                targets={'target': 'c'},
-                metrics={
-                    'total_count': 1,
-                    'error_count': 0,
-                    'accuracy': 0.0,
-                    'accuracy_count': 1,
-                },
-            ),
-        },
+        results=expected_results,
+        results_debug=expected_results_debug,
         final_states={
             0: _UpdateListState(inputs='a', updates=['a', 'b', 'c']),
             1: _UpdateListState(inputs='c', updates=['d', 'e', 'f']),
@@ -715,6 +836,7 @@ class AgentEvaluationTest(parameterized.TestCase):
   )
   def test_example_formats(self, examples):
     """Verifies evaluation of a simple strategy produces expected results."""
+
     def _fake_generate_text(prompt: str | content_lib.ChunkList) -> str:
       return f'{prompt}_generated'
 
@@ -868,6 +990,7 @@ class AgentEvaluationTest(parameterized.TestCase):
     # Here we illustrate how to use a callback to do some kind of custom
     # processing of the results (in this case, just logging).
     log_messages = []
+
     def callback(
         example_index: int, example: _Example, summary: _EvaluationSummary
     ) -> None:
@@ -933,14 +1056,10 @@ class AgentEvaluationTest(parameterized.TestCase):
       self.assertFileExists(os.path.join(output_dir, 'results.json'))
 
     with self.subTest('should_output_results_debug'):
-      self.assertFileExists(
-          os.path.join(output_dir, 'results_debug.json')
-      )
+      self.assertFileExists(os.path.join(output_dir, 'results_debug.json'))
 
     with self.subTest('should_output_final_states'):
-      self.assertFileExists(
-          os.path.join(output_dir, 'final_states.json')
-      )
+      self.assertFileExists(os.path.join(output_dir, 'final_states.json'))
 
     with self.subTest('counters_should_be_valid_json'):
       self.assertIsNotNone(counters_json)

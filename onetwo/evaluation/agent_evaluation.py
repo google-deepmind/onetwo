@@ -51,10 +51,14 @@ MetricValueWithExtraInfo: TypeAlias = tuple[MetricValue, Mapping[str, Any]]
 
 EvaluationMetricPossibleReturnTypes: TypeAlias = (
     # Option 1: Just return a float (or None).
-    MetricValue | Awaitable[MetricValue] | executing.Executable[MetricValue] |
+    MetricValue
+    | Awaitable[MetricValue]
+    | executing.Executable[MetricValue]
+    |
     # Option 2: Return a float (or None), paired with a dict of extra info.
-    MetricValueWithExtraInfo | Awaitable[MetricValueWithExtraInfo] |
-    executing.Executable[MetricValueWithExtraInfo]
+    MetricValueWithExtraInfo
+    | Awaitable[MetricValueWithExtraInfo]
+    | executing.Executable[MetricValueWithExtraInfo]
 )
 
 
@@ -222,6 +226,7 @@ async def _evaluate_example(
     target_extractor: Callable[[Example], _O] = lambda x: x['answer'],
     metric_functions: dict[str, MetricFunction] | None = None,
     output_final_states: bool = False,
+    enable_tracing: bool = True,
 ) -> tuple[Example, results.EvaluationSummary]:
   """Evaluates the given strategy on the given example.
 
@@ -238,6 +243,8 @@ async def _evaluate_example(
       containing the average of that metric's values across all examples.
     output_final_states: Whether to populate `final_states` field in
       `EvaluationSummary`. Only applicable to agent strategies.
+    enable_tracing: Whether to enable tracing. If True, the evaluation summary
+      will contain the trace of every stage of the strategy execution.
 
   Returns:
     A tuple of the example and an evaluation summary containing the results for
@@ -257,14 +264,24 @@ async def _evaluate_example(
   error = None
 
   try:
-    if isinstance(strategy, agents_base.Agent):
-      (prediction, final_state), execution_result = await _execute_with_tracing(
-          strategy, *args, **kwargs, return_final_state=True
-      )
+    if enable_tracing:
+      if isinstance(strategy, agents_base.Agent):
+        (prediction, final_state), execution_result = (
+            await _execute_with_tracing(
+                strategy, *args, **kwargs, return_final_state=True
+            )
+        )
+      else:
+        prediction, execution_result = await _execute_with_tracing(
+            strategy, *args, **kwargs
+        )
     else:
-      prediction, execution_result = await _execute_with_tracing(
-          strategy, *args, **kwargs
-      )
+      if isinstance(strategy, agents_base.Agent):
+        prediction, final_state = await utils.call_and_maybe_await(
+            strategy, *args, **kwargs, return_final_state=True
+        )
+      else:
+        prediction = await utils.call_and_maybe_await(strategy, *args, **kwargs)
   except Exception as e:  # pylint: disable=broad-exception-caught
     traceback.print_exc()
     error = e
@@ -308,15 +325,23 @@ async def _evaluate_example(
 
   # Results and results debug
   if execution_result is None:
-    # Error occurred during strategy execution. Output just a minimal summary.
+    # Error occurred during strategy execution or tracing was disabled.
+    # Output just a minimal summary.
     if hasattr(strategy, '__name__'):
       strategy_name = strategy.__name__
     else:
       strategy_name = strategy.__class__.__name__
+    if error:
+      outputs = {}
+    elif isinstance(strategy, agents_base.Agent):
+      outputs = {'output': (prediction, final_state)}
+    else:
+      outputs = {'output': prediction}
     evaluation_debug = results.EvaluationResult(
         stage_name=strategy_name,
         inputs={'args': args, 'kwargs': kwargs},
-        error=error,
+        outputs=outputs,
+        error=error if error else '',
     )
   else:
     # Strategy executed without error. Output a full summary.
@@ -397,7 +422,11 @@ def evaluate(
     ) = None,
     example_key_function: Callable[[int, Example], str | int] | None = None,
     chunk_size: int = 100,
+    enable_tracing: bool = True,
 ) -> results.EvaluationSummary:
+  # Disable formatting of the following docstring to preserve readability of the
+  # Args section.
+  # pyformat: disable
   """Evaluates the given strategy on the given examples.
 
   Args:
@@ -437,10 +466,12 @@ def evaluate(
       will use the example index as the key.
     chunk_size: Number of examples to extract at a time for parallel evaluation
       while iterating through `examples`.
+    enable_tracing: Whether to enable tracing for each example evaluation.
 
   Returns:
     EvaluationSummary containing the evaluation results.
   """
+  # pyformat: enable
   if hasattr(examples, '__len__'):
     examples_len = len(examples)
   elif examples_total_num is not None:
@@ -462,6 +493,7 @@ def evaluate(
           target_extractor=target_extractor,
           metric_functions=metric_functions,
           output_final_states=output_final_states,
+          enable_tracing=enable_tracing,
       )
       for example in examples
   )
