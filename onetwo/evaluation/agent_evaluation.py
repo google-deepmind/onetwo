@@ -184,7 +184,7 @@ async def _execute_with_tracing(
   async def wrapper(*args: _Args.args, **kwargs: _Args.kwargs) -> _O:
     return await utils.call_and_maybe_await(strategy, *args, **kwargs)
 
-  prediction = await wrapper(*args, **kwargs)  # pytype: disable=wrong-arg-types
+  prediction = await wrapper(*args, **kwargs)  # pytype: disable=bad-return-type
 
   # Harvest the trace that was defined in the wrapper function above.
   trace = copy.deepcopy(tracing.execution_context.get(None))

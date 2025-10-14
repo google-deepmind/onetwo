@@ -235,12 +235,12 @@ class UtilsTest(parameterized.TestCase):
       return i
 
     async def plan():
-      return await asyncio.gather(*[af(i) for i in range(10)])  # pytype: disable=wrong-arg-types
+      return await asyncio.gather(*[af(i) for i in range(10)])
 
     start = time.perf_counter()
     res = []
     for i in range(10):
-      res.append(f(i))  # pytype: disable=wrong-arg-types
+      res.append(f(i))
     end = time.perf_counter()
 
     with self.subTest('blocking_should_return_correct_results'):
@@ -271,7 +271,7 @@ class UtilsTest(parameterized.TestCase):
       return i
 
     async def plan(start):
-      return await asyncio.gather(*[af(i) for i in range(start, start + 5)])  # pytype: disable=wrong-arg-types
+      return await asyncio.gather(*[af(i) for i in range(start, start + 5)])
 
     start = time.perf_counter()
     with multiprocessing.pool.ThreadPool(10) as pool:
@@ -362,7 +362,7 @@ class UtilsTest(parameterized.TestCase):
     class FailOnFirstNCalls:
       n: int = 0
 
-      @utils.with_retry(  # pytype: disable=wrong-arg-types
+      @utils.with_retry(
           max_retries=max_retries,
           initial_base_delay=initial_base_delay,
           max_base_delay=max_base_delay,
@@ -433,7 +433,7 @@ class UtilsTest(parameterized.TestCase):
     class FailOnFirstNCalls:
       n: int = 0
 
-      @utils.with_retry(  # pytype: disable=wrong-arg-types
+      @utils.with_retry(
           max_retries=max_retries,
           initial_base_delay=initial_base_delay,
           max_base_delay=max_base_delay,

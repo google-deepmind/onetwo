@@ -39,11 +39,10 @@ _Args = ParamSpec('_Args')
 _ParamType = ParamSpec('_ParamType')
 _ReturnType = TypeVar('_ReturnType')
 
-_FunctionToDecorate: TypeAlias = (
-    Callable[_ParamType, _ReturnType]
-    | Callable[_ParamType, Awaitable[_ReturnType]]
-    | Callable[_ParamType, AsyncIterator[_ReturnType]]
-)
+_FunctionToDecorate: TypeAlias = Callable[
+    ...,
+    _ReturnType | Awaitable[_ReturnType] | AsyncIterator[_ReturnType],
+]
 
 # We expose the following functions here rather than in `executing.py`, as they
 # are used in `batching.py`, which would create a circular dependency if they
@@ -273,9 +272,9 @@ class RuntimeParameter(Generic[_T]):
       return self.parameter  # pytype: disable=bad-return-type
 
 
-def rate_limit_function(
+def rate_limit_function[F: Callable[..., Any]](
     qps: float | None,
-) -> Callable[[Callable[_Args, _T]], Callable[_Args, _T]]:
+) -> Callable[[F], F]:
   """Decorator that limits the frequency at which the function can be called.
 
   This is thread-safe in the sense that if the wrapped function is called from
