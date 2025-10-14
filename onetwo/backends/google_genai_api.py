@@ -293,7 +293,7 @@ class GoogleGenAIAPI(
     if register_embed:
       llm.embed.configure(self.embed)
     if register_generate:
-      llm.chat.configure(  # pytype: disable=wrong-arg-types
+      llm.chat.configure(
           self.chat,
           formatter=formatting.FormatterName.API,
           temperature=self.temperature,
@@ -466,7 +466,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )  # pytype: disable=wrong-arg-types
+  )
   def _generate_text(
       self,
       prompt: str | content_lib.ChunkList,
@@ -533,7 +533,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )  # pytype: disable=wrong-arg-types
+  )
   def _chat_via_api(
       self,
       messages: Sequence[content_lib.Message],
@@ -625,7 +625,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )  # pytype: disable=wrong-arg-types
+  )
   def _embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
     """Inner method for llm.embed."""
     self._counters['embed'] += 1
@@ -675,7 +675,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )  # pytype: disable=wrong-arg-types
+  )
   def _count_tokens(self, content: str | content_lib.ChunkList) -> int:
     """Inner method for llm.count_tokens."""
     self._counters['count_tokens'] += 1
@@ -717,7 +717,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
-  )  # pytype: disable=wrong-arg-types
+  )
   def _tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
     """Inner method for llm.tokenize."""
     self._counters['tokenize'] += 1

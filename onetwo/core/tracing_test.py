@@ -609,7 +609,7 @@ class TracingTest(parameterized.TestCase):
         return x + 1
 
     c1 = C('test1')
-    _, execution_result = tracing.run(functools.partial(c1.f, 1))  # pytype: disable=wrong-arg-types
+    _, execution_result = tracing.run(functools.partial(c1.f, 1))
 
     with self.subTest('correct_stage_name_first_time'):
       self.assertEqual(
@@ -617,7 +617,7 @@ class TracingTest(parameterized.TestCase):
       )
 
     c2 = C('test2')
-    _, execution_result = tracing.run(functools.partial(c2.f, 1))  # pytype: disable=wrong-arg-types
+    _, execution_result = tracing.run(functools.partial(c2.f, 1))
 
     with self.subTest('correct_stage_name_second_time'):
       self.assertEqual(

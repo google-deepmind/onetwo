@@ -198,7 +198,7 @@ class OpenAIAPI(
       formatter = formatting.FormatterName.DEFAULT
     else:
       formatter = formatting.FormatterName.API
-    llm.chat.configure(self.chat, formatter=formatter)  # pytype: disable=wrong-arg-types
+    llm.chat.configure(self.chat, formatter=formatter)
     llm.instruct.configure(llm.default_instruct, formatter=formatter)
 
   def __post_init__(self) -> None:

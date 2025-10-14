@@ -217,7 +217,7 @@ class GeminiAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(  # pytype: disable=wrong-arg-types
+    llm.chat.configure(
         self.chat,
         formatter=formatting.FormatterName.API,
         temperature=self.temperature,
@@ -402,7 +402,7 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   def generate_text(
       self,
       prompt: str | _ChunkList,

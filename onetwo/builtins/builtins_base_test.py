@@ -254,7 +254,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
     with self.subTest('accepts_wrong_return_type'):
       # Note that the return type is not checked at decoration time.
       # We disable the static type check.
-      fn.configure(incorrect_return)  # pytype: disable=wrong-arg-types
+      fn.configure(incorrect_return)
       # This should work even though the return type did not match
       # the original signature.
       self.assertExecutableResultEqual(fn(1, 1), '2')  # pytype: disable=wrong-arg-count

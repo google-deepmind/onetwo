@@ -210,7 +210,7 @@ class VertexAIAPI(
         top_k=self.top_k,
     )
     llm.embed.configure(self.embed)
-    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)  # pytype: disable=wrong-arg-types
+    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
     llm.count_tokens.configure(self.count_tokens)
 
   def __post_init__(self) -> None:
