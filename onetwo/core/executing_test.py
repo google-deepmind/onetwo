@@ -1401,6 +1401,48 @@ class ExecutionTest(parameterized.TestCase):
     with self.subTest('should_produce_correct_final_result'):
       self.assertEqual(3, final_result)
 
+  def test_max_parallel_executions(self):
+    # Check default value if not set.
+    self.assertEqual(executing._default_max_parallel_executions.get(), 100)
+
+    with executing.max_parallel_executions(10):
+      self.assertEqual(executing._default_max_parallel_executions.get(), 10)
+      with executing.max_parallel_executions(5):
+        self.assertEqual(executing._default_max_parallel_executions.get(), 5)
+      self.assertEqual(executing._default_max_parallel_executions.get(), 10)
+    self.assertEqual(executing._default_max_parallel_executions.get(), 100)
+
+    # Check that exceptions don't prevent resetting the value.
+    try:
+      with executing.max_parallel_executions(20):
+        self.assertEqual(executing._default_max_parallel_executions.get(), 20)
+        raise ValueError('test')
+    except ValueError:
+      pass
+    self.assertEqual(executing._default_max_parallel_executions.get(), 100)
+
+  def test_max_parallel_executions_with_parallel_executable(self):
+    # Create an iterator of executables, not a list.
+    executables_iterator = (process(f'req_{i}') for i in range(20))
+
+    # Test with chunk_size=None and an iterator input: should use context value.
+    test_chunk_size = 5
+    with executing.max_parallel_executions(test_chunk_size):
+      pe = executing.par_iter(executables_iterator, chunk_size=None)
+      self.assertEqual(pe.chunk_size, test_chunk_size)
+
+    # Test with an explicit chunk_size: should override the context value.
+    with executing.max_parallel_executions(10):
+      executables_iterator_2 = (process(f'req_{i}') for i in range(20))
+      pe2 = executing.par_iter(executables_iterator_2, chunk_size=8)
+      self.assertEqual(pe2.chunk_size, 8)
+
+    # Test with a list input: should default to list length, ignoring context.
+    executables_list = [process(f'req_{i}') for i in range(15)]
+    with executing.max_parallel_executions(10):
+      pe3 = executing.par_iter(executables_list, chunk_size=None)
+      self.assertEqual(pe3.chunk_size, 15)
+
 
 if __name__ == '__main__':
   absltest.main()

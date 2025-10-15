@@ -22,6 +22,7 @@ import abc
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
 import contextlib
+import contextvars
 import copy
 import dataclasses
 import functools
@@ -29,7 +30,7 @@ import inspect
 import io
 import itertools
 import traceback
-from typing import Any, Final, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
+from typing import Any, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from onetwo.core import batching
 from onetwo.core import executing_impl
@@ -51,7 +52,32 @@ ExecutableWithPostprocessing = executing_impl.ExecutableWithPostprocessing
 Update = updating.Update
 ListUpdate = updating.ListUpdate
 
-_DEFAULT_CHUNK_SIZE: Final[int] = 100
+# The default number of parallel executions to use when not overridden by the
+# caller.
+_default_max_parallel_executions: contextvars.ContextVar[int] = (
+    contextvars.ContextVar(
+        'default_max_parallel_executions',
+        default=100,
+    )
+)
+
+
+@contextlib.contextmanager
+def max_parallel_executions(max_parallel: int):
+  """Context manager to temporarily set the default max parallel executions.
+
+  Args:
+    max_parallel: The default maximum number of parallel executions to use
+      within this context. It can still be overridden by the caller.
+
+  Yields:
+    None.
+  """
+  token = _default_max_parallel_executions.set(max_parallel)
+  try:
+    yield
+  finally:
+    _default_max_parallel_executions.reset(token)
 
 
 @dataclasses.dataclass
@@ -130,6 +156,7 @@ def _safe_stream(
         enable_tracing=enable_tracing,
         tracer=tracer,
     )
+
     def iterator():
       if enable_tracing:
         yield Update(result[0]), result[1]
@@ -170,7 +197,8 @@ def safe_stream(
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
     tracer: tracing.Tracer | None = None,
-) -> contextlib.AbstractContextManager[Iterator[Update[Result]]]: ...
+) -> contextlib.AbstractContextManager[Iterator[Update[Result]]]:
+  ...
 
 
 @overload
@@ -242,9 +270,9 @@ def safe_stream(
       limitation of the iteration depth.
     enable_batching: If False, all requests to batched functions/methods are
       sent directly; if True, the batching queues are used.
-    enable_tracing: If False, directly returns the result from the coroutine;
-      if True, returns both the coroutine result and an ExecutionResult tracing
-      the whole execution.
+    enable_tracing: If False, directly returns the result from the coroutine; if
+      True, returns both the coroutine result and an ExecutionResult tracing the
+      whole execution.
     tracer: Optional custom tracer to use for recording the execution.
 
   Returns:
@@ -312,7 +340,8 @@ def stream(
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
     tracer: tracing.Tracer | None = None,
-) -> Iterator[Update[Result]]: ...
+) -> Iterator[Update[Result]]:
+  ...
 
 
 @overload
@@ -323,7 +352,8 @@ def stream(
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
     tracer: tracing.Tracer | None = None,
-) -> Iterator[tuple[Update[Result], results_lib.ExecutionResult]]: ...
+) -> Iterator[tuple[Update[Result], results_lib.ExecutionResult]]:
+  ...
 
 
 # The last overload is a fallback in case the caller provides a regular bool:
@@ -335,7 +365,8 @@ def stream(
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
-) -> Iterator[batching.ResultType[Update[Result]]]: ...
+) -> Iterator[batching.ResultType[Update[Result]]]:
+  ...
 
 
 def stream(
@@ -379,8 +410,8 @@ def stream(
       will be in one step, but if depth is n the iterative execution of
       subexecutables will be done with depth n-1. If set to -1, this means no
       limitation of the iteration depth.
-    enable_batching: If False, all calls to batched functions/methods are
-      sent directly, if True, the batching queues are used.
+    enable_batching: If False, all calls to batched functions/methods are sent
+      directly, if True, the batching queues are used.
     enable_tracing: If False, directly returns the result from the coroutine,
       and if True returns both the coroutine result and an ExecutionResult
       tracing the whole execution.
@@ -412,7 +443,8 @@ def stream_with_callback(
     enable_batching: bool = True,
     enable_tracing: Literal[False] = False,
     tracer: tracing.Tracer | None = None,
-) -> Result: ...
+) -> Result:
+  ...
 
 
 @overload
@@ -424,7 +456,8 @@ def stream_with_callback(
     enable_batching: bool = True,
     enable_tracing: Literal[True] = True,
     tracer: tracing.Tracer | None = None,
-) -> tuple[Result, results_lib.ExecutionResult]: ...
+) -> tuple[Result, results_lib.ExecutionResult]:
+  ...
 
 
 # The last overload is a fallback in case the caller provides a regular bool:
@@ -437,7 +470,8 @@ def stream_with_callback(
     enable_batching: bool = True,
     enable_tracing: bool = False,
     tracer: tracing.Tracer | None = None,
-) -> batching.ResultType[Result]: ...
+) -> batching.ResultType[Result]:
+  ...
 
 
 def stream_with_callback(
@@ -455,18 +489,18 @@ def stream_with_callback(
 
   Args:
     executable: Executable to stream.
-    callback: Function to call when a new result/update is available.
-      At each step, the callback is given the yielded value of the executable
-      if enable_tracing=False, and a pair (yielded_value, execution_result) if
-      enable_tracing=True.
-      The yielded value will be possibly wrapped into an Update.
+    callback: Function to call when a new result/update is available. At each
+      step, the callback is given the yielded value of the executable if
+      enable_tracing=False, and a pair (yielded_value, execution_result) if
+      enable_tracing=True. The yielded value will be possibly wrapped into an
+      Update.
     iteration_depth: When doing recursive calls to other executables, they can
       be executed in one step or iteratively, if the depth is 0 the execution
       will be in one step, but if depth is n the iterative execution of
       subexecutables will be done with depth n-1. If set to -1, this means no
       limitation of the iteration depth.
-    enable_batching: If False, all calls to batched functions/methods are
-      sent directly, if True, the batching queues are used.
+    enable_batching: If False, all calls to batched functions/methods are sent
+      directly, if True, the batching queues are used.
     enable_tracing: If False, directly returns the result from the coroutine,
       and if True returns both the coroutine result and an ExecutionResult
       tracing the whole execution.
@@ -583,11 +617,11 @@ def make_executable(
       method which will just return that value without executing it. This can be
       useful when the execution of this return value should be done separately.
     iterate_argument: This is the name of one of the arguments of the function.
-      When we are in iterating mode we will yield the updates from this
-      argument (either yielding the argument itself if it should not be executed
-      or yielding the updates from iterating through this argument). This
-      enables some chaining of iterable functions whereby we get the iterates
-      from one function after the other in a chain `f1(f2(f3()))`.
+      When we are in iterating mode we will yield the updates from this argument
+      (either yielding the argument itself if it should not be executed or
+      yielding the updates from iterating through this argument). This enables
+      some chaining of iterable functions whereby we get the iterates from one
+      function after the other in a chain `f1(f2(f3()))`.
 
   Returns:
     A function with the same signature as the decorated one, but where each
@@ -650,6 +684,7 @@ def make_executable(
     # using `make_executable(class_instance.some_method)`.
     unbound_function = function.__func__
     obj = function.__self__
+
     @functools.wraps(function)
     def inner_bound(*args: _Args.args, **kwargs: _Args.kwargs):
       nonlocal non_executed_args, non_copied_args
@@ -662,6 +697,7 @@ def make_executable(
           execute_result=execute_result,
           iterate_argument=iterate_argument,
       )
+
     utils.set_decorated_with_make_executable(inner_bound)
     return inner_bound
   else:
@@ -708,12 +744,12 @@ def par_iter(
     chunk_size: Size of the chunks of executables to be executed in parallel. If
       None, the default depends on whether the input is a list or an iterator.
       Indeed, we don't want to materialize the whole list if it is provided as
-      an iterator, so we use a default of _DEFAULT_CHUNK_SIZE. However, if the
-      input is already fully materialized, we use as chunk_size the length of
-      the list. Note that there are specific cases when one may want to have
-      smaller chunks than the size of the list, e.g. to force more interleaving
-      of various steps in a big pipeline, so the value can be provided
-      explicitly.
+      an iterator, so we use a default of `default_max_parallel_executions`.
+      However, if the input is already fully materialized, we use as chunk_size
+      the length of the list. Note that there are specific cases when one may
+      want to have smaller chunks than the size of the list, e.g. to force more
+      interleaving of various steps in a big pipeline, so the value can be
+      provided explicitly.
     return_exceptions: If False, any exception will stop the processing and no
       result will be returned. If True, exceptions produced by individual
       executables will be used as their returned result, so that the processing
@@ -736,10 +772,10 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
     args: *args from the wrapped function when it was called.
     kwargs: *kwargs from the wrapped function when it was called.
     non_executed_args: Sequence of names of those parameters that should be
-      passed to the wrapped method without attempting to execute them
-      (indeed, if some of the parameters are of type Executable, and not
-      mentioned in this list, the default behaviour is to execute them and
-      pass the resulting value to the wrapped method).
+      passed to the wrapped method without attempting to execute them (indeed,
+      if some of the parameters are of type Executable, and not mentioned in
+      this list, the default behaviour is to execute them and pass the resulting
+      value to the wrapped method).
     non_copied_args: Strings containing the names of the parameters of the
       decorated function that we do not want to have deep-copied when the
       resulting Executable is deep-copied. For the parameters in this list,
@@ -752,19 +788,18 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       not be returned as is but will be inspected. If it is an Executable, then
       it will be executed (either through await or async for). So if the
       decorated function is called with async for and it returns an Executable
-      the iterations will iterate through this Executable directly.
-      If False, the returned value from the wrapped function is passed as is.
-      Note that even when execute_result is set to True, there is a way to
-      avoid the execution of the returned value at runtime by calling the
-      `pre_execute()` method which will just return that value without executing
-      it. This can be useful when the execution of this return value should be
-      done separately.
+      the iterations will iterate through this Executable directly. If False,
+      the returned value from the wrapped function is passed as is. Note that
+      even when execute_result is set to True, there is a way to avoid the
+      execution of the returned value at runtime by calling the `pre_execute()`
+      method which will just return that value without executing it. This can be
+      useful when the execution of this return value should be done separately.
     iterate_argument: This is the name of one of the arguments of the function.
-      When we are in iterating mode we will yield the updates from this
-      argument (either yielding the argument itself if it should not be executed
-      or yielding the updates from iterating through this argument). This
-      enables some chaining of iterable functions whereby we get the iterates
-      from one function after the other in a chain `f1(f2(f3()))`.
+      When we are in iterating mode we will yield the updates from this argument
+      (either yielding the argument itself if it should not be executed or
+      yielding the updates from iterating through this argument). This enables
+      some chaining of iterable functions whereby we get the iterates from one
+      function after the other in a chain `f1(f2(f3()))`.
   """
 
   def __init__(
@@ -875,7 +910,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       execute_iterate_argument: If True, the argument marked as
         `iterate_argument` will be executed.
     """
-    while (await self._process_arguments_one_pass(execute_iterate_argument)):
+    while await self._process_arguments_one_pass(execute_iterate_argument):
       pass
 
   async def _process_arguments_one_pass(
@@ -1052,11 +1087,11 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
     through it and pass on the results.
 
     Args:
-      iteration_depth: When doing recursive calls to other executables, they
-        can be executed in one step or iteratively, if the depth is 0 the
-        execution will be in one step, but if depth is n the iterative
-        execution of subexecutables will be done with depth n-1.
-        If set to -1, this means no limitation of the iteration depth.
+      iteration_depth: When doing recursive calls to other executables, they can
+        be executed in one step or iteratively, if the depth is 0 the execution
+        will be in one step, but if depth is n the iterative execution of
+        subexecutables will be done with depth n-1. If set to -1, this means no
+        limitation of the iteration depth.
 
     Yields:
       Stream of updates produced by the wrapped function.
@@ -1192,20 +1227,22 @@ class ParallelExecutable(Executable[Sequence[Any]]):
     chunk_size: Size of the chunks of executables to be executed in parallel. If
       None, the default depends on whether the input is a list or an iterator.
       Indeed, we don't want to materialize the whole list if it is provided as
-      an iterator, so we use a default of _DEFAULT_CHUNK_SIZE. However, if the
-      input is already fully materialized, we use as chunk_size the length of
-      the list. Note that there are specific cases when one may want to have
-      smaller chunks than the size of the list, e.g. to force more interleaving
-      of various steps in a big pipeline, so the value can be provided
-      explicitly.
-    return_exceptions: If False, any exception will stop the processing
-      and no result will be returned. If True, exceptions produced by individual
+      an iterator, so we use a default of `default_max_parallel_executions`.
+      However, if the input is already fully materialized, we use as chunk_size
+      the length of the list. Note that there are specific cases when one may
+      want to have smaller chunks than the size of the list, e.g. to force more
+      interleaving of various steps in a big pipeline, so the value can be
+      provided explicitly.
+    return_exceptions: If False, any exception will stop the processing and no
+      result will be returned. If True, exceptions produced by individual
       executables will be used as their returned result, so that the processing
       will not be interrupted.
   """
 
   def __init__(
-      self, iterable: Iterable[Executable[Any]], chunk_size: int | None = None,
+      self,
+      iterable: Iterable[Executable[Any]],
+      chunk_size: int | None = None,
       return_exceptions: bool = False,
   ):
     if chunk_size is None:
@@ -1214,7 +1251,7 @@ class ParallelExecutable(Executable[Sequence[Any]]):
         # the whole list as a single chunk.
         chunk_size = len(iterable)
       else:
-        chunk_size = _DEFAULT_CHUNK_SIZE
+        chunk_size = _default_max_parallel_executions.get()
     self.chunk_size = chunk_size
     # We actually make the input an iterable so that we can chunk it.
     self.iterable = iter(iterable)
