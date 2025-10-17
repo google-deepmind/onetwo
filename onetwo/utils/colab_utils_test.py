@@ -204,7 +204,7 @@ class CachedBackendsTest(parameterized.TestCase):
       self.assertIsInstance(cache_handler1, caching.SimpleFunctionCache)
       cache_handler1._calls_in_progress.clear()  # pylint: disable=protected-access
       self.assertSequenceEqual(list(expected_cache_data.values_by_key.values()), list(cache_handler1._cache_data.values_by_key.values()))  # pylint: disable=protected-access
-      self.assertEqual(2, colab_utils._get_cache_size(backend1))  # pylint: disable=protected-access
+      self.assertEqual(2, cache_handler1.get_key_count())  # pylint: disable=protected-access
 
   @parameterized.named_parameters(
       ('base_case', 'search_engine', 'search_engine.json'),

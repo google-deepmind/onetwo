@@ -129,7 +129,8 @@ class GoogleGenaiApiTest(
 
   def test_generate_text(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(llm.generate_text(prompt='Something1'))
     res2 = executing.run(llm.generate_text(prompt='Something2'))
@@ -184,7 +185,8 @@ class GoogleGenaiApiTest(
     backend = _get_and_register_backend(
         generate_model_name=google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api
     )
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(llm.generate_text(prompt='Something1'))
     res2 = executing.run(llm.generate_text(prompt='Something2'))
@@ -205,7 +207,8 @@ class GoogleGenaiApiTest(
 
   def test_generate_text_cached(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(llm.generate_text(prompt='Something'))
     res2 = executing.run(llm.generate_text(prompt='Something'))
@@ -224,7 +227,8 @@ class GoogleGenaiApiTest(
 
   def test_repeat_generate_text(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(
         executing.par_iter(
@@ -249,7 +253,8 @@ class GoogleGenaiApiTest(
 
   def test_repeat_generate_text_cached(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(
         executing.par_iter(
@@ -290,7 +295,8 @@ class GoogleGenaiApiTest(
 
   def test_batched_generate_text(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(
         executing.par_iter([
@@ -322,7 +328,8 @@ class GoogleGenaiApiTest(
 
   def test_identical_batched_generate_text(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     res = executing.run(
         executing.par_iter([
@@ -642,7 +649,8 @@ class GoogleGenaiApiTest(
 
   def test_count_tokens_string(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     _ = executing.run(llm.count_tokens(content='Something'))
 
@@ -662,7 +670,8 @@ class GoogleGenaiApiTest(
 
   def test_count_tokens_chunk_list(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     _ = executing.run(
         llm.count_tokens(
@@ -688,7 +697,8 @@ class GoogleGenaiApiTest(
 
   def test_tokenize_string(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of compute_tokens to return a constant value.
     mock_tokens = [1, 2, 3, 4, 5]
@@ -717,7 +727,8 @@ class GoogleGenaiApiTest(
 
   def test_tokenize_chunk_list(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of compute_tokens to return a constant value.
     mock_tokens = [1, 2, 3, 4, 5]
@@ -748,7 +759,8 @@ class GoogleGenaiApiTest(
 
   def test_embed_string(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of embed_content to return a constant value.
     mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
@@ -777,7 +789,8 @@ class GoogleGenaiApiTest(
 
   def test_embed_chunk_list(self):
     backend = _get_and_register_backend()
-    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of embed_content to return a constant value.
     mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]

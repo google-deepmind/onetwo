@@ -19,7 +19,22 @@ import dataclasses
 
 @dataclasses.dataclass
 class Backend:
-  """Interface for a class that registers its method."""
+  """Interface for a class that registers its method.
+
+  Attributes:
+    name: An optional name for this backend instance.
+  """
+
+  # A name for this backend instance.
+  name: str = dataclasses.field(
+      # We set `init=False` to prevent `name` from becoming an `__init__`
+      # argument with a default value. If `name` were an `__init__`
+      # argument, subclasses would not be able to define positional
+      # arguments, because Python does not allow positional arguments to
+      # follow arguments with default values.
+      init=False,
+      default='',
+  )
 
   # Name under which the methods are registered by default.
   _default_name: str = dataclasses.field(
