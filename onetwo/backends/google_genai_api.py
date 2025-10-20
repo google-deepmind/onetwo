@@ -23,7 +23,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import pprint
-from typing import Any, Final, TypeAlias, Union
+from typing import Any, Final, TypeAlias, TypeVar, Union
 
 from absl import logging
 from google import genai
@@ -45,6 +45,8 @@ from PIL import Image
 
 
 
+
+_T = TypeVar('_T')
 
 _ChunkList: TypeAlias = content_lib.ChunkList
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
@@ -243,6 +245,9 @@ class GoogleGenAIAPI(
   # Additional optional parameters for use during backend registration
   generate_text_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   chat_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  generate_object_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict
+  )
 
   # Attributes not set by constructor.
   _genai_client: genai.Client = dataclasses.field(init=False)
@@ -289,6 +294,16 @@ class GoogleGenAIAPI(
           top_k=self.top_k,
           **self.generate_text_kwargs,
       )
+      llm.generate_object.configure(
+          self.generate_object,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+          top_k=self.top_k,
+          **self.generate_object_kwargs,
+      )
+
     if register_embed:
       llm.embed.configure(self.embed)
     if register_generate:
@@ -501,6 +516,94 @@ class GoogleGenAIAPI(
         healing_option=healing_option,
     )
     return (reply, {'text': raw}) if include_details else reply
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.generate_object')
+  @caching.cache_method(  # Cache this method.
+      name='generate_object',
+      is_sampled=True,  # Two calls with same args may return different replies.
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
+  )
+  async def generate_object(
+      self,
+      prompt: str | _ChunkList,
+      cls: type[_T],
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,
+  ) -> _T:
+    """Generates a structured object from the model based on the provided class.
+
+    Suitable for registering as implementation of builtins.llm.generate_object.
+
+    This method leverages the Google GenAI API's structured output feature,
+    constraining the model to return JSON that can be parsed into an instance
+    of the specified class.
+
+    Args:
+      prompt: The input prompt to the model.
+      cls: The target class or type for the structured output. The Google GenAI
+        API supports a specific set of types for schema definition.
+        Supported Top-Level Types:
+        (1) Pydantic `BaseModel` subclasses: This is the most flexible and
+            recommended approach for defining complex structured objects.
+        (2) Native Python scalar types: `str`, `int`, `float`, `bool`.
+        (3) Homogeneous lists of supported types: e.g., `list[MyPydanticModel]`,
+            `list[str]`, `list[int]`. Use the native `list` type, not
+            `typing.List`.
+        Unsupported Top-Level Types (and workarounds):
+        (1) Standard Python dataclasses (@dataclasses.dataclass) are NOT
+          directly supported. You can wrap your stdlib dataclass with
+          pydantic.dataclasses.dataclass and pass the resulting type as the
+          `cls` argument. The method will then return an instance of this
+          Pydantic-wrapped dataclass.
+        (2) Complex nested structures within generics (e.g., `tuple[int, str]`,
+          `dict[str, int]`) are NOT supported. To achieve a dictionary-like
+          structure, use a list of Pydantic models, where each model represents
+          a key-value pair. For instance,
+          `class KeyValue(pydantic.BaseModel): key: str; value: int`.
+        Consult the official Google AI Gemini API documentation
+        https://ai.google.dev/gemini-api/docs/structured-output#python for the
+        most up-to-date information on supported types for structured output.
+      temperature: See builtins.llm.generate_text.
+      max_tokens: See builtins.llm.generate_text.
+      stop: See builtins.llm.generate_text.
+      top_k: See builtins.llm.generate_text.
+      top_p: See builtins.llm.generate_text.
+      healing_option: Option for automatic prompt healing.
+      **kwargs: Additional keyword arguments to pass to the underlying
+        generate_content call.
+
+    Returns:
+      An instance of the type specified by the 'cls' argument, parsed
+      from the model's JSON output via the `response.parsed` property.
+    """
+    self._counters['generate_object'] += 1
+
+    kwargs['response_mime_type'] = 'application/json'
+    kwargs['response_schema'] = cls
+
+    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=prompt,
+        healing_option=healing_option,
+    )
+
+    response = self._generate_content(  # pytype: disable=wrong-keyword-args
+        prompt=healed_prompt,
+        samples=1,
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs,
+    )
+    return response.parsed
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.chat')

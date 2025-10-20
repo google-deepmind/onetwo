@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Sequence
+import dataclasses
 import json
 import os
 import pprint
@@ -31,8 +32,11 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
 from PIL import Image
+import pydantic
+import pydantic.dataclasses as pydantic_dataclasses
 
 
+pydantic_dataclass = pydantic_dataclasses.dataclass
 
 
 
@@ -108,6 +112,7 @@ def main(argv: Sequence[str]) -> None:
       thinking_budget=0,
   )
   llm.generate_text.update(thinking_config=thinking_config)
+  llm.generate_object.update(thinking_config=thinking_config)
   llm.chat.update(thinking_config=thinking_config)
 
   if _LOAD_CACHE.value:
@@ -517,6 +522,139 @@ def main(argv: Sequence[str]) -> None:
   if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
     success = False
     print('Returned value is not a list of floats:', res)
+
+  print('16. Check llm.generate_object with native types. (int)')
+  prompt = 'What is the height of the Eiffel Tower? (in m)'
+  result = executing.run(
+      llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value:', result)
+  if not isinstance(result, int):
+    success = False
+    print(f'Result is not of type int: {type(result)}')
+
+  class CityInfo(pydantic.BaseModel):
+    city_name: str
+    country: str
+    population: int
+    landmark: str | None = None
+
+  print('17. Check llm.generate_object with Pydantic model.')
+  prompt = 'Provide information about the capital of France.'
+  result = executing.run(
+      llm.generate_object(prompt=prompt, cls=CityInfo)  # pytype: disable=wrong-keyword-args
+  )
+
+  if _PRINT_DEBUG.value:
+    print('Returned value:')
+    pprint.pprint(result)
+
+  if not isinstance(result, CityInfo):
+    success = False
+    print(f'Result is not of type CityInfo: {type(result)}')
+  if not result.city_name:
+    success = False
+    print('city_name is missing')
+  if not result.country:
+    success = False
+    print('country is missing')
+  if result.population <= 0:
+    success = False
+    print('population should be positive')
+
+  class WordCount(pydantic.BaseModel):
+    word: str
+    count: int
+
+  print('18. Check llm.generate_object for dict-like data.')
+  prompt = (
+      'Return a breakdown of the words and their frequencies in the following'
+      ' sentence: "the quick brown fox jumps over the lazy dog dog". '
+      'Provide the output as a list of word-count objects.'
+  )
+  result = executing.run(
+      llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
+  )
+
+  if _PRINT_DEBUG.value:
+    print('Returned value:')
+    pprint.pprint(result)
+
+  expected_dict = {
+      'the': 2,
+      'quick': 1,
+      'brown': 1,
+      'fox': 1,
+      'jumps': 1,
+      'over': 1,
+      'lazy': 1,
+      'dog': 2,
+  }
+
+  if not isinstance(result, list):
+    success = False
+    print(f'Result is not of type list: {type(result)}')
+  elif not all(isinstance(item, WordCount) for item in result):
+    success = False
+    print(f'Result items are not all WordCount objects: {result}')
+  else:
+    result_dict = {item.word: item.count for item in result}
+    if result_dict != expected_dict:
+      success = False
+      print(
+          f'Result dict {result_dict} does not match expected {expected_dict}'
+      )
+
+  @dataclasses.dataclass
+  class StandardRecipe:
+    recipe_name: str
+    description: str
+    prep_time_minutes: int
+    ingredients: list[str]
+
+  pydantic_recipe = pydantic_dataclass(StandardRecipe)
+
+  print(
+      '19. Check llm.generate_object with a Pydantic-wrapped standard'
+      ' dataclass.'
+  )
+  prompt = """Give me a simple recipe for a classic chocolate chip cookie,
+  including a short description, prep time in minutes, and a list of
+  ingredients."""
+  result = executing.run(
+      llm.generate_object(prompt=prompt, cls=pydantic_recipe)  # pytype: disable=wrong-keyword-args
+  )
+
+  if _PRINT_DEBUG.value:
+    print('Returned value:')
+    pprint.pprint(result)
+
+  if not isinstance(result, StandardRecipe):
+    success = False
+    print(f'Result is not an instance of StandardRecipe: {type(result)}')
+  elif not isinstance(result, pydantic_recipe):
+    success = False
+    print(f'Result is not an instance of PydanticRecipe: {type(result)}')
+  else:
+    if not result.recipe_name:
+      success = False
+      print('recipe_name is missing')
+    if not result.description:
+      success = False
+      print('description is missing')
+    if result.prep_time_minutes <= 0:
+      success = False
+      print('prep_time_minutes should be positive')
+    if not isinstance(result.ingredients, list) or not result.ingredients:
+      success = False
+      print('ingredients should be a non-empty list')
+    elif not all(isinstance(i, str) for i in result.ingredients):
+      success = False
+      print('ingredients should be a list of strings')
+
+  if _SAVE_CACHE.value:
+    cache.save(overwrite=True)
 
   print('PASS' if success else 'FAIL')
 

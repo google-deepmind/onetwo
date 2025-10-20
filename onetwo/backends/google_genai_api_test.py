@@ -30,6 +30,7 @@ from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import sampling
+import pydantic
 
 # For escaping the `pytype: disable=wrong-keyword-args`
 llm: Any = llm_lib
@@ -365,6 +366,66 @@ class GoogleGenaiApiTest(
 
     self.assertLen(results, 3)
     self.assertListEqual(list(results), ['text', 'text', 'text'])
+
+  def test_generate_object_pydantic(self):
+    backend = _get_and_register_backend()
+
+    class Recipe(pydantic.BaseModel):
+      recipe_name: str
+      ingredients: list[str]
+
+    expected_objects = [
+        Recipe(
+            recipe_name='Chocolate Chip Cookies',
+            ingredients=['1 cup butter', '3/4 cup sugar'],
+        ),
+        Recipe(
+            recipe_name='Sugar Cookies',
+            ingredients=['1 cup sugar', '1/2 cup butter'],
+        ),
+    ]
+
+    mock_response = mock.create_autospec(
+        genai_types.GenerateContentResponse, instance=True
+    )
+    mock_response.candidates = [mock.MagicMock()]
+
+    parsed_property_mock = mock.PropertyMock(return_value=expected_objects)
+    type(mock_response).parsed = parsed_property_mock
+
+    self._mock_genai_client.models.generate_content.return_value = mock_response
+
+    prompt = 'List some cookie recipes'
+    result = executing.run(llm.generate_object(prompt=prompt, cls=list[Recipe]))
+
+    with self.subTest('ResultsStructuredCorrectly'):
+      self.assertEqual(result, expected_objects)
+      self.assertIsInstance(result, list)
+      self.assertLen(result, 2)
+      if result:
+        self.assertIsInstance(result[0], Recipe)
+        self.assertEqual(result[0].recipe_name, 'Chocolate Chip Cookies')
+        self.assertEqual(
+            result[0].ingredients, ['1 cup butter', '3/4 cup sugar']
+        )
+
+    with self.subTest('GenerateContentCall'):
+      self._mock_genai_client.models.generate_content.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
+      self.assertEqual(
+          mock_kwargs['config'].response_mime_type, 'application/json'
+      )
+      self.assertEqual(mock_kwargs['config'].response_schema, list[Recipe])
+      self.assertEqual(mock_kwargs['contents'][0].text, prompt)
+
+    with self.subTest('Counters'):
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_object=1),
+      )
+
+    with self.subTest('ParsedProperty'):
+      parsed_property_mock.assert_called_once()
 
   def test_chat(self):
     backend = _get_and_register_backend()
