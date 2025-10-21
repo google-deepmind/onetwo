@@ -24,6 +24,7 @@ from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
+import pydantic
 
 
 
@@ -58,7 +59,7 @@ def main(argv: Sequence[str]) -> None:
   api_key = _API_KEY.value
 
   # We test both new "chat api" model and "completions api" model.
-  for model_name in ['gpt-3.5-turbo', 'gpt-3.5-turbo-instruct']:
+  for model_name in ['gpt-3.5-turbo', 'gpt-3.5-turbo-instruct', 'gpt-4o-mini']:
     print('*** Running tests for %s. ***' % model_name)
     fname = os.path.join(
         _CACHE_DIR.value,
@@ -167,7 +168,7 @@ def main(argv: Sequence[str]) -> None:
             include_details=True,
         )
     )
-    if (res[1]['score'] == 0.0):
+    if res[1]['score'] == 0.0:
       success = False
       print('FAILURE: score is 0.0.')
     if _PRINT_DEBUG.value:
@@ -279,6 +280,25 @@ def main(argv: Sequence[str]) -> None:
       start = time.time()
       backend.save_cache(overwrite=True)
       print('Took %.4fsec saving cache to %s.' % (time.time() - start, fname))
+
+    # Test generate_object to be used for gpt-4o-mini and later models.
+    if model_name == 'gpt-4o-mini':
+
+      class CityInfo(pydantic.BaseModel):
+        name: str
+        population: int
+
+      print('7. Generate object.')
+      prompt = """What is the capital of France?"""
+      res = executing.run(
+          llm.generate_object(  # pytype: disable=wrong-keyword-args
+              prompt=prompt,
+              cls=CityInfo,
+          )
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
 
   print('PASS' if success else 'FAIL')
 

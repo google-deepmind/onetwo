@@ -18,17 +18,22 @@ This document explains how to use the chat completion method:
 https://cookbook.openai.com/examples/how_to_format_inputs_to_chatgpt_models
 """
 
-
 from collections.abc import Mapping, Sequence
-from typing import Final, NamedTuple
+from typing import Final, NamedTuple, TypeVar
+
+import pydantic
+
 
 _DEFAULT_REPLY: Final[str] = 'Hello'
 _DEFAULT_SCORE: Final[float] = -0.1
+_T = TypeVar('_T', bound=pydantic.BaseModel)
 
 
 class OpenAIMessage(NamedTuple):
   role: str
   content: str
+  parsed: pydantic.BaseModel | None = None
+  refusal: str | None = None
 
 
 class ChatCompletionTokenLogprob(NamedTuple):
@@ -95,5 +100,57 @@ class OpenAI:
                 finish_reason='stop',
             )
             for i in range(samples)
+        ]
+    )
+
+  def parse(
+      self,
+      *,
+      model: str,
+      messages: Sequence[Mapping[str, str]],
+      response_format: type[_T],
+      **kwargs,
+  ) -> ChatCompletion:
+    """Mocks client.chat.completions.parse for structured outputs."""
+    del model, messages, kwargs
+    parsed_object = None
+    refusal_message = None
+
+    if isinstance(response_format, type) and issubclass(
+        response_format, pydantic.BaseModel
+    ):
+      try:
+        # Create a placeholder instance of the Pydantic model.
+        # model_construct() is used to avoid running validation and requiring
+        # all fields, suitable for a mock.
+        parsed_object = response_format.model_construct()
+      except Exception as e:  # pylint: disable=broad-except
+        refusal_message = f'Mock failed to construct {response_format}: {e}'
+    else:
+      refusal_message = (
+          '`response_format` must be a pydantic.BaseModel subclass for '
+          f'structured parsing, but got {response_format}.'
+      )
+
+    mock_message = OpenAIMessage(
+        role='assistant',
+        content=self._reply,
+        parsed=parsed_object,
+        refusal=refusal_message,
+    )
+    return ChatCompletion(
+        choices=[
+            Choice(
+                index=0,
+                message=mock_message,
+                logprobs=ChoiceLogProbs(
+                    content=[
+                        ChatCompletionTokenLogprob(
+                            token='a', logprob=_DEFAULT_SCORE
+                        )
+                    ]
+                ),
+                finish_reason='stop',
+            )
         ]
     )
