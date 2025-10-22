@@ -336,18 +336,15 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       *,
       cache_directory: str | None = None,
   ):
-    """Saves the caches of all the currently managed backends.
+    """Saves the caches of all managed backends that use SimpleFunctionCache.
 
     Args:
       cache_directory: If specified, then will save the caches to this
         directory. Otherwise, will save the caches to the location configured
         when the backend was created (typically under `own_cache_directory`).
     """
-    for backend_name, backend in self._backends.items():
-      if not isinstance(backend, caching.FileCacheEnabled):
-        print(f'Backend {backend_name} is not FileCacheEnabled. Not saving.')
-        continue
-      cache_filename = backend.cache_filename
+    for backend_name, cache in self._simple_function_caches():
+      cache_filename = cache.cache_filename
       if not cache_filename:
         print(f'No cache filename for backend {backend_name}. Not saving.')
         continue
@@ -355,8 +352,8 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         cache_filename = os.path.join(
             cache_directory, os.path.basename(cache_filename)
         )
-      print(f'Saving cache to {cache_filename}.')
-      backend.save_cache(cache_filename=cache_filename, overwrite=True)
+      print(f'Saving cache for {backend_name} to {cache_filename}.')
+      cache.save(cache_filename=cache_filename, overwrite=True)
 
   def print_cache_summary(self):
     """Prints a summary of the caches of all the currently managed backends."""

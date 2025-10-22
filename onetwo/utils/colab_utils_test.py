@@ -15,6 +15,7 @@
 import asyncio
 import collections
 import dataclasses
+import itertools
 import os
 
 from absl.testing import absltest
@@ -365,6 +366,110 @@ class CachedBackendsTest(parameterized.TestCase):
     # back to it.
     with self.subTest('user1_2nd_call_for_arg3_should_hit_additional_cache'):
       self.assertEqual('b', asyncio.run(backend1.get_value('arg3')))
+
+  def test_save_caches_isolated(self):
+    own_cache_dir = self.create_tempdir()
+    other_cache_dir = self.create_tempdir()
+    cached_backends = colab_utils.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path
+    )
+    backend = TestBackend(
+        cache_filename=cached_backends.get_cache_path('test_backend'),
+        return_value='test_value',
+    )
+    cached_backends['test_backend'] = backend
+
+    # Populate the cache with some initial values.
+    _ = asyncio.run(backend.get_value('arg1'))
+    _ = asyncio.run(backend.get_value('arg2'))
+
+    with self.subTest('to_own_directory'):
+      # Call save_caches without directory argument.
+      cached_backends.save_caches()
+
+      # Verify cache file exists in own_cache_directory.
+      expected_cache_path = os.path.join(
+          own_cache_dir.full_path, 'test_backend.json'
+      )
+      self.assertTrue(os.path.exists(expected_cache_path))
+
+      # Verify contents by loading into a new cache.
+      new_cache = caching.SimpleFunctionCache(
+          cache_filename=expected_cache_path
+      )
+      new_cache.load()
+      self.assertEqual(2, new_cache.get_key_count())
+      values_by_key = (
+          new_cache._cache_data.values_by_key  # pylint: disable=protected-access
+      )
+      self.assertLen(values_by_key, 2)
+      all_values = list(itertools.chain.from_iterable(values_by_key.values()))
+      self.assertCountEqual(['test_value', 'test_value'], all_values)
+
+    with self.subTest('to_specified_directory'):
+      # Call save_caches with directory argument.
+      cached_backends.save_caches(cache_directory=other_cache_dir.full_path)
+
+      # Verify cache file exists in other_cache_dir.
+      expected_other_cache_path = os.path.join(
+          other_cache_dir.full_path, 'test_backend.json'
+      )
+      self.assertTrue(os.path.exists(expected_other_cache_path))
+
+      # Verify contents.
+      other_new_cache = caching.SimpleFunctionCache(
+          cache_filename=expected_other_cache_path
+      )
+      other_new_cache.load()
+      self.assertEqual(2, other_new_cache.get_key_count())
+      values_by_key_other = (
+          other_new_cache._cache_data.values_by_key  # pylint: disable=protected-access
+      )
+      self.assertLen(values_by_key_other, 2)
+      all_values_other = list(
+          itertools.chain.from_iterable(values_by_key_other.values())
+      )
+      self.assertCountEqual(['test_value', 'test_value'], all_values_other)
+
+  def test_save_caches_with_cache_enabled_backend(self):
+    @dataclasses.dataclass
+    class JustCacheEnabledBackend(caching.CacheEnabled, backends_base.Backend):
+      """A backend that is only CacheEnabled."""
+
+      return_value: str = 'default'
+
+      @caching.cache_method(name='get_value')
+      def get_value(self, arg: str) -> str:
+        del arg
+        return self.return_value
+
+    own_cache_dir = self.create_tempdir()
+    cached_backends = colab_utils.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path
+    )
+    backend_cache_path = os.path.join(
+        own_cache_dir.full_path, 'just_cache_enabled.json'
+    )
+    backend = JustCacheEnabledBackend(return_value='my_value')
+    backend.cache = caching.SimpleFunctionCache(
+        cache_filename=backend_cache_path
+    )
+    cached_backends['just_cache_enabled_backend'] = backend
+
+    # Populate cache.
+    _ = asyncio.run(backend.get_value('some_arg'))
+
+    cached_backends.save_caches()
+
+    self.assertTrue(os.path.exists(backend_cache_path))
+    new_cache = caching.SimpleFunctionCache(cache_filename=backend_cache_path)
+    new_cache.load()
+    self.assertEqual(1, new_cache.get_key_count())
+    values_by_key = (
+        new_cache._cache_data.values_by_key  # pylint: disable=protected-access
+    )
+    all_values = list(itertools.chain.from_iterable(values_by_key.values()))
+    self.assertCountEqual(['my_value'], all_values)
 
 
 if __name__ == '__main__':
