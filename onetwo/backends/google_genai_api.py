@@ -30,6 +30,8 @@ from google import genai
 import google.auth.credentials
 from google.genai import client
 from google.genai import types as genai_types
+import google.genai.errors as genai_errors
+import httpx
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
@@ -96,6 +98,18 @@ SAFETY_DISABLED: Final[Sequence[genai_types.SafetySetting]] = [
     ),
 ]
 
+# Common retriable HTTP status codes
+_RETRIABLE_STATUS_CODES = {
+    401,  # Unauthorized (This error can occur when the access token is in the
+    # process of being refreshed).
+    408,  # Request Timeout
+    429,  # Too Many Requests
+    500,  # Internal Server Error
+    502,  # Bad Gateway
+    503,  # Service Unavailable
+    504,  # Gateway Timeout
+}
+
 
 def _convert_chunk_list_to_part_list(
     prompt: str | _ChunkList,
@@ -135,6 +149,15 @@ def _replace_if_unsupported_role(
   if message.role in (replace_roles | {role.value for role in replace_roles}):
     message.role = content_lib.PredefinedRole.USER
   return message
+
+
+def _is_retriable_error(e: Exception) -> bool:
+  """Returns whether the error is retriable."""
+  if isinstance(e, httpx.TransportError):
+    return True
+  if not isinstance(e, genai_errors.ClientError):
+    return False
+  return e.code in _RETRIABLE_STATUS_CODES
 
 
 def _raise_if_empty_response(
@@ -422,17 +445,11 @@ class GoogleGenAIAPI(
         top_p=top_p,
         **kwargs,
     )
-    try:
-      response = self._genai_client.models.generate_content(
-          model=self._generate_model_name(),
-          contents=prompt,
-          config=generation_config,
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'GoogleGenAIAPI.generate_content raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(prompt)[:100]}'
-      ) from err
+    response = self._genai_client.models.generate_content(
+        model=self._generate_model_name(),
+        contents=prompt,
+        config=generation_config,
+    )
     _raise_if_empty_response(response)
     return response
 
@@ -478,6 +495,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
   )
   def _generate_text(
       self,
@@ -633,6 +651,7 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
   )
   def _chat_via_api(
       self,
@@ -725,21 +744,16 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
   )
   def _embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
     """Inner method for llm.embed."""
     self._counters['embed'] += 1
     content = _convert_chunk_list_to_part_list(content)
-    try:
-      response = self._genai_client.models.embed_content(
-          model=self._embed_model_name(),
-          contents=content,
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'GoogleGenAIAPI.embed raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(content)[:100]}'
-      ) from err
+    response = self._genai_client.models.embed_content(
+        model=self._embed_model_name(),
+        contents=content,
+    )
     if not response.embeddings:
       raise ValueError(
           'GoogleGenAIAPI.embed returned no embeddings for request:\n'
@@ -775,21 +789,16 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
   )
   def _count_tokens(self, content: str | content_lib.ChunkList) -> int:
     """Inner method for llm.count_tokens."""
     self._counters['count_tokens'] += 1
     content = _convert_chunk_list_to_part_list(content)
-    try:
-      response = self._genai_client.models.count_tokens(
-          model=self._generate_model_name(),
-          contents=content,
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'GoogleGenAIAPI.count_tokens raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(content)[:100]}'
-      ) from err
+    response = self._genai_client.models.count_tokens(
+        model=self._generate_model_name(),
+        contents=content,
+    )
     if not response.total_tokens:
       raise ValueError(
           'GoogleGenAIAPI.count_tokens returned no total tokens for request:\n'
@@ -817,20 +826,15 @@ class GoogleGenAIAPI(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
   )
   def _tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
     """Inner method for llm.tokenize."""
     self._counters['tokenize'] += 1
-    try:
-      response = self._genai_client.models.compute_tokens(
-          model=self._generate_model_name(),
-          contents=_convert_chunk_list_to_part_list(content),
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'GoogleGenAIAPI.tokenize raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(content)[:100]}'
-      ) from err
+    response = self._genai_client.models.compute_tokens(
+        model=self._generate_model_name(),
+        contents=_convert_chunk_list_to_part_list(content),
+    )
 
     tokens_info = response.tokens_info
     if not tokens_info or len(tokens_info) != 1:

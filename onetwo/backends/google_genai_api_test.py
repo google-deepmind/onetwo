@@ -23,6 +23,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from google import genai
 from google.genai import types as genai_types
+import google.genai.errors as genai_errors
+import httpx
 from onetwo.backends import google_genai_api
 from onetwo.builtins import llm as llm_lib
 from onetwo.core import caching
@@ -122,6 +124,9 @@ class GoogleGenaiApiTest(
             ]
         )
     )
+    self._mock_genai_client.models.count_tokens.return_value = (
+        genai_types.CountTokensResponse(total_tokens=_MOCK_COUNT_TOKENS_RETURN)
+    )
     self.enter_context(
         mock.patch.object(genai, 'Client', return_value=self._mock_genai_client)
     )
@@ -136,19 +141,22 @@ class GoogleGenaiApiTest(
     res = executing.run(llm.generate_text(prompt='Something1'))
     res2 = executing.run(llm.generate_text(prompt='Something2'))
 
-    self.assertEqual(res, 'text')
-    self.assertEqual(res2, 'text')
-    self.assertEqual(
-        self._mock_genai_client.models.generate_content.call_count, 2
-    )
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(generate_text=2),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=2, get_miss=2),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, 'text')
+      self.assertEqual(res2, 'text')
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count, 2
+      )
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_text=2),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=2, get_miss=2),
+      )
 
   def test_generate_text_with_unsafe_content(self):
     backend = _get_and_register_backend()
@@ -171,16 +179,15 @@ class GoogleGenaiApiTest(
       executing.run(llm.generate_text(prompt='Some unsafe prompt'))
 
     # Assert that the chat is called with the correct prompt.
-    self._mock_genai_client.models.generate_content.assert_called_once()
-    _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
-    print('#' * 80)
-    print(mock_kwargs)
-    print('#' * 80)
-    self.assertEqual(mock_kwargs['contents'][0].text, 'Some unsafe prompt')
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(generate_text=1),
-    )
+    with self.subTest('CallsApiWithCorrectPrompt'):
+      self._mock_genai_client.models.generate_content.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
+      self.assertEqual(mock_kwargs['contents'][0].text, 'Some unsafe prompt')
+    with self.subTest('UpdatesBackendCounters'):
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_text=1),
+      )
 
   def test_generate_text_with_model_string(self):
     backend = _get_and_register_backend(
@@ -192,19 +199,22 @@ class GoogleGenaiApiTest(
     res = executing.run(llm.generate_text(prompt='Something1'))
     res2 = executing.run(llm.generate_text(prompt='Something2'))
 
-    self.assertEqual(res, 'text')
-    self.assertEqual(res2, 'text')
-    self.assertEqual(
-        self._mock_genai_client.models.generate_content.call_count, 2
-    )
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(generate_text=2),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=2, get_miss=2),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, 'text')
+      self.assertEqual(res2, 'text')
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count, 2
+      )
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_text=2),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=2, get_miss=2),
+      )
 
   def test_generate_text_cached(self):
     backend = _get_and_register_backend()
@@ -214,158 +224,240 @@ class GoogleGenaiApiTest(
     res = executing.run(llm.generate_text(prompt='Something'))
     res2 = executing.run(llm.generate_text(prompt='Something'))
 
-    self.assertEqual(res, 'text')
-    self.assertEqual(res2, 'text')
-    self._mock_genai_client.models.generate_content.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(generate_text=1),
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, 'text')
+      self.assertEqual(res2, 'text')
+    with self.subTest('CallsApiOnceAndUpdatesCounters'):
+      self._mock_genai_client.models.generate_content.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_text=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1, get_hit=1),
+      )
+
+  def test_generate_text_with_retry(self):
+    self._mock_genai_client.models.generate_content.side_effect = [
+        genai_errors.ClientError(
+            code=408, response_json={'error': {'message': 'test'}}
+        ),
+        httpx.ReadError('test'),
+        genai_types.GenerateContentResponse(
+            candidates=[
+                genai_types.Candidate(
+                    content=genai_types.Content(
+                        parts=[genai_types.Part(text='text')]
+                    )
+                )
+            ]
+        ),
+    ]
+    max_retries = 2
+    backend = _get_and_register_backend(max_retries=max_retries)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    res = executing.run(llm.generate_text(prompt='Something'))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, 'text')
+    with self.subTest('RetriesExpectedNumberOfTimes'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count,
+          max_retries + 1,
+      )
+      self.assertCounterEqual(
+          backend._counters, Counter(generate_text=max_retries + 1)
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+      )
+
+  def test_generate_text_with_non_retriable_error(self):
+    """Tests that non-retriable errors are not retried."""
+    self._mock_genai_client.models.generate_content.side_effect = (
+        genai_errors.ClientError(
+            code=400, response_json={'error': {'message': 'test'}}
+        )
     )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1, get_hit=1),
-    )
+    backend = _get_and_register_backend(max_retries=2)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    with self.assertRaises(ValueError):
+      executing.run(llm.generate_text(prompt='Something'))
+
+    with self.subTest('DoesNotRetry'):
+      self._mock_genai_client.models.generate_content.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(generate_text=1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
   def test_repeat_generate_text(self):
     backend = _get_and_register_backend()
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
+    num_repeats = 5
     res = executing.run(
         executing.par_iter(
             sampling.repeat(
                 executable=llm.generate_text(prompt='Something'),
-                num_repeats=5,
+                num_repeats=num_repeats,
             )
         )
     )
-    self.assertEqual(res, ['text', 'text', 'text', 'text', 'text'])
-    self.assertEqual(
-        self._mock_genai_client.models.generate_content.call_count, 5
-    )
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(generate_text=5),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, add_new_sample=4, get_miss=1, get_hit_miss_sample=4),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, ['text'] * num_repeats)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count,
+          num_repeats,
+      )
+      self.assertCounterEqual(
+          backend._counters, Counter(generate_text=num_repeats)
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(
+              add_new=1, add_new_sample=4, get_miss=1, get_hit_miss_sample=4
+          ),
+      )
 
   def test_repeat_generate_text_cached(self):
     backend = _get_and_register_backend()
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
+    num_repeats_1 = 5
     res = executing.run(
         executing.par_iter(
             sampling.repeat(
                 executable=llm.generate_text(prompt='Something'),
-                num_repeats=5,
+                num_repeats=num_repeats_1,
             )
         )
     )
+    num_repeats_2 = 6
     res2 = executing.run(
         executing.par_iter(
             sampling.repeat(
                 executable=llm.generate_text(prompt='Something'),
-                num_repeats=6,
+                num_repeats=num_repeats_2,
             )
         )
     )
 
-    self.assertEqual(res, ['text', 'text', 'text', 'text', 'text'])
-    self.assertEqual(res2, ['text', 'text', 'text', 'text', 'text', 'text'])
-    self.assertEqual(
-        self._mock_genai_client.models.generate_content.call_count, 6
-    )
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(generate_text=6),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(
-            add_new=1,  # The first generate_text from the first run.
-            add_new_sample=5,  # 4 from the first run and 1 from the second run.
-            get_miss=1,  # The first generate_text from the first run.
-            get_hit=5,  # The second run hits the cache for the first 5 samples.
-            get_hit_miss_sample=5,  # 4 from 1st run + 1 from 2nd run.
-        ),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, ['text'] * num_repeats_1)
+      self.assertEqual(res2, ['text'] * num_repeats_2)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count,
+          num_repeats_2,
+      )
+      self.assertCounterEqual(
+          backend._counters, Counter(generate_text=num_repeats_2)
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(
+              # The first generate_text from the first run.
+              add_new=1,
+              # 4 from the first run and 1 from the second run.
+              add_new_sample=5,
+              # The first generate_text from the first run.
+              get_miss=1,
+              # The second run hits the cache for the first 5 samples.
+              get_hit=5,
+              # 4 from 1st run + 1 from 2nd run.
+              get_hit_miss_sample=5,
+          ),
+      )
 
   def test_batched_generate_text(self):
     backend = _get_and_register_backend()
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
+    prompts = [
+        'Something a',
+        'Something b',
+        'Something c',
+        'Something d',
+        'Something f',
+    ]
     res = executing.run(
-        executing.par_iter([
-            llm.generate_text(prompt='Something a'),
-            llm.generate_text(prompt='Something b'),
-            llm.generate_text(prompt='Something c'),
-            llm.generate_text(prompt='Something d'),
-            llm.generate_text(prompt='Something f'),
-        ])
+        executing.par_iter([llm.generate_text(prompt=p) for p in prompts])
     )
 
-    self.assertEqual(res, ['text', 'text', 'text', 'text', 'text'])
-    self.assertEqual(
-        self._mock_genai_client.models.generate_content.call_count, 5
-    )
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(
-            generate_text=5,
-        ),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(
-            add_new=5,
-            get_miss=5,
-        ),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, ['text'] * len(prompts))
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertLen(
+          prompts,
+          self._mock_genai_client.models.generate_content.call_count,
+      )
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(
+              generate_text=len(prompts),
+          ),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(
+              add_new=len(prompts),
+              get_miss=len(prompts),
+          ),
+      )
 
   def test_identical_batched_generate_text(self):
     backend = _get_and_register_backend()
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
+    num_calls = 5
     res = executing.run(
-        executing.par_iter([
-            llm.generate_text(prompt='Something'),
-            llm.generate_text(prompt='Something'),
-            llm.generate_text(prompt='Something'),
-            llm.generate_text(prompt='Something'),
-            llm.generate_text(prompt='Something'),
-        ])
+        executing.par_iter([llm.generate_text(prompt='Something')] * num_calls)
     )
 
-    self.assertEqual(res, ['text', 'text', 'text', 'text', 'text'])
-    self._mock_genai_client.models.generate_content.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(
-            generate_text=1,
-        ),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(
-            add_new=1,
-            get_miss=1,
-            get_hit=4,
-        ),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, ['text'] * num_calls)
+    with self.subTest('CallsApiOnceAndUpdatesCounters'):
+      self._mock_genai_client.models.generate_content.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(
+              generate_text=1,
+          ),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(
+              add_new=1,
+              get_miss=1,
+              get_hit=4,
+          ),
+      )
 
   def test_generate_texts(self):
     _ = _get_and_register_backend()
 
-    results = executing.run(llm.generate_texts(prompt='prompt', samples=3))
+    samples = 3
+    results = executing.run(
+        llm.generate_texts(prompt='prompt', samples=samples)
+    )
 
-    self.assertLen(results, 3)
-    self.assertListEqual(list(results), ['text', 'text', 'text'])
+    with self.subTest('ReturnsCorrectNumberOfSamples'):
+      self.assertLen(results, samples)
+      self.assertListEqual(list(results), ['text'] * samples)
 
   def test_generate_object_pydantic(self):
     backend = _get_and_register_backend()
@@ -504,13 +596,15 @@ class GoogleGenaiApiTest(
       executing.run(llm.chat(messages=[msg_user]))
 
     # Assert that the chat is called with the correct message.
-    mock_chat.send_message.assert_called_once()
-    _, mock_kwargs = mock_chat.send_message.call_args
-    self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(chat=1),
-    )
+    with self.subTest('CallsApiWithCorrectMessage'):
+      mock_chat.send_message.assert_called_once()
+      _, mock_kwargs = mock_chat.send_message.call_args
+      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+    with self.subTest('UpdatesBackendCounters'):
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(chat=1),
+      )
 
   def test_chat_with_system_instruction(self):
     backend = _get_and_register_backend()
@@ -636,6 +730,65 @@ class GoogleGenaiApiTest(
         Counter(chat=1),
     )
 
+  def test_chat_with_retry(self):
+    mock_chat = mock.MagicMock()
+    self._mock_genai_client.chats.create.return_value = mock_chat
+    mock_chat.send_message.side_effect = [
+        genai_errors.ClientError(
+            code=408, response_json={'error': {'message': 'test'}}
+        ),
+        httpx.TransportError('test'),
+        genai_types.GenerateContentResponse(
+            candidates=[
+                genai_types.Candidate(
+                    content=genai_types.Content(
+                        parts=[genai_types.Part(text='Hello')]
+                    )
+                )
+            ]
+        ),
+    ]
+    max_retries = 2
+    backend = _get_and_register_backend(max_retries=max_retries)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    msg_user = content_lib.Message(
+        role=content_lib.PredefinedRole.USER, content='Hello model'
+    )
+    res = executing.run(llm.chat(messages=[msg_user]))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, 'Hello')
+    with self.subTest('RetriesExpectedNumberOfTimes'):
+      self.assertEqual(mock_chat.send_message.call_count, max_retries + 1)
+      self.assertCounterEqual(backend._counters, Counter(chat=max_retries + 1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+      )
+
+  def test_chat_with_non_retriable_error(self):
+    """Tests that non-retriable errors are not retried in chat."""
+    mock_chat = mock.MagicMock()
+    self._mock_genai_client.chats.create.return_value = mock_chat
+    mock_chat.send_message.side_effect = genai_errors.ClientError(
+        code=400, response_json={'error': {'message': 'test'}}
+    )
+    backend = _get_and_register_backend(max_retries=2)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    msg_user = content_lib.Message(
+        role=content_lib.PredefinedRole.USER, content='Hello model'
+    )
+    with self.assertRaises(ValueError):
+      executing.run(llm.chat(messages=[msg_user]))
+
+    with self.subTest('DoesNotRetry'):
+      mock_chat.send_message.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(chat=1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
+
   @parameterized.named_parameters(
       (
           'str_prompt',
@@ -713,48 +866,104 @@ class GoogleGenaiApiTest(
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
-    _ = executing.run(llm.count_tokens(content='Something'))
+    content = 'Something'
+    res = executing.run(llm.count_tokens(content=content))
 
-    self._mock_genai_client.models.count_tokens.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(count_tokens=1),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1),
-    )
-    self.assertEqual(
-        self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
-        [genai_types.Part(text='Something')],
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, _MOCK_COUNT_TOKENS_RETURN)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self._mock_genai_client.models.count_tokens.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(count_tokens=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1),
+      )
+    with self.subTest('CallsApiWithCorrectContent'):
+      self.assertEqual(
+          self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
+          [genai_types.Part(text=content)],
+      )
 
   def test_count_tokens_chunk_list(self):
     backend = _get_and_register_backend()
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
-    _ = executing.run(
-        llm.count_tokens(
-            content=content_lib.ChunkList(
-                chunks=[content_lib.Chunk(content='Something')]
-            )
+    content = content_lib.ChunkList(
+        chunks=[content_lib.Chunk(content='Something')]
+    )
+    res = executing.run(llm.count_tokens(content=content))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, _MOCK_COUNT_TOKENS_RETURN)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self._mock_genai_client.models.count_tokens.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(count_tokens=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1),
+      )
+    with self.subTest('CallsApiWithCorrectContent'):
+      self.assertEqual(
+          self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
+          [genai_types.Part(text='Something')],
+      )
+
+  def test_count_tokens_with_retry(self):
+    self._mock_genai_client.models.count_tokens.side_effect = [
+        genai_errors.ClientError(
+            code=408, response_json={'error': {'message': 'test'}}
+        ),
+        httpx.TransportError('test'),
+        genai_types.CountTokensResponse(total_tokens=_MOCK_COUNT_TOKENS_RETURN),
+    ]
+    max_retries = 2
+    backend = _get_and_register_backend(max_retries=max_retries)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    res = executing.run(llm.count_tokens(content='Something'))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, _MOCK_COUNT_TOKENS_RETURN)
+    with self.subTest('RetriesExpectedNumberOfTimes'):
+      self.assertEqual(
+          self._mock_genai_client.models.count_tokens.call_count,
+          max_retries + 1,
+      )
+      self.assertCounterEqual(
+          backend._counters, Counter(count_tokens=max_retries + 1)
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+      )
+
+  def test_count_tokens_with_non_retriable_error(self):
+    """Tests that non-retriable errors are not retried in count_tokens."""
+    self._mock_genai_client.models.count_tokens.side_effect = (
+        genai_errors.ClientError(
+            code=400, response_json={'error': {'message': 'test'}}
         )
     )
+    backend = _get_and_register_backend(max_retries=2)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
 
-    self._mock_genai_client.models.count_tokens.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(count_tokens=1),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1),
-    )
-    self.assertEqual(
-        self._mock_genai_client.models.count_tokens.call_args[1]['contents'],
-        [genai_types.Part(text='Something')],
-    )
+    with self.assertRaises(ValueError):
+      executing.run(llm.count_tokens(content='Something'))
+
+    with self.subTest('DoesNotRetry'):
+      self._mock_genai_client.models.count_tokens.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(count_tokens=1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
   def test_tokenize_string(self):
     backend = _get_and_register_backend()
@@ -771,20 +980,25 @@ class GoogleGenaiApiTest(
     content = 'Something'
     res = executing.run(llm.tokenize(content=content))
 
-    self.assertEqual(res, mock_tokens)
-    self.assertEqual(
-        self._mock_genai_client.models.compute_tokens.call_args[1]['contents'],
-        [genai_types.Part(text='Something')],
-    )
-    self._mock_genai_client.models.compute_tokens.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(tokenize=1),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_tokens)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.compute_tokens.call_args[1][
+              'contents'
+          ],
+          [genai_types.Part(text='Something')],
+      )
+      self._mock_genai_client.models.compute_tokens.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(tokenize=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1),
+      )
 
   def test_tokenize_chunk_list(self):
     backend = _get_and_register_backend()
@@ -803,20 +1017,76 @@ class GoogleGenaiApiTest(
     )
     res = executing.run(llm.tokenize(content=content))
 
-    self.assertEqual(res, mock_tokens)
-    self.assertEqual(
-        self._mock_genai_client.models.compute_tokens.call_args[1]['contents'],
-        [genai_types.Part(text='Something')],
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_tokens)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.compute_tokens.call_args[1][
+              'contents'
+          ],
+          [genai_types.Part(text='Something')],
+      )
+      self._mock_genai_client.models.compute_tokens.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(tokenize=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1),
+      )
+
+  def test_tokenize_with_retry(self):
+    mock_tokens = [1, 2, 3, 4, 5]
+    self._mock_genai_client.models.compute_tokens.side_effect = [
+        genai_errors.ClientError(
+            code=408, response_json={'error': {'message': 'test'}}
+        ),
+        httpx.TransportError('test'),
+        genai_types.ComputeTokensResponse(
+            tokens_info=[genai_types.TokensInfo(token_ids=mock_tokens)]
+        ),
+    ]
+    max_retries = 2
+    backend = _get_and_register_backend(max_retries=max_retries)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    res = executing.run(llm.tokenize(content='Something'))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_tokens)
+    with self.subTest('RetriesExpectedNumberOfTimes'):
+      self.assertEqual(
+          self._mock_genai_client.models.compute_tokens.call_count,
+          max_retries + 1,
+      )
+      self.assertCounterEqual(
+          backend._counters, Counter(tokenize=max_retries + 1)
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+      )
+
+  def test_tokenize_with_non_retriable_error(self):
+    """Tests that non-retriable errors are not retried in tokenize."""
+    self._mock_genai_client.models.compute_tokens.side_effect = (
+        genai_errors.ClientError(
+            code=400, response_json={'error': {'message': 'test'}}
+        )
     )
-    self._mock_genai_client.models.compute_tokens.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(tokenize=1),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1),
-    )
+    backend = _get_and_register_backend(max_retries=2)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    with self.assertRaises(ValueError):
+      executing.run(llm.tokenize(content='Something'))
+
+    with self.subTest('DoesNotRetry'):
+      self._mock_genai_client.models.compute_tokens.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(tokenize=1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
   def test_embed_string(self):
     backend = _get_and_register_backend()
@@ -833,20 +1103,23 @@ class GoogleGenaiApiTest(
     content = 'Something'
     res = executing.run(llm.embed(content=content))
 
-    self.assertEqual(res, mock_embedding)
-    self.assertEqual(
-        self._mock_genai_client.models.embed_content.call_args[1]['contents'],
-        [genai_types.Part(text='Something')],
-    )
-    self._mock_genai_client.models.embed_content.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(embed=1),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1),
-    )
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_embedding)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.embed_content.call_args[1]['contents'],
+          [genai_types.Part(text='Something')],
+      )
+      self._mock_genai_client.models.embed_content.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(embed=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1),
+      )
 
   def test_embed_chunk_list(self):
     backend = _get_and_register_backend()
@@ -865,20 +1138,72 @@ class GoogleGenaiApiTest(
     )
     res = executing.run(llm.embed(content=content))
 
-    self.assertEqual(res, mock_embedding)
-    self.assertEqual(
-        self._mock_genai_client.models.embed_content.call_args[1]['contents'],
-        [genai_types.Part(text='Something')],
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_embedding)
+    with self.subTest('CallsApiAndUpdatesCounters'):
+      self.assertEqual(
+          self._mock_genai_client.models.embed_content.call_args[1]['contents'],
+          [genai_types.Part(text='Something')],
+      )
+      self._mock_genai_client.models.embed_content.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(embed=1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1),
+      )
+
+  def test_embed_with_retry(self):
+    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
+    self._mock_genai_client.models.embed_content.side_effect = [
+        genai_errors.ClientError(
+            code=408, response_json={'error': {'message': 'test'}}
+        ),
+        httpx.TransportError('test'),
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+        ),
+    ]
+    max_retries = 2
+    backend = _get_and_register_backend(max_retries=max_retries)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    res = executing.run(llm.embed(content='Something'))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_embedding)
+    with self.subTest('RetriesExpectedNumberOfTimes'):
+      self.assertEqual(
+          self._mock_genai_client.models.embed_content.call_count,
+          max_retries + 1,
+      )
+      self.assertCounterEqual(backend._counters, Counter(embed=max_retries + 1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+      )
+
+  def test_embed_with_non_retriable_error(self):
+    """Tests that non-retriable errors are not retried in embed."""
+    self._mock_genai_client.models.embed_content.side_effect = (
+        genai_errors.ClientError(
+            code=400, response_json={'error': {'message': 'test'}}
+        )
     )
-    self._mock_genai_client.models.embed_content.assert_called_once()
-    self.assertCounterEqual(
-        backend._counters,
-        Counter(embed=1),
-    )
-    self.assertCounterEqual(
-        handler._cache_data.counters,
-        Counter(add_new=1, get_miss=1),
-    )
+    backend = _get_and_register_backend(max_retries=2)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    with self.assertRaises(ValueError):
+      executing.run(llm.embed(content='Something'))
+
+    with self.subTest('DoesNotRetry'):
+      self._mock_genai_client.models.embed_content.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(embed=1))
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
 
 if __name__ == '__main__':
