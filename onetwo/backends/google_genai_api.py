@@ -43,9 +43,10 @@ from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
 from PIL import Image
+import pydantic
 
 
-
+TypeAdapter = pydantic.TypeAdapter
 
 
 _T = TypeVar('_T')
@@ -535,13 +536,53 @@ class GoogleGenAIAPI(
     )
     return (reply, {'text': raw}) if include_details else reply
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
-  @tracing.trace(name='GoogleGenAIAPI.generate_object')
   @caching.cache_method(  # Cache this method.
       name='generate_object',
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
   )
+  async def _generate_object_internal(
+      self,
+      prompt: str | _ChunkList,
+      cls: type[Any],
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,
+  ) -> Any:
+    """Internal helper for generate_object that is cached."""
+
+    self._counters['generate_object'] += 1
+
+    kwargs['response_mime_type'] = 'application/json'
+    kwargs['response_schema'] = cls
+
+    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=prompt,
+        healing_option=healing_option,
+    )
+
+    response = self._generate_content(  # pytype: disable=wrong-keyword-args
+        prompt=healed_prompt,
+        samples=1,
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs,
+    )
+
+    parsed_object = response.parsed
+    adapter = TypeAdapter(cls)
+    return adapter.dump_python(parsed_object, mode='json')
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.generate_object')
   async def generate_object(
       self,
       prompt: str | _ChunkList,
@@ -562,6 +603,12 @@ class GoogleGenAIAPI(
     This method leverages the Google GenAI API's structured output feature,
     constraining the model to return JSON that can be parsed into an instance
     of the specified class.
+
+    To support caching, this method calls an internal helper
+    `_generate_object_internal`. The internal helper executes the API call and
+    returns a serialized representation (e.g., dict) suitable for caching.
+    This public method then deserializes the result back into an instance of
+    the specified class `cls`.
 
     Args:
       prompt: The input prompt to the model.
@@ -598,30 +645,21 @@ class GoogleGenAIAPI(
         generate_content call.
 
     Returns:
-      An instance of the type specified by the 'cls' argument, parsed
-      from the model's JSON output via the `response.parsed` property.
+      An instance of the type specified by the 'cls' argument.
     """
-    self._counters['generate_object'] += 1
-
-    kwargs['response_mime_type'] = 'application/json'
-    kwargs['response_schema'] = cls
-
-    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
-        original_prompt=prompt,
-        healing_option=healing_option,
-    )
-
-    response = self._generate_content(  # pytype: disable=wrong-keyword-args
-        prompt=healed_prompt,
-        samples=1,
-        max_output_tokens=max_tokens,
+    serializable_result = await self._generate_object_internal(
+        prompt=prompt,
+        cls=cls,
         temperature=temperature,
+        max_tokens=max_tokens,
         stop=stop,
         top_k=top_k,
         top_p=top_p,
+        healing_option=healing_option,
         **kwargs,
     )
-    return response.parsed
+    adapter = TypeAdapter(cls)
+    return adapter.validate_python(serializable_result)
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.chat')
