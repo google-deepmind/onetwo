@@ -120,10 +120,12 @@ class OpenAI:
         response_format, pydantic.BaseModel
     ):
       try:
-        # Create a placeholder instance of the Pydantic model.
-        # model_construct() is used to avoid running validation and requiring
-        # all fields, suitable for a mock.
-        parsed_object = response_format.model_construct()
+        mock_data = {
+            'name': 'Mock Test City',
+            'population': 500000,
+        }
+        # Create a validated instance from the mock data
+        parsed_object = response_format(**mock_data)
       except Exception as e:  # pylint: disable=broad-except
         refusal_message = f'Mock failed to construct {response_format}: {e}'
     else:

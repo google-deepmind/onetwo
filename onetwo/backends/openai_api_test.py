@@ -15,7 +15,10 @@
 """Tests for OpenAIAPI engine."""
 
 import collections
+import os
 from typing import Counter, Final, TypeAlias
+from unittest import mock
+
 # We have to mock openai to make this test hermetic.
 from unittest import mock
 from absl.testing import absltest
@@ -29,6 +32,7 @@ from onetwo.core import core_test_utils
 from onetwo.core import executing
 import pydantic
 
+
 import openai
 
 _Message: TypeAlias = content_lib.Message
@@ -36,6 +40,13 @@ _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 
 
 _BATCH_SIZE: Final[int] = 4
+
+
+# Define a Pydantic BaseModel for testing structured output caching.
+class CityInfoTestData(pydantic.BaseModel):
+  city: str
+  population: int
+  landmarks: list[str]
 
 
 def _get_and_register_backend(
@@ -199,7 +210,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     expected_backend_counters = collections.Counter({
         'generate_object': 1,
         '_chat_completions_parse': 1,
-        'generate_object_batches': 1,
+        '_generate_object_internal_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
@@ -226,6 +237,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
 
     with self.subTest('cls_is_not_pydantic_raises_error'):
+
       class NotPydantic:
         pass
 
@@ -253,8 +265,10 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         )
 
     with self.subTest('cls_is_pydantic_instance_raises_error'):
+
       class MyTestSchema(pydantic.BaseModel):
         test: str
+
       with self.assertRaisesRegex(
           ValueError,
           r'The `cls` argument must be a subclass of `pydantic.BaseModel`\.',
@@ -265,6 +279,85 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
                 cls=MyTestSchema(test='instance'),
             )
         )
+
+  def test_generate_object_caching(self):
+    cache_dir = self.create_tempdir()
+    cache_filename = os.path.join(cache_dir.full_path, 'openai_cache.json')
+    test_object = CityInfoTestData(
+        city='Paris', population=2141000, landmarks=['Eiffel Tower', 'Louvre']
+    )
+
+    # Mocks for the OpenAI API call
+    mock_message = mock.MagicMock()
+    mock_message.parsed = test_object
+    mock_message.refusal = None
+    mock_choice = mock.MagicMock()
+    mock_choice.message = mock_message
+    mock_response = mock.MagicMock()
+    mock_response.choices = [mock_choice]
+
+    backend1 = openai_api.OpenAIAPI(
+        model_name='gpt-4o-mini',
+        api_key='test_key',
+        cache_filename=cache_filename,
+    )
+    backend1.register()
+
+    with mock.patch.object(
+        backend1,
+        '_chat_completions_parse',
+        autospec=True,
+        return_value=mock_response,
+    ) as mock_chat_completions_parse:
+
+      with self.subTest('PopulateCache'):
+        obj1 = executing.run(
+            backend1.generate_object(  # pytype: disable=wrong-keyword-args
+                prompt='Describe a city', cls=CityInfoTestData
+            )
+        )
+        mock_chat_completions_parse.assert_called_once()
+        self.assertEqual(obj1, test_object)
+        self.assertIsInstance(obj1, CityInfoTestData)
+        self.assertEqual(backend1._counters['generate_object'], 1)
+
+      with self.subTest('CacheHitSameBackend'):
+        obj2 = executing.run(
+            backend1.generate_object(  # pytype: disable=wrong-keyword-args
+                prompt='Describe a city', cls=CityInfoTestData
+            )
+        )
+        self.assertEqual(mock_chat_completions_parse.call_count, 1)
+        self.assertEqual(obj2, test_object)
+        self.assertIsInstance(obj2, CityInfoTestData)
+        self.assertEqual(backend1._counters['generate_object'], 1)
+
+      backend1.save_cache()
+      self.assertTrue(os.path.exists(cache_filename))
+
+      backend2 = openai_api.OpenAIAPI(
+          model_name='gpt-4o-mini',
+          api_key='test_key',
+          cache_filename=cache_filename,
+      )
+      backend2.register()
+      backend2.load_cache()
+      with self.subTest('CacheHitNewBackend'):
+        with mock.patch.object(
+            backend2,
+            '_chat_completions_parse',
+            autospec=True,
+            return_value=mock_response,
+        ) as mock_chat_completions_parse_new:
+          obj3 = executing.run(
+              backend2.generate_object(  # pytype: disable=wrong-keyword-args
+                  prompt='Describe a city', cls=CityInfoTestData
+              )
+          )
+          mock_chat_completions_parse_new.assert_not_called()
+          self.assertEqual(obj3, test_object)
+          self.assertIsInstance(obj3, CityInfoTestData)
+          self.assertEqual(backend2._counters['generate_object'], 0)
 
 
 if __name__ == '__main__':

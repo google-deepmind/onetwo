@@ -35,6 +35,7 @@ from onetwo.core import tracing
 from onetwo.core import utils
 import pydantic
 
+TypeAdapter = pydantic.TypeAdapter
 _T = TypeVar('_T')
 
 # See https://platform.openai.com/docs/models/model-endpoint-compatibility.
@@ -659,7 +660,6 @@ class OpenAIAPI(
     return results
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  @tracing.trace(name='OpenAIAPI.generate_object')
   @caching.cache_method(
       name='generate_object',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -670,46 +670,18 @@ class OpenAIAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def generate_object(
+  def _generate_object_internal(
       self,
       prompt: str | content_lib.ChunkList,
-      cls: type[_T],
+      cls: type[Any],
       *,
       temperature: float | None = None,
       max_tokens: int | None = None,
       stop: Sequence[str] | None = None,
       top_k: int | None = None,
       top_p: float | None = None,
-  ) -> _T:
-    """Generates a structured object via OpenAI's client.chat.completions.parse.
-
-    Suitable for registering as implementation of builtins.llm.generate_object.
-
-    *Only supported* for models after `gpt-4o-mini`.
-
-    This method leverages OpenAI's native structured output support and requires
-    `cls` to be a subclass of `pydantic.BaseModel`. The OpenAI SDK automatically
-    converts the Pydantic schema, sends it to the API, and deserializes the JSON
-    response into an instance of `cls`.
-
-    Args:
-        prompt: The input prompt to the model.
-        cls: The Pydantic BaseModel subclass defining the structure of the
-          desired output. The OpenAI SDK uses this to constrain the model's
-          output and automatically parse the result.
-        temperature: See builtins.llm.generate_text.
-        max_tokens: See builtins.llm.generate_text.
-        stop: See builtins.llm.generate_text.
-        top_k: See builtins.llm.generate_text.
-        top_p: See builtins.llm.generate_text.
-
-    Returns:
-        An instance of the type specified by the 'cls' argument.
-
-    Raises:
-        ValueError: If the model does not support structured output, or if the
-          OpenAI API returns a 'refusal' or an unexpected response type.
-    """
+  ) -> dict[str, Any]:
+    """Internal helper for generate_object that is cached."""
     self._counters['generate_object'] += 1
 
     messages = [
@@ -739,7 +711,9 @@ class OpenAIAPI(
     message = response.choices[0].message
 
     if message.parsed is not None:
-      return message.parsed
+      parsed_object = message.parsed
+      adapter = TypeAdapter(cls)
+      return adapter.dump_python(parsed_object, mode='json')
     elif message.refusal is not None:
       raise ValueError(
           f'OpenAI API refused to generate the object: {message.refusal}'
@@ -749,6 +723,65 @@ class OpenAIAPI(
           "OpenAI chat.completions.parse did not return a 'parsed' object "
           f"or a 'refusal'. Raw content: {message.content}"
       )
+
+  @tracing.trace(name='OpenAIAPI.generate_object')
+  async def generate_object(
+      self,
+      prompt: str | content_lib.ChunkList,
+      cls: type[_T],
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+  ) -> _T:
+    """Generates a structured object via OpenAI's client.chat.completions.parse.
+
+    Suitable for registering as implementation of builtins.llm.generate_object.
+
+    *Only supported* for models after `gpt-4o-mini`.
+
+    This method leverages OpenAI's native structured output support and requires
+    `cls` to be a subclass of `pydantic.BaseModel`. The OpenAI SDK automatically
+    converts the Pydantic schema, sends it to the API, and deserializes the JSON
+    response into an instance of `cls`.
+
+    To support caching, this method calls the internal helper
+    `_generate_object_internal`, which executes the API call and returns a
+    serialized dictionary. This method then deserializes that dictionary
+    back into an instance of the specified class `cls` using Pydantic for
+    validation.
+
+    Args:
+        prompt: The input prompt to the model.
+        cls: The Pydantic BaseModel subclass defining the structure of the
+          desired output. The OpenAI SDK uses this to constrain the model's
+          output and automatically parse the result.
+        temperature: See builtins.llm.generate_text.
+        max_tokens: See builtins.llm.generate_text.
+        stop: See builtins.llm.generate_text.
+        top_k: See builtins.llm.generate_text.
+        top_p: See builtins.llm.generate_text.
+
+    Returns:
+        An instance of the type specified by the 'cls' argument.
+
+    Raises:
+        ValueError: If the model does not support structured output, or if the
+          OpenAI API returns a 'refusal' or an unexpected response type.
+    """
+    serializable_result = await self._generate_object_internal(
+        prompt=prompt,
+        cls=cls,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+    )
+    adapter = TypeAdapter(cls)
+    return adapter.validate_python(serializable_result)
 
   @tracing.trace(name='OpenAIAPI.chat')
   async def chat(
