@@ -59,7 +59,7 @@ def main(argv: Sequence[str]) -> None:
   api_key = _API_KEY.value
 
   # We test both new "chat api" model and "completions api" model.
-  for model_name in ['gpt-3.5-turbo', 'gpt-3.5-turbo-instruct', 'gpt-4o-mini']:
+  for model_name in ['gpt-4o-mini']:
     print('*** Running tests for %s. ***' % model_name)
     fname = os.path.join(
         _CACHE_DIR.value,
@@ -288,7 +288,7 @@ def main(argv: Sequence[str]) -> None:
         name: str
         population: int
 
-      print('7. Generate object.')
+      print('8. Generate object.')
       prompt = """What is the capital of France?"""
       res = executing.run(
           llm.generate_object(  # pytype: disable=wrong-keyword-args
@@ -296,6 +296,32 @@ def main(argv: Sequence[str]) -> None:
               cls=CityInfo,
           )
       )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+      print('9. Generate object with chat history.')
+      prompt = [
+          content_lib.Message(
+              role=content_lib.PredefinedRole.USER,
+              content='What is the capital of France?',
+          ),
+          content_lib.Message(
+              role=content_lib.PredefinedRole.MODEL,
+              content='Obviously, it is Paris.',
+          ),
+          content_lib.Message(
+              role=content_lib.PredefinedRole.USER,
+              content='What is its population?',
+          ),
+      ]
+      res = executing.run(
+          llm.generate_object(  # pytype: disable=wrong-keyword-args
+              prompt=prompt,
+              cls=CityInfo,
+          )
+      )
+
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
         pprint.pprint(res)

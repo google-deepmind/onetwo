@@ -52,6 +52,7 @@ TypeAdapter = pydantic.TypeAdapter
 _T = TypeVar('_T')
 
 _ChunkList: TypeAlias = content_lib.ChunkList
+_Message: TypeAlias = content_lib.Message
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 
 
@@ -585,7 +586,7 @@ class GoogleGenAIAPI(
   @tracing.trace(name='GoogleGenAIAPI.generate_object')
   async def generate_object(
       self,
-      prompt: str | _ChunkList,
+      prompt: str | _ChunkList | Sequence[_Message],
       cls: type[_T],
       *,
       temperature: float | None = None,

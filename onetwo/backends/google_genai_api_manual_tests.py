@@ -653,6 +653,34 @@ def main(argv: Sequence[str]) -> None:
       success = False
       print('ingredients should be a list of strings')
 
+  print('20. Check llm.generate_object in chat mode.')
+  result = executing.run(
+      llm.generate_object(  # pytype: disable=wrong-keyword-args
+          prompt=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is the capital of France?',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.MODEL,
+                  content='Obviously, it is Paris.',
+              ),
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='Tell me more about it.',
+              ),
+          ],
+          cls=CityInfo,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(result)
+
+  if not isinstance(result, CityInfo):
+    success = False
+    print(f'Result is not of type CityInfo: {type(result)}')
+
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)
 

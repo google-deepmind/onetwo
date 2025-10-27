@@ -672,7 +672,7 @@ class OpenAIAPI(
   )
   def _generate_object_internal(
       self,
-      prompt: str | content_lib.ChunkList,
+      prompt: str | content_lib.ChunkList | Sequence[content_lib.Message],
       cls: type[Any],
       *,
       temperature: float | None = None,
@@ -684,12 +684,17 @@ class OpenAIAPI(
     """Internal helper for generate_object that is cached."""
     self._counters['generate_object'] += 1
 
-    messages = [
-        content_lib.Message(
-            content=prompt,
-            role=content_lib.PredefinedRole.USER,
-        )
-    ]
+    if isinstance(prompt, Sequence) and isinstance(
+        prompt[0], content_lib.Message
+    ):
+      messages = prompt
+    else:
+      messages = [
+          content_lib.Message(
+              content=prompt,
+              role=content_lib.PredefinedRole.USER,
+          )
+      ]
 
     kwargs = {}
     if temperature is not None:
@@ -727,7 +732,7 @@ class OpenAIAPI(
   @tracing.trace(name='OpenAIAPI.generate_object')
   async def generate_object(
       self,
-      prompt: str | content_lib.ChunkList,
+      prompt: str | content_lib.ChunkList | Sequence[content_lib.Message],
       cls: type[_T],
       *,
       temperature: float | None = None,
