@@ -16,6 +16,7 @@
 
 from collections.abc import Callable, Sequence
 import dataclasses
+import io
 import os
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
@@ -33,6 +34,7 @@ from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import sampling
+from PIL import Image
 import pydantic
 
 
@@ -945,6 +947,24 @@ class GoogleGenaiApiTest(
         google_genai_api._convert_chunk_list_to_part_list(prompt),
         exp_contents_type,
     )
+
+  def test_convert_chunk_list_with_pil_image(self):
+    """Tests conversion of ChunkList containing a PIL Image."""
+    pil_image = Image.new('RGB', (1, 1), color='black')
+    img_byte_arr = io.BytesIO()
+    pil_image.save(img_byte_arr, format='PNG')
+    image_bytes = img_byte_arr.getvalue()
+
+    prompt = _ChunkList(chunks=[_Chunk(content=pil_image)])
+    expected_part = genai_types.Part(
+        inline_data=genai_types.Blob(
+            mime_type='image/png', data=image_bytes
+        )
+    )
+
+    result = google_genai_api._convert_chunk_list_to_part_list(prompt)
+    self.assertLen(result, 1)
+    self.assertEqual(result[0], expected_part)
 
   def test_count_tokens_string(self):
     backend = _get_and_register_backend()

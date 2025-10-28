@@ -22,6 +22,7 @@ Based on https://github.com/googleapis/python-genai to access either
 import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
+import io
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, Union
 
@@ -134,7 +135,15 @@ def _convert_chunk_list_to_part_list(
             )
         )
       case Image.Image() as pil_image:
-        contents.append(pil_image)
+        img_byte_arr = io.BytesIO()
+        pil_image.save(img_byte_arr, format='PNG')
+        contents.append(
+            genai_types.Part(
+                inline_data=genai_types.Blob(
+                    mime_type='image/png', data=img_byte_arr.getvalue()
+                )
+            )
+        )
       case _:
         raise TypeError(f'Unsupported content type: {type(c.content)}')
   return contents
