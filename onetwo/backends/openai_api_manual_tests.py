@@ -59,7 +59,7 @@ def main(argv: Sequence[str]) -> None:
   api_key = _API_KEY.value
 
   # We test both new "chat api" model and "completions api" model.
-  for model_name in ['gpt-4o-mini']:
+  for model_name in ['gpt-3.5-turbo', 'gpt-4o-mini', 'gpt-4o']:
     print('*** Running tests for %s. ***' % model_name)
     fname = os.path.join(
         _CACHE_DIR.value,
@@ -282,7 +282,7 @@ def main(argv: Sequence[str]) -> None:
       print('Took %.4fsec saving cache to %s.' % (time.time() - start, fname))
 
     # Test generate_object to be used for gpt-4o-mini and later models.
-    if model_name == 'gpt-4o-mini':
+    if model_name in ['gpt-4o-mini', 'gpt-4o']:
 
       class CityInfo(pydantic.BaseModel):
         name: str
