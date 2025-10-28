@@ -215,7 +215,12 @@ def main(argv: Sequence[str]) -> None:
         check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS)))))
     )
   except ValueError as err:
-    if 'GoogleGenAIAPI.generate_content raised' not in repr(err):
+    err_repr = repr(err)
+    if not (
+        'INVALID_ARGUMENT' in err_repr
+        and 'The input token count exceeds the maximum number of tokens allowed'
+        in err_repr
+    ):
       success = False
       print('ValueError raised, but not with the expected message.', err)
     value_error_raised = True
@@ -235,7 +240,12 @@ def main(argv: Sequence[str]) -> None:
   try:
     _ = executing.run(exe)
   except ValueError as err:
-    if 'GoogleGenAIAPI.generate_content raised' not in repr(err):
+    err_repr = repr(err)
+    if not (
+        'INVALID_ARGUMENT' in err_repr
+        or 'RESOURCE_EXHAUSTED' in err_repr
+        or 'Quota exceeded' in err_repr
+    ):
       success = False
       print('ValueError raised, but not with the expected message:', err)
     value_error_raised = True
