@@ -44,7 +44,6 @@ import abc
 from collections.abc import AsyncIterator
 import contextlib
 import dataclasses
-import re
 from typing import Protocol, Sequence, TypeAlias
 
 from onetwo.agents import agents_base
@@ -142,14 +141,6 @@ def _sandbox_state_from_agent_state(
   return code_sequence
 
 
-def _regex_search(start_fence: str, end_fence: str, text: str) -> str:
-  """Returns substring between the given fences, or itself if nothing found."""
-  found = re.search(f'(?s){start_fence}(.*?){end_fence}', text)
-  if found:
-    text = found.group().replace(start_fence, '').replace(end_fence, '').strip()
-  return text
-
-
 def _parse_llm_reply_code(llm_reply: str) -> str:
   """Parses the LLM reply to remove fences that aren't strict code.
 
@@ -177,7 +168,7 @@ def _parse_llm_reply_code(llm_reply: str) -> str:
     llm_reply = llm_reply[len(first_line) :]
 
   # Any '```' now is treated as the stop fence. Anything beyond is discarded.
-  llm_reply = _regex_search('', '```', llm_reply)
+  llm_reply = llm_reply.partition('```')[0]
 
   return llm_reply.strip()
 
