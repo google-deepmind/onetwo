@@ -27,10 +27,12 @@ from absl.testing import parameterized
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import constants
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
 from onetwo.core import updating
 from onetwo.core import utils
+import PIL.Image
 
 
 class CacheForTest(caching.SimpleCache[str]):
@@ -898,6 +900,46 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
 
 class CacheDataTest(parameterized.TestCase):
   """Tests _CacheData class."""
+
+  def test_encode_chunk_and_chunklist(self):
+    cache_data = caching._CacheData()
+
+    values_by_key = {
+        'key1': content_lib.ChunkList(
+            chunks=[
+                content_lib.Chunk(content='Here is your SQL'),
+                content_lib.Chunk(
+                    content='SELECT', content_type='text/sql', role='model'
+                ),
+                content_lib.Chunk(
+                    content=b'0xbinary', content_type='application/octet-stream'
+                ),
+                content_lib.Chunk(content='Ack', role='user'),
+            ]
+        ),
+        'key2': content_lib.Chunk(
+            content=b'JpegData', content_type='image/jpeg'
+        ),
+        'key3': 'simple string',
+    }
+    cache_data.values_by_key = copy.deepcopy(values_by_key)
+    json_serialized = cache_data.to_json()
+    decoded = caching._CacheData.from_json(
+        json_serialized,
+        infer_missing=True,
+    )
+    self.assertEqual(decoded.values_by_key, values_by_key)
+
+    # Bad types are not copied
+    img = PIL.Image.new(mode='RGB', size=(1, 1))
+    pixels = img.load()
+    pixels[0, 0] = (255, 255, 255)
+    cache_data.values_by_key['key0'] = [content_lib.Chunk(content=img)]
+
+    with self.assertRaisesRegex(
+        ValueError, 'Chunk.content is not serializable'
+    ):
+      json_serialized = cache_data.to_json()
 
   def test_tuples_preserved_when_encoding_and_decoding_values_by_key(self):
     cache_data = caching._CacheData()

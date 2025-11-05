@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import base64
 import collections
 from collections.abc import ByteString, Callable, Coroutine, Mapping, Sequence
 import contextvars
@@ -34,6 +35,7 @@ from typing import Any, Final, Generic, ParamSpec, TypeVar
 
 import dataclasses_json
 from onetwo.core import constants
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import utils
 
@@ -76,12 +78,21 @@ def get_key_for_logging(key: str, sampling_key: str | None = None) -> str:
   )
 
 
-def _hint_tuple_encoder(arg: Any) -> Any:
-  """Encoder that helps (best effort) to preserve python tuples.
+def _b64enc(arg: bytes) -> str:
+  return str(base64.b64encode(arg), 'utf-8')
 
-  Python tuples are converted to lists in json. This encoder stores tuples in
-  such a way that later they can be properly decoded into tuples. Inspired by
-  https://stackoverflow.com/questions/15721363/preserve-python-tuples-with-json.
+
+def _b64dec(arg: str) -> bytes:
+  return base64.b64decode(bytes(arg, 'utf-8'))
+
+
+def _hint_tuple_encoder(arg: Any) -> Any:
+  """Encoder that helps (best effort) to serialize Python types into JSON.
+
+  * Tuples are converted to JSON arrays with a flag to later properly decode
+    them back into tuples. Inspired by http://stackoverflow.com/q/15721363.
+  * ChunkList, Chunk: add a '__type__' property to store the class name.
+  * Chunk: encode content bytes with base64 into 'data' and string into 'text'.
 
   Args:
     arg: Any JSON-compatible object (i.e., on which `json.dumps` can be called)
@@ -89,7 +100,7 @@ def _hint_tuple_encoder(arg: Any) -> Any:
 
   Returns:
     Encoded object where every tuple `obj` is replaced with a dictionary
-    `{'__tuple__': True, 'items': obj}`.
+    `{'__tuple__': True, 'items': obj}` and objects have a '__type__' property.
   """
   if isinstance(arg, tuple):
     return {
@@ -100,6 +111,24 @@ def _hint_tuple_encoder(arg: Any) -> Any:
     return [_hint_tuple_encoder(value) for value in arg]
   if isinstance(arg, dict):
     return {key: _hint_tuple_encoder(value) for key, value in arg.items()}
+  if isinstance(arg, content_lib.Chunk):
+    obj = {'__type__': 'Chunk'}
+    if arg.metadata:
+      obj['metadata'] = _hint_tuple_encoder(arg.metadata)
+    if arg.content_type:
+      obj['content_type'] = arg.content_type
+    if arg.role:
+      obj['role'] = arg.role
+    match arg.content:
+      case str():
+        obj['text'] = arg.content
+      case bytes():
+        obj['data'] = _b64enc(arg.content)
+      case _:
+        raise ValueError('Chunk.content is not serializable:', arg)
+    return obj
+  if isinstance(arg, content_lib.ChunkList):
+    return {'__type__': 'ChunkList', 'chunks': _hint_tuple_encoder(arg.chunks)}
   return arg
 
 
@@ -108,7 +137,21 @@ def _hint_tuple_decoder(arg: Any) -> Any:
   if isinstance(arg, dict):
     if '__tuple__' in arg:
       return tuple(_hint_tuple_decoder(value) for value in arg['items'])
-    return {key: _hint_tuple_decoder(value) for key, value in arg.items()}
+    res = {key: _hint_tuple_decoder(value) for key, value in arg.items()}
+    match res.get('__type__'):
+      case 'Chunk':
+        content = res.get('text')
+        data = res.get('data')
+        if data is not None:
+          content = _b64dec(data) if data else b''
+        return content_lib.Chunk(
+            content=content,
+            content_type=res.get('content_type'),
+            role=res.get('role'),
+        )
+      case 'ChunkList':
+        return content_lib.ChunkList(chunks=res.get('chunks'))
+    return res
   if isinstance(arg, list):
     return [_hint_tuple_decoder(value) for value in arg]
   return arg

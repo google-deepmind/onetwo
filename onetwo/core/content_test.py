@@ -130,8 +130,8 @@ class ContentTest(parameterized.TestCase):
       _ = _Chunk(content)
 
   @parameterized.named_parameters(
-      ('text_csv_content_type', 'test', 'text/csv'),
-      ('text_css_content_type', b'test', 'text/css'),
+      ('text_example_content_type', 'test', 'example'),
+      ('multipart_content_type', b'test', 'multipart/alternative'),
       ('font_woff_content_type', PIL.Image.Image(), 'font/woff'),
       ('model_vrml_content_type', 'test', 'model/vrml'),
   )
