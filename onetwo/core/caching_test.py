@@ -126,25 +126,18 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       is_sampled=True,
       cache_extra_replies=True,
   )
-  def method_does_not_return_sequence(
-      self, a: str, b: str
-  ) -> str:
+  def method_does_not_return_sequence(self, a: str, b: str) -> str:
     return a + b
 
-  @caching.cache_method(
-      name='method_with_default_args',
-      is_sampled=True
-  )
-  def method_with_default_args(
-      self, a: str, b: str, c: str = ''
-  ) -> str:
+  @caching.cache_method(name='method_with_default_args', is_sampled=True)
+  def method_with_default_args(self, a: str, b: str, c: str = '') -> str:
     del c
     return a + b
 
   @caching.cache_method(
       name='method_decorated_with_test_cache_key_maker',
       is_sampled=True,
-      cache_key_maker=KeyMakerForTest
+      cache_key_maker=KeyMakerForTest,
   )
   def method_decorated_with_test_cache_key_maker(self, a: str, b: str) -> str:
     return a + b
@@ -214,26 +207,26 @@ class CacheDecorationTest(parameterized.TestCase):
       (
           'no_key_maker',
           'method_decorated_with_default_cache_key_maker',
-          (
+          ((
               (
                   f'{{"{constants.CACHING_FUNCTION_NAME_KEY}": '
                   '"method_decorated_with_default_cache_key_maker", '
-                  '"a": "test", "b": " done"}',
-                  '',
-              )
-          ),
+                  '"a": "test", "b": " done"}'
+              ),
+              '',
+          )),
       ),
       (
           'default_args_with_key_maker',
           'method_with_default_args',
-          (
+          ((
               (
                   f'{{"{constants.CACHING_FUNCTION_NAME_KEY}": '
                   '"method_with_default_args", '
-                  '"a": "test", "b": " done", "c": ""}',
-                  '',
-              )
-          ),
+                  '"a": "test", "b": " done", "c": ""}'
+              ),
+              '',
+          )),
       ),
       (
           'use_KeyMakerForTest',
@@ -296,11 +289,7 @@ class CacheDecorationTest(parameterized.TestCase):
       (
           'disable_cache_false',
           False,
-          [
-              'test done',
-              'extra1 test done',
-              'extra2 test done'
-          ],
+          ['test done', 'extra1 test done', 'extra2 test done'],
       ),
   )
   def test_cache_extra_replies(self, disable_cache, expected_cached_values):
@@ -320,9 +309,7 @@ class CacheDecorationTest(parameterized.TestCase):
       assert len(values) == 2, pprint.pformat(handler.contents)
       cached_values = values[0] + values[1]
       self.assertCountEqual(
-          cached_values,
-          expected_cached_values,
-          pprint.pformat(cached_values)
+          cached_values, expected_cached_values, pprint.pformat(cached_values)
       )
     else:
       # Make sure nothing is cached.
@@ -332,7 +319,7 @@ class CacheDecorationTest(parameterized.TestCase):
     backend = ClassWithCachedMethods()
     with self.assertRaisesRegex(
         ValueError,
-        'Method that is decorated with cache_method(cache_extra_replies=True)*'
+        'Method that is decorated with cache_method(cache_extra_replies=True)*',
     ):
       _ = asyncio.run(
           backend.method_does_not_return_sequence('test', b=' done')
@@ -340,9 +327,9 @@ class CacheDecorationTest(parameterized.TestCase):
 
   def test_decorate_non_method_raises_exception(self):
     with self.assertRaisesRegex(
-        ValueError,
-        'Decorator @cache_method should be applied to a method*'
+        ValueError, 'Decorator @cache_method should be applied to a method*'
     ):
+
       @caching.cache_method(
           name='_',
           is_sampled=True,
@@ -393,6 +380,7 @@ class CacheDecorationTest(parameterized.TestCase):
 
     # Iterative execution
     stream = []
+
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def wrapper():
       nonlocal stream
@@ -574,10 +562,13 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.counters,
       )
       self.assertEqual(
-          collections.defaultdict(int, {
-              utils.get_str_hash('key3'): 1,
-              utils.get_str_hash('key1'): 1,
-          }),
+          collections.defaultdict(
+              int,
+              {
+                  utils.get_str_hash('key3'): 1,
+                  utils.get_str_hash('key1'): 1,
+              },
+          ),
           function_cache._cache_data.num_used_values_by_key,
       )
       # By now we have 3 values for this key.
@@ -597,15 +588,16 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       )
       # And sample ids don't change.
       self.assertEqual(
-          collections.defaultdict(int, {
-              utils.get_str_hash('key3'): 1,
-              utils.get_str_hash('key1'): 1,
-          }),
+          collections.defaultdict(
+              int,
+              {
+                  utils.get_str_hash('key3'): 1,
+                  utils.get_str_hash('key1'): 1,
+              },
+          ),
           function_cache._cache_data.num_used_values_by_key,
       )
-    with self.subTest(
-        'get_cached_new_sampling_key_maps_new_sample'
-    ):
+    with self.subTest('get_cached_new_sampling_key_maps_new_sample'):
       # For the new sampling_key we get the second value mapped.
       self.assertEqual(
           asyncio.run(
@@ -615,10 +607,13 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
       )
       # And sampling ids change.
       self.assertEqual(
-          collections.defaultdict(int, {
-              utils.get_str_hash('key3'): 1,
-              utils.get_str_hash('key1'): 2,
-          }),
+          collections.defaultdict(
+              int,
+              {
+                  utils.get_str_hash('key3'): 1,
+                  utils.get_str_hash('key1'): 2,
+              },
+          ),
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, matched sampling_key, matched value. Redundant.
@@ -637,17 +632,18 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.counters,
       )
       self.assertEqual(
-          collections.defaultdict(int, {
-              utils.get_str_hash('key3'): 1,
-              utils.get_str_hash('key1'): 2,
-          }),
+          collections.defaultdict(
+              int,
+              {
+                  utils.get_str_hash('key3'): 1,
+                  utils.get_str_hash('key1'): 2,
+              },
+          ),
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, matched sampling_key, new value. Overwrite.
     function_cache.cache_value('key1', 'sampling_key_1', 'value_2')
-    with self.subTest(
-        'cache_matched_cache_key_matched_sampling_key_new_value'
-    ):
+    with self.subTest('cache_matched_cache_key_matched_sampling_key_new_value'):
       self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
           {
@@ -660,17 +656,18 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.counters,
       )
       self.assertEqual(
-          collections.defaultdict(int, {
-              utils.get_str_hash('key3'): 1,
-              utils.get_str_hash('key1'): 2,
-          }),
+          collections.defaultdict(
+              int,
+              {
+                  utils.get_str_hash('key3'): 1,
+                  utils.get_str_hash('key1'): 2,
+              },
+          ),
           function_cache._cache_data.num_used_values_by_key,
       )
     # Deterministic function.
     function_cache.cache_value('key_det', sampling_key_none, 'value_1')
-    with self.subTest(
-        'get_cached_deterministic_one_value_no_sampling_key'
-    ):
+    with self.subTest('get_cached_deterministic_one_value_no_sampling_key'):
       self.assertEqual(
           asyncio.run(
               function_cache.get_cached_value('key_det', sampling_key_none)
@@ -697,9 +694,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     backend = ClassCachedWithSimpleFunctionCache()
     with self.subTest('cache_decorator_properly_handles_exceptions'):
       with self.assertRaises(KeyboardInterrupt):
-        _ = asyncio.run(
-            backend.method_that_raises_keyboard_interrupt(a='some')
-        )
+        _ = asyncio.run(backend.method_that_raises_keyboard_interrupt(a='some'))
     # pytype hint.
     handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
 
@@ -817,10 +812,12 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
 
     # Now restore the cache from each location to verify the contents.
     cache_restored_1 = caching.SimpleFunctionCache(
-        cache_filename=cache_filename1)
+        cache_filename=cache_filename1
+    )
     cache_restored_1.load(restore_mapping=True)
     cache_restored_2 = caching.SimpleFunctionCache(
-        cache_filename=cache_filename2)
+        cache_filename=cache_filename2
+    )
     cache_restored_2.load(restore_mapping=True)
 
     with self.subTest('restore_from_specified_location_should_work'):
@@ -861,7 +858,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     # file (when `overwrite=True`), not the second cache file (when
     # `overwrite=False`), which leads to sampling_key=`None`.
     expected_merged_cache = caching.SimpleFunctionCache(
-        cache_filename=cache_filename1)
+        cache_filename=cache_filename1
+    )
     expected_merged_cache.cache_value('key1', 'sampling_key_1', 'val1')
     expected_merged_cache.cache_value('key1', 'sampling_key_2', 'val2')
     expected_merged_cache.cache_value('key1', None, 'val9')
@@ -874,7 +872,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     expected_merged_cache.cache_value('key4', None, 'val13')
 
     overwritten_cache = caching.SimpleFunctionCache(
-        cache_filename=cache_filename1)
+        cache_filename=cache_filename1
+    )
     overwritten_cache.load(restore_mapping=True)
     overwritten_cache.load(overwrite=True, cache_filename=cache_filename2)
 
@@ -945,6 +944,7 @@ class CacheDataTest(parameterized.TestCase):
     )
     cache1 += cache2
     self.assertEqual(expected_result, cache1, cache1)
+
 
 if __name__ == '__main__':
   absltest.main()
