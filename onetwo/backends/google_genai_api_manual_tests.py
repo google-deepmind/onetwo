@@ -30,6 +30,7 @@ from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.core import sampling
 from PIL import Image
 import pydantic
@@ -112,6 +113,16 @@ def main(argv: Sequence[str]) -> None:
   )
   backend.register()
 
+  image_backend = google_genai_api.GoogleGenAIAPI(
+      generate_model_name='models/gemini-2.5-flash-image-preview',
+      api_key=api_key,
+      vertexai=vertexai,
+      project=project,
+      location=location,
+      threadpool_size=_THREADPOOL_SIZE.value,
+      cache=cache,
+  )
+
   # Disable (or limit) thinking by default to reduce cost and avoid subtle
   # interactions with the `max_tokens` parameter (which gets applied to the sum
   # of the thinking tokens and actual output tokens).
@@ -129,6 +140,10 @@ def main(argv: Sequence[str]) -> None:
     cache.load()
     load_end = time.time()
     print('Spent %.4fsec loading cache.' % (load_end - load_start))
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  async def generate_contents_direct(backend, **kwargs):
+    return await backend._generate_contents(**kwargs)  # pytype: disable=wrong-keyword-args
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def check_and_complete(prompt_text, **other_args):
@@ -268,6 +283,48 @@ def main(argv: Sequence[str]) -> None:
     if not value_error_raised:
       success = False
       print('ValueError not raised.')
+
+  if _run_test(6.1, 'Generate an image'):
+    with routing.RegistryContext():
+      image_backend.register()
+      res = executing.run(
+          generate_contents_direct(
+              image_backend,
+              prompt="""Create a picture of a banana disguised as superhero.""",
+              temperature=2,
+          )
+      )[0]
+    has_image = False
+    for ch in res:
+      if ch.content_type.startswith('image/'):
+        has_image = True
+    print('- Has image: ', has_image)
+    if not has_image:
+      success = False
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
+
+  if _run_test(6.2, 'Generate candidates'):
+    res = executing.run(
+        generate_contents_direct(
+            backend,
+            prompt="""How are you doing? In one word.""",
+            samples=3,
+            temperature=2,
+            response_mime_type='application/json',
+            response_schema={
+                'type': 'STRING',
+                'pattern': '(terrible|excellent|well|average|meh|bad|awesome)',
+            },
+        )
+    )
+    uniq = len({str(r): False for r in res})
+    print('- Candidates:', len(res), ' distinct:', uniq)
+    if _PRINT_DEBUG.value:
+      for candidate in res:
+        print('Returned value(s):')
+        pprint.pprint(candidate)
 
   if _run_test(7, 'Healing prompt'):
     print('7.1 Generate text without healing.')

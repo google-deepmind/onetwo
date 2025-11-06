@@ -571,9 +571,7 @@ class GoogleGenaiApiTest(
       self.assertEqual(mock_generate_content.call_count, 1)
       self.assertEqual(obj2, test_object)
       self.assertIsInstance(obj2, MyData)
-      self.assertEqual(
-          backend1._counters['generate_object'], 1
-      )
+      self.assertEqual(backend1._counters['generate_object'], 1)
 
     cache.save()
     self.assertTrue(os.path.exists(cache_filename))
@@ -957,9 +955,7 @@ class GoogleGenaiApiTest(
 
     prompt = _ChunkList(chunks=[_Chunk(content=pil_image)])
     expected_part = genai_types.Part(
-        inline_data=genai_types.Blob(
-            mime_type='image/png', data=image_bytes
-        )
+        inline_data=genai_types.Blob(mime_type='image/png', data=image_bytes)
     )
 
     result = google_genai_api._convert_chunk_list_to_part_list(prompt)
@@ -1309,6 +1305,281 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(backend._counters, Counter(embed=1))
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
+
+  def test_generate_content_simple(self):
+    _ = _get_and_register_backend()
+    results = executing.run(llm.generate_content(prompt='prompt'))
+    self.assertEqual(results, _ChunkList([_Chunk('text')]))
+
+  def test_generate_content_args(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text='text2')]
+                )
+            )
+        ]
+    )
+    res = executing.run(
+        llm.generate_content(
+            prompt='prompt1',
+            temperature=0.7,
+            max_tokens=3,
+            stop=['halt', 'zoll'],
+            top_k=4,
+            top_p=0.9,
+        )
+    )
+    self.assertEqual(str(res), 'text2')
+    self.assertEqual(
+        gc_mock.call_args.kwargs['contents'],
+        [
+            genai_types.Content(
+                parts=[genai_types.Part(text='prompt1')], role='user'
+            )
+        ],
+    )
+    self.assertEqual(
+        gc_mock.call_args.kwargs['config'],
+        genai_types.GenerateContentConfig(
+            candidate_count=1,
+            max_output_tokens=3,
+            stop_sequences=['halt', 'zoll'],
+            temperature=0.7,
+            top_k=4.0,
+            top_p=0.9,
+        ),
+    )
+
+  def test_generate_content_details(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[
+                        genai_types.Part(text='I am', thought=True),
+                        genai_types.Part(text=' thinking', thought=True),
+                        genai_types.Part(text=' bananas'),
+                        genai_types.Part(text=' but also', thought=True),
+                        genai_types.Part(text=' apples'),
+                    ],
+                )
+            )
+        ]
+    )
+    res = executing.run(
+        llm.generate_content(prompt='prompt1', include_details=True)
+    )
+    self.assertEqual(str(res[0]), ' bananas apples')
+    self.assertEqual(str(res[1]['thoughts']), 'I am thinking but also')
+    # TODO: do we want to also cleanup the candidate?
+
+  def test_generate_content_prompt(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+
+    image = Image.new(mode='RGB', size=(1, 1))
+    image.load()[0, 0] = (255, 255, 255)
+
+    def run0(prompt: llm_lib.Prompt) -> Sequence[genai_types.Content]:
+      _ = executing.run(llm.generate_content(prompt=prompt))
+      out = gc_mock.call_args.kwargs['contents']
+      # Simplify the image bytes
+      for candidate in out:
+        for part in candidate.parts:
+          if part.inline_data and part.inline_data.mime_type == 'image/png':
+            part.inline_data.data = b'<PNG>'
+      return out
+
+    part_text = genai_types.Part(text='text')
+    part_sql = genai_types.Part(
+        inline_data=genai_types.Blob(
+            data=b'SELECT bytes', mime_type='application/sql'
+        )
+    )
+    part_img = genai_types.Part(
+        inline_data=genai_types.Blob(data=b'<PNG>', mime_type='image/png')
+    )
+
+    # Case 1: str
+    c0 = [genai_types.Content(parts=[part_text], role='user')]
+    self.assertEqual(run0('text'), c0)
+    self.assertEqual(run0(_ChunkList(['text'])), c0)
+    # Case 2: Sequence[_Chunk]
+    chunks = [
+        _Chunk('text'),  # user if role unset
+        _Chunk(b'SELECT bytes', 'application/sql', role='model'),
+        _Chunk(image),  # user if role unset
+    ]
+    contents = [
+        genai_types.Content(parts=[part_text], role='user'),
+        genai_types.Content(parts=[part_sql], role='model'),
+        genai_types.Content(parts=[part_img], role='user'),
+    ]
+    self.assertEqual(run0(chunks), contents)
+    # Case 3: _ChunkList
+    self.assertEqual(run0(_ChunkList(chunks=chunks)), contents)
+    # Case 4: Sequence[_Message], role is forced to that of enclosing message
+    c4 = run0([_Message(content=_ChunkList(chunks), role='user')])
+    self.assertEqual(
+        c4,
+        [
+            genai_types.Content(
+                parts=[part_text, part_sql, part_img], role='user'
+            )
+        ],
+    )
+
+  def test_generate_content_turns_and_instructions(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    chunks = [
+        _Chunk('system', role='system'),
+        _Chunk('instructions', role='system'),
+        _Chunk('hello', role='user'),
+        _Chunk('world', role='model'),
+        _Chunk('hola', role='user'),
+    ]
+    _ = executing.run(llm.generate_content(prompt=chunks))
+    out = gc_mock.call_args.kwargs
+    self.assertEqual(
+        out['config'].system_instruction,
+        genai_types.Content(
+            parts=[
+                genai_types.Part(text='system'),
+                genai_types.Part(text='instructions'),
+            ],
+            role='system',
+        ),
+    )
+    self.assertEqual(
+        out['contents'],
+        [
+            genai_types.Content(
+                parts=[genai_types.Part(text='hello')], role='user'
+            ),
+            genai_types.Content(
+                parts=[genai_types.Part(text='world')], role='model'
+            ),
+            genai_types.Content(
+                parts=[genai_types.Part(text='hola')], role='user'
+            ),
+        ],
+    )
+
+  def test_generate_content_heal_spaces(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    # Text is "broken spaces"; " " should come from the model, not the prompt.
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text=' spaces')]
+                )
+            )
+        ]
+    )
+    res = executing.run(
+        llm.generate_content(
+            prompt='broken ',
+            healing_option=llm_lib.TokenHealingOption.SPACE_HEALING,
+        )
+    )
+    self.assertEqual(  # Model sees the fixed prompt
+        gc_mock.call_args.kwargs['contents'][0].parts[0].text, 'broken'
+    )
+    self.assertEqual(str(res), 'spaces')  # Return has no double space
+
+  def test_generate_content_samples(self):
+    backend = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+
+    def generate_contents(samples: int, **kwargs):
+      """Demonstrates generating multiple candidates e.g. generate_texts()."""
+      return executing.run(
+          backend._generate_contents(samples=samples, **kwargs)
+      )
+
+    def candidate(parts: list[str]):
+      ps = [genai_types.Part(text=p) for p in parts]
+      return genai_types.Candidate(content=genai_types.Content(parts=ps))
+
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            candidate(['c1', 'snap']),
+            candidate(['c2', 'fu']),
+            candidate(['c3', 'bar']),
+        ]
+    )
+    res = generate_contents(prompt='many', samples=3)
+    self.assertEqual(gc_mock.call_args.kwargs['config'].candidate_count, 3)
+    self.assertEqual(
+        res,
+        [
+            _ChunkList(chunks=['c1', 'snap']),
+            _ChunkList(chunks=['c2', 'fu']),
+            _ChunkList(chunks=['c3', 'bar']),
+        ],
+    )
+
+  def test_generate_content_decode_obj(self):
+    def gen_obj(decoding_constraint: type[Any], **kwargs):
+      """Demonstrates how generate_object() can be reimplemented."""
+      kwargs['response_mime_type'] = 'application/json'
+      kwargs['response_schema'] = decoding_constraint
+      result = executing.run(llm.generate_content(**kwargs))
+      adapter = pydantic.TypeAdapter(decoding_constraint)
+      return adapter.validate_json(str(result))
+
+    _ = _get_and_register_backend()
+    expected = [
+        MyData(name='Chips', value=1, details=['a', 'b']),
+        MyData(name='Cookie', value=2, details=['c', 'd']),
+    ]
+    json = pydantic.TypeAdapter(list[MyData]).dump_json(expected)
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(parts=[genai_types.Part(text=json)])
+            )
+        ]
+    )
+    self.assertEqual(
+        gen_obj(prompt='prompt', decoding_constraint=list[MyData]), expected
+    )
+
+  def test_generate_content_decode_str(self):
+    def with_regex(decoding_constraint: str, **kwargs):
+      """Demonstrates how a regex constraint can be added."""
+      kwargs['response_mime_type'] = 'application/json'
+      kwargs['response_schema'] = {
+          'type': 'STRING',
+          'pattern': decoding_constraint,
+      }
+      content = executing.run(llm.generate_content(**kwargs))
+      text = pydantic.TypeAdapter(str).validate_json(str(content))
+      return _ChunkList(chunks=[text])
+
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text='"unicorn"')]
+                )
+            )
+        ]
+    )
+    result = with_regex(prompt='unicorn', decoding_constraint='(poney|unicorn)')
+    self.assertEqual(str(result), 'unicorn')
 
 
 if __name__ == '__main__':

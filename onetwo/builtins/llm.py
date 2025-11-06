@@ -41,6 +41,7 @@ from onetwo.core import tracing
 
 _T = TypeVar('_T')
 
+_Chunk: TypeAlias = content_lib.Chunk
 _ChunkList: TypeAlias = content_lib.ChunkList
 _Message: TypeAlias = content_lib.Message
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
@@ -50,6 +51,9 @@ _UNIMPLEMENTED_ERROR = NotImplementedError(
     'The implementation should be provided at runtime by calling `configure`'
     ' or `get_variant`. This function cannot be called directly.'
 )
+
+# A key for the `include_details` where thoughts can be found
+THOUGHTS = 'thoughts'
 
 
 @builtins_base.Builtin[str | tuple[str, Mapping[str, Any]]]
@@ -67,7 +71,7 @@ async def generate_text(
 ) -> str | tuple[str, Mapping[str, Any]]:
   """Interface of the generate_text built-in function.
 
-  Complete the provided prompt with the LLM and return the completion. This is
+  Completes the provided prompt with the LLM and return the completion. This is
   intended to be the "purest" form of completion, where "what you specify is
   what the LLM will see", i.e., little to no modification is applied to your
   prompt before it is sent to the model. See `instruct` and `chat` for the
@@ -102,6 +106,44 @@ async def generate_text(
       include_details,
       healing_option,
   )
+  raise _UNIMPLEMENTED_ERROR
+
+
+Prompt = str | Sequence[_Chunk] | _ChunkList | Sequence[_Message]
+Content = _ChunkList | tuple[_ChunkList, Mapping[str, Any]]
+
+
+@builtins_base.Builtin[Content]
+async def generate_content(
+    prompt: Prompt,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    stop: Sequence[str] | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    include_details: bool = False,
+    healing_option: TokenHealingOption = TokenHealingOption.NONE,
+) -> Content:
+  """Interface of the generate_content built-in function.
+
+  Args:
+    prompt: The model prompt (as string, chunks or multi-turn messages).
+    temperature: Optional temperature parameter.
+    max_tokens: Optional maximum number of tokens to generate.
+    stop: Optional Sequence of strings on which to stop the generation.
+    top_k: Optional top_k parameter.
+    top_p: Optional top_p parameter.
+    include_details: If True, the result will be a tuple with a Mapping
+      containing additional (backend-specific) information.
+    healing_option: Type of token healing applied to the prompt.
+
+  Returns:
+    A sequence of answers. Each answer is a string (text-only) or a list of
+    Chunks (if multimodal), as pairs (answer, details) if include_details=True.
+  """
+  del (prompt, temperature, max_tokens, stop, top_k, top_p)
+  del (include_details, healing_option)
   raise _UNIMPLEMENTED_ERROR
 
 

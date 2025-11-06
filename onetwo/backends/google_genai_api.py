@@ -52,8 +52,10 @@ TypeAdapter = pydantic.TypeAdapter
 
 _T = TypeVar('_T')
 
+_Chunk: TypeAlias = content_lib.Chunk
 _ChunkList: TypeAlias = content_lib.ChunkList
 _Message: TypeAlias = content_lib.Message
+_MessageMaybeDetails: TypeAlias = _Message | tuple[_Message, Mapping[str, Any]]
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 
 
@@ -114,39 +116,98 @@ _RETRIABLE_STATUS_CODES = {
 }
 
 
+def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
+  """Converts a single Chunk into a Part."""
+  match chunk.content:
+    case str() as text_content:
+      return genai_types.Part(text=text_content)
+    case bytes() as bytes_content:
+      return genai_types.Part(
+          inline_data=genai_types.Blob(
+              mime_type=chunk.content_type, data=bytes_content
+          )
+      )
+    case Image.Image() as pil_image:
+      bytes_io = io.BytesIO()
+      pil_image.save(bytes_io, format='PNG')
+      return genai_types.Part(
+          inline_data=genai_types.Blob(
+              mime_type='image/png', data=bytes_io.getvalue()
+          )
+      )
+    case _:
+      raise TypeError(f'Unsupported content type: {type(chunk.content)}')
+
+
+def _contents_from_prompt(prompt: llm.Prompt) -> Sequence[genai_types.Content]:
+  """Converts a string, chunks or messages into a GenAI Content."""
+  content: list[genai_types.Content] = []
+  valid_roles = [v.value for v in content_lib.PredefinedRole]
+
+  def add(chunk: _Chunk, role: str = ''):
+    if chunk.role and not role:
+      role = str(chunk.role)
+    if role not in valid_roles:
+      role = content_lib.PredefinedRole.USER.value
+    part = _part_from_chunk(chunk)
+    if content and content[-1].role == role:
+      content[-1].parts.append(part)
+    else:
+      content.append(genai_types.Content(parts=[part], role=role))
+
+  if isinstance(prompt, str):
+    add(_Chunk(prompt))
+  elif isinstance(prompt, _ChunkList):
+    for c in prompt.chunks:
+      add(c)
+  else:
+    for msg in prompt:
+      if isinstance(msg, _Chunk):
+        add(msg)
+      else:
+        c = msg.content
+        if isinstance(c, str):
+          add(_Chunk(c), msg.role)
+        else:
+          for cc in c.chunks:
+            add(cc, msg.role)
+  return content
+
+
+def _chunks_with_details_from_candidate(
+    candidate: genai_types.Candidate,
+) -> tuple[_ChunkList, Mapping[str, Any]]:
+  """Converts one GenAI Candidate into chunks and associated details."""
+  chunks: list[_Chunk] = []
+  thoughts: list[_Chunk] = []
+  if candidate.content and candidate.content.parts:
+    for part in candidate.content.parts:
+      if part.text:
+        chunk = _Chunk(content=part.text)
+      elif part.inline_data:
+        data = part.inline_data.data
+        mime = part.inline_data.mime_type
+        chunk = _Chunk(content=data, content_type=mime)
+      else:
+        # Note: part.file_data and other payloads are not handled.
+        continue
+      if part.thought:
+        thoughts.append(chunk)
+      else:
+        chunks.append(chunk)
+  return (
+      _ChunkList(chunks),
+      {llm.THOUGHTS: _ChunkList(thoughts), 'candidate': candidate},
+  )
+
+
 def _convert_chunk_list_to_part_list(
     prompt: str | _ChunkList,
 ) -> list[genai_types.Part]:
   """Converts ChunkList to the type compatible with SDK's chat history."""
   if isinstance(prompt, str):
     return [genai_types.Part(text=prompt)]
-
-  contents = []
-  for c in prompt:
-    match c.content:
-      case str() as text_content:
-        contents.append(genai_types.Part(text=text_content))
-      case bytes() as bytes_content:
-        contents.append(
-            genai_types.Part(
-                inline_data=genai_types.Blob(
-                    mime_type=c.content_type, data=bytes_content
-                )
-            )
-        )
-      case Image.Image() as pil_image:
-        img_byte_arr = io.BytesIO()
-        pil_image.save(img_byte_arr, format='PNG')
-        contents.append(
-            genai_types.Part(
-                inline_data=genai_types.Blob(
-                    mime_type='image/png', data=img_byte_arr.getvalue()
-                )
-            )
-        )
-      case _:
-        raise TypeError(f'Unsupported content type: {type(c.content)}')
-  return contents
+  return [_part_from_chunk(c) for c in prompt]
 
 
 def _replace_if_unsupported_role(
@@ -282,6 +343,9 @@ class GoogleGenAIAPI(
   generate_object_kwargs: dict[str, Any] = dataclasses.field(
       default_factory=dict
   )
+  generate_content_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict
+  )
 
   # Attributes not set by constructor.
   _genai_client: genai.Client = dataclasses.field(init=False)
@@ -337,7 +401,15 @@ class GoogleGenAIAPI(
           top_k=self.top_k,
           **self.generate_object_kwargs,
       )
-
+      llm.generate_content.configure(
+          self.generate_content,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+          top_k=self.top_k,
+          **self.generate_content_kwargs,
+      )
     if register_embed:
       llm.embed.configure(self.embed)
     if register_generate:
@@ -498,6 +570,124 @@ class GoogleGenAIAPI(
         healing_option=healing_option,
         **kwargs,
     )
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  async def generate_content(self, prompt: llm.Prompt, **kwargs) -> llm.Content:
+    """See builtins.llm.generate_content."""
+    return (await self._generate_contents(prompt, samples=1, **kwargs))[0]
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='GoogleGenAIAPI.generate_contents')
+  @caching.cache_method(  # Cache this method.
+      name='generate_contents',
+      is_sampled=True,  # Two calls with same args may return different replies.
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
+  )
+  async def _generate_contents(
+      self,
+      prompt: llm.Prompt,
+      samples: int = 1,
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,  # Optional genai specific arguments.
+  ) -> Sequence[llm.Content]:
+    """This is builtins.llm.generate_content for multiple candidates."""
+    # Apply token healing to the prompt, if applicable.
+    original_prompt = prompt
+    if isinstance(prompt, str) or isinstance(prompt, _ChunkList):
+      original_prompt = prompt
+      prompt = llm_utils.maybe_heal_prompt(
+          original_prompt=prompt, healing_option=healing_option
+      )
+    elif prompt:  # non-empty Sequence
+      if isinstance(prompt[0], _Chunk):
+        original_prompt = _ChunkList(chunks=prompt)
+        prompt = llm_utils.maybe_heal_prompt(
+            original_prompt=_ChunkList(chunks=prompt),
+            healing_option=healing_option,
+        )
+      else:  # Sequence[Message]
+        original_prompt = prompt[-1].content
+        prompt[-1].content = llm_utils.maybe_heal_prompt(
+            original_prompt=prompt[-1].content, healing_option=healing_option
+        )
+    contents = _contents_from_prompt(prompt)
+
+    # Make call to the underlying GenAI client.
+    if (
+        contents[0].role == content_lib.PredefinedRole.SYSTEM.value
+        and 'system_instruction' not in kwargs
+    ):
+      kwargs['system_instruction'] = contents[0]
+      contents = contents[1:]
+    generation_config = genai_types.GenerateContentConfig(
+        candidate_count=samples,
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        stop_sequences=stop,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs,
+    )
+    try:
+      response = self._genai_client.models.generate_content(
+          model=self._generate_model_name(),
+          contents=contents,
+          config=generation_config,
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'GoogleGenAIAPI.generate_content raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(prompt)[:100]}'
+      ) from err
+
+    # Check for empty response.
+    empty = True
+    if response.candidates:
+      for candidate in response.candidates:
+        if candidate and candidate.content and candidate.content.parts:
+          empty = False
+    if empty:
+      response_msg = pprint.pformat(response.candidates)
+      raise ValueError(
+          'GoogleGenAIAPI.generate_text returned no answers. This may be'
+          f' caused by safety filters:\n{response_msg}'
+      )
+
+    # Bug fix for Gemini b/454877141: Clean up conflated candidates.
+    c0 = response.candidates[0].content
+    for ci in range(len(response.candidates) - 1, 0, -1):
+      c = response.candidates[ci].content
+      off = len(c0.parts) - len(c.parts)
+      for pi in range(len(c.parts) - 1, -1, -1):
+        if c.parts[pi] == c0.parts[off + pi]:
+          c0.parts.pop()
+
+    contents_with_details = [
+        _chunks_with_details_from_candidate(c) for c in response.candidates
+    ]
+
+    # Apply token healing to the response, if applicable.
+    for content, _ in contents_with_details:
+      if content.chunks and isinstance(content.chunks[-1].content, str):
+        content.chunks[-1].content = llm_utils.maybe_heal_reply(
+            reply_text=content.chunks[-1].content,
+            original_prompt=original_prompt,
+            healing_option=healing_option,
+        )
+
+    results = (
+        contents_with_details
+        if include_details
+        else [c[0] for c in contents_with_details]
+    )
+    return results
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
