@@ -28,7 +28,6 @@ import dataclasses
 import functools
 import inspect
 import io
-import itertools
 import traceback
 from typing import Any, Generic, Literal, ParamSpec, TypeVar, cast, final, overload
 
@@ -1257,22 +1256,63 @@ class ParallelExecutable(Executable[Sequence[Any]]):
     self.iterable = iter(iterable)
     self.return_exceptions = return_exceptions
 
-  async def _aexec(self) -> Sequence[Any]:
-    results = []
+  async def _worker(self):
+    """Worker task that processes items from the queue."""
     while True:
-      base_index = len(results)
-      chunk = list(itertools.islice(self.iterable, self.chunk_size))
-      if not chunk:
-        break
-      slice_results = await asyncio.gather(
-          *[
-              _wrap_executable(e, i + base_index, self.return_exceptions)
-              for i, e in enumerate(chunk)
-          ],
-          return_exceptions=self.return_exceptions,
+      index, executable = await self.queue.get()
+      if executable is None:  # Sentinel check
+        return  # Terminate worker
+      try:
+        self.results_dict[index] = await _wrap_executable(
+            executable, index, self.return_exceptions
+        )
+      except Exception as e:  # pylint: disable=broad-except
+        if not self.return_exceptions:
+          raise e
+        self.results_dict[index] = e
+      finally:
+        self.queue.task_done()
+
+  async def _producer_wrapper(self):
+    """Wrapper around producer to catch exception and manage queue."""
+    try:
+      for i, executable in enumerate(self.iterable):
+        if executable is None:
+          raise ValueError(
+              'The iterable passed to `par_iter` should not contain `None`.'
+          )
+        await self.queue.put((i, executable))
+    finally:
+      # Add sentinels to the queue to signal workers to exit.
+      for _ in range(self.chunk_size):
+        await self.queue.put((-1, None))
+
+  async def _aexec(self) -> Sequence[Any]:
+    # With chunk_size workers and queue size chunk_size, we have at most
+    # 2 * chunk_size items being processed or waiting in queue,
+    # limiting memory for large iterables.
+    self.queue = asyncio.Queue(maxsize=self.chunk_size)
+    self.results_dict = {}
+
+    workers = [
+        asyncio.create_task(self._worker()) for _ in range(self.chunk_size)
+    ]
+    producer_task = asyncio.create_task(self._producer_wrapper())
+
+    await asyncio.gather(producer_task, *workers)
+
+    if not self.results_dict:
+      return []
+
+    max_index = max(self.results_dict.keys())
+    # Sanity check that all results are present.
+    if len(self.results_dict) != max_index + 1:
+      raise RuntimeError(
+          'Incomplete results from parallel execution. Expected'
+          f' {max_index + 1} results, but got'
+          f' {len(self.results_dict)}.'
       )
-      results.extend(slice_results)
-    return results
+    return [self.results_dict[i] for i in range(max_index + 1)]
 
   async def _aiterate(
       self, iteration_depth: int = 1

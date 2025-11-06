@@ -18,6 +18,7 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator, Sequence
 import copy
 import pprint
+import time
 from typing import Any
 
 from absl.testing import absltest
@@ -36,6 +37,7 @@ serial = executing.serial
 
 
 class IterableReply(executing.ExecutableWithCallback[str]):
+
   def __init__(self, text: str):
     self.text = text
 
@@ -44,7 +46,8 @@ class IterableReply(executing.ExecutableWithCallback[str]):
       yield updating.Update(self.text[:i])
 
 
-class UncopiableObject():
+class UncopiableObject:
+
   def __init__(self, text: str):
     self.text = text
 
@@ -112,9 +115,7 @@ def my_function_with_non_copied_args(
 
 
 @make_executable('other')
-async def my_function_with_input(
-    text: str, other: ExecutableWithStr
-) -> str:
+async def my_function_with_input(text: str, other: ExecutableWithStr) -> str:
   other_result = await other
   return f'done: {text} with {other_result}'
 
@@ -136,6 +137,7 @@ def _process_stream(request: str) -> IterableReply:
 
 
 class CallRecorder:
+
   def __init__(self, use_threads: bool = False, streaming: bool = False):
     self.calls = []
     self.use_threads = use_threads
@@ -245,9 +247,7 @@ class ExecutionTest(parameterized.TestCase):
 
     final_result = executing.stream_with_callback(e, cb)
     with self.subTest('stream_with_callback_list'):
-      self.assertEqual(
-          expected_results, results, msg=pprint.pformat(results)
-      )
+      self.assertEqual(expected_results, results, msg=pprint.pformat(results))
 
     with self.subTest('stream_with_callback_final'):
       self.assertEqual(
@@ -259,17 +259,14 @@ class ExecutionTest(parameterized.TestCase):
     decorated_fn_two = make_executable('two')(decorated_fn_one)
     first_exec_arg = my_function('1')
     second_exec_arg = my_function('2')
-    tuple_one = executing.run(
-        decorated_fn_one(first_exec_arg, second_exec_arg)
-    )
-    tuple_two = executing.run(
-        decorated_fn_two(first_exec_arg, second_exec_arg)
-    )
+    tuple_one = executing.run(decorated_fn_one(first_exec_arg, second_exec_arg))
+    tuple_two = executing.run(decorated_fn_two(first_exec_arg, second_exec_arg))
     with self.subTest('repeated_decoration_is_a_no_op'):
       self.assertEqual(tuple_one, tuple_two)
 
   def test_make_executable_functions(self):
     """Tests the make_executable decorator on various function types."""
+
     # Whether we decorate a normal function, a bound method, an async function,
     # an iterator, or an async iterator, they should all be executable with run
     # or stream.
@@ -290,7 +287,9 @@ class ExecutionTest(parameterized.TestCase):
 
     @make_executable
     async def async_test_iterator(text: str) -> AsyncIterator[str]:
-      async for s in test_iterator(text):  # test_iterator should be async. pylint: disable=not-an-iterable
+      async for s in test_iterator(
+          text
+      ):  # test_iterator should be async. pylint: disable=not-an-iterable
         yield s
 
     # The below function is like `test_iterator` above, except `@tracing.trace`
@@ -319,12 +318,15 @@ class ExecutionTest(parameterized.TestCase):
     async def async_test_iterator_wrapping_iterator_traced_outside(
         text: str,
     ) -> AsyncIterator[str]:
-      async for s in test_iterator_traced_outside(text):  # test_iterator should be async. pylint: disable=not-an-iterable
+      async for s in test_iterator_traced_outside(
+          text
+      ):  # test_iterator should be async. pylint: disable=not-an-iterable
         yield s
 
     bound_fn = make_executable(ObjectForTest(['done: ']).not_decorated_method)
 
     cb_result = []
+
     def cb(res) -> None:
       nonlocal cb_result
       cb_result.append(res)
@@ -499,9 +501,7 @@ class ExecutionTest(parameterized.TestCase):
   def test_function_args_copy_with_non_copied_args(self):
     texts = ['r0']
     uncopiable = UncopiableObject('u0')
-    executable = my_function_with_non_copied_args(
-        texts, uncopiable=uncopiable
-    )
+    executable = my_function_with_non_copied_args(texts, uncopiable=uncopiable)
     executable2 = copy.deepcopy(executable)
     texts[0] = 'r1'
     uncopiable.text = 'u1'
@@ -515,17 +515,13 @@ class ExecutionTest(parameterized.TestCase):
       self.assertEqual('done: r0 with u1', executing.run(executable2))
 
   def test_serial_streaming(self):
-    executable = serial(
-        _wrap_request('req_0'), _wrap_request('req_1')
-    )
+    executable = serial(_wrap_request('req_0'), _wrap_request('req_1'))
     with executing.stream_updates(executable) as iterator:
       result = sum(iterator, start=updating.Update()).to_result()
     self.assertListEqual(['rep_0', 'rep_1'], result)
 
   def test_serial_streaming_with_callback(self):
-    executable = serial(
-        _wrap_request('req_0'), _wrap_request('req_1')
-    )
+    executable = serial(_wrap_request('req_0'), _wrap_request('req_1'))
     updates = executing.Update()
 
     def cb(update: executing.Update) -> None:
@@ -538,9 +534,7 @@ class ExecutionTest(parameterized.TestCase):
     self.assertListEqual(['rep_0', 'rep_1'], result)
 
   def test_serial_streaming_with_coroutine_callback(self):
-    executable = serial(
-        _wrap_request('req_0'), _wrap_request('req_1')
-    )
+    executable = serial(_wrap_request('req_0'), _wrap_request('req_1'))
     updates = executing.Update()
 
     async def cb(update: executing.Update) -> None:
@@ -573,14 +567,16 @@ class ExecutionTest(parameterized.TestCase):
     def pass_through(text: str) -> str:
       return text
 
-    reply1 = executing.run(my_function_with_input(
-        pass_through('r'), my_function('s')
-    ))
+    reply1 = executing.run(
+        my_function_with_input(pass_through('r'), my_function('s'))
+    )
     reply2 = executing.run(my_function_with_input('r', pass_through('s')))
     reply3 = executing.run(my_function_with_input('r', my_function('s')))
-    reply4 = executing.run(my_function_with_input(
-        my_function('r'), my_function_with_input('s', pass_through('t'))
-    ))
+    reply4 = executing.run(
+        my_function_with_input(
+            my_function('r'), my_function_with_input('s', pass_through('t'))
+        )
+    )
 
     with self.subTest('should_produce_correct_results'):
       self.assertEqual('done: r with done: s', reply1)
@@ -753,9 +749,7 @@ class ExecutionTest(parameterized.TestCase):
     executable = parallel(fn1())
     executable = fn2(executable)
     with self.subTest('parallel_of_one'):
-      self.assertEqual(
-          'test done', executing.run(executable)
-      )
+      self.assertEqual('test done', executing.run(executable))
 
     executable = par_iter([])
 
@@ -764,9 +758,7 @@ class ExecutionTest(parameterized.TestCase):
 
     executable = parallel(parallel(fn1()))
     with self.subTest('nested_parallel'):
-      self.assertEqual(
-          [['test']], executing.run(executable)
-      )
+      self.assertEqual([['test']], executing.run(executable))
 
   def test_wrap_asyncgen(self):
 
@@ -1153,6 +1145,7 @@ class ExecutionTest(parameterized.TestCase):
   )
   def test_parallel_exceptions(self, run_mode, return_exceptions):
     error_string = 'Some error'
+
     @executing.make_executable
     def compute(s: str) -> str:
       if s == error_string:
@@ -1225,9 +1218,7 @@ class ExecutionTest(parameterized.TestCase):
       # We iterate the prefix but not from the postfix.
       self.assertListEqual(['a', 'ab', 'abcd'], result)
 
-    executable = append(
-        append_non_exec('a', 'b'), append_non_exec('c', 'd')
-    )
+    executable = append(append_non_exec('a', 'b'), append_non_exec('c', 'd'))
     executable2 = copy.deepcopy(executable)
 
     result = executing.run(executable)
@@ -1442,6 +1433,98 @@ class ExecutionTest(parameterized.TestCase):
     with executing.max_parallel_executions(10):
       pe3 = executing.par_iter(executables_list, chunk_size=None)
       self.assertEqual(pe3.chunk_size, 15)
+
+  @parameterized.named_parameters(
+      ('chunk_size_1', 1, 5, 0.1, 0.5, 0.8),
+      ('chunk_size_2', 2, 10, 0.1, 0.5, 0.8),
+      ('chunk_size_5', 5, 10, 0.1, 0.2, 0.4),
+      ('chunk_size_10', 10, 10, 0.1, 0.1, 0.3),
+      ('more_chunks_than_tasks', 5, 3, 0.1, 0.1, 0.3),
+  )
+  def test_parallel_executable_concurrency_limit(
+      self,
+      chunk_size,
+      num_tasks,
+      task_duration,
+      min_expected_time,
+      max_expected_time,
+  ):
+    call_log = []
+
+    @executing.make_executable
+    async def long_running_task(duration: float, identifier: int):
+      nonlocal call_log
+      start_time = time.monotonic()
+      call_log.append({'id': identifier, 'event': 'start', 'time': start_time})
+      await asyncio.sleep(duration)
+      end_time = time.monotonic()
+      call_log.append({'id': identifier, 'event': 'end', 'time': end_time})
+      return identifier
+
+    tasks = [long_running_task(task_duration, i) for i in range(num_tasks)]
+
+    start_time = time.monotonic()
+    results = executing.run(executing.par_iter(tasks, chunk_size=chunk_size))
+    total_time = time.monotonic() - start_time
+
+    with self.subTest('should return results for all tasks'):
+      self.assertCountEqual(range(num_tasks), results)
+
+    with self.subTest('should complete within expected time'):
+      self.assertLess(total_time, max_expected_time)
+      self.assertGreater(total_time, min_expected_time)
+
+    with self.subTest('should respect concurrency limit'):
+      # Sort events by time, with 'end' events coming first in case of a tie.
+      call_log.sort(key=lambda x: (x['time'], x['event'] == 'start'))
+
+      concurrent_tasks = 0
+      max_concurrent_tasks = 0
+      for record in call_log:
+        if record['event'] == 'start':
+          concurrent_tasks += 1
+        else:
+          concurrent_tasks -= 1
+        max_concurrent_tasks = max(max_concurrent_tasks, concurrent_tasks)
+      self.assertLessEqual(max_concurrent_tasks, chunk_size)
+      if num_tasks > 0:
+        self.assertGreater(max_concurrent_tasks, 0)
+      else:
+        self.assertEqual(max_concurrent_tasks, 0)
+
+  def test_parallel_executable_worker_pool_efficiency(self):
+    """Tests that ParallelExecutable uses a worker pool not batches."""
+    task_durations = [0.4, 0.1, 0.1, 0.1]
+    chunk_size = 2
+    num_tasks = len(task_durations)
+
+    @executing.make_executable
+    async def task(duration: float, identifier: int):
+      await asyncio.sleep(duration)
+      return identifier
+
+    tasks = [task(duration, i) for i, duration in enumerate(task_durations)]
+
+    start_time = time.monotonic()
+    results = executing.run(executing.par_iter(tasks, chunk_size=chunk_size))
+    total_time = time.monotonic() - start_time
+
+    # With a batching approach, execution would be:
+    # Batch 1: tasks 0 (0.4s) and 1 (0.1s) -> takes 0.4s
+    # Batch 2: tasks 2 (0.1s) and 3 (0.1s) -> takes 0.1s
+    # Total time would be ~0.5s.
+    # With a worker pool, worker 2 finishes task 1 and picks up tasks 2 and 3
+    # while worker 1 is still busy with task 0.
+    # Total time should be ~0.4s (the duration of the longest task).
+
+    with self.subTest('should return results for all tasks'):
+      self.assertCountEqual(range(num_tasks), results)
+
+    with self.subTest('should be faster than batching'):
+      self.assertLess(
+          total_time, 0.45, 'Execution was not faster than batching.'
+      )
+      self.assertGreater(total_time, 0.38, 'Execution was unexpectedly fast.')
 
 
 if __name__ == '__main__':
