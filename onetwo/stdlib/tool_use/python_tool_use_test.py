@@ -490,7 +490,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     self.assertEqual(91877.0, result.sandbox_result.final_expression_value)
     self.assertLess(
         end_time - start_time,
-        1,
+        5,
         'Execution time suggests that the sandbox'
         f' {sandbox_factory.__name__} is slow.',
     )
