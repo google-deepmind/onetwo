@@ -328,6 +328,7 @@ class GeminiAPI(
       ) from err
 
   def __post_init__(self) -> None:
+
     # Create cache.
     self._cache_handler = caching.SimpleFunctionCache(
         cache_filename=self.cache_filename,

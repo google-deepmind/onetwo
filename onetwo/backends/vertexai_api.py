@@ -214,6 +214,7 @@ class VertexAIAPI(
     llm.count_tokens.configure(self.count_tokens)
 
   def __post_init__(self) -> None:
+
     # Create cache.
     self._cache_handler = caching.SimpleFunctionCache(
         cache_filename=self.cache_filename,

@@ -283,6 +283,7 @@ def safe_stream(
     The yielded value is wrapped into an Update because __aiter__ and __anext__
     methods of class Executable return Updates.
   """
+
   context_manager = _safe_stream(
       executable,
       iteration_depth=iteration_depth,
@@ -323,6 +324,7 @@ def stream_updates(  # pytype: disable=invalid-annotation
     An IteratorWithReturnValue that produces the updates from the executable
     and its final result.
   """
+
   with batching.stream_updates(
       executable,
       enable_batching=enable_batching,
@@ -423,6 +425,7 @@ def stream(
     The yielded value is wrapped into an Update because __aiter__ and __anext__
     methods of class Executable return Updates.
   """
+
   with safe_stream(
       executable,
       iteration_depth=iteration_depth,
@@ -509,6 +512,7 @@ def stream_with_callback(
     The final result (after accumulation) and the last execution_result (if
     enable_tracing=True).
   """
+
   final_execution_result = None
   updates = Update()
 

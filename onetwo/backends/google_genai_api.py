@@ -492,6 +492,7 @@ class GoogleGenAIAPI(
       raise ValueError(f'Model {self._embed_model_name()} not available.')
 
   def __post_init__(self) -> None:
+
     if self.cache is None:
       self.cache = caching.SimpleFunctionCache()
     # Configure GenAI client.
