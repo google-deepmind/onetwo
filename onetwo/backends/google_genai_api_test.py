@@ -490,15 +490,18 @@ class GoogleGenaiApiTest(
         ),
     ]
 
-    mock_response = mock.create_autospec(
-        genai_types.GenerateContentResponse, instance=True
+    json_str = pydantic.TypeAdapter(list[Recipe]).dump_json(expected_objects)
+    mock_response = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text=json_str)]
+                )
+            )
+        ]
     )
-    mock_response.candidates = [mock.MagicMock()]
-
-    parsed_property_mock = mock.PropertyMock(return_value=expected_objects)
-    type(mock_response).parsed = parsed_property_mock
-
-    self._mock_genai_client.models.generate_content.return_value = mock_response
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = mock_response
 
     prompt = 'List some cookie recipes'
     result = executing.run(llm.generate_object(prompt=prompt, cls=list[Recipe]))
@@ -506,63 +509,53 @@ class GoogleGenaiApiTest(
     with self.subTest('ResultsStructuredCorrectly'):
       self.assertEqual(result, expected_objects)
       self.assertIsInstance(result, list)
-      self.assertLen(result, 2)
       if result:
         self.assertIsInstance(result[0], Recipe)
-        self.assertEqual(result[0].recipe_name, 'Chocolate Chip Cookies')
-        self.assertEqual(
-            result[0].ingredients, ['1 cup butter', '3/4 cup sugar']
-        )
 
     with self.subTest('GenerateContentCall'):
-      self._mock_genai_client.models.generate_content.assert_called_once()
-      _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
+      gc_mock.assert_called_once()
+      _, mock_kwargs = gc_mock.call_args
       self.assertEqual(
           mock_kwargs['config'].response_mime_type, 'application/json'
       )
       self.assertEqual(mock_kwargs['config'].response_schema, list[Recipe])
-      self.assertEqual(mock_kwargs['contents'][0].text, prompt)
+      self.assertEqual(mock_kwargs['contents'][0].parts[0].text, prompt)
 
     with self.subTest('Counters'):
-      self.assertCounterEqual(
-          backend._counters,
-          Counter(generate_object=1),
-      )
-
-    with self.subTest('ParsedProperty'):
-      parsed_property_mock.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(generate_contents=1))
 
   def test_generate_object_caching(self):
-
     cache_dir = self.create_tempdir()
     cache_filename = os.path.join(cache_dir.full_path, 'test_cache.json')
 
     # Instance 1: Populate cache
     cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
-    backend1 = google_genai_api.GoogleGenAIAPI(
-        api_key='some_key',
-        cache=cache,
-    )
-    backend1.register()
+    backend1 = _get_and_register_backend(cache=cache)
 
-    mock_response = mock.create_autospec(
-        genai_types.GenerateContentResponse, instance=True
-    )
-    mock_response.candidates = [mock.MagicMock()]
     test_object = MyData(name='Test', value=123, details=['a', 'b'])
-    mock_response.parsed = test_object
+    json_str = pydantic.TypeAdapter(MyData).dump_json(test_object)
+
+    mock_response = genai_types.GenerateContentResponse(
+        candidates=[
+            genai_types.Candidate(
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text=json_str)]
+                )
+            )
+        ]
+    )
+
+    mock_generate_content = self._mock_genai_client.models.generate_content
+    mock_generate_content.return_value = mock_response
 
     with self.subTest('PopulateCache'):
-      with mock.patch.object(
-          backend1, '_generate_content', return_value=mock_response
-      ) as mock_generate_content:
-        obj1 = executing.run(
-            backend1.generate_object(prompt='some prompt', cls=MyData)
-        )
-        mock_generate_content.assert_called_once()
-        self.assertEqual(obj1, test_object)
-        self.assertIsInstance(obj1, MyData)
-        self.assertEqual(backend1._counters['generate_object'], 1)
+      obj1 = executing.run(
+          backend1.generate_object(prompt='some prompt', cls=MyData)
+      )
+      mock_generate_content.assert_called_once()
+      self.assertEqual(obj1, test_object)
+      self.assertIsInstance(obj1, MyData)
+      self.assertEqual(backend1._counters['generate_contents'], 1)
 
     with self.subTest('CacheHitSameBackend'):
       obj2 = executing.run(
@@ -571,38 +564,28 @@ class GoogleGenaiApiTest(
       self.assertEqual(mock_generate_content.call_count, 1)
       self.assertEqual(obj2, test_object)
       self.assertIsInstance(obj2, MyData)
-      self.assertEqual(backend1._counters['generate_object'], 1)
+      self.assertEqual(backend1._counters['generate_contents'], 1)
 
     cache.save()
     self.assertTrue(os.path.exists(cache_filename))
 
     # Instance 2: Load from cache
     cache2 = caching.SimpleFunctionCache(cache_filename=cache_filename)
-    backend2 = google_genai_api.GoogleGenAIAPI(
-        api_key='some_key',
-        threadpool_size=_THREADPOOL_SIZE,
-        cache=cache2,
-    )
-    backend2.register()
+    backend2 = _get_and_register_backend(cache=cache2)
     cache2.load()
 
     with self.subTest('CacheHitNewBackend'):
-      with mock.patch.object(
-          backend2, '_generate_content', return_value=mock_response
-      ) as mock_generate_content_new:
-        # This call should hit the loaded cache
-        obj3 = executing.run(
-            backend2.generate_object(prompt='some prompt', cls=MyData)
-        )
-        mock_generate_content_new.assert_not_called()
-        self.assertEqual(obj3, test_object)
-        self.assertIsInstance(obj3, MyData)
-        # generate_object on backend2 was never actually called beyond the cache
-        self.assertEqual(backend2._counters['generate_object'], 0)
+      # This call should hit the loaded cache
+      obj3 = executing.run(
+          backend2.generate_object(prompt='some prompt', cls=MyData)
+      )
+      self.assertEqual(obj3, test_object)
+      self.assertIsInstance(obj3, MyData)
+      # generate_object on backend2 was never actually called beyond the cache
+      self.assertEqual(backend2._counters['generate_contents'], 0)
 
-        self.assertEqual(
-            cache2._cache_data.counters['get_hit'], 2
-        )  # 1 hit in backend1, 1 in backend2
+    # 1 hit in backend1, 1 in backend2
+    self.assertEqual(cache2._cache_data.counters['get_hit'], 2)
 
   def test_chat(self):
     backend = _get_and_register_backend()
@@ -1542,12 +1525,14 @@ class GoogleGenaiApiTest(
         MyData(name='Chips', value=1, details=['a', 'b']),
         MyData(name='Cookie', value=2, details=['c', 'd']),
     ]
-    json = pydantic.TypeAdapter(list[MyData]).dump_json(expected)
+    json_str = pydantic.TypeAdapter(list[MyData]).dump_json(expected)
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[
             genai_types.Candidate(
-                content=genai_types.Content(parts=[genai_types.Part(text=json)])
+                content=genai_types.Content(
+                    parts=[genai_types.Part(text=json_str)]
+                )
             )
         ]
     )

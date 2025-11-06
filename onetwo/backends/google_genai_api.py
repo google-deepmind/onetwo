@@ -599,6 +599,7 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[llm.Content]:
     """This is builtins.llm.generate_content for multiple candidates."""
+    self._counters['generate_contents'] += 1
     # Apply token healing to the prompt, if applicable.
     original_prompt = prompt
     if isinstance(prompt, str) or isinstance(prompt, _ChunkList):
@@ -737,51 +738,6 @@ class GoogleGenAIAPI(
     )
     return (reply, {'text': raw}) if include_details else reply
 
-  @caching.cache_method(  # Cache this method.
-      name='generate_object',
-      is_sampled=True,  # Two calls with same args may return different replies.
-      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
-  )
-  async def _generate_object_internal(
-      self,
-      prompt: str | _ChunkList,
-      cls: type[Any],
-      *,
-      temperature: float | None = None,
-      max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
-      **kwargs,
-  ) -> Any:
-    """Internal helper for generate_object that is cached."""
-
-    self._counters['generate_object'] += 1
-
-    kwargs['response_mime_type'] = 'application/json'
-    kwargs['response_schema'] = cls
-
-    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
-        original_prompt=prompt,
-        healing_option=healing_option,
-    )
-
-    response = self._generate_content(  # pytype: disable=wrong-keyword-args
-        prompt=healed_prompt,
-        samples=1,
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-        stop=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
-    )
-
-    parsed_object = response.parsed
-    adapter = TypeAdapter(cls)
-    return adapter.dump_python(parsed_object, mode='json')
-
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_object')
   async def generate_object(
@@ -799,17 +755,9 @@ class GoogleGenAIAPI(
   ) -> _T:
     """Generates a structured object from the model based on the provided class.
 
-    Suitable for registering as implementation of builtins.llm.generate_object.
-
     This method leverages the Google GenAI API's structured output feature,
     constraining the model to return JSON that can be parsed into an instance
     of the specified class.
-
-    To support caching, this method calls an internal helper
-    `_generate_object_internal`. The internal helper executes the API call and
-    returns a serialized representation (e.g., dict) suitable for caching.
-    This public method then deserializes the result back into an instance of
-    the specified class `cls`.
 
     Args:
       prompt: The input prompt to the model.
@@ -848,9 +796,10 @@ class GoogleGenAIAPI(
     Returns:
       An instance of the type specified by the 'cls' argument.
     """
-    serializable_result = await self._generate_object_internal(
+    kwargs['response_mime_type'] = 'application/json'
+    kwargs['response_schema'] = cls
+    result = await self.generate_content(
         prompt=prompt,
-        cls=cls,
         temperature=temperature,
         max_tokens=max_tokens,
         stop=stop,
@@ -860,7 +809,7 @@ class GoogleGenAIAPI(
         **kwargs,
     )
     adapter = TypeAdapter(cls)
-    return adapter.validate_python(serializable_result)
+    return adapter.validate_json(str(result))
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.chat')
