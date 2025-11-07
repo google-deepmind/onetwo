@@ -22,7 +22,6 @@ Based on https://github.com/googleapis/python-genai to access either
 import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
-import io
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, Union
 
@@ -43,7 +42,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
-from PIL import Image
 import pydantic
 
 
@@ -125,14 +123,6 @@ def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
       return genai_types.Part(
           inline_data=genai_types.Blob(
               mime_type=chunk.content_type, data=bytes_content
-          )
-      )
-    case Image.Image() as pil_image:
-      bytes_io = io.BytesIO()
-      pil_image.save(bytes_io, format='PNG')
-      return genai_types.Part(
-          inline_data=genai_types.Blob(
-              mime_type='image/png', data=bytes_io.getvalue()
           )
       )
     case _:

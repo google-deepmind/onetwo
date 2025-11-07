@@ -929,21 +929,13 @@ class GoogleGenaiApiTest(
         exp_contents_type,
     )
 
-  def test_convert_chunk_list_with_pil_image(self):
-    """Tests conversion of ChunkList containing a PIL Image."""
+  def test_convert_chunk_list_with_pil_image_raises_error(self):
+    """Tests that PIL Image is not supported."""
     pil_image = Image.new('RGB', (1, 1), color='black')
-    img_byte_arr = io.BytesIO()
-    pil_image.save(img_byte_arr, format='PNG')
-    image_bytes = img_byte_arr.getvalue()
-
-    prompt = _ChunkList(chunks=[_Chunk(content=pil_image)])
-    expected_part = genai_types.Part(
-        inline_data=genai_types.Blob(mime_type='image/png', data=image_bytes)
-    )
-
-    result = google_genai_api._convert_chunk_list_to_part_list(prompt)
-    self.assertLen(result, 1)
-    self.assertEqual(result[0], expected_part)
+    with self.assertRaises(TypeError):
+      google_genai_api._convert_chunk_list_to_part_list(
+          _ChunkList(chunks=[_Chunk(content=pil_image)])
+      )
 
   def test_count_tokens_string(self):
     backend = _get_and_register_backend()
@@ -1368,6 +1360,9 @@ class GoogleGenaiApiTest(
 
     image = Image.new(mode='RGB', size=(1, 1))
     image.load()[0, 0] = (255, 255, 255)
+    image_bytes = io.BytesIO()
+    image.save(image_bytes, format='PNG')
+    image_bytes = image_bytes.getvalue()
 
     def run0(prompt: llm_lib.Prompt) -> Sequence[genai_types.Content]:
       _ = executing.run(llm.generate_content(prompt=prompt))
@@ -1397,7 +1392,7 @@ class GoogleGenaiApiTest(
     chunks = [
         _Chunk('text'),  # user if role unset
         _Chunk(b'SELECT bytes', 'application/sql', role='model'),
-        _Chunk(image),  # user if role unset
+        _Chunk(image_bytes, 'image/png'),  # user if role unset
     ]
     contents = [
         genai_types.Content(parts=[part_text], role='user'),
