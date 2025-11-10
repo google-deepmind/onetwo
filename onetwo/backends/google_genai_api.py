@@ -574,6 +574,13 @@ class GoogleGenAIAPI(
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
   )
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
+  )
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
   async def _generate_contents(
       self,
       prompt: llm.Prompt,
