@@ -497,36 +497,6 @@ class GoogleGenAIAPI(
     )
     self._verify_available_models()
 
-  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
-  def _generate_content(
-      self,
-      *,
-      prompt: str | content_lib.ChunkList,
-      samples: int = 1,
-      temperature: float | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      **kwargs,  # Optional genai specific arguments.
-  ) -> genai_types.GenerateContentResponse:
-    """Generate content using the configured generation model."""
-    prompt = _convert_chunk_list_to_part_list(prompt)
-    generation_config = genai_types.GenerateContentConfig(
-        candidate_count=samples,
-        temperature=temperature,
-        stop_sequences=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
-    )
-    response = self._genai_client.models.generate_content(
-        model=self._generate_model_name(),
-        contents=prompt,
-        config=generation_config,
-    )
-    _raise_if_empty_response(response)
-    return response
-
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
@@ -549,18 +519,37 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
-    return await self._generate_text(
+    self._counters['generate_text'] += 1
+    if decoding_constraint:
+      kwargs['response_mime_type'] = 'application/json'
+      kwargs['response_schema'] = {
+          'type': 'STRING',
+          'pattern': decoding_constraint,
+      }
+    res = await self.generate_content(
         prompt=prompt,
         temperature=temperature,
         max_tokens=max_tokens,
         stop=stop,
         top_k=top_k,
         top_p=top_p,
-        decoding_constraint=decoding_constraint,
         include_details=include_details,
         healing_option=healing_option,
         **kwargs,
     )
+
+    def unwrap_text(chunks: _ChunkList) -> str:
+      text = str(chunks)
+      if decoding_constraint:
+        # Unwrap the text from the JSON structure: <"te\"xt"> -> <te"xt>.
+        return pydantic.TypeAdapter(str).validate_json(text)
+      else:
+        return text
+
+    if isinstance(res, _ChunkList):
+      return unwrap_text(res)
+    else:
+      return unwrap_text(res[0]), res[1]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def generate_content(self, prompt: llm.Prompt, **kwargs) -> llm.Content:
@@ -634,30 +623,12 @@ class GoogleGenAIAPI(
         top_p=top_p,
         **kwargs,
     )
-    try:
-      response = self._genai_client.models.generate_content(
-          model=self._generate_model_name(),
-          contents=contents,
-          config=generation_config,
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'GoogleGenAIAPI.generate_content raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(prompt)[:100]}'
-      ) from err
-
-    # Check for empty response.
-    empty = True
-    if response.candidates:
-      for candidate in response.candidates:
-        if candidate and candidate.content and candidate.content.parts:
-          empty = False
-    if empty:
-      response_msg = pprint.pformat(response.candidates)
-      raise ValueError(
-          'GoogleGenAIAPI.generate_text returned no answers. This may be'
-          f' caused by safety filters:\n{response_msg}'
-      )
+    response = self._genai_client.models.generate_content(
+        model=self._generate_model_name(),
+        contents=contents,
+        config=generation_config,
+    )
+    _raise_if_empty_response(response)
 
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.
     c0 = response.candidates[0].content
@@ -687,53 +658,6 @@ class GoogleGenAIAPI(
         else [c[0] for c in contents_with_details]
     )
     return results
-
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size'),
-  )
-  @utils.with_retry(
-      max_retries=utils.FromInstance('max_retries'),
-      initial_base_delay=utils.FromInstance('initial_base_delay'),
-      max_base_delay=utils.FromInstance('max_base_delay'),
-      retriable_error_filter=_is_retriable_error,
-  )
-  def _generate_text(
-      self,
-      prompt: str | content_lib.ChunkList,
-      *,
-      temperature: float | None = None,
-      max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      decoding_constraint: str | None = None,
-      include_details: bool = False,
-      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
-      **kwargs,
-  ) -> str | tuple[str, Mapping[str, Any]]:
-    self._counters['generate_text'] += 1
-    del decoding_constraint
-    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
-        original_prompt=prompt, healing_option=healing_option
-    )
-
-    response = self._generate_content(  # pytype: disable=wrong-keyword-args
-        prompt=healed_prompt,
-        samples=1,
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-        stop=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
-    )
-    raw = response.text
-    reply = llm_utils.maybe_heal_reply(
-        reply_text=raw,
-        original_prompt=prompt,
-        healing_option=healing_option,
-    )
-    return (reply, {'text': raw}) if include_details else reply
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_object')

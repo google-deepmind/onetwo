@@ -163,12 +163,15 @@ class GoogleGenaiApiTest(
       )
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=2),
+          Counter(generate_text=2, generate_contents=2),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
-          Counter(add_new=2, get_miss=2),
+          Counter(
+              add_new=4,  # double caching
+              get_miss=4,  # double caching
+          ),
       )
 
   def test_generate_text_with_unsafe_content(self):
@@ -195,11 +198,13 @@ class GoogleGenaiApiTest(
     with self.subTest('CallsApiWithCorrectPrompt'):
       self._mock_genai_client.models.generate_content.assert_called_once()
       _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
-      self.assertEqual(mock_kwargs['contents'][0].text, 'Some unsafe prompt')
+      self.assertEqual(
+          mock_kwargs['contents'][0].parts[0].text, 'Some unsafe prompt'
+      )
     with self.subTest('UpdatesBackendCounters'):
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=1),
+          Counter(generate_text=1, generate_contents=1),
       )
 
   def test_generate_text_with_model_string(self):
@@ -221,12 +226,15 @@ class GoogleGenaiApiTest(
       )
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=2),
+          Counter(generate_text=2, generate_contents=2),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
-          Counter(add_new=2, get_miss=2),
+          Counter(
+              add_new=4,  # double caching
+              get_miss=4,  # double caching
+          ),
       )
 
   def test_generate_text_cached(self):
@@ -244,12 +252,16 @@ class GoogleGenaiApiTest(
       self._mock_genai_client.models.generate_content.assert_called_once()
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=1),
+          Counter(generate_text=1, generate_contents=1),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
-          Counter(add_new=1, get_miss=1, get_hit=1),
+          Counter(
+              add_new=2,  # double caching
+              get_miss=2,  # double caching
+              get_hit=1,
+          ),
       )
 
   def test_generate_text_with_retry(self):
@@ -282,11 +294,16 @@ class GoogleGenaiApiTest(
           max_retries + 1,
       )
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=max_retries + 1)
+          backend._counters,
+          Counter(generate_text=1, generate_contents=max_retries + 1),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
-          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+          handler._cache_data.counters,
+          Counter(
+              add_new=2,  # double caching
+              get_miss=2,  # double caching
+          ),
       )
 
   def test_generate_text_with_non_retriable_error(self):
@@ -304,9 +321,13 @@ class GoogleGenaiApiTest(
 
     with self.subTest('DoesNotRetry'):
       self._mock_genai_client.models.generate_content.assert_called_once()
-      self.assertCounterEqual(backend._counters, Counter(generate_text=1))
+      self.assertCounterEqual(
+          backend._counters, Counter(generate_text=1, generate_contents=1)
+      )
     with self.subTest('UpdatesCacheCounters'):
-      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(get_miss=2)  # double caching
+      )
 
   def test_repeat_generate_text(self):
     backend = _get_and_register_backend()
@@ -330,13 +351,17 @@ class GoogleGenaiApiTest(
           num_repeats,
       )
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=num_repeats)
+          backend._counters,
+          Counter(generate_text=num_repeats, generate_contents=num_repeats),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=1, add_new_sample=4, get_miss=1, get_hit_miss_sample=4
+              add_new=2,  # doubled cache
+              add_new_sample=8,  # doubled cache
+              get_miss=2,  # doubled cache
+              get_hit_miss_sample=8,  # doubled cache
           ),
       )
 
@@ -373,22 +398,23 @@ class GoogleGenaiApiTest(
           num_repeats_2,
       )
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=num_repeats_2)
+          backend._counters,
+          Counter(generate_text=num_repeats_2, generate_contents=num_repeats_2),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
               # The first generate_text from the first run.
-              add_new=1,
+              add_new=2,  # doubled cache
               # 4 from the first run and 1 from the second run.
-              add_new_sample=5,
+              add_new_sample=10,  # doubled cache
               # The first generate_text from the first run.
-              get_miss=1,
+              get_miss=2,  # doubled cache
               # The second run hits the cache for the first 5 samples.
               get_hit=5,
               # 4 from 1st run + 1 from 2nd run.
-              get_hit_miss_sample=5,
+              get_hit_miss_sample=10,  # doubled cache
           ),
       )
 
@@ -419,14 +445,15 @@ class GoogleGenaiApiTest(
           backend._counters,
           Counter(
               generate_text=len(prompts),
+              generate_contents=len(prompts),
           ),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=len(prompts),
-              get_miss=len(prompts),
+              add_new=len(prompts) * 2,  # double caching
+              get_miss=len(prompts) * 2,  # double caching
           ),
       )
 
@@ -445,17 +472,14 @@ class GoogleGenaiApiTest(
     with self.subTest('CallsApiOnceAndUpdatesCounters'):
       self._mock_genai_client.models.generate_content.assert_called_once()
       self.assertCounterEqual(
-          backend._counters,
-          Counter(
-              generate_text=1,
-          ),
+          backend._counters, Counter(generate_text=1, generate_contents=1)
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=1,
-              get_miss=1,
+              add_new=2,  # doubled cache
+              get_miss=2,  # doubled cache
               get_hit=4,
           ),
       )
@@ -1536,17 +1560,6 @@ class GoogleGenaiApiTest(
     )
 
   def test_generate_content_decode_str(self):
-    def with_regex(decoding_constraint: str, **kwargs):
-      """Demonstrates how a regex constraint can be added."""
-      kwargs['response_mime_type'] = 'application/json'
-      kwargs['response_schema'] = {
-          'type': 'STRING',
-          'pattern': decoding_constraint,
-      }
-      content = executing.run(llm.generate_content(**kwargs))
-      text = pydantic.TypeAdapter(str).validate_json(str(content))
-      return _ChunkList(chunks=[text])
-
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
@@ -1558,8 +1571,12 @@ class GoogleGenaiApiTest(
             )
         ]
     )
-    result = with_regex(prompt='unicorn', decoding_constraint='(poney|unicorn)')
-    self.assertEqual(str(result), 'unicorn')
+    result = executing.run(
+        llm.generate_text(
+            prompt='unicorn', decoding_constraint='(poney|unicorn)'
+        )
+    )
+    self.assertEqual(result, 'unicorn')
 
 
 if __name__ == '__main__':
