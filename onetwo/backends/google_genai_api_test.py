@@ -88,6 +88,18 @@ def _mock_list_models() -> Sequence[genai_types.Model]:
   ]
 
 
+def genai_content(parts: Sequence[str] | str, role: str | None = None):
+  content = parts if isinstance(parts, list) else [parts]
+  return genai_types.Content(
+      parts=[genai_types.Part(text=p) for p in content],
+      role=role,
+  )
+
+
+def genai_candidate(parts: Sequence[str] | str, role: str | None = None):
+  return genai_types.Candidate(content=genai_content(parts, role))
+
+
 def _get_and_register_backend(**kwargs) -> google_genai_api.GoogleGenAIAPI:
   """Get an instance of GoogleGenAIAPI and register its methods."""
   backend = google_genai_api.GoogleGenAIAPI(
@@ -128,13 +140,7 @@ class GoogleGenaiApiTest(
     self._mock_genai_client = mock.create_autospec(genai.Client)
     self._mock_genai_client.models.generate_content.return_value = (
         genai_types.GenerateContentResponse(
-            candidates=[
-                genai_types.Candidate(
-                    content=genai_types.Content(
-                        parts=[genai_types.Part(text='text')]
-                    )
-                )
-            ]
+            candidates=[genai_candidate('text')]
         )
     )
     self._mock_genai_client.models.count_tokens.return_value = (
@@ -271,13 +277,7 @@ class GoogleGenaiApiTest(
         ),
         httpx.ReadError('test'),
         genai_types.GenerateContentResponse(
-            candidates=[
-                genai_types.Candidate(
-                    content=genai_types.Content(
-                        parts=[genai_types.Part(text='text')]
-                    )
-                )
-            ]
+            candidates=[genai_candidate('text')],
         ),
     ]
     max_retries = 2
@@ -516,13 +516,7 @@ class GoogleGenaiApiTest(
 
     json_str = pydantic.TypeAdapter(list[Recipe]).dump_json(expected_objects)
     mock_response = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text=json_str)]
-                )
-            )
-        ]
+        candidates=[genai_candidate(json_str)]
     )
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = mock_response
@@ -560,13 +554,7 @@ class GoogleGenaiApiTest(
     json_str = pydantic.TypeAdapter(MyData).dump_json(test_object)
 
     mock_response = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text=json_str)]
-                )
-            )
-        ]
+        candidates=[genai_candidate(json_str)]
     )
 
     mock_generate_content = self._mock_genai_client.models.generate_content
@@ -623,13 +611,7 @@ class GoogleGenaiApiTest(
     mock_chat = mock.MagicMock()
     self._mock_genai_client.chats.create.return_value = mock_chat
     mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text='Hello')]
-                )
-            )
-        ]
+        candidates=[genai_candidate('Hello')]
     )
 
     # First call, no history.
@@ -710,13 +692,7 @@ class GoogleGenaiApiTest(
     mock_chat = mock.MagicMock()
     self._mock_genai_client.chats.create.return_value = mock_chat
     mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text='Hello')]
-                )
-            )
-        ]
+        candidates=[genai_candidate('Hello')]
     )
 
     # First call, with system instruction.
@@ -761,13 +737,7 @@ class GoogleGenaiApiTest(
     mock_chat = mock.MagicMock()
     self._mock_genai_client.chats.create.return_value = mock_chat
     mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text='Hello')]
-                )
-            )
-        ]
+        candidates=[genai_candidate('Hello')]
     )
 
     executing.run(
@@ -831,13 +801,7 @@ class GoogleGenaiApiTest(
         ),
         httpx.TransportError('test'),
         genai_types.GenerateContentResponse(
-            candidates=[
-                genai_types.Candidate(
-                    content=genai_types.Content(
-                        parts=[genai_types.Part(text='Hello')]
-                    )
-                )
-            ]
+            candidates=[genai_candidate('Hello')]
         ),
     ]
     max_retries = 2
@@ -1314,13 +1278,7 @@ class GoogleGenaiApiTest(
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text='text2')]
-                )
-            )
-        ]
+        candidates=[genai_candidate('text2')]
     )
     res = executing.run(
         llm.generate_content(
@@ -1335,11 +1293,7 @@ class GoogleGenaiApiTest(
     self.assertEqual(str(res), 'text2')
     self.assertEqual(
         gc_mock.call_args.kwargs['contents'],
-        [
-            genai_types.Content(
-                parts=[genai_types.Part(text='prompt1')], role='user'
-            )
-        ],
+        [genai_content('prompt1', role='user')],
     )
     self.assertEqual(
         gc_mock.call_args.kwargs['config'],
@@ -1451,26 +1405,14 @@ class GoogleGenaiApiTest(
     out = gc_mock.call_args.kwargs
     self.assertEqual(
         out['config'].system_instruction,
-        genai_types.Content(
-            parts=[
-                genai_types.Part(text='system'),
-                genai_types.Part(text='instructions'),
-            ],
-            role='system',
-        ),
+        genai_content(['system', 'instructions'], role='system'),
     )
     self.assertEqual(
         out['contents'],
         [
-            genai_types.Content(
-                parts=[genai_types.Part(text='hello')], role='user'
-            ),
-            genai_types.Content(
-                parts=[genai_types.Part(text='world')], role='model'
-            ),
-            genai_types.Content(
-                parts=[genai_types.Part(text='hola')], role='user'
-            ),
+            genai_content('hello', role='user'),
+            genai_content('world', role='model'),
+            genai_content('hola', role='user'),
         ],
     )
 
@@ -1479,13 +1421,7 @@ class GoogleGenaiApiTest(
     gc_mock = self._mock_genai_client.models.generate_content
     # Text is "broken spaces"; " " should come from the model, not the prompt.
     gc_mock.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text=' spaces')]
-                )
-            )
-        ]
+        candidates=[genai_candidate(' spaces')]
     )
     res = executing.run(
         llm.generate_content(
@@ -1508,15 +1444,11 @@ class GoogleGenaiApiTest(
           backend._generate_contents(samples=samples, **kwargs)
       )
 
-    def candidate(parts: list[str]):
-      ps = [genai_types.Part(text=p) for p in parts]
-      return genai_types.Candidate(content=genai_types.Content(parts=ps))
-
     gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[
-            candidate(['c1', 'snap']),
-            candidate(['c2', 'fu']),
-            candidate(['c3', 'bar']),
+            genai_candidate(['c1', 'snap']),
+            genai_candidate(['c2', 'fu']),
+            genai_candidate(['c3', 'bar']),
         ]
     )
     res = generate_contents(prompt='many', samples=3)
@@ -1547,13 +1479,7 @@ class GoogleGenaiApiTest(
     json_str = pydantic.TypeAdapter(list[MyData]).dump_json(expected)
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text=json_str)]
-                )
-            )
-        ]
+        candidates=[genai_candidate(json_str)]
     )
     self.assertEqual(
         gen_obj(prompt='prompt', decoding_constraint=list[MyData]), expected
@@ -1563,13 +1489,7 @@ class GoogleGenaiApiTest(
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
-        candidates=[
-            genai_types.Candidate(
-                content=genai_types.Content(
-                    parts=[genai_types.Part(text='"unicorn"')]
-                )
-            )
-        ]
+        candidates=[genai_candidate('"unicorn"')]
     )
     result = executing.run(
         llm.generate_text(
