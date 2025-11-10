@@ -140,7 +140,7 @@ To cite this repository:
   author = {Olivier Bousquet and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
   url = {https://github.com/google-deepmind/onetwo},
-  version = {0.2.2},
+  version = {0.3.0},
   year = {2024},
 }
 ```
