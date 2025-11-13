@@ -129,29 +129,16 @@ def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
       raise TypeError(f'Unsupported content type: {type(chunk.content)}')
 
 
-def _normalize_role(
-    role: content_lib.PredefinedRole | str | None, allow_system=False
-) -> str:
-  """Replaces unsupported roles with 'user' and normalize type to string."""
-  if isinstance(role, content_lib.PredefinedRole):
-    role = role.value
-  invalid_roles = [None, content_lib.PredefinedRole.CONTEXT.value]
-  if not allow_system:
-    invalid_roles.append(content_lib.PredefinedRole.SYSTEM.value)
-  if role is None or role in invalid_roles:
-    return content_lib.PredefinedRole.USER.value
-  return role
-
-
 def _contents_from_prompt(prompt: llm.Prompt) -> Sequence[genai_types.Content]:
   """Converts a string, chunks or messages into a GenAI Content."""
   content: list[genai_types.Content] = []
+  valid_roles = [v.value for v in content_lib.PredefinedRole]
 
-  def add(chunk: _Chunk, role: str | content_lib.RoleType = None):
+  def add(chunk: _Chunk, role: str = ''):
     if chunk.role and not role:
-      role = chunk.role
-    if isinstance(role, content_lib.PredefinedRole):
-      role = role.value
+      role = str(chunk.role)
+    if role not in valid_roles:
+      role = content_lib.PredefinedRole.USER.value
     part = _part_from_chunk(chunk)
     if content and content[-1].role == role:
       content[-1].parts.append(part)
@@ -211,6 +198,19 @@ def _convert_chunk_list_to_part_list(
   if isinstance(prompt, str):
     return [genai_types.Part(text=prompt)]
   return [_part_from_chunk(c) for c in prompt]
+
+
+def _replace_if_unsupported_role(
+    message: content_lib.Message,
+) -> content_lib.Message:
+  """Replaces unsupported roles with 'user'."""
+  replace_roles = {
+      content_lib.PredefinedRole.CONTEXT,
+      content_lib.PredefinedRole.SYSTEM,
+  }
+  if message.role in (replace_roles | {role.value for role in replace_roles}):
+    message.role = content_lib.PredefinedRole.USER
+  return message
 
 
 def _is_retriable_error(e: Exception) -> bool:
@@ -614,9 +614,6 @@ class GoogleGenAIAPI(
     ):
       kwargs['system_instruction'] = contents[0]
       contents = contents[1:]
-    if self.replace_unsupported_roles:
-      for c in contents:
-        c.role = _normalize_role(c.role)
     generation_config = genai_types.GenerateContentConfig(
         candidate_count=samples,
         temperature=temperature,
@@ -749,15 +746,92 @@ class GoogleGenAIAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
+    if self.replace_unsupported_roles:
+      messages = [_replace_if_unsupported_role(msg) for msg in messages]
     if formatter == formatting.FormatterName.API:
-      self._counters['chat'] += 1
-      result = await self.generate_content(messages, **kwargs)
-      return str(result if 'include_details' not in kwargs else result[0])
+      return await self._chat_via_api(messages, **kwargs)
     else:
-      if self.replace_unsupported_roles:
-        for m in messages:
-          m.role = _normalize_role(m.role)
       return await llm.default_chat(messages, formatter, **kwargs)
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
+  )
+  def _chat_via_api(
+      self,
+      messages: Sequence[content_lib.Message],
+      **kwargs,
+  ) -> str:
+    """See builtins.llm.chat."""
+    self._counters['chat'] += 1
+
+    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
+    max_tokens = kwargs.pop('max_tokens', None)
+    temperature = kwargs.pop('temperature', None)
+    stop = kwargs.pop('stop', None)
+    top_k = kwargs.pop('top_k', None)
+    top_p = kwargs.pop('top_p', None)
+    system_instruction = kwargs.pop('system_instruction', None)
+
+    # In case the caller does not specify a system instruction, we accept the
+    # first message as a system instruction if it has a system role.
+    if (
+        system_instruction is None
+        and len(messages) > 1
+        and messages[0].role
+        in (
+            content_lib.PredefinedRole.SYSTEM,
+            content_lib.PredefinedRole.SYSTEM.value,
+        )
+    ):
+      system_instruction = messages[0].content
+      messages = messages[1:]
+
+    history = [
+        genai_types.Content(
+            role=msg.role.value
+            if isinstance(msg.role, content_lib.PredefinedRole)
+            else msg.role,
+            parts=_convert_chunk_list_to_part_list(msg.content),
+        )
+        for msg in messages
+    ]
+
+    generation_config = genai_types.GenerateContentConfig(
+        candidate_count=1,
+        stop_sequences=stop,
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        system_instruction=system_instruction,
+        **kwargs,
+    )
+    healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    chat = self._genai_client.chats.create(
+        model=self._chat_model_name(),
+        history=history[:-1],
+        config=generation_config,
+    )
+    response = chat.send_message(
+        message=_convert_chunk_list_to_part_list(healed_content),
+        config=generation_config,
+    )
+    _raise_if_empty_response(response)
+    reply = llm_utils.maybe_heal_reply(
+        reply_text=response.text,
+        original_prompt=messages[-1].content,
+        healing_option=healing_option,
+    )
+    return reply
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.embed')
