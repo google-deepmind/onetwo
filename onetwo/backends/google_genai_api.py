@@ -574,14 +574,44 @@ class GoogleGenAIAPI(
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
   )
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
+  async def _generate_contents(
+      self,
+      prompt: llm.Prompt,
+      samples: int = 1,
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,  # Optional genai specific arguments.
+  ) -> Sequence[llm.Content]:
+    return await self._generate_contents_inner(
+        prompt=prompt,
+        samples=samples,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        include_details=include_details,
+        healing_option=healing_option,
+        **kwargs,
+    )
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
   @utils.with_retry(
       max_retries=utils.FromInstance('max_retries'),
       initial_base_delay=utils.FromInstance('initial_base_delay'),
       max_base_delay=utils.FromInstance('max_base_delay'),
       retriable_error_filter=_is_retriable_error,
   )
-  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
-  async def _generate_contents(
+  def _generate_contents_inner(
       self,
       prompt: llm.Prompt,
       samples: int = 1,
