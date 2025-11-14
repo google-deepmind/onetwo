@@ -187,7 +187,7 @@ def _chunks_with_details_from_candidate(
         chunks.append(chunk)
   return (
       _ChunkList(chunks),
-      {llm.THOUGHTS: _ChunkList(thoughts), 'candidate': candidate},
+      {llm.THOUGHTS: _ChunkList(thoughts)},
   )
 
 
