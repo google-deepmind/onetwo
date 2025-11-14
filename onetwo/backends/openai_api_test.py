@@ -21,6 +21,7 @@ from unittest import mock
 
 # We have to mock openai to make this test hermetic.
 from unittest import mock
+from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.backends import openai_api
@@ -67,6 +68,10 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
   def setUp(self):
     super().setUp()
+    # The `self.create_tempdir` method uses command line flag and such flags
+    # are not marked as parsed by default when running with pytest. Marking as
+    # parsed directly here to make the pytest run pass.
+    flags.FLAGS.mark_as_parsed()
     # We use a mock to avoid making actual calls to the API.
     self.enter_context(
         mock.patch.object(
