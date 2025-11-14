@@ -34,6 +34,7 @@ import traceback
 from typing import Any, Final, Generic, ParamSpec, TypeVar
 
 import dataclasses_json
+import google.genai.types as genai_types
 from onetwo.core import constants
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -127,6 +128,8 @@ def _hint_tuple_encoder(arg: Any) -> Any:
       case _:
         raise ValueError('Chunk.content is not serializable:', arg)
     return obj
+  if isinstance(arg, genai_types.Candidate):
+    return {'__type__': 'GenAICandidate', 'json_data': arg.model_dump_json()}
   if isinstance(arg, content_lib.ChunkList):
     return {'__type__': 'ChunkList', 'chunks': _hint_tuple_encoder(arg.chunks)}
   return arg
@@ -151,6 +154,8 @@ def _hint_tuple_decoder(arg: Any) -> Any:
         )
       case 'ChunkList':
         return content_lib.ChunkList(chunks=res.get('chunks'))
+      case 'GenAICandidate':
+        return genai_types.Candidate.model_validate_json(res.get('json_data'))
     return res
   if isinstance(arg, list):
     return [_hint_tuple_decoder(value) for value in arg]

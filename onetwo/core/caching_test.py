@@ -24,6 +24,7 @@ from absl import flags
 from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
+import google.genai.types as genai_types
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import constants
@@ -940,6 +941,33 @@ class CacheDataTest(parameterized.TestCase):
         ValueError, 'Chunk.content is not serializable'
     ):
       json_serialized = cache_data.to_json()
+
+  def test_encode_genai_candidate(self):
+    """Tests serialization and deserialization of genai_types.Candidate."""
+    cache_data = caching._CacheData()
+
+    candidate = genai_types.Candidate(
+        content=genai_types.Content(
+            parts=[genai_types.Part(text='Test content')]
+        )
+    )
+
+    values_by_key = {
+        'key1': candidate,
+        'key2': [candidate, 'some string'],
+        'key3': {'candidate': candidate},
+    }
+    cache_data.values_by_key = copy.deepcopy(values_by_key)
+    json_serialized = cache_data.to_json()
+    decoded = caching._CacheData.from_json(
+        json_serialized,
+        infer_missing=True,
+    )
+    self.assertEqual(decoded.values_by_key, values_by_key)
+    self.assertIsInstance(decoded.values_by_key['key1'], genai_types.Candidate)
+    self.assertEqual(
+        decoded.values_by_key['key1'].content.parts[0].text, 'Test content'
+    )
 
   def test_tuples_preserved_when_encoding_and_decoding_values_by_key(self):
     cache_data = caching._CacheData()
