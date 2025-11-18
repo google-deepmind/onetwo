@@ -129,16 +129,29 @@ def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
       raise TypeError(f'Unsupported content type: {type(chunk.content)}')
 
 
+def _normalize_role(
+    role: content_lib.PredefinedRole | str | None, allow_system=False
+) -> str:
+  """Replaces unsupported roles with 'user' and normalize type to string."""
+  if isinstance(role, content_lib.PredefinedRole):
+    role = role.value
+  invalid_roles = [None, content_lib.PredefinedRole.CONTEXT.value]
+  if not allow_system:
+    invalid_roles.append(content_lib.PredefinedRole.SYSTEM.value)
+  if role is None or role in invalid_roles:
+    return content_lib.PredefinedRole.USER.value
+  return role
+
+
 def _contents_from_prompt(prompt: llm.Prompt) -> Sequence[genai_types.Content]:
   """Converts a string, chunks or messages into a GenAI Content."""
   content: list[genai_types.Content] = []
-  valid_roles = [v.value for v in content_lib.PredefinedRole]
 
-  def add(chunk: _Chunk, role: str = ''):
+  def add(chunk: _Chunk, role: str | content_lib.RoleType = None):
     if chunk.role and not role:
-      role = str(chunk.role)
-    if role not in valid_roles:
-      role = content_lib.PredefinedRole.USER.value
+      role = chunk.role
+    if isinstance(role, content_lib.PredefinedRole):
+      role = role.value
     part = _part_from_chunk(chunk)
     if content and content[-1].role == role:
       content[-1].parts.append(part)
@@ -198,19 +211,6 @@ def _convert_chunk_list_to_part_list(
   if isinstance(prompt, str):
     return [genai_types.Part(text=prompt)]
   return [_part_from_chunk(c) for c in prompt]
-
-
-def _replace_if_unsupported_role(
-    message: content_lib.Message,
-) -> content_lib.Message:
-  """Replaces unsupported roles with 'user'."""
-  replace_roles = {
-      content_lib.PredefinedRole.CONTEXT,
-      content_lib.PredefinedRole.SYSTEM,
-  }
-  if message.role in (replace_roles | {role.value for role in replace_roles}):
-    message.role = content_lib.PredefinedRole.USER
-  return message
 
 
 def _is_retriable_error(e: Exception) -> bool:
@@ -497,36 +497,6 @@ class GoogleGenAIAPI(
     )
     self._verify_available_models()
 
-  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
-  def _generate_content(
-      self,
-      *,
-      prompt: str | content_lib.ChunkList,
-      samples: int = 1,
-      temperature: float | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      **kwargs,  # Optional genai specific arguments.
-  ) -> genai_types.GenerateContentResponse:
-    """Generate content using the configured generation model."""
-    prompt = _convert_chunk_list_to_part_list(prompt)
-    generation_config = genai_types.GenerateContentConfig(
-        candidate_count=samples,
-        temperature=temperature,
-        stop_sequences=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
-    )
-    response = self._genai_client.models.generate_content(
-        model=self._generate_model_name(),
-        contents=prompt,
-        config=generation_config,
-    )
-    _raise_if_empty_response(response)
-    return response
-
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
@@ -549,18 +519,37 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
-    return await self._generate_text(
+    self._counters['generate_text'] += 1
+    if decoding_constraint:
+      kwargs['response_mime_type'] = 'application/json'
+      kwargs['response_schema'] = {
+          'type': 'STRING',
+          'pattern': decoding_constraint,
+      }
+    res = await self.generate_content(
         prompt=prompt,
         temperature=temperature,
         max_tokens=max_tokens,
         stop=stop,
         top_k=top_k,
         top_p=top_p,
-        decoding_constraint=decoding_constraint,
         include_details=include_details,
         healing_option=healing_option,
         **kwargs,
     )
+
+    def unwrap_text(chunks: _ChunkList) -> str:
+      text = str(chunks)
+      if decoding_constraint:
+        # Unwrap the text from the JSON structure: <"te\"xt"> -> <te"xt>.
+        return pydantic.TypeAdapter(str).validate_json(text)
+      else:
+        return text
+
+    if isinstance(res, _ChunkList):
+      return unwrap_text(res)
+    else:
+      return unwrap_text(res[0]), res[1]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def generate_content(self, prompt: llm.Prompt, **kwargs) -> llm.Content:
@@ -655,6 +644,9 @@ class GoogleGenAIAPI(
     ):
       kwargs['system_instruction'] = contents[0]
       contents = contents[1:]
+    if self.replace_unsupported_roles:
+      for c in contents:
+        c.role = _normalize_role(c.role)
     generation_config = genai_types.GenerateContentConfig(
         candidate_count=samples,
         temperature=temperature,
@@ -664,30 +656,12 @@ class GoogleGenAIAPI(
         top_p=top_p,
         **kwargs,
     )
-    try:
-      response = self._genai_client.models.generate_content(
-          model=self._generate_model_name(),
-          contents=contents,
-          config=generation_config,
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'GoogleGenAIAPI.generate_content raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(prompt)[:100]}'
-      ) from err
-
-    # Check for empty response.
-    empty = True
-    if response.candidates:
-      for candidate in response.candidates:
-        if candidate and candidate.content and candidate.content.parts:
-          empty = False
-    if empty:
-      response_msg = pprint.pformat(response.candidates)
-      raise ValueError(
-          'GoogleGenAIAPI.generate_text returned no answers. This may be'
-          f' caused by safety filters:\n{response_msg}'
-      )
+    response = self._genai_client.models.generate_content(
+        model=self._generate_model_name(),
+        contents=contents,
+        config=generation_config,
+    )
+    _raise_if_empty_response(response)
 
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.
     c0 = response.candidates[0].content
@@ -717,53 +691,6 @@ class GoogleGenAIAPI(
         else [c[0] for c in contents_with_details]
     )
     return results
-
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size'),
-  )
-  @utils.with_retry(
-      max_retries=utils.FromInstance('max_retries'),
-      initial_base_delay=utils.FromInstance('initial_base_delay'),
-      max_base_delay=utils.FromInstance('max_base_delay'),
-      retriable_error_filter=_is_retriable_error,
-  )
-  def _generate_text(
-      self,
-      prompt: str | content_lib.ChunkList,
-      *,
-      temperature: float | None = None,
-      max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      decoding_constraint: str | None = None,
-      include_details: bool = False,
-      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
-      **kwargs,
-  ) -> str | tuple[str, Mapping[str, Any]]:
-    self._counters['generate_text'] += 1
-    del decoding_constraint
-    healed_prompt: _ChunkList = llm_utils.maybe_heal_prompt(
-        original_prompt=prompt, healing_option=healing_option
-    )
-
-    response = self._generate_content(  # pytype: disable=wrong-keyword-args
-        prompt=healed_prompt,
-        samples=1,
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-        stop=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
-    )
-    raw = response.text
-    reply = llm_utils.maybe_heal_reply(
-        reply_text=raw,
-        original_prompt=prompt,
-        healing_option=healing_option,
-    )
-    return (reply, {'text': raw}) if include_details else reply
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_object')
@@ -852,92 +779,15 @@ class GoogleGenAIAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
-    if self.replace_unsupported_roles:
-      messages = [_replace_if_unsupported_role(msg) for msg in messages]
     if formatter == formatting.FormatterName.API:
-      return await self._chat_via_api(messages, **kwargs)
+      self._counters['chat'] += 1
+      result = await self.generate_content(messages, **kwargs)
+      return str(result if 'include_details' not in kwargs else result[0])
     else:
+      if self.replace_unsupported_roles:
+        for m in messages:
+          m.role = _normalize_role(m.role)
       return await llm.default_chat(messages, formatter, **kwargs)
-
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size'),
-  )
-  @utils.with_retry(
-      max_retries=utils.FromInstance('max_retries'),
-      initial_base_delay=utils.FromInstance('initial_base_delay'),
-      max_base_delay=utils.FromInstance('max_base_delay'),
-      retriable_error_filter=_is_retriable_error,
-  )
-  def _chat_via_api(
-      self,
-      messages: Sequence[content_lib.Message],
-      **kwargs,
-  ) -> str:
-    """See builtins.llm.chat."""
-    self._counters['chat'] += 1
-
-    healing_option = kwargs.pop('healing_option', _TokenHealingOption.NONE)
-    max_tokens = kwargs.pop('max_tokens', None)
-    temperature = kwargs.pop('temperature', None)
-    stop = kwargs.pop('stop', None)
-    top_k = kwargs.pop('top_k', None)
-    top_p = kwargs.pop('top_p', None)
-    system_instruction = kwargs.pop('system_instruction', None)
-
-    # In case the caller does not specify a system instruction, we accept the
-    # first message as a system instruction if it has a system role.
-    if (
-        system_instruction is None
-        and len(messages) > 1
-        and messages[0].role
-        in (
-            content_lib.PredefinedRole.SYSTEM,
-            content_lib.PredefinedRole.SYSTEM.value,
-        )
-    ):
-      system_instruction = messages[0].content
-      messages = messages[1:]
-
-    history = [
-        genai_types.Content(
-            role=msg.role.value
-            if isinstance(msg.role, content_lib.PredefinedRole)
-            else msg.role,
-            parts=_convert_chunk_list_to_part_list(msg.content),
-        )
-        for msg in messages
-    ]
-
-    generation_config = genai_types.GenerateContentConfig(
-        candidate_count=1,
-        stop_sequences=stop,
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        system_instruction=system_instruction,
-        **kwargs,
-    )
-    healed_content: _ChunkList = llm_utils.maybe_heal_prompt(
-        original_prompt=messages[-1].content,
-        healing_option=healing_option,
-    )
-    chat = self._genai_client.chats.create(
-        model=self._chat_model_name(),
-        history=history[:-1],
-        config=generation_config,
-    )
-    response = chat.send_message(
-        message=_convert_chunk_list_to_part_list(healed_content),
-        config=generation_config,
-    )
-    _raise_if_empty_response(response)
-    reply = llm_utils.maybe_heal_reply(
-        reply_text=response.text,
-        original_prompt=messages[-1].content,
-        healing_option=healing_option,
-    )
-    return reply
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.embed')

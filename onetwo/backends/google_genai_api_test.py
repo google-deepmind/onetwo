@@ -22,7 +22,6 @@ import time
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
 
-from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
 from google import genai
@@ -137,11 +136,6 @@ class GoogleGenaiApiTest(
 
   def setUp(self):
     super().setUp()
-    # The `self.create_tempdir` method uses command line flag and such flags
-    # are not marked as parsed by default when running with pytest. Marking as
-    # parsed directly here to make the pytest run pass.
-    flags.FLAGS.mark_as_parsed()
-
     llm.reset_defaults()
 
     self._mock_genai_client = mock.create_autospec(genai.Client)
@@ -176,12 +170,15 @@ class GoogleGenaiApiTest(
       )
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=2),
+          Counter(generate_text=2, generate_contents=2),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
-          Counter(add_new=2, get_miss=2),
+          Counter(
+              add_new=4,  # double caching
+              get_miss=4,  # double caching
+          ),
       )
 
   def test_generate_text_with_unsafe_content(self):
@@ -208,11 +205,13 @@ class GoogleGenaiApiTest(
     with self.subTest('CallsApiWithCorrectPrompt'):
       self._mock_genai_client.models.generate_content.assert_called_once()
       _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
-      self.assertEqual(mock_kwargs['contents'][0].text, 'Some unsafe prompt')
+      self.assertEqual(
+          mock_kwargs['contents'][0].parts[0].text, 'Some unsafe prompt'
+      )
     with self.subTest('UpdatesBackendCounters'):
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=1),
+          Counter(generate_text=1, generate_contents=1),
       )
 
   def test_generate_text_with_model_string(self):
@@ -234,12 +233,15 @@ class GoogleGenaiApiTest(
       )
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=2),
+          Counter(generate_text=2, generate_contents=2),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
-          Counter(add_new=2, get_miss=2),
+          Counter(
+              add_new=4,  # double caching
+              get_miss=4,  # double caching
+          ),
       )
 
   def test_generate_text_cached(self):
@@ -257,12 +259,16 @@ class GoogleGenaiApiTest(
       self._mock_genai_client.models.generate_content.assert_called_once()
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=1),
+          Counter(generate_text=1, generate_contents=1),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
-          Counter(add_new=1, get_miss=1, get_hit=1),
+          Counter(
+              add_new=2,  # double caching
+              get_miss=2,  # double caching
+              get_hit=1,
+          ),
       )
 
   def test_generate_text_with_retry(self):
@@ -289,11 +295,16 @@ class GoogleGenaiApiTest(
           max_retries + 1,
       )
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=max_retries + 1)
+          backend._counters,
+          Counter(generate_text=1, generate_contents=max_retries + 1),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
-          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+          handler._cache_data.counters,
+          Counter(
+              add_new=2,  # double caching
+              get_miss=2,  # double caching
+          ),
       )
 
   def test_generate_text_with_non_retriable_error(self):
@@ -311,9 +322,13 @@ class GoogleGenaiApiTest(
 
     with self.subTest('DoesNotRetry'):
       self._mock_genai_client.models.generate_content.assert_called_once()
-      self.assertCounterEqual(backend._counters, Counter(generate_text=1))
+      self.assertCounterEqual(
+          backend._counters, Counter(generate_text=1, generate_contents=1)
+      )
     with self.subTest('UpdatesCacheCounters'):
-      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(get_miss=2)  # double caching
+      )
 
   def test_repeat_generate_text(self):
     backend = _get_and_register_backend()
@@ -337,13 +352,17 @@ class GoogleGenaiApiTest(
           num_repeats,
       )
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=num_repeats)
+          backend._counters,
+          Counter(generate_text=num_repeats, generate_contents=num_repeats),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=1, add_new_sample=4, get_miss=1, get_hit_miss_sample=4
+              add_new=2,  # doubled cache
+              add_new_sample=8,  # doubled cache
+              get_miss=2,  # doubled cache
+              get_hit_miss_sample=8,  # doubled cache
           ),
       )
 
@@ -380,22 +399,23 @@ class GoogleGenaiApiTest(
           num_repeats_2,
       )
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=num_repeats_2)
+          backend._counters,
+          Counter(generate_text=num_repeats_2, generate_contents=num_repeats_2),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
               # The first generate_text from the first run.
-              add_new=1,
+              add_new=2,  # doubled cache
               # 4 from the first run and 1 from the second run.
-              add_new_sample=5,
+              add_new_sample=10,  # doubled cache
               # The first generate_text from the first run.
-              get_miss=1,
+              get_miss=2,  # doubled cache
               # The second run hits the cache for the first 5 samples.
               get_hit=5,
               # 4 from 1st run + 1 from 2nd run.
-              get_hit_miss_sample=5,
+              get_hit_miss_sample=10,  # doubled cache
           ),
       )
 
@@ -426,14 +446,15 @@ class GoogleGenaiApiTest(
           backend._counters,
           Counter(
               generate_text=len(prompts),
+              generate_contents=len(prompts),
           ),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=len(prompts),
-              get_miss=len(prompts),
+              add_new=len(prompts) * 2,  # double caching
+              get_miss=len(prompts) * 2,  # double caching
           ),
       )
 
@@ -452,17 +473,14 @@ class GoogleGenaiApiTest(
     with self.subTest('CallsApiOnceAndUpdatesCounters'):
       self._mock_genai_client.models.generate_content.assert_called_once()
       self.assertCounterEqual(
-          backend._counters,
-          Counter(
-              generate_text=1,
-          ),
+          backend._counters, Counter(generate_text=1, generate_contents=1)
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=1,
-              get_miss=1,
+              add_new=2,  # doubled cache
+              get_miss=2,  # doubled cache
               get_hit=4,
           ),
       )
@@ -591,42 +609,35 @@ class GoogleGenaiApiTest(
         role=content_lib.PredefinedRole.MODEL, content='Hello user'
     )
 
-    mock_chat = mock.MagicMock()
-    self._mock_genai_client.chats.create.return_value = mock_chat
-    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[genai_candidate('Hello')]
     )
 
     # First call, no history.
     _ = executing.run(llm.chat(messages=[msg_user]))
-    with self.subTest('ChatCreatedAndEmptyHistory'):
-      self._mock_genai_client.chats.create.assert_called_once()
-      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
-      self.assertEmpty(mock_kwargs['history'])
-    with self.subTest('FirstMessageSent'):
-      mock_chat.send_message.assert_called_once()
-      _, mock_kwargs = mock_chat.send_message.call_args
-      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+    with self.subTest('OneMessageSent'):
+      gc_mock.assert_called_once()
+      contents = gc_mock.call_args.kwargs['contents']
+      self.assertEqual(contents, [genai_content('Hello model', role='user')])
 
-    self._mock_genai_client.chats.create.reset_mock()
-    mock_chat.send_message.reset_mock()
+    gc_mock.reset_mock()
 
     # Second call, with one message in the history.
     _ = executing.run(llm.chat(messages=[msg_model, msg_user]))
-    with self.subTest('ChatCreatedWithHistory'):
-      self._mock_genai_client.chats.create.assert_called_once()
-      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
-      self.assertLen(mock_kwargs['history'], 1)
-      self.assertEqual(mock_kwargs['history'][0].role, 'model')
-      self.assertEqual(mock_kwargs['history'][0].parts[0].text, 'Hello user')
-    with self.subTest('SecondMessageSent'):
-      mock_chat.send_message.assert_called_once()
-      _, mock_kwargs = mock_chat.send_message.call_args
-      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+    with self.subTest('TwoMessagesSent'):
+      gc_mock.assert_called_once()
+      contents = gc_mock.call_args.kwargs['contents']
+      self.assertEqual(
+          contents,
+          [
+              genai_content('Hello user', role='model'),
+              genai_content('Hello model', role='user'),
+          ],
+      )
 
     self.assertCounterEqual(
-        backend._counters,
-        Counter(chat=2),
+        backend._counters, Counter(chat=2, generate_contents=2)
     )
 
   def test_chat_with_unsafe_content(self):
@@ -634,11 +645,10 @@ class GoogleGenaiApiTest(
     msg_user = content_lib.Message(
         role=content_lib.PredefinedRole.USER, content='Hello model'
     )
+    gc_mock = self._mock_genai_client.models.generate_content
 
-    mock_chat = mock.MagicMock()
-    self._mock_genai_client.chats.create.return_value = mock_chat
     # Empty content is returned when the message is unsafe.
-    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+    gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[genai_types.Candidate(content=None)]
     )
 
@@ -654,13 +664,12 @@ class GoogleGenaiApiTest(
 
     # Assert that the chat is called with the correct message.
     with self.subTest('CallsApiWithCorrectMessage'):
-      mock_chat.send_message.assert_called_once()
-      _, mock_kwargs = mock_chat.send_message.call_args
-      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
+      gc_mock.assert_called_once()
+      args = gc_mock.call_args.kwargs
+      self.assertEqual(args['contents'][0].parts[0].text, 'Hello model')
     with self.subTest('UpdatesBackendCounters'):
       self.assertCounterEqual(
-          backend._counters,
-          Counter(chat=1),
+          backend._counters, Counter(chat=1, generate_contents=1)
       )
 
   def test_chat_with_system_instruction(self):
@@ -672,54 +681,46 @@ class GoogleGenaiApiTest(
         role=content_lib.PredefinedRole.USER, content='Hello model'
     )
 
-    mock_chat = mock.MagicMock()
-    self._mock_genai_client.chats.create.return_value = mock_chat
-    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[genai_candidate('Hello')]
     )
 
     # First call, with system instruction.
     _ = executing.run(llm.chat(messages=[msg_system, msg_user]))
-    with self.subTest('FirstChatCreatedAndEmptyHistory'):
-      self._mock_genai_client.chats.create.assert_called_once()
-      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
-      self.assertEmpty(mock_kwargs['history'])
-    with self.subTest('FirstMessageSentWithSystemInstruction'):
-      mock_chat.send_message.assert_called_once()
-      _, mock_kwargs = mock_chat.send_message.call_args
-      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
-      config = mock_kwargs['config']
-      self.assertEqual(config.system_instruction, 'System message')
-
-    self._mock_genai_client.chats.create.reset_mock()
-    mock_chat.send_message.reset_mock()
+    with self.subTest('FirstChat'):
+      gc_mock.assert_called_once()
+      args = gc_mock.call_args.kwargs
+      self.assertEqual(
+          args['config'].system_instruction,
+          genai_content('System message', 'system'),
+      )
+      self.assertEqual(
+          args['contents'],
+          [genai_content('Hello model', 'user')],
+      )
+      gc_mock.reset_mock()
 
     # Second call, with system instruction passed as a kwarg.
     _ = executing.run(
         llm.chat(messages=[msg_user], system_instruction='System message 2')
     )
-    with self.subTest('SecondChatCreatedAndEmptyHistory'):
-      self._mock_genai_client.chats.create.assert_called_once()
-      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
-      self.assertEmpty(mock_kwargs['history'])
-    with self.subTest('SecondMessageSentWithSystemInstruction'):
-      mock_chat.send_message.assert_called_once()
-      _, mock_kwargs = mock_chat.send_message.call_args
-      self.assertEqual(mock_kwargs['message'][0].text, 'Hello model')
-      config = mock_kwargs['config']
-      self.assertEqual(config.system_instruction, 'System message 2')
-
+    with self.subTest('SecondChatWithSystemInstruction'):
+      gc_mock.assert_called_once()
+      args = gc_mock.call_args.kwargs
+      self.assertEqual(args['config'].system_instruction, 'System message 2')
+      self.assertEqual(
+          args['contents'],
+          [genai_content('Hello model', 'user')],
+      )
     self.assertCounterEqual(
-        backend._counters,
-        Counter(chat=2),
+        backend._counters, Counter(chat=2, generate_contents=2)
     )
 
   def test_chat_replace_unsupported_roles(self):
     backend = _get_and_register_backend(replace_unsupported_roles=True)
-
-    mock_chat = mock.MagicMock()
-    self._mock_genai_client.chats.create.return_value = mock_chat
-    mock_chat.send_message.return_value = genai_types.GenerateContentResponse(
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[genai_candidate('Hello')]
     )
 
@@ -749,36 +750,32 @@ class GoogleGenaiApiTest(
             ]
         )
     )
-
-    with self.subTest('ChatCreatedWithCorrectHistory'):
-      self._mock_genai_client.chats.create.assert_called_once()
-      _, mock_kwargs = self._mock_genai_client.chats.create.call_args
-      called_history = mock_kwargs['history']
-
-      self.assertEqual(called_history[0].role, 'user')
-      self.assertEqual(called_history[0].parts[0].text, 'System message')
-      self.assertEqual(called_history[1].role, 'user')
-      self.assertEqual(called_history[1].parts[0].text, 'System message 2')
-      self.assertEqual(called_history[2].role, 'user')
-      self.assertEqual(called_history[2].parts[0].text, 'Context message')
-      self.assertEqual(called_history[3].role, 'user')
-      self.assertEqual(called_history[3].parts[0].text, 'Context message 2')
-
-    with self.subTest('CorrectMessageSent'):
-      mock_chat.send_message.assert_called_once()
-      _, mock_kwargs = mock_chat.send_message.call_args
-      called_message = mock_kwargs['message']
-      self.assertEqual(called_message[0].text, 'Hello model')
-
+    with self.subTest('ChatCreatedCorrectHistory'):
+      gc_mock.assert_called_once()
+      args = gc_mock.call_args.kwargs
+      system = args['config'].system_instruction
+      self.assertEqual(
+          system,
+          genai_content(['System message', 'System message 2'], role='system'),
+      )
+      contents = args['contents']
+      self.assertEqual(
+          contents,
+          [
+              genai_content(
+                  ['Context message', 'Context message 2'],
+                  role='user',
+              ),
+              genai_content(['Hello model'], role='user'),
+          ],
+      )
     self.assertCounterEqual(
-        backend._counters,
-        Counter(chat=1),
+        backend._counters, Counter(chat=1, generate_contents=1)
     )
 
   def test_chat_with_retry(self):
-    mock_chat = mock.MagicMock()
-    self._mock_genai_client.chats.create.return_value = mock_chat
-    mock_chat.send_message.side_effect = [
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.side_effect = [
         genai_errors.ClientError(
             code=408, response_json={'error': {'message': 'test'}}
         ),
@@ -799,18 +796,23 @@ class GoogleGenaiApiTest(
     with self.subTest('ReturnsCorrectResult'):
       self.assertEqual(res, 'Hello')
     with self.subTest('RetriesExpectedNumberOfTimes'):
-      self.assertEqual(mock_chat.send_message.call_count, max_retries + 1)
-      self.assertCounterEqual(backend._counters, Counter(chat=max_retries + 1))
+      self.assertEqual(gc_mock.call_count, max_retries + 1)
+      self.assertCounterEqual(
+          backend._counters, Counter(chat=1, generate_contents=max_retries + 1)
+      )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
-          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+          handler._cache_data.counters,
+          Counter(
+              add_new=2,  # double caching
+              get_miss=2,  # double caching
+          ),
       )
 
   def test_chat_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried in chat."""
-    mock_chat = mock.MagicMock()
-    self._mock_genai_client.chats.create.return_value = mock_chat
-    mock_chat.send_message.side_effect = genai_errors.ClientError(
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.side_effect = genai_errors.ClientError(
         code=400, response_json={'error': {'message': 'test'}}
     )
     backend = _get_and_register_backend(max_retries=2)
@@ -823,10 +825,14 @@ class GoogleGenaiApiTest(
       executing.run(llm.chat(messages=[msg_user]))
 
     with self.subTest('DoesNotRetry'):
-      mock_chat.send_message.assert_called_once()
-      self.assertCounterEqual(backend._counters, Counter(chat=1))
+      gc_mock.assert_called_once()
+      self.assertCounterEqual(
+          backend._counters, Counter(chat=1, generate_contents=1)
+      )
     with self.subTest('UpdatesCacheCounters'):
-      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(get_miss=2)  # double caching
+      )
 
   @parameterized.named_parameters(
       (
@@ -1276,7 +1282,7 @@ class GoogleGenaiApiTest(
     self.assertEqual(str(res), 'text2')
     self.assertEqual(
         gc_mock.call_args.kwargs['contents'],
-        [genai_content('prompt1', role='user')],
+        [genai_content('prompt1')],
     )
     self.assertEqual(
         gc_mock.call_args.kwargs['config'],
@@ -1346,14 +1352,14 @@ class GoogleGenaiApiTest(
     )
 
     # Case 1: str
-    c0 = [genai_types.Content(parts=[part_text], role='user')]
+    c0 = [genai_types.Content(parts=[part_text])]
     self.assertEqual(run0('text'), c0)
     self.assertEqual(run0(_ChunkList(['text'])), c0)
     # Case 2: Sequence[_Chunk]
     chunks = [
-        _Chunk('text'),  # user if role unset
+        _Chunk('text', role='user'),
         _Chunk(b'SELECT bytes', 'application/sql', role='model'),
-        _Chunk(image_bytes, 'image/png'),  # user if role unset
+        _Chunk(image_bytes, 'image/png', role='user'),
     ]
     contents = [
         genai_types.Content(parts=[part_text], role='user'),
@@ -1469,26 +1475,19 @@ class GoogleGenaiApiTest(
     )
 
   def test_generate_content_decode_str(self):
-    def with_regex(decoding_constraint: str, **kwargs):
-      """Demonstrates how a regex constraint can be added."""
-      kwargs['response_mime_type'] = 'application/json'
-      kwargs['response_schema'] = {
-          'type': 'STRING',
-          'pattern': decoding_constraint,
-      }
-      content = executing.run(llm.generate_content(**kwargs))
-      text = pydantic.TypeAdapter(str).validate_json(str(content))
-      return _ChunkList(chunks=[text])
-
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
         candidates=[genai_candidate('"unicorn"')]
     )
-    result = with_regex(prompt='unicorn', decoding_constraint='(poney|unicorn)')
-    self.assertEqual(str(result), 'unicorn')
+    result = executing.run(
+        llm.generate_text(
+            prompt='unicorn', decoding_constraint='(poney|unicorn)'
+        )
+    )
+    self.assertEqual(result, 'unicorn')
 
-  def test_generate_text_runs_in_parallel(self):
+  def test_generate_in_parallel(self):
     def side_effect(*args, **kwargs):
       del args, kwargs
       time.sleep(0.5)
@@ -1500,11 +1499,24 @@ class GoogleGenaiApiTest(
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.side_effect = side_effect
 
-    t0 = time.time()
-    calls = [llm.generate_text(prompt=f'Something {x}') for x in range(10)]
-    executing.run(executing.par_iter(iter(calls)))
-    t1 = time.time()
-    self.assertLess(t1 - t0, 5.0)
+    with self.subTest('generate_text'):
+      t0 = time.time()
+      calls = [llm.generate_text(prompt=f'Something {x}') for x in range(10)]
+      executing.run(executing.par_iter(iter(calls)))
+      t1 = time.time()
+      self.assertLess(t1 - t0, 5.0)
+
+    with self.subTest('chat'):
+      t0 = time.time()
+      msgs = [
+          content_lib.Message(
+              role=content_lib.PredefinedRole.MODEL, content='Hello user'
+          )
+      ]
+      calls = [llm.chat(msgs) for x in range(10)]
+      executing.run(executing.par_iter(iter(calls)))
+      t1 = time.time()
+      self.assertLess(t1 - t0, 5.0)
 
 
 if __name__ == '__main__':
