@@ -18,6 +18,7 @@ from collections.abc import Callable, Sequence
 import dataclasses
 import io
 import os
+import time
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
 
@@ -1486,6 +1487,24 @@ class GoogleGenaiApiTest(
     )
     result = with_regex(prompt='unicorn', decoding_constraint='(poney|unicorn)')
     self.assertEqual(str(result), 'unicorn')
+
+  def test_generate_text_runs_in_parallel(self):
+    def side_effect(*args, **kwargs):
+      del args, kwargs
+      time.sleep(0.5)
+      return genai_types.GenerateContentResponse(
+          candidates=[genai_candidate('text')],
+      )
+
+    _ = _get_and_register_backend(disable_caching=True)
+    gc_mock = self._mock_genai_client.models.generate_content
+    gc_mock.side_effect = side_effect
+
+    t0 = time.time()
+    calls = [llm.generate_text(prompt=f'Something {x}') for x in range(10)]
+    executing.run(executing.par_iter(iter(calls)))
+    t1 = time.time()
+    self.assertLess(t1 - t0, 5.0)
 
 
 if __name__ == '__main__':
