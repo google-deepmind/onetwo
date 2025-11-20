@@ -217,7 +217,7 @@ def _is_retriable_error(e: Exception) -> bool:
   """Returns whether the error is retriable."""
   if isinstance(e, httpx.TransportError):
     return True
-  if not isinstance(e, genai_errors.ClientError):
+  if not isinstance(e, genai_errors.APIError):
     return False
   return e.code in _RETRIABLE_STATUS_CODES
 

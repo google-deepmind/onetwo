@@ -307,6 +307,41 @@ class GoogleGenaiApiTest(
           ),
       )
 
+  def test_generate_text_with_server_error_retry(self):
+    self._mock_genai_client.models.generate_content.side_effect = [
+        genai_errors.ServerError(
+            code=500, response_json={'error': {'message': 'test'}}
+        ),
+        genai_types.GenerateContentResponse(
+            candidates=[genai_candidate('text')],
+        ),
+    ]
+    max_retries = 1
+    backend = _get_and_register_backend(max_retries=max_retries)
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+
+    res = executing.run(llm.generate_text(prompt='Something'))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, 'text')
+    with self.subTest('RetriesExpectedNumberOfTimes'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count,
+          max_retries + 1,
+      )
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_text=1, generate_contents=max_retries + 1),
+      )
+    with self.subTest('UpdatesCacheCounters'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(
+              add_new=2,  # double caching
+              get_miss=2,  # double caching
+          ),
+      )
+
   def test_generate_text_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried."""
     self._mock_genai_client.models.generate_content.side_effect = (
