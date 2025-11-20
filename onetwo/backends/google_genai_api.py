@@ -152,6 +152,8 @@ def _contents_from_prompt(prompt: llm.Prompt) -> Sequence[genai_types.Content]:
       role = chunk.role
     if isinstance(role, content_lib.PredefinedRole):
       role = role.value
+    if not role:
+      role = content_lib.PredefinedRole.USER
     part = _part_from_chunk(chunk)
     if content and content[-1].role == role:
       content[-1].parts.append(part)

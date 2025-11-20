@@ -161,6 +161,9 @@ class GoogleGenaiApiTest(
     res = executing.run(llm.generate_text(prompt='Something1'))
     res2 = executing.run(llm.generate_text(prompt='Something2'))
 
+    _, mock_kwargs = self._mock_genai_client.models.generate_content.call_args
+    self.assertEqual(mock_kwargs['contents'][0].role, 'user')
+
     with self.subTest('ReturnsCorrectResult'):
       self.assertEqual(res, 'text')
       self.assertEqual(res2, 'text')
@@ -1317,7 +1320,7 @@ class GoogleGenaiApiTest(
     self.assertEqual(str(res), 'text2')
     self.assertEqual(
         gc_mock.call_args.kwargs['contents'],
-        [genai_content('prompt1')],
+        [genai_content('prompt1', role='user')],
     )
     self.assertEqual(
         gc_mock.call_args.kwargs['config'],
@@ -1387,7 +1390,7 @@ class GoogleGenaiApiTest(
     )
 
     # Case 1: str
-    c0 = [genai_types.Content(parts=[part_text])]
+    c0 = [genai_types.Content(parts=[part_text], role='user')]
     self.assertEqual(run0('text'), c0)
     self.assertEqual(run0(_ChunkList(['text'])), c0)
     # Case 2: Sequence[_Chunk]
