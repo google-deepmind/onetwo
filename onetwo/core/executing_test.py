@@ -1394,23 +1394,35 @@ class ExecutionTest(parameterized.TestCase):
 
   def test_max_parallel_executions(self):
     # Check default value if not set.
-    self.assertEqual(executing._default_max_parallel_executions.get(), 100)
+    with self.subTest('original_default_value'):
+      self.assertEqual(100, executing._default_max_parallel_executions.get())
+
+    executing.set_max_parallel_executions(500)
+    with self.subTest('change_default_value'):
+      self.assertEqual(500, executing._default_max_parallel_executions.get())
 
     with executing.max_parallel_executions(10):
-      self.assertEqual(executing._default_max_parallel_executions.get(), 10)
+      with self.subTest('inside_context_manager'):
+        self.assertEqual(10, executing._default_max_parallel_executions.get())
       with executing.max_parallel_executions(5):
-        self.assertEqual(executing._default_max_parallel_executions.get(), 5)
-      self.assertEqual(executing._default_max_parallel_executions.get(), 10)
-    self.assertEqual(executing._default_max_parallel_executions.get(), 100)
+        with self.subTest('inside_nested_context_manager'):
+          self.assertEqual(5, executing._default_max_parallel_executions.get())
+      with self.subTest('after_exiting_nested_context_manager'):
+        self.assertEqual(10, executing._default_max_parallel_executions.get())
+
+    with self.subTest('after_exiting_outermost_context_manager'):
+      self.assertEqual(500, executing._default_max_parallel_executions.get())
 
     # Check that exceptions don't prevent resetting the value.
     try:
       with executing.max_parallel_executions(20):
-        self.assertEqual(executing._default_max_parallel_executions.get(), 20)
+        with self.subTest('inside_context_manager_before_exception'):
+          self.assertEqual(20, executing._default_max_parallel_executions.get())
         raise ValueError('test')
     except ValueError:
       pass
-    self.assertEqual(executing._default_max_parallel_executions.get(), 100)
+    with self.subTest('after_exiting_context_manager_due_to_exception'):
+      self.assertEqual(500, executing._default_max_parallel_executions.get())
 
   def test_max_parallel_executions_with_parallel_executable(self):
     # Create an iterator of executables, not a list.

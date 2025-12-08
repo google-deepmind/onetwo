@@ -61,6 +61,11 @@ _default_max_parallel_executions: contextvars.ContextVar[int] = (
 )
 
 
+def set_max_parallel_executions(max_parallel: int) -> None:
+  """Sets the default maximum number of parallel executions to use."""
+  _default_max_parallel_executions.set(max_parallel)
+
+
 @contextlib.contextmanager
 def max_parallel_executions(max_parallel: int):
   """Context manager to temporarily set the default max parallel executions.
