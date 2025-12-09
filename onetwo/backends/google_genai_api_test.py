@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for GoogleGenAIAPI engine."""
-
 from collections.abc import Callable, Sequence
 import dataclasses
 import io
@@ -811,18 +809,40 @@ class GoogleGenaiApiTest(
         backend._counters, Counter(chat=1, generate_contents=1)
     )
 
-  def test_chat_with_retry(self):
+  @parameterized.named_parameters(
+      (
+          'network_errors',
+          [
+              genai_errors.ClientError(
+                  code=408, response_json={'error': {'message': 'test'}}
+              ),
+              httpx.TransportError('test'),
+          ],
+      ),
+      (
+          'safety_filter_error',
+          [
+              # This response causes the backend to raise the ValueError,
+              # which should now be retried.
+              genai_types.GenerateContentResponse(
+                  candidates=[genai_types.Candidate(content=None)]
+              )
+          ],
+      ),
+  )
+  def test_chat_with_retry(self, retriable_side_effects):
     gc_mock = self._mock_genai_client.models.generate_content
-    gc_mock.side_effect = [
-        genai_errors.ClientError(
-            code=408, response_json={'error': {'message': 'test'}}
-        ),
-        httpx.TransportError('test'),
-        genai_types.GenerateContentResponse(
-            candidates=[genai_candidate('Hello')]
-        ),
-    ]
-    max_retries = 2
+
+    # success response to return after the errors
+    success_response = genai_types.GenerateContentResponse(
+        candidates=[genai_candidate('Hello')]
+    )
+
+    gc_mock.side_effect = retriable_side_effects + [success_response]
+
+    # We set max_retries exactly to the number of errors to ensure we
+    # don't loop forever if the error wasn't actually retriable.
+    max_retries = len(retriable_side_effects)
     backend = _get_and_register_backend(max_retries=max_retries)
     handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
 

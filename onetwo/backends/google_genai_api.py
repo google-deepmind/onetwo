@@ -74,6 +74,12 @@ DEFAULT_GENERATE_MODEL: Final[ModelName] = ModelName(
     gemini_api='models/gemini-2.5-flash',
 )
 DEFAULT_MULTIMODAL_MODEL: Final[ModelName] = DEFAULT_GENERATE_MODEL
+DEFAULT_IMAGE_GENERATE_MODEL: Final[ModelName] = ModelName(
+    vertex_ai=(
+        'publishers/google/models/gemini-2.0-flash-preview-image-generation'
+    ),
+    gemini_api='models/gemini-2.5-flash-image-preview',
+)
 # input_token_limit=2048.
 DEFAULT_EMBED_MODEL: Final[ModelName] = ModelName(
     vertex_ai='publishers/google/models/gemini-embedding-001',
@@ -219,8 +225,16 @@ def _is_retriable_error(e: Exception) -> bool:
   """Returns whether the error is retriable."""
   if isinstance(e, httpx.TransportError):
     return True
+
+  # Retry on empty responses caused by safety filters.
+  if isinstance(
+      e, ValueError
+  ) and 'GoogleGenAIAPI.generate_text returned no answers' in str(e):
+    return True
+
   if not isinstance(e, genai_errors.APIError):
     return False
+
   return e.code in _RETRIABLE_STATUS_CODES
 
 
@@ -475,13 +489,19 @@ class GoogleGenAIAPI(
       logging.info('Model: %s', model_name)
       logging.info('%s', pprint.pformat(model))
     self._available_models = available_models
-    if self._generate_model_name() not in available_models:
-      raise ValueError(f'Model {self._generate_model_name()} not available.')
-    if self._chat_model_name() not in available_models:
-      raise ValueError(f'Model {self._chat_model_name()} not available.')
+
+    def _verify_model_name(model_name: str):
+      if model_name not in self._available_models:
+        raise ValueError(
+            f'Model {model_name} not available.\nAvailable models:'
+            f' {sorted(available_models.keys())}'
+        )
+
+    _verify_model_name(self._generate_model_name())
+    _verify_model_name(self._chat_model_name())
     # Embed models are not listed in the available models for Vertex AI API.
-    if not self.vertexai and self._embed_model_name() not in available_models:
-      raise ValueError(f'Model {self._embed_model_name()} not available.')
+    if not self.vertexai:
+      _verify_model_name(self._embed_model_name())
 
   def __post_init__(self) -> None:
 

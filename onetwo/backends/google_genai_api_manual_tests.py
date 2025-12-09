@@ -113,7 +113,7 @@ def main(argv: Sequence[str]) -> None:
   backend.register()
 
   image_backend = google_genai_api.GoogleGenAIAPI(
-      generate_model_name='models/gemini-2.5-flash-image-preview',
+      generate_model_name=google_genai_api.DEFAULT_IMAGE_GENERATE_MODEL,
       api_key=api_key,
       vertexai=vertexai,
       project=project,
@@ -153,7 +153,7 @@ def main(argv: Sequence[str]) -> None:
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
     if token_count > _MAX_INPUT_TOKENS:
       warning_msg = (
-          f'Warning: Prompt token length ({token_count}) exceeds maximal input'
+          f'Warning: Prompt token length ({token_count}) exceeds maximal input '
           f'token length ({_MAX_INPUT_TOKENS}) and '
           f'will be truncated on the server side: {prompt_text[:100]}\n.'
       )
@@ -246,17 +246,19 @@ def main(argv: Sequence[str]) -> None:
       err_repr = repr(err)
       if not (
           'INVALID_ARGUMENT' in err_repr
-          and 'The input token count exceeds the maximum number of tokens allowed'
+          and 'exceeds the maximum number of tokens allowed'
           in err_repr
       ):
         success = False
-        print('ValueError raised, but not with the expected message.', err)
+        print(
+            'FAIL: ValueError raised, but not with the expected message.', err
+        )
       value_error_raised = True
       if _PRINT_DEBUG.value:
         print('ValueError raised.')
     if not value_error_raised:
       success = False
-      print('ValueError not raised.')
+      print('FAIL: ValueError not raised.')
 
   if _run_test(5, 'Three batched generate queries, one of which does not fit'):
     exe = executing.par_iter([
@@ -275,13 +277,15 @@ def main(argv: Sequence[str]) -> None:
           or 'Quota exceeded' in err_repr
       ):
         success = False
-        print('ValueError raised, but not with the expected message:', err)
+        print(
+            'FAIL: ValueError raised, but not with the expected message:', err
+        )
       value_error_raised = True
       if _PRINT_DEBUG.value:
         print('ValueError raised.')
     if not value_error_raised:
       success = False
-      print('ValueError not raised.')
+      print('FAIL: ValueError not raised.')
 
   if _run_test(6.1, 'Generate an image'):
     with routing.RegistryContext():
@@ -300,6 +304,7 @@ def main(argv: Sequence[str]) -> None:
     print('- Has image: ', has_image)
     if not has_image:
       success = False
+      print('FAIL: No image returned.')
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
       pprint.pprint(res)
@@ -359,7 +364,9 @@ def main(argv: Sequence[str]) -> None:
     _ = executing.run(executable)
     if 'earth' not in executable['answer'].lower():
       success = False
-      print('Returned value does not contain "earth":', executable['answer'])
+      print(
+          'FAIL: Returned value does not contain "earth":', executable['answer']
+      )
     if _PRINT_DEBUG.value:
       print('Returned value:', executable['answer'])
 
@@ -428,8 +435,13 @@ def main(argv: Sequence[str]) -> None:
             stop=['.'],
         )
     )
-    if not res.startswith('Once upon a'):
+    if not res.startswith(' time'):
       success = False
+      print(
+          'FAIL: Returned value does not seem to be a continuation of "Once'
+          ' upon a" -- expected to start with " time":',
+          res,
+      )
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
       pprint.pprint(res)
@@ -530,7 +542,8 @@ def main(argv: Sequence[str]) -> None:
     if 'chickadee' not in executable['answer'].lower():
       success = False
       print(
-          'Returned value does not contain "chickadee":', executable['answer']
+          'FAIL: Returned value does not contain "chickadee":',
+          executable['answer'],
       )
     if _PRINT_DEBUG.value:
       print('Returned value:', executable['answer'])
@@ -560,7 +573,9 @@ def main(argv: Sequence[str]) -> None:
         print('Returned value:', answer)
     except json.JSONDecodeError as e:
       success = False
-      print('Returned value is not a valid JSON:', executable['answer'], e)
+      print(
+          'FAIL: Returned value is not a valid JSON:', executable['answer'], e
+      )
 
   if _run_test(13, 'Check thinking config'):
     res = executing.run(
@@ -590,7 +605,7 @@ def main(argv: Sequence[str]) -> None:
         pprint.pprint(res)
       if not isinstance(res, list) or not all(isinstance(x, int) for x in res):
         success = False
-        print('Returned value is not a list of ints:', res)
+        print('FAIL: Returned value is not a list of ints:', res)
     else:
       print('- Skipped because it is not supported by Gemini API.')
 
@@ -605,10 +620,17 @@ def main(argv: Sequence[str]) -> None:
     res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
-      pprint.pprint(res)
+      result_string = str(res)
+      if len(result_string) > 400:
+        result_string = (
+            result_string[:200]
+            + f'... (skipped {len(result_string) - 200} characters) ...'
+            + result_string[-200:]
+        )
+      pprint.pprint(result_string)
     if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
       success = False
-      print('Returned value is not a list of floats:', res)
+      print('FAIL: Returned value is not a list of floats:', res)
 
   if _run_test(16, 'Check llm.generate_object with native types. (int)'):
     prompt = 'What is the height of the Eiffel Tower? (in m)'
@@ -619,7 +641,7 @@ def main(argv: Sequence[str]) -> None:
       print('Returned value:', result)
     if not isinstance(result, int):
       success = False
-      print(f'Result is not of type int: {type(result)}')
+      print('FAIL: Result is not of type int: {type(result)}')
 
   class CityInfo(pydantic.BaseModel):
     city_name: str
@@ -639,16 +661,16 @@ def main(argv: Sequence[str]) -> None:
 
     if not isinstance(result, CityInfo):
       success = False
-      print(f'Result is not of type CityInfo: {type(result)}')
+      print('FAIL: Result is not of type CityInfo: {type(result)}')
     if not result.city_name:
       success = False
-      print('city_name is missing')
+      print('FAIL: city_name is missing')
     if not result.country:
       success = False
-      print('country is missing')
+      print('FAIL: country is missing')
     if result.population <= 0:
       success = False
-      print('population should be positive')
+      print('FAIL: population should be positive')
 
   if _run_test(18, 'Check llm.generate_object for dict-like data'):
 
@@ -682,16 +704,17 @@ def main(argv: Sequence[str]) -> None:
 
     if not isinstance(result, list):
       success = False
-      print(f'Result is not of type list: {type(result)}')
+      print('FAIL: Result is not of type list: {type(result)}')
     elif not all(isinstance(item, WordCount) for item in result):
       success = False
-      print(f'Result items are not all WordCount objects: {result}')
+      print('FAIL: Result items are not all WordCount objects: {result}')
     else:
       result_dict = {item.word: item.count for item in result}
       if result_dict != expected_dict:
         success = False
         print(
-            f'Result dict {result_dict} does not match expected {expected_dict}'
+            f'FAIL: Result dict {result_dict} does not match expected'
+            f' {expected_dict}'
         )
 
   if _run_test(
@@ -719,26 +742,30 @@ def main(argv: Sequence[str]) -> None:
 
     if not isinstance(result, StandardRecipe):
       success = False
-      print(f'Result is not an instance of StandardRecipe: {type(result)}')
+      print(
+          f'FAIL: Result is not an instance of StandardRecipe: {type(result)}'
+      )
     elif not isinstance(result, pydantic_recipe):
       success = False
-      print(f'Result is not an instance of PydanticRecipe: {type(result)}')
+      print(
+          f'FAIL: Result is not an instance of PydanticRecipe: {type(result)}'
+      )
     else:
       if not result.recipe_name:
         success = False
-        print('recipe_name is missing')
+        print('FAIL: recipe_name is missing')
       if not result.description:
         success = False
-        print('description is missing')
+        print('FAIL: description is missing')
       if result.prep_time_minutes <= 0:
         success = False
-        print('prep_time_minutes should be positive')
+        print('FAIL: prep_time_minutes should be positive')
       if not isinstance(result.ingredients, list) or not result.ingredients:
         success = False
-        print('ingredients should be a non-empty list')
+        print('FAIL: ingredients should be a non-empty list')
       elif not all(isinstance(i, str) for i in result.ingredients):
         success = False
-        print('ingredients should be a list of strings')
+        print('FAIL: ingredients should be a list of strings')
 
   if _run_test(20, 'Check llm.generate_object in chat mode'):
     result = executing.run(
@@ -766,7 +793,7 @@ def main(argv: Sequence[str]) -> None:
 
     if not isinstance(result, CityInfo):
       success = False
-      print(f'Result is not of type CityInfo: {type(result)}')
+      print(f'FAIL: Result is not of type CityInfo: {type(result)}')
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)
