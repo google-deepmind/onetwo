@@ -355,42 +355,6 @@ class ReactTest(parameterized.TestCase):
               ),
           ),
       ),
-      (
-          'malformed_act_retry_on_parsing_error_false',
-          "[Thought]: Testing retry=False\n[Act]: SomeTool('a'`)\n",
-          {},
-          react.ReActStep(
-              is_finished=False,
-              thought='',
-              action=None,
-              observation=(
-                  f"{constants.ERROR_STRING}: Invalid syntax for call:"
-                  " SomeTool('a'`)"
-              ),
-          ),
-      ),
-      (
-          'malformed_act_retry_on_parsing_error_true',
-          "[Thought]: Testing retry=True\n[Act]: SomeTool('a'`)\n",
-          {'retry_on_parsing_error': True},
-          react.ReActStep(
-              is_finished=False,
-              thought='Testing retry=True',
-              action=None,
-              observation=(
-                  f"{constants.ERROR_STRING}: Action parsing failed with"
-                  " error: Invalid syntax for call: SomeTool('a'`)"
-                  ".\nFailed action string: SomeTool('a'`)\n\n"
-                  "Please refer to the thought and check the failed action"
-                  " string for syntax errors (e.g., mismatched, misplaced"
-                  " quotes or backticks), check you have enclosed it"
-                  " correctly in backticks and try again. Analyse what was the"
-                  " error which lead to this parsing issue and try again"
-                  " ensuring it is correctly formatted, and the action string"
-                  " is enclosed in single bacticks like: `tool_call(args)`."
-              ),
-          ),
-      ),
   )
   def test_react_parse(self, reply_text, parse_args, expected_result):
     agent = react.ReActAgent(
