@@ -51,6 +51,9 @@ from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import python_tool_use
 
 
+_FINISH_REGEX = re.compile(r'`*\s*finish\b')
+
+
 @dataclasses.dataclass
 class ReActStep:
   """One step of a serializable ReAct agent state.
@@ -566,11 +569,17 @@ class ReActParseProtocol(Protocol):
   def __call__(
       self,
       reply_text: str,
+      *,
+      retry_on_parsing_error: bool = False,
   ) -> ReActStep:
     """Returns the result of parsing the LLM reply for a ReAct prompt.
 
     Args:
       reply_text: String containing LLM's completion.
+      retry_on_parsing_error: When set to True, if an action fails to parse,
+        the ReAct agent is prompted to retry. The observation provided to the
+        agent in this case includes the detailed error message from the failed
+        parsing attempt in the previous step.
 
     Returns:
       ReActStep containing all of the information that can be determined from
@@ -589,6 +598,7 @@ def react_parse(
     thought_pattern: str = r'\[Thought\]:?',
     finish_pattern: str = r'\[Finish\]:?',
     final_stop_sequence: str | None = '\n\n',
+    retry_on_parsing_error: bool = False,
 ) -> ReActStep:
   """Returns the result of parsing the LLM reply for a ReAct prompt.
 
@@ -599,6 +609,10 @@ def react_parse(
     finish_pattern: Regex pattern indicating the beginning of a finish line.
     final_stop_sequence: Additional stop sequence at which to truncate the final
       answer after retrieving from the LLM.
+    retry_on_parsing_error: When set to True, if an action fails to parse,
+      the ReAct agent is prompted to retry. The observation provided to the
+      agent in this case includes the detailed error message from the failed
+      parsing attempt in the previous step.
 
   Returns:
     ReActStep containing all of the information that can be determined from the
@@ -613,7 +627,7 @@ def react_parse(
   # for the context to contain some predefined variables that could be
   # referenced as function arguments in the action string?
   prompt_context = templating.PromptTemplateContext()
-
+  thought_content = ''
   try:
     # Find '[Act]:' (or variant thereof, e.g. 'Action 1:', etc.).
     match_act = re.search(action_pattern, reply_text)
@@ -636,7 +650,6 @@ def react_parse(
     else:
       finish_start = finish_end = len(reply_text)
 
-    thought_content = ''
     if act_start < finish_start:
       # Act is first.
       if thought_start < act_start:
@@ -664,18 +677,20 @@ def react_parse(
         # While the outer try-except block catches all ValueErrors during
         # parsing, this inner block provides a more specific error message if
         # `parse_and_consume_call` fails on what appears to be a malformed
-        # `finish()` call. This allows the agent to receive a more
-        # actionable observation (e.g., 'Failed to parse finish() call')
-        # rather than a generic parsing error, helping it recover in the
-        # next step (e.g., b/443895342).
-        # The regex checks if the text that failed to parse starts with
-        # optional backticks (`*), followed by optional whitespaces (\s*),
-        # followed by the word "finish" ending at a word boundary (\b).
-        # If the regex matches, we assume the parsing failed due to
-        # bad syntax in what was intended to be a finish call, e.g.:
-        # - finish("mismatched quote')
+        # action or `finish()` calls.
+
+        if _FINISH_REGEX.match(part_after_act):
+          # This allows the agent to receive a more
+          # actionable observation (e.g., 'Failed to parse finish() call')
+          # rather than a generic parsing error, helping it recover in the
+          # next step (e.g., b/443895342).
+          # The regex checks if the text that failed to parse starts with
+          # optional backticks (`*), followed by optional whitespaces (\s*),
+          # followed by the word "finish" ending at a word boundary (\b).
+          # If the regex matches, we assume the parsing failed due to
+          # bad syntax in what was intended to be a finish call, e.g.:
+          # - finish("mismatched quote')
         # - finish('...')`)
-        if re.match(r'`*\s*finish\b', part_after_act):
           return ReActStep(
               is_finished=False,
               thought=thought_content,
@@ -685,8 +700,29 @@ def react_parse(
                   f' including backticks if necessary: {e}'
               ),
           )
+        elif retry_on_parsing_error:
+          # If retry_on_parsing_error is True, we provide a more detailed
+          # error observation to help the LLM correct its mistake in the next
+          # turn. This includes the thought, the exact action string that failed
+          # parsing the action, and the error, along with a prompt to retry.
+          return ReActStep(
+              is_finished=False,
+              thought=thought_content,
+              observation=(
+                  f'{constants.ERROR_STRING}: Action parsing failed with'
+                  f' error: {e}.\nFailed action string: {part_after_act}\n\n'
+                  'Please refer to the thought and check the failed action'
+                  ' string for syntax errors (e.g., mismatched, misplaced'
+                  ' quotes or backticks), check you have enclosed it'
+                  ' correctly in backticks and try again. Analyse what was the'
+                  ' error which lead to this parsing issue and try again'
+                  ' ensuring it is correctly formatted, and the action string'
+                  ' is enclosed in single bacticks like: `tool_call(args)`.'
+              ),
+          )
         else:
-          # If it's not a finish call, raise for the outer handler.
+          # If it's not a finish call and retry_on_parsing_error is False,
+          # raise for the outer handler to generate a simple error message.
           raise e
     elif finish_start < act_start:
       # Finish is first.
@@ -735,6 +771,10 @@ class ReActAgent(
     stop_prefix: The string that is used to mark positions for early stopping.
       This is used for the [Question] and [Observe] stages. By default, no stop
       prefix is used.
+    retry_on_parsing_error: When set to True, if an action fails to parse,
+      the ReAct agent is prompted to retry. The observation provided to the
+      agent in this case includes the detailed error message from the
+      failed parsing attempt in the previous step.
   """
 
   prompt: ReActPromptProtocol = dataclasses.field(
@@ -750,6 +790,7 @@ class ReActAgent(
   )
   max_steps: int = 10
   stop_prefix: str = ''
+  retry_on_parsing_error: bool = False
 
   def _get_stop_sequences(self) -> list[str]:
     """Returns the list of stop sequences to use for the prompt."""
@@ -862,7 +903,9 @@ class ReActAgent(
           observation=llm_reply.strip(),
       )
     else:
-      next_step = self.parse(llm_reply)
+      next_step = self.parse(
+          llm_reply, retry_on_parsing_error=self.retry_on_parsing_error
+      )
       # TODO: Support variable reference and assignment in the
       # `llm_reply`.
       if next_step.action:
