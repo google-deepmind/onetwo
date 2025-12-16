@@ -355,6 +355,42 @@ class ReactTest(parameterized.TestCase):
               ),
           ),
       ),
+      (
+          'malformed_act_retry_on_parsing_error_false',
+          "[Thought]: Testing retry=False\n[Act]: SomeTool('a'`)\n",
+          {},
+          react.ReActStep(
+              is_finished=False,
+              thought='',
+              action=None,
+              observation=(
+                  f"{constants.ERROR_STRING}: Invalid syntax for call:"
+                  " SomeTool('a'`)"
+              ),
+          ),
+      ),
+      (
+          'malformed_act_retry_on_parsing_error_true',
+          "[Thought]: Testing retry=True\n[Act]: SomeTool('a'`)\n",
+          {'retry_on_parsing_error': True},
+          react.ReActStep(
+              is_finished=False,
+              thought='Testing retry=True',
+              action=None,
+              observation=(
+                  f"{constants.ERROR_STRING}: Action parsing failed with"
+                  " error: Invalid syntax for call: SomeTool('a'`)"
+                  ".\nFailed action string: SomeTool('a'`)\n\n"
+                  "Please refer to the thought and check the failed action"
+                  " string for syntax errors (e.g., mismatched, misplaced"
+                  " quotes or backticks), check you have enclosed it"
+                  " correctly in backticks and try again. Analyse what was the"
+                  " error which lead to this parsing issue and try again"
+                  " ensuring it is correctly formatted, and the action string"
+                  " is enclosed in single bacticks like: `tool_call(args)`."
+              ),
+          ),
+      ),
   )
   def test_react_parse(self, reply_text, parse_args, expected_result):
     agent = react.ReActAgent(
@@ -420,6 +456,53 @@ class ReactTest(parameterized.TestCase):
 
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
+
+  @parameterized.named_parameters(
+      ('react_prompt_composable', react.ReActPromptComposable),
+      ('react_prompt_j2', react.ReActPromptJ2),
+  )
+  def test_retry_on_parsing_error_default(self, prompt_class):
+    # Some minimal agent configuration and inputs.
+    question = 'What is larger, 10 or 15, and by how much?'
+    config = _get_environment_config_with_python()
+    prev_state = react.ReActState(inputs=question, updates=[])
+
+    # We hard-code the LLM to return a malformed action.
+    llm_backend = backends_test_utils.LLMForTest(
+        reply_by_prompt_regex={
+            r'What is larger, 10 or 15, and by how much\?$': (
+                "[Thought]: Testing retry=False\n[Act]: SomeTool('a'`)\n"
+            ),
+        },
+        default_reply=DEFAULT_REPLY,
+    )
+    llm_backend.register()
+
+    # Agent with default retry_on_parsing_error=False
+    agent = react.ReActAgent(
+        prompt=prompt_class(),
+        exemplars=react.REACT_FEWSHOTS,
+        environment_config=config,
+        max_steps=1,
+        stop_prefix='',
+    )
+
+    with python_tool_use.PythonToolUseEnvironment(config=config) as env:
+      next_step = executing.run(
+          agent._sample_single_next_step(  # pytype: disable=wrong-keyword-args
+              state=prev_state, environment=env
+          )
+      )
+
+    # With retry_on_parsing_error=False, we expect react_parse to raise an
+    # error that is caught by the outer try-except, returning a simple error
+    # message in observation.
+    self.assertEqual(next_step.thought, '')
+    self.assertIsNone(next_step.action)
+    self.assertEqual(
+        next_step.observation,
+        f"{constants.ERROR_STRING}: Invalid syntax for call: SomeTool('a'`)"
+    )
 
   @parameterized.named_parameters(
       ('j2_mismatch1', react.ReActPromptJ2, "finish(\"1')"),
