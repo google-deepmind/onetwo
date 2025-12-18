@@ -40,17 +40,29 @@ DocT = TypeVar('DocT')
 
 
 class Retriever(Protocol[QueryT, RetrievalResultT]):
-  """Generic interface for a strategy that retrieves results given a query."""
+  """Generic interface for a strategy that retrieves results given a query.
+
+  The primary way to use a Retriever instance is to call it directly
+  (e.g., `retriever_instance(query)`) which invokes the `__call__` method.
+
+  Subclasses should implement the core retrieval logic in the `_retrieve`
+  method. The `__call__` method is often a wrapper around `_retrieve` and serves
+  as the main public entry point.
+  """
 
   @abc.abstractmethod
   @executing.make_executable(copy_self=False)
-  async def retrieve(
+  async def _retrieve(
       self,
       query: QueryT,
       *,
       max_results: int | None = None,
   ) -> Iterable[RetrievalResultT]:
-    """Returns the results that are most relevant to the query.
+    """Core retrieval logic to be implemented by subclasses.
+
+    This method should contain the actual implementation for fetching and
+    ranking results based on the query. It is intended to be called internally,
+    typically by `__call__` or `retrieve_with_scores`.
 
     The results will be sorted from most relevant to least relevant.
 
@@ -72,12 +84,37 @@ class Retriever(Protocol[QueryT, RetrievalResultT]):
       max_results: int | None = None,
   ) -> Iterable[tuple[RetrievalResultT, float]]:
     """Returns the results that are most relevant to the query, with scores."""
-    results = await self.retrieve(query=query, max_results=max_results)  # pytype: disable=wrong-keyword-args
+    results = await self._retrieve(query=query, max_results=max_results)  # pytype: disable=wrong-keyword-args
     # By default, we assign a score that is inversely proportional to the
     # position of the result in the list. This is a reasonable default for
     # cases where the `retrieve` method itself is already returning the results
     # in order of relevance.
     return [(result, 1.0 / (ind + 1)) for ind, result in enumerate(results)]
+
+  @executing.make_executable(copy_self=False)
+  async def __call__(
+      self,
+      query: str,
+      *,
+      max_results: int | None = None,
+  ) -> Iterable[RetrievalResultT]:
+    """Returns the documents (or passages) that are most relevant to the query.
+
+    This is the primary method users should call to perform retrieval.
+    Implementations of this method in subclasses usually delegate the core
+    logic to the `_retrieve` method.
+
+    The results will be sorted from most relevant to least relevant.
+
+    Args:
+      query: The query for which to retrieve results. Could either be a
+        traditional search-style query, a natural language question, or a longer
+        document for which we wish to retrieve similar/related documents.
+      max_results: The maximum number of results to return. If `None`, then all
+        results will be returned (or some hard-coded limit determined by the
+        subclass).
+    """
+    return await self._retrieve(query=query, max_results=max_results)  # pytype: disable=wrong-keyword-args
 
 
 class Index(
