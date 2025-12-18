@@ -244,6 +244,58 @@ class SimpleCache(Generic[CachedType], metaclass=abc.ABCMeta):
 
 
 @dataclasses.dataclass
+class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
+  """Two-layer cache implementation.
+
+  This cache implementation delegates to two other cache implementations, L1 and
+  L2. It is intended to be used with a fast L1 cache (e.g. in-memory) and a
+  slower L2 cache (e.g. disk-based).
+
+  When reading, it first checks L1. If the value is not found, it checks L2.
+  If the value is found in L2, it is asynchronously added to L1.
+  When writing, it writes to both L1 and L2.
+
+  The method get_key_count returns the number of keys in L2.
+
+  Attributes:
+    l1_cache: First level cache (faster, smaller).
+    l2_cache: Second level cache (slower, larger).
+    _calls_in_progress: Set of calls currently being processed.
+  """
+
+  l1_cache: SimpleCache[CachedType]
+  l2_cache: SimpleCache[CachedType]
+  _calls_in_progress: set[tuple[str, str | None]] = dataclasses.field(
+      default_factory=set,
+  )
+
+  def cache_value(
+      self,
+      key: str,
+      sampling_key: str | None,
+      value: CachedType,
+  ) -> None:
+    self.l1_cache.cache_value(key, sampling_key, value)
+    self.l2_cache.cache_value(key, sampling_key, value)
+
+  async def get_cached_value(
+      self,
+      key: str,
+      sampling_key: str | None,
+  ) -> CachedType | None:
+    value = await self.l1_cache.get_cached_value(key, sampling_key)
+    if value is not None:
+      return value
+    value = await self.l2_cache.get_cached_value(key, sampling_key)
+    if value is not None:
+      self.l1_cache.cache_value(key, sampling_key, value)
+    return value
+
+  def get_key_count(self) -> int:
+    return self.l2_cache.get_key_count()
+
+
+@dataclasses.dataclass
 class SimpleFileCache(
     Generic[CachedType], SimpleCache[CachedType], metaclass=abc.ABCMeta
 ):

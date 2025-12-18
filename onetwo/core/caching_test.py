@@ -988,5 +988,50 @@ class CacheDataTest(parameterized.TestCase):
     self.assertEqual(expected_result, cache1, cache1)
 
 
+class TwoLayerCacheTest(parameterized.TestCase):
+
+  def test_get_from_l1(self):
+    l1 = CacheForTest()
+    l2 = CacheForTest()
+    cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
+
+    l1.cache_value('key1', None, 'val1')
+
+    val = asyncio.run(cache.get_cached_value('key1', None))
+    self.assertEqual(val, 'val1')
+    self.assertIsNone(asyncio.run(l2.get_cached_value('key1', None)))
+
+  def test_get_from_l2_and_update_l1(self):
+    l1 = CacheForTest()
+    l2 = CacheForTest()
+    cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
+
+    l2.cache_value('key1', None, 'val1')
+
+    val = asyncio.run(cache.get_cached_value('key1', None))
+    self.assertEqual(val, 'val1')
+
+    # Check L1 updated
+    self.assertEqual(asyncio.run(l1.get_cached_value('key1', None)), 'val1')
+
+  def test_cache_value(self):
+    l1 = CacheForTest()
+    l2 = CacheForTest()
+    cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
+
+    cache.cache_value('key1', None, 'val1')
+
+    self.assertEqual(asyncio.run(l1.get_cached_value('key1', None)), 'val1')
+    self.assertEqual(asyncio.run(l2.get_cached_value('key1', None)), 'val1')
+
+  def test_get_miss(self):
+    l1 = CacheForTest()
+    l2 = CacheForTest()
+    cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
+
+    val = asyncio.run(cache.get_cached_value('key1', None))
+    self.assertIsNone(val)
+
+
 if __name__ == '__main__':
   absltest.main()
