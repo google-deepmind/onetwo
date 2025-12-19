@@ -335,6 +335,7 @@ class GoogleGenAIAPI(
   initial_base_delay: int = 1
   max_base_delay: int = 32
   replace_unsupported_roles: bool = False
+  enable_model_verification: bool = False
 
   # Generation parameters
   temperature: float | None = None
@@ -517,7 +518,8 @@ class GoogleGenAIAPI(
         debug_config=self.debug_config,
         http_options=self.http_options,
     )
-    self._verify_available_models()
+    if self.enable_model_verification:
+      self._verify_available_models()
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_text')
