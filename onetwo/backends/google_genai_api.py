@@ -353,6 +353,7 @@ class GoogleGenAIAPI(
   generate_content_kwargs: dict[str, Any] = dataclasses.field(
       default_factory=dict
   )
+  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
   # Attributes not set by constructor.
   _genai_client: genai.Client = dataclasses.field(init=False)
@@ -418,7 +419,7 @@ class GoogleGenAIAPI(
           **self.generate_content_kwargs,
       )
     if register_embed:
-      llm.embed.configure(self.embed)
+      llm.embed.configure(self.embed, **self.embed_kwargs)
     if register_generate:
       llm.chat.configure(
           self.chat,
@@ -821,10 +822,12 @@ class GoogleGenAIAPI(
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
   async def embed(
-      self, content: str | content_lib.ChunkList
+      self,
+      content: str | content_lib.ChunkList,
+      **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[float]:
     """See builtins.llm.embed."""
-    return await self._embed(content)
+    return await self._embed(content, **kwargs)
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
@@ -835,13 +838,21 @@ class GoogleGenAIAPI(
       max_base_delay=utils.FromInstance('max_base_delay'),
       retriable_error_filter=_is_retriable_error,
   )
-  def _embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
+  def _embed(
+      self, content: str | content_lib.ChunkList, **kwargs
+  ) -> Sequence[float]:
     """Inner method for llm.embed."""
     self._counters['embed'] += 1
     content = _convert_chunk_list_to_part_list(content)
+    embed_config = (
+        genai_types.EmbedContentConfig(task_type=kwargs['task_type'])
+        if 'task_type' in kwargs
+        else None
+    )
     response = self._genai_client.models.embed_content(
         model=self._embed_model_name(),
         contents=content,
+        config=embed_config,
     )
     if not response.embeddings:
       raise ValueError(

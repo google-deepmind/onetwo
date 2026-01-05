@@ -1297,6 +1297,49 @@ class GoogleGenaiApiTest(
           handler._cache_data.counters, Counter(add_new=1, get_miss=1)
       )
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='with_task_type',
+          embed_kwargs={'task_type': 'RETRIEVAL_DOCUMENT'},
+          expected_config=genai_types.EmbedContentConfig(
+              task_type='RETRIEVAL_DOCUMENT'
+          ),
+      ),
+      dict(
+          testcase_name='without_task_type',
+          embed_kwargs={},
+          expected_config=None,
+      ),
+  )
+  def test_embed_with_kwargs(self, embed_kwargs, expected_config):
+    backend = _get_and_register_backend()
+    content = 'Some text to embed'
+    # We mock the return value of embed_content to return a constant value.
+    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+        )
+    )
+
+    res = executing.run(llm.embed(content=content, **embed_kwargs))
+
+    with self.subTest('ReturnsCorrectResult'):
+      self.assertEqual(res, mock_embedding)
+    with self.subTest('CallsApiWithCorrectConfig'):
+      self._mock_genai_client.models.embed_content.assert_called_once()
+      _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+      self.assertEqual(mock_kwargs['config'], expected_config)
+      self.assertEqual(
+          mock_kwargs['contents'],
+          [genai_types.Part(text=content)],
+      )
+    with self.subTest('UpdatesBackendCounters'):
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(embed=1),
+      )
+
   def test_embed_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried in embed."""
     self._mock_genai_client.models.embed_content.side_effect = (
