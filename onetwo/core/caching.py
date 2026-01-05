@@ -275,6 +275,7 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
       sampling_key: str | None,
       value: CachedType,
   ) -> None:
+    """Overridden from base class (SimpleCache)."""
     self.l1_cache.cache_value(key, sampling_key, value)
     self.l2_cache.cache_value(key, sampling_key, value)
 
@@ -283,6 +284,7 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
       key: str,
       sampling_key: str | None,
   ) -> CachedType | None:
+    """Overridden from base class (SimpleCache)."""
     value = await self.l1_cache.get_cached_value(key, sampling_key)
     if value is not None:
       return value
@@ -292,6 +294,7 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
     return value
 
   def get_key_count(self) -> int:
+    """Overridden from base class (SimpleCache)."""
     return self.l2_cache.get_key_count()
 
 
@@ -1307,7 +1310,7 @@ class SimpleFunctionCache(
       sampling_key: str | None,
       value: CachedType,
   ) -> None:
-    """See base class (SimpleCache)."""
+    """Overridden from base class (SimpleCache)."""
     try:
       # Sanity check: Ensure the value can be safely cached and restored.
       # We attempt to deep-copy the value before caching it. This acts as a
