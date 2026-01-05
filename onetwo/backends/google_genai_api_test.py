@@ -1340,6 +1340,63 @@ class GoogleGenaiApiTest(
           Counter(embed=1),
       )
 
+  def test_embed_caching_with_task_type(self):
+    backend = _get_and_register_backend()
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
+
+    # We mock the return value of embed_content to return a constant value.
+    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
+    embed_mock = self._mock_genai_client.models.embed_content
+    embed_mock.return_value = genai_types.EmbedContentResponse(
+        embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+    )
+
+    content = 'Some text to embed'
+
+    # Call 1: No task_type
+    executing.run(llm.embed(content=content))
+    with self.subTest('Call 1: No task_type'):
+      embed_mock.assert_called_once()
+      self.assertCounterEqual(backend._counters, Counter(embed=1))
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=1, get_miss=1)
+      )
+
+    # Call 2: task_type = RETRIEVAL_DOCUMENT
+    executing.run(llm.embed(content=content, task_type='RETRIEVAL_DOCUMENT'))
+    with self.subTest('Call 2: RETRIEVAL_DOCUMENT'):
+      self.assertEqual(embed_mock.call_count, 2)
+      self.assertCounterEqual(backend._counters, Counter(embed=2))
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=2, get_miss=2)
+      )
+      _, mock_kwargs = embed_mock.call_args
+      self.assertEqual(mock_kwargs['config'].task_type, 'RETRIEVAL_DOCUMENT')
+
+    # Call 3: task_type = SEMANTIC_SIMILARITY
+    executing.run(llm.embed(content=content, task_type='SEMANTIC_SIMILARITY'))
+    with self.subTest('Call 3: SEMANTIC_SIMILARITY'):
+      self.assertEqual(embed_mock.call_count, 3)
+      self.assertCounterEqual(backend._counters, Counter(embed=3))
+      self.assertCounterEqual(
+          handler._cache_data.counters, Counter(add_new=3, get_miss=3)
+      )
+      _, mock_kwargs = embed_mock.call_args
+      self.assertEqual(mock_kwargs['config'].task_type, 'SEMANTIC_SIMILARITY')
+
+    # Call 4: task_type = RETRIEVAL_DOCUMENT (Cache Hit)
+    executing.run(llm.embed(content=content, task_type='RETRIEVAL_DOCUMENT'))
+    with self.subTest('Call 4: RETRIEVAL_DOCUMENT (Cache Hit)'):
+      self.assertEqual(embed_mock.call_count, 3)  # Should not increase
+      self.assertCounterEqual(
+          backend._counters, Counter(embed=3)
+      )  # Should not increase
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=3, get_miss=3, get_hit=1),
+      )
+
   def test_embed_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried in embed."""
     self._mock_genai_client.models.embed_content.side_effect = (
