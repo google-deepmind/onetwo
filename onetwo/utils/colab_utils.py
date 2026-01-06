@@ -357,16 +357,33 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
 
   def print_cache_summary(self):
     """Prints a summary of the caches of all the currently managed backends."""
-    print('Cache summary:')
-    for backend_name, cache in self._simple_function_caches():
+
+    def _print_single_cache_summary(cache):
+      """Prints a summary of the cache of a single backend."""
+      if not isinstance(cache, caching.SimpleFunctionCache):
+        print(f'  * Ignoring non-SimpleFunctionCache: {type(cache)}')
+        return
       cache_data = cache._cache_data  # pylint: disable=protected-access
       calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
-
-      print(f'* {backend_name}: {cache.cache_filename}')
       print(f'  * Cache contains {cache.get_key_count()} items.')
       print(f'  * Counters: {cache_data.counters}')
       num_calls_in_progress = len(calls_in_progress)
       print(f'  * Calls in progress: {num_calls_in_progress}')
+
+    print('Cache summary:')
+    for backend_name, backend in self._backends.items():
+      if not isinstance(backend, caching.CacheEnabled):
+        print(f'Backend {backend_name} is not CacheEnabled. Ignoring.')
+        continue
+      cache = backend.cache
+      if isinstance(cache, caching.SimpleFunctionCache):
+        print(f'* {backend_name}: {cache.cache_filename}')
+        _print_single_cache_summary(cache)
+      elif isinstance(cache, caching.TwoLayerCache):
+        print(f'* {backend_name}: TwoLayerCache - Layer 1')
+        _print_single_cache_summary(cache.l1_cache)
+        print(f'* {backend_name}: TwoLayerCache - Layer 2')
+        _print_single_cache_summary(cache.l2_cache)
 
   def clear_all_calls_in_progress(self):
     """Clears the record of in-progress calls for all CacheEnabled backends."""
