@@ -366,7 +366,9 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       cache_data = cache._cache_data  # pylint: disable=protected-access
       calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
       print(f'  * Cache contains {cache.get_key_count()} items.')
-      print(f'  * Counters: {cache_data.counters}')
+      # Since Python 3.7, dictionaries preserve insertion order.
+      print(f'  * Counters: {dict(sorted(cache_data.counters.items()))}')
+
       num_calls_in_progress = len(calls_in_progress)
       print(f'  * Calls in progress: {num_calls_in_progress}')
 

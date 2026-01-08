@@ -14,7 +14,9 @@
 
 import asyncio
 import collections
+import contextlib
 import dataclasses
+import io
 import itertools
 import os
 
@@ -470,6 +472,38 @@ class CachedBackendsTest(parameterized.TestCase):
     )
     all_values = list(itertools.chain.from_iterable(values_by_key.values()))
     self.assertCountEqual(['my_value'], all_values)
+
+  def test_print_cache_summary_sorted_counters(self):
+    """Verifies that the counters are printed in sorted order."""
+    own_cache_dir = self.create_tempdir()
+    cached_backends = colab_utils.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path
+    )
+    backend_cache_path = os.path.join(
+        own_cache_dir.full_path, 'test_backend.json'
+    )
+    backend = TestBackend(
+        cache_filename=backend_cache_path,
+        return_value='val',
+    )
+    cached_backends['test_backend'] = backend
+
+    # Manually populate counters in unsorted order.
+    cache = backend.cache
+    assert isinstance(cache, caching.SimpleFunctionCache)
+    cache._cache_data.counters['b'] = 2  # pylint: disable=protected-access
+    cache._cache_data.counters['a'] = 1  # pylint: disable=protected-access
+    cache._cache_data.counters['c'] = 3  # pylint: disable=protected-access
+
+    # Capture stdout.
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cached_backends.print_cache_summary()
+    output = f.getvalue()
+
+    # Verify expected output format with sorted keys.
+    expected_counters = "{'a': 1, 'b': 2, 'c': 3}"
+    self.assertIn(f'* Counters: {expected_counters}', output)
 
 
 if __name__ == '__main__':
