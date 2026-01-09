@@ -1676,6 +1676,72 @@ class GoogleGenaiApiTest(
       t1 = time.time()
       self.assertLess(t1 - t0, 5.0)
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='none_small_pool',
+          threadpool_size=4,
+          http_options_in=None,
+          expected_http_options_out=None,
+      ),
+      dict(
+          testcase_name='dict_small_pool',
+          threadpool_size=4,
+          http_options_in={'timeout': 10},
+          expected_http_options_out={'timeout': 10},
+      ),
+      dict(
+          testcase_name='options_small_pool',
+          threadpool_size=4,
+          http_options_in=genai_types.HttpOptions(timeout=10),
+          expected_http_options_out=genai_types.HttpOptions(timeout=10),
+      ),
+      dict(
+          testcase_name='none_large_pool',
+          threadpool_size=101,
+          http_options_in=None,
+          expected_http_options_out=genai_types.HttpOptions(
+              client_args={
+                  'limits': httpx.Limits(
+                      max_connections=101, max_keepalive_connections=101
+                  )
+              }
+          ),
+      ),
+      dict(
+          testcase_name='dict_large_pool',
+          threadpool_size=101,
+          http_options_in={'timeout': 10},
+          expected_http_options_out={
+              'timeout': 10,
+              'client_args': {
+                  'limits': httpx.Limits(
+                      max_connections=101, max_keepalive_connections=101
+                  )
+              },
+          },
+      ),
+      dict(
+          testcase_name='options_large_pool',
+          threadpool_size=101,
+          http_options_in=genai_types.HttpOptions(timeout=10),
+          expected_http_options_out=genai_types.HttpOptions(
+              timeout=10,
+              client_args={
+                  'limits': httpx.Limits(
+                      max_connections=101, max_keepalive_connections=101
+                  )
+              },
+          ),
+      ),
+  )
+  def test_configure_http_limits(
+      self, threadpool_size, http_options_in, expected_http_options_out
+  ):
+    http_options_out = google_genai_api._configure_http_limits(
+        threadpool_size, http_options_in
+    )
+    self.assertEqual(http_options_out, expected_http_options_out)
+
 
 if __name__ == '__main__':
   absltest.main()

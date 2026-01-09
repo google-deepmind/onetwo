@@ -120,6 +120,42 @@ _RETRIABLE_STATUS_CODES = {
 }
 
 
+def _configure_http_limits(
+    threadpool_size: int,
+    http_options: genai_types.HttpOptions | genai_types.HttpOptionsDict | None,
+) -> genai_types.HttpOptions | genai_types.HttpOptionsDict:
+  """Ensures httpx connection limits match the threadpool size."""
+  if threadpool_size <= 100:
+    # Keep the default limits for small threadpools.
+    return http_options
+  limits = httpx.Limits(
+      max_connections=threadpool_size,
+      max_keepalive_connections=threadpool_size,
+  )
+  if http_options is None:
+    http_options = genai_types.HttpOptions(client_args={'limits': limits})
+  else:
+    if isinstance(http_options, dict):
+      if 'client_args' not in http_options:
+        http_options['client_args'] = {}
+      client_args = http_options['client_args']
+    elif isinstance(http_options, genai_types.HttpOptions):
+      # http_options is genai_types.HttpOptions
+      current_client_args = http_options.client_args
+      if current_client_args is None:
+        client_args = {}
+        http_options.client_args = client_args
+      else:
+        client_args = current_client_args
+    else:
+      # Should not happen, just to make pytype happy.
+      client_args = {}
+
+    if 'limits' not in client_args:
+      client_args['limits'] = limits
+  return http_options
+
+
 def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
   """Converts a single Chunk into a Part."""
   match chunk.content:
@@ -506,6 +542,12 @@ class GoogleGenAIAPI(
 
     if self.cache is None:
       self.cache = caching.SimpleFunctionCache()
+
+    self.http_options = _configure_http_limits(
+        self.threadpool_size, self.http_options
+    )
+    print(f'http_options: {self.http_options}')
+
     # Configure GenAI client.
     self._genai_client = genai.Client(
         vertexai=self.vertexai,
