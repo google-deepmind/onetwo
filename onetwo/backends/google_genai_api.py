@@ -270,10 +270,7 @@ class GoogleGenAIAPI(
     disable_caching: Whether caching is enabled for this object (inherited from
       CacheEnabled).
     cache: Cache handler to use for caching (inherited from CacheEnabled).
-    threadpool_size: Number of threads to use in the threadpool when the
-      execution is not batched. If 0, then no threadpool will be used and we use
-      batching instead. If >0, then requests will be executed as they come
-      without batching. *Note that this is not compatible with streaming*.
+    threadpool_size: Number of threads to use in the threadpool.
     vertexai: Whether to use the Vertex AI API.
     api_key: GenAI API key string.
     api_key_file: Full quialified path to a file that contains GenAI API key on
