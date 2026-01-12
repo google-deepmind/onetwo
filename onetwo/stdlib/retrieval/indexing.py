@@ -176,3 +176,86 @@ class DocumentIndex(
     metaclass=abc.ABCMeta,
 ):
   """All DocumentIndex classes should be subclasses of this type."""
+
+
+@dataclasses.dataclass
+class EmptyIndex(DocumentIndex):
+  """Trivial empty index that always retrieves empty results."""
+
+  @property
+  def num_docs(self) -> int:
+    """Overridden from base class (Index)."""
+    return 0
+
+  def get_docs(self) -> Iterable[Document]:
+    """Overridden from base class (Index)."""
+    return []
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace('EmptyIndex.add_docs')
+  async def add_docs(self, docs: Iterable[Document]) -> None:
+    """Overridden from base class (Index)."""
+    pass
+
+  @tracing.trace('EmptyIndex.destroy_index')
+  def destroy_index(self) -> None:
+    """Overridden from base class (Index)."""
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace('EmptyIndex.retrieve')
+  async def retrieve(
+      self,
+      query: str,
+      *,
+      max_results: int | None = None,
+  ) -> Iterable[Document]:
+    """Overridden from base class (Retriever)."""
+    del query, max_results
+    return []
+
+
+@dataclasses.dataclass
+class NaiveIndex(DocumentIndex):
+  """Index that stores the original document text as-is and retrieves naively.
+
+  Simply returns the first K added documents each time, regardless of the query.
+
+  Attributes:
+    docs: The documents that were added to the corpus.
+  """
+
+  docs: list[Document] = dataclasses.field(default_factory=list)
+
+  @property
+  def num_docs(self) -> int:
+    """Overridden from base class (Index)."""
+    return len(self.docs)
+
+  def get_docs(self) -> Iterable[Document]:
+    """Overridden from base class (Index)."""
+    return self.docs
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace('NaiveIndex.add_docs')
+  async def add_docs(self, docs: Iterable[Document]) -> None:
+    """Overridden from base class (Index)."""
+    self.docs.extend(docs)
+
+  @tracing.trace('NaiveIndex.destroy_index')
+  def destroy_index(self) -> None:
+    """Overridden from base class (Index)."""
+    self.docs.clear()
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace('NaiveIndex.retrieve')
+  async def retrieve(
+      self,
+      query: str,
+      *,
+      max_results: int | None = None,
+  ) -> Iterable[Document]:
+    """Overridden from base class (Retriever)."""
+    del query
+    if max_results is None:
+      max_results = len(self.docs)
+    return self.docs[:max_results]
