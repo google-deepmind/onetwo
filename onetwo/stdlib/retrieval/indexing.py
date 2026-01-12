@@ -31,7 +31,7 @@ to serve as the superclass of all indexing/retrieval strategies used.
 import abc
 from collections.abc import Iterable
 import dataclasses
-from typing import Generic, Self
+from typing import Generic
 
 from onetwo.core import executing
 from onetwo.core import tracing
@@ -135,11 +135,6 @@ class Index(
   @abc.abstractmethod
   def destroy_index(self) -> None:
     """Destroys the index and frees up related resources."""
-
-  # TODO: Remove this method.
-  def get_corpus(self) -> Self:
-    """Returns the corpus instance (which may or may not be populated)."""
-    return self
 
 
 @dataclasses.dataclass(kw_only=True)
