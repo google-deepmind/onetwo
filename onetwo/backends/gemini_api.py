@@ -551,10 +551,10 @@ class GeminiAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def embed(self, content: str | _ChunkList) -> Sequence[float]:
+  def embed(self, content: str | _ChunkList, **kwargs) -> Sequence[float]:
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
-
+    del kwargs
     # TODO: Trace this external API call.
     return genai.embed_content(
         model=self.embed_model_name,

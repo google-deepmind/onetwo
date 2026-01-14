@@ -316,16 +316,18 @@ async def _default_count_tokens(
 
 
 @builtins_base.Builtin
-def embed(content: str | _ChunkList) -> Sequence[float]:
+def embed(content: str | _ChunkList,
+          **kwargs) -> Sequence[float]:
   """Interface of the embed built-in function.
 
   Args:
     content: The content (string or ChunkList) to be embedded.
+    **kwargs: Optional arguments to be passed to the embed function.
 
   Returns:
     A Sequence of floats.
   """
-  del content
+  del content, kwargs
   raise _UNIMPLEMENTED_ERROR
 
 

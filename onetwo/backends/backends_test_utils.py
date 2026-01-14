@@ -382,7 +382,10 @@ class EmbedderForTest(backends_base.Backend):
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
   )
-  def embed(self, content: str | content_lib.ChunkList) -> Sequence[float]:
+  def embed(
+      self, content: str | content_lib.ChunkList, **kwargs
+  ) -> Sequence[float]:
+    del kwargs
     reply = self._get_embed_reply(content)
     time.sleep(self.wait_time_before_reply.total_seconds())
     return reply
