@@ -546,7 +546,6 @@ class GoogleGenAIAPI(
     self.http_options = _configure_http_limits(
         self.threadpool_size, self.http_options
     )
-    print(f'http_options: {self.http_options}')
 
     # Configure GenAI client.
     self._genai_client = genai.Client(
