@@ -146,13 +146,13 @@ import contextvars
 import dataclasses
 import functools
 import inspect
-import logging
 from multiprocessing import pool as mp_pool
 import queue
 import threading
 import types
 from typing import Any, Generic, Literal, overload, ParamSpec, Sequence, Type, TypeAlias, TypeVar
 
+from absl import logging
 from onetwo.core import iterating
 from onetwo.core import results
 from onetwo.core import tracing
@@ -1578,7 +1578,8 @@ def to_thread_pool_method(
         self.threadpools = {}
       if thread_pool_name not in self.threadpools:
         num_workers_val = utils.RuntimeParameter[int](num_workers, self).value()
-        logging.info(
+        logging.vlog(
+            1,
             'Creating threadpool for %s with %d workers',
             thread_pool_name,
             num_workers_val,
@@ -1589,7 +1590,7 @@ def to_thread_pool_method(
       future = self.threadpools[thread_pool_name].submit(
           method, self, *args, **kwargs
       )
-      logging.info('Submitted task to threadpool %s', thread_pool_name)
+      logging.vlog(1, 'Submitted task to threadpool %s', thread_pool_name)
 
       async def waiter() -> _ReplyT:
         while not future.done():
@@ -1600,7 +1601,7 @@ def to_thread_pool_method(
           # tasks, so this is not blocking the execution.
           await asyncio.sleep(0.01)
         res = future.result()
-        logging.info('Task done in threadpool %s', thread_pool_name)
+        logging.vlog(1, 'Task done in threadpool %s', thread_pool_name)
         return res
 
       return waiter()
@@ -1636,15 +1637,15 @@ def add_logging(method):
   """
   @functools.wraps(method)
   def wrapped_method(self, requests: Sequence[Any]) -> Sequence[Any]:
-    logging.info(
-        'Executing a batch of %d %s requests', len(requests), method.__name__
+    logging.vlog(
+        1, 'Executing a batch of %d %s requests', len(requests), method.__name__
     )
     # This is a wrapper for a method that should have access to private members.
     # pylint: disable=protected-access
     self._counters[f'{method.__name__}_batches'] += 1
     # pylint: enable=protected-access
     result = method(self, requests)
-    logging.info('Received results for %s requests', method.__name__)
+    logging.vlog(1, 'Received results for %s requests', method.__name__)
     return result
 
   return wrapped_method
