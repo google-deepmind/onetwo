@@ -284,11 +284,7 @@ def _raise_if_empty_response(
       if candidate and candidate.content and candidate.content.parts:
         empty = False
   if empty:
-    response_msg = pprint.pformat(response.candidates)
-    raise ValueError(
-        'GoogleGenAIAPI.generate_text returned no answers. This may be'
-        f' caused by safety filters:\n{response_msg}'
-    )
+    raise ValueError('GoogleGenAIAPI.generate_text returned no answers.')
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -724,6 +720,12 @@ class GoogleGenAIAPI(
         contents=contents,
         config=generation_config,
     )
+    if response.prompt_feedback and response.prompt_feedback.block_reason:
+      prompt_feedback = pprint.pformat(response.prompt_feedback)
+      raise ValueError(
+          'GoogleGenAIAPI.generate_content request was blocked by safety'
+          f' filters:\n{prompt_feedback}'
+      )
     _raise_if_empty_response(response)
 
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.

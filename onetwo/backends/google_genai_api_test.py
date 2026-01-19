@@ -215,6 +215,36 @@ class GoogleGenaiApiTest(
           Counter(generate_text=1, generate_contents=1),
       )
 
+  def test_generate_text_blocked_by_safety_filters(self):
+    _ = _get_and_register_backend()
+
+    # Simulate a response blocked by safety filters.
+    mock_prompt_feedback = genai_types.GenerateContentResponsePromptFeedback(
+        block_reason=genai_types.BlockedReason.SAFETY,
+        safety_ratings=[
+            genai_types.SafetyRating(
+                category=genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                probability=genai_types.HarmProbability.HIGH,
+            )
+        ],
+    )
+    self._mock_genai_client.models.generate_content.return_value = (
+        genai_types.GenerateContentResponse(
+            candidates=[],
+            prompt_feedback=mock_prompt_feedback,
+        )
+    )
+
+    with self.assertRaisesRegex(
+        ValueError,
+        r'(?s)GoogleGenAIAPI.generate_content request was blocked by safety'
+        r' filters:.*block_reason.*SAFETY',
+    ):
+      executing.run(llm.generate_text(prompt='Unsafe prompt'))
+
+    # Assert that the chat is called with the correct prompt.
+    self._mock_genai_client.models.generate_content.assert_called_once()
+
   def test_generate_text_with_model_string(self):
     backend = _get_and_register_backend(
         generate_model_name=google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api
