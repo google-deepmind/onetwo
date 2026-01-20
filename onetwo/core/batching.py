@@ -140,7 +140,6 @@ be a uniform and straightforward mechanism.
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Iterator, Mapping
-import concurrent.futures
 import contextlib
 import contextvars
 import dataclasses
@@ -158,6 +157,7 @@ from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.core import utils
 
+from concurrent.futures import ThreadPoolExecutor
 
 _T = TypeVar('_T')
 # Following TypeVars are needed to correctly type hint batch_function,
@@ -1585,7 +1585,7 @@ def to_thread_pool_method(
             num_workers_val,
         )
         self.threadpools[thread_pool_name] = (
-            concurrent.futures.ThreadPoolExecutor(max_workers=num_workers_val)
+            ThreadPoolExecutor(max_workers=num_workers_val)
         )
       future = self.threadpools[thread_pool_name].submit(
           method, self, *args, **kwargs
