@@ -1038,6 +1038,12 @@ class _CacheData(
     with open(cache_file_path) as f:
       file_contents = f.read()
 
+    if not file_contents.strip():
+      logging.warning(
+          'Cache file %s is empty, returning empty cache.', cache_file_path
+      )
+      return cls()
+
     try:
       cache = cls.from_json(
           file_contents,

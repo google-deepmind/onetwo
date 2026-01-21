@@ -500,6 +500,28 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     with self.assertRaisesRegex(FileExistsError, '.*already exists.'):
       function_cache.save()
 
+  def test_load_empty_cache_file(self):
+    cache_dir = self.create_tempdir()
+    cache_filename = 'empty_cache.json'
+    tmp_filename = os.path.join(cache_dir.full_path, cache_filename)
+    self.create_tempfile(tmp_filename, content='')
+    function_cache = caching.SimpleFunctionCache(
+        cache_filename=tmp_filename,
+    )
+    function_cache.load()
+    self.assertEqual(0, function_cache.get_key_count())
+
+  def test_load_whitespace_cache_file(self):
+    cache_dir = self.create_tempdir()
+    cache_filename = 'whitespace_cache.json'
+    tmp_filename = os.path.join(cache_dir.full_path, cache_filename)
+    self.create_tempfile(tmp_filename, content='  \n')
+    function_cache = caching.SimpleFunctionCache(
+        cache_filename=tmp_filename,
+    )
+    function_cache.load()
+    self.assertEqual(0, function_cache.get_key_count())
+
   def test_cache_and_get_cached_value(self):
 
     function_cache = caching.SimpleFunctionCache(
