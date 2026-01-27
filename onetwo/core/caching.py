@@ -242,6 +242,10 @@ class SimpleCache(Generic[CachedType], metaclass=abc.ABCMeta):
   def get_key_count(self) -> int:
     """Returns the number of keys in the cache (a measure of cache size)."""
 
+  def get_cache_counters(self) -> dict[str, dict[str, int]]:
+    """Returns a snapshot of the cache counters."""
+    return {}
+
 
 @dataclasses.dataclass
 class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
@@ -268,6 +272,13 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
   _calls_in_progress: set[tuple[str, str | None]] = dataclasses.field(
       default_factory=set,
   )
+
+  def get_cache_counters(self) -> dict[str, dict[str, int]]:
+    """Returns a snapshot of the cache counters."""
+    return {
+        'l1': self.l1_cache.get_cache_counters().get('l1', {}),
+        'l2': self.l2_cache.get_cache_counters().get('l1', {}),
+    }
 
   def cache_value(
       self,
@@ -1309,6 +1320,11 @@ class SimpleFunctionCache(
   _calls_in_progress: set[tuple[str, str | None]] = dataclasses.field(
       default_factory=set,
   )
+
+  def get_cache_counters(self) -> dict[str, dict[str, int]]:
+    """Returns a snapshot of the cache counters."""
+    with self._lock:
+      return {'l1': dict(self._cache_data.counters)}
 
   def cache_value(
       self,

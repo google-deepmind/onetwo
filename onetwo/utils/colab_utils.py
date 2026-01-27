@@ -146,6 +146,13 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       default_factory=dict
   )
 
+  # Initial counters for each backend, captured when the backend was added or
+  # when its cache was loaded. Used to calculate the diff in counters.
+  # Structure: {backend_name: {cache_level: {counter_name: count}}}
+  _initial_counters: dict[str, dict[str, dict[str, int]]] = dataclasses.field(
+      default_factory=dict, init=False
+  )
+
   def __getitem__(self, key: str):
     return self._backends[key]
 
@@ -158,6 +165,7 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
     else:
       item.name = key
     self._backends[key] = item
+    self._update_initial_counters(key)
 
   def __delitem__(self, key: str):
     del self._backends[key]
@@ -167,6 +175,56 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
 
   def __len__(self):
     return len(self._backends)
+
+  def _update_initial_counters(self, backend_name: str):
+    """Updates the initial counters for the given backend."""
+    backend = self._backends.get(backend_name)
+    if not isinstance(backend, caching.CacheEnabled):
+      return
+    if backend.cache:
+      self._initial_counters[backend_name] = backend.cache.get_cache_counters()
+
+  def _diff_counters(self, current: Any, initial: Any) -> Any:
+    """Calculates the difference between current and initial counters."""
+    if isinstance(current, dict) and isinstance(initial, dict):
+      diff = {}
+      for k, v in current.items():
+        if k in initial:
+          diff[k] = self._diff_counters(v, initial[k])
+        else:
+          diff[k] = v
+      return diff
+    elif isinstance(current, (int, float)) and isinstance(
+        initial, (int, float)
+    ):
+      return current - initial
+    return current
+
+  def get_backend_counters(
+      self, backend_name: str, diff_counters: bool = True
+  ) -> dict[str, Any]:
+    """Returns the counters for the given backend.
+
+    Args:
+      backend_name: Name of the backend.
+      diff_counters: If True (default), returns the difference between the
+        current counters and the counters at the time the backend was added (or
+        loaded). If False, returns the absolute current counters.
+    """
+    backend = self._backends.get(backend_name)
+    if not isinstance(backend, caching.CacheEnabled):
+      return {}
+
+    if backend.cache:
+      current_counters = backend.cache.get_cache_counters()
+    else:
+      current_counters = {}
+
+    if not diff_counters:
+      return current_counters
+
+    initial_counters = self._initial_counters.get(backend_name, {})
+    return self._diff_counters(current_counters, initial_counters)
 
   def get_cache_path(self, backend_name: str) -> str:
     """Returns the path for caching a given backend.
@@ -271,6 +329,8 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       else:
         print(f'Cache file does not exist: {cache_filename}')
 
+    self._update_initial_counters(backend_name)
+
   def load_caches(self, *, overwrite: bool = True):
     """Loads the caches of all the currently managed backends."""
     for backend_name in self._backends:
@@ -358,7 +418,9 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
   def print_cache_summary(self):
     """Prints a summary of the caches of all the currently managed backends."""
 
-    def _print_single_cache_summary(cache):
+    def _print_single_cache_summary(
+        cache, initial_counters: Mapping[str, int] | None = None
+    ):
       """Prints a summary of the cache of a single backend."""
       if not isinstance(cache, caching.SimpleFunctionCache):
         print(f'  * Ignoring non-SimpleFunctionCache: {type(cache)}')
@@ -367,7 +429,10 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
       print(f'  * Cache contains {cache.get_key_count()} items.')
       # Since Python 3.7, dictionaries preserve insertion order.
-      print(f'  * Counters: {dict(sorted(cache_data.counters.items()))}')
+      counters = cache_data.counters
+      if initial_counters:
+        counters = self._diff_counters(counters, initial_counters)
+      print(f'  * Counters: {dict(sorted(counters.items()))}')
 
       num_calls_in_progress = len(calls_in_progress)
       print(f'  * Calls in progress: {num_calls_in_progress}')
@@ -378,14 +443,20 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         print(f'Backend {backend_name} is not CacheEnabled. Ignoring.')
         continue
       cache = backend.cache
+      initial_counters = self._initial_counters.get(backend_name)
       if isinstance(cache, caching.SimpleFunctionCache):
         print(f'* {backend_name}: {cache.cache_filename}')
-        _print_single_cache_summary(cache)
+        _print_single_cache_summary(
+            cache,
+            initial_counters.get('l1') if initial_counters else None,
+        )
       elif isinstance(cache, caching.TwoLayerCache):
         print(f'* {backend_name}: TwoLayerCache - Layer 1')
-        _print_single_cache_summary(cache.l1_cache)
+        l1_initial = initial_counters.get('l1') if initial_counters else None
+        l2_initial = initial_counters.get('l2') if initial_counters else None
+        _print_single_cache_summary(cache.l1_cache, l1_initial)
         print(f'* {backend_name}: TwoLayerCache - Layer 2')
-        _print_single_cache_summary(cache.l2_cache)
+        _print_single_cache_summary(cache.l2_cache, l2_initial)
 
   def clear_all_calls_in_progress(self):
     """Clears the record of in-progress calls for all CacheEnabled backends."""
