@@ -31,6 +31,7 @@ to serve as the superclass of all indexing/retrieval strategies used.
 import abc
 from collections.abc import Iterable
 import dataclasses
+import random
 from typing import Generic
 
 from onetwo.core import executing
@@ -222,9 +223,14 @@ class NaiveIndex(DocumentIndex):
 
   Attributes:
     docs: The documents that were added to the corpus.
+    shuffle_results: Whether to shuffle the resulting documents before returning
+      them. Useful for synthetic datasets where distractor documents (i.e.,
+      documents that are irrelevant to the query, used to challenge the
+      retriever) are added in the same order as golden documents.
   """
 
   docs: list[Document] = dataclasses.field(default_factory=list)
+  shuffle_results: bool = False
 
   @property
   def num_docs(self) -> int:
@@ -255,7 +261,11 @@ class NaiveIndex(DocumentIndex):
       max_results: int | None = None,
   ) -> Iterable[Document]:
     """Overridden from base class (Retriever)."""
-    del query
     if max_results is None:
       max_results = len(self.docs)
-    return self.docs[:max_results]
+    if not self.shuffle_results:
+      return self.docs[:max_results]
+    random.seed(query)
+    result = self.docs[:max_results].copy()
+    random.shuffle(result)
+    return result

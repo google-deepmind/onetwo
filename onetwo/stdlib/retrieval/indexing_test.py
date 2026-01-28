@@ -81,6 +81,32 @@ class NaiveIndexTest(absltest.TestCase):
 
       index.destroy_index()
 
+  def testRetrieveDocumentsWithShuffle(self):
+    index = indexing.NaiveIndex(shuffle_results=True)
+    docs = [
+        Document(doc_id='doc1', content='content1'),
+        Document(doc_id='doc2', content='content2'),
+        Document(doc_id='doc3', content='content3'),
+    ]
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('DeterministicShuffle'):
+      query = 'some query'
+      # We expect the same order for the same query.
+      res1 = list(ot.run(index(query)))  # pytype: disable=wrong-arg-count
+      res2 = list(ot.run(index(query)))  # pytype: disable=wrong-arg-count
+      self.assertEqual(res1, res2)
+      self.assertCountEqual(res1, docs)
+
+    with self.subTest('MaxResultsShuffle'):
+      # Check max_results behavior: takes first K then shuffles.
+      # Since we added doc1, doc2, doc3 in order, max_results=2 should return
+      # doc1 and doc2 (shuffled), but never doc3.
+      res_limited = list(ot.run(index('query', max_results=2)))  # pytype: disable=wrong-arg-count
+      self.assertLen(res_limited, 2)
+      expected_subset = {'doc1', 'doc2'}
+      self.assertEqual({d.doc_id for d in res_limited}, expected_subset)
+
 
 if __name__ == '__main__':
   absltest.main()
