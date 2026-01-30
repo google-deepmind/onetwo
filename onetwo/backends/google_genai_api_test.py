@@ -402,14 +402,24 @@ class GoogleGenaiApiTest(
     assert isinstance(handler, caching.SimpleFunctionCache)
 
     num_repeats = 5
+
     res = executing.run(
         executing.par_iter(
             sampling.repeat(
                 executable=llm.generate_text(prompt='Something'),
                 num_repeats=num_repeats,
-            )
+            ),
+            # Although in real usage, we would prefer a higher number of
+            # parallel executions, we use `chunk_size=1` here to force the
+            # requests to be executed sequentially and consequently make the
+            # cache hits/misses predictable. If the identical requests are
+            # executed sequentially, we guarantee cache hits for the 2nd and
+            # later ones; if simultaneous, they could potentially all be cache
+            # misses.
+            chunk_size=1,
         )
     )
+
     with self.subTest('ReturnsCorrectResult'):
       self.assertEqual(res, ['text'] * num_repeats)
     with self.subTest('CallsApiAndUpdatesCounters'):
@@ -443,16 +453,19 @@ class GoogleGenaiApiTest(
             sampling.repeat(
                 executable=llm.generate_text(prompt='Something'),
                 num_repeats=num_repeats_1,
-            )
+            ),
+            chunk_size=1,  # Sequential execution for predictable cache hits.
         )
     )
+
     num_repeats_2 = 6
     res2 = executing.run(
         executing.par_iter(
             sampling.repeat(
                 executable=llm.generate_text(prompt='Something'),
                 num_repeats=num_repeats_2,
-            )
+            ),
+            chunk_size=1,  # Sequential execution for predictable cache hits.
         )
     )
 

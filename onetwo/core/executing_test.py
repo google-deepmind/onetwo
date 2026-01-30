@@ -20,6 +20,7 @@ import copy
 import pprint
 import time
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -1538,6 +1539,46 @@ class ExecutionTest(parameterized.TestCase):
       )
       self.assertGreater(total_time, 0.38, 'Execution was unexpectedly fast.')
 
+  def test_parallel_execution_of_sequence_bypasses_worker_queue(self):
+    @executing.make_executable
+    def fn(x: str) -> str:
+      return x
+
+    # It is important to avoid unnecessarily creating worker pools in calls to
+    # `executing.parallel` on small sequences, as this can potentially lead to
+    # an order of magnitude slowdown in cases of many nested `parallel` calls.
+    with mock.patch.object(
+        executing.ParallelExecutable, '_worker',
+        side_effect=AssertionError('Slow path triggered!')
+    ):
+      executable = executing.parallel(fn('a'), fn('b'))
+      results = executing.run(executable)
+      self.assertEqual(['a', 'b'], results)
+
+  def test_parallel_execution_of_iterator_uses_worker_queue(self):
+    @executing.make_executable
+    def fn(x: str) -> str:
+      return x
+
+    # It is important that calls to `executing.parallel` on an iterator do take
+    # the "slow path" based on creation of a queue and workers, as this is what
+    # allows it to process a potentially very long or infinite iterator without
+    # materializing it all at once.
+    with mock.patch.object(
+        executing.ParallelExecutable,
+        '_worker',
+        side_effect=RuntimeError('Slow path correctly triggered'),
+    ) as mock_worker:
+      executable = executing.par_iter(iter([fn('a'), fn('b')]))
+
+      with self.assertRaisesRegex(
+          RuntimeError, 'Slow path correctly triggered'
+      ):
+        executing.run(executable)
+
+      self.assertTrue(
+          mock_worker.called, 'Iterator input should have triggered workers'
+      )
 
 if __name__ == '__main__':
   absltest.main()

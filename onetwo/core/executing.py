@@ -733,7 +733,7 @@ def parallel(
 ) -> ParallelExecutable:
   """Chains executables in parallel. See `par_iter` for details."""
   return ParallelExecutable(
-      iter(args), chunk_size=chunk_size, return_exceptions=return_exceptions
+      args, chunk_size=chunk_size, return_exceptions=return_exceptions
   )
 
 
@@ -1253,16 +1253,18 @@ class ParallelExecutable(Executable[Sequence[Any]]):
       chunk_size: int | None = None,
       return_exceptions: bool = False,
   ):
-    if chunk_size is None:
-      if isinstance(iterable, list):
-        # If the iterable is fully materialized as a list already, we can take
-        # the whole list as a single chunk.
+    if isinstance(iterable, Sequence):
+      # If the iterable is fully materialized as a sequence already, we can take
+      # the whole sequence as a single chunk.
+      self.iterable = iterable
+      if chunk_size is None:
         chunk_size = len(iterable)
-      else:
+    else:
+      self.iterable = iter(iterable)
+      if chunk_size is None:
         chunk_size = _default_max_parallel_executions.get()
+
     self.chunk_size = chunk_size
-    # We actually make the input an iterable so that we can chunk it.
-    self.iterable = iter(iterable)
     self.return_exceptions = return_exceptions
 
   async def _worker(self):
@@ -1297,9 +1299,32 @@ class ParallelExecutable(Executable[Sequence[Any]]):
         await self.queue.put((-1, None))
 
   async def _aexec(self) -> Sequence[Any]:
+    # --- FAST PATH OPTIMIZATION ---
+    # If we have a sequence that fits in one chunk, use native `asyncio.gather`.
+    # This avoids the overhead of creating Queue, Producer, and Worker tasks.
+    if (
+        isinstance(self.iterable, Sequence)
+        and len(self.iterable) <= self.chunk_size
+    ):
+      tasks = [
+          _wrap_executable(executable, i, self.return_exceptions)
+          for i, executable in enumerate(self.iterable)
+      ]
+      if any(executable is None for executable in self.iterable):
+        raise ValueError(
+            'The iterable passed to `par_iter` should not contain `None`.'
+        )
+
+      return await asyncio.gather(
+          *tasks, return_exceptions=self.return_exceptions
+      )
+
+    # --- SLOW PATH (Queue-based) ---
+    # Fallback for Iterators or large lists requiring chunking.
+
     # With chunk_size workers and queue size chunk_size, we have at most
-    # 2 * chunk_size items being processed or waiting in queue,
-    # limiting memory for large iterables.
+    # 2 * chunk_size items being processed or waiting in queue, limiting memory
+    # usage for large iterables.
     self.queue = asyncio.Queue(maxsize=self.chunk_size)
     self.results_dict = {}
 
