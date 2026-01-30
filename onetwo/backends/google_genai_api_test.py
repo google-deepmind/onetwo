@@ -1336,6 +1336,16 @@ class GoogleGenaiApiTest(
           ),
       ),
       dict(
+          testcase_name='with_task_type_and_other_kwargs',
+          embed_kwargs={
+              'task_type': 'RETRIEVAL_DOCUMENT',
+              'output_dimensionality': 768,
+          },
+          expected_config=genai_types.EmbedContentConfig(
+              task_type='RETRIEVAL_DOCUMENT', output_dimensionality=768
+          ),
+      ),
+      dict(
           testcase_name='without_task_type',
           embed_kwargs={},
           expected_config=None,

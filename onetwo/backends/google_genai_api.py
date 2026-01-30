@@ -884,9 +884,16 @@ class GoogleGenAIAPI(
     """Inner method for llm.embed."""
     self._counters['embed'] += 1
     content = _convert_chunk_list_to_part_list(content)
+    embed_config_kwargs = {}
+    if 'task_type' in kwargs:
+      embed_config_kwargs['task_type'] = kwargs['task_type']
+    if 'output_dimensionality' in kwargs:
+      embed_config_kwargs['output_dimensionality'] = kwargs[
+          'output_dimensionality'
+      ]
     embed_config = (
-        genai_types.EmbedContentConfig(task_type=kwargs['task_type'])
-        if 'task_type' in kwargs
+        genai_types.EmbedContentConfig(**embed_config_kwargs)
+        if embed_config_kwargs
         else None
     )
     response = self._genai_client.models.embed_content(
