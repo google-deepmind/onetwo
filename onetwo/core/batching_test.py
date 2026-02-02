@@ -14,6 +14,7 @@
 
 import asyncio
 from collections.abc import Mapping
+import contextvars
 import functools
 import pprint
 import threading
@@ -1604,6 +1605,25 @@ class BatchingTest(parameterized.TestCase):
                 *executables, return_exceptions=return_exceptions
             )
         )
+
+  def test_to_thread_pool_method_context_propagation(self):
+    my_var = contextvars.ContextVar('my_var', default='default')
+    my_var.set('set_value')
+
+    class C:
+
+      @batching.to_thread_pool_method(num_workers=2)
+      def process(self, request):
+        del request
+        return my_var.get()
+
+    async def run_plan():
+      c = C()
+      coroutines = [c.process(i) for i in range(2)]
+      return await asyncio.gather(*coroutines)
+
+    results = batching.run(run_plan())
+    self.assertListEqual(['set_value', 'set_value'], list(results))
 
 
 if __name__ == '__main__':

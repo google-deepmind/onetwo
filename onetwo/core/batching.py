@@ -1587,8 +1587,10 @@ def to_thread_pool_method(
         self.threadpools[thread_pool_name] = (
             ThreadPoolExecutor(max_workers=num_workers_val)
         )
+
+      ctx = contextvars.copy_context()
       future = self.threadpools[thread_pool_name].submit(
-          method, self, *args, **kwargs
+          ctx.run, method, self, *args, **kwargs
       )
       logging.vlog(1, 'Submitted task to threadpool %s', thread_pool_name)
 
