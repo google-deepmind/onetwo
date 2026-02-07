@@ -1,4 +1,4 @@
-# Copyright 2025 DeepMind Technologies Limited.
+# Copyright 2026 DeepMind Technologies Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -246,6 +246,10 @@ class SimpleCache(Generic[CachedType], metaclass=abc.ABCMeta):
     """Returns a snapshot of the cache counters."""
     return {}
 
+  def get_calls_in_progress(self) -> set[tuple[str, str | None]]:
+    """Returns the set of calls currently in progress."""
+    return set()
+
 
 @dataclasses.dataclass
 class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
@@ -279,6 +283,10 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
         'l1': self.l1_cache.get_cache_counters().get('l1', {}),
         'l2': self.l2_cache.get_cache_counters().get('l1', {}),
     }
+
+  def get_calls_in_progress(self) -> set[tuple[str, str | None]]:
+    """Overridden from base class (SimpleCache)."""
+    return self._calls_in_progress
 
   def cache_value(
       self,
@@ -1325,6 +1333,10 @@ class SimpleFunctionCache(
     """Returns a snapshot of the cache counters."""
     with self._lock:
       return {'l1': dict(self._cache_data.counters)}
+
+  def get_calls_in_progress(self) -> set[tuple[str, str | None]]:
+    """Overridden from base class (SimpleCache)."""
+    return self._calls_in_progress
 
   def cache_value(
       self,

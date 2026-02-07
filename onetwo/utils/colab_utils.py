@@ -1,4 +1,4 @@
-# Copyright 2025 DeepMind Technologies Limited.
+# Copyright 2026 DeepMind Technologies Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -422,19 +422,25 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         cache, initial_counters: Mapping[str, int] | None = None
     ):
       """Prints a summary of the cache of a single backend."""
-      if not isinstance(cache, caching.SimpleFunctionCache):
-        print(f'  * Ignoring non-SimpleFunctionCache: {type(cache)}')
+      if isinstance(cache, caching.SimpleFunctionCache):
+        cache_data = cache._cache_data  # pylint: disable=protected-access
+        counters = dict(cache_data.counters)
+        num_calls_in_progress = len(cache.get_calls_in_progress())
+      elif hasattr(cache, 'get_cache_counters') and hasattr(
+          cache, 'get_key_count'
+      ):
+        all_counters = cache.get_cache_counters()
+        level = next(iter(all_counters)) if all_counters else ''
+        counters = dict(all_counters.get(level, {}))
+        num_calls_in_progress = len(cache.get_calls_in_progress())
+      else:
+        print(f'  * Ignoring unsupported cache type: {type(cache)}')
         return
-      cache_data = cache._cache_data  # pylint: disable=protected-access
-      calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
+
       print(f'  * Cache contains {cache.get_key_count()} items.')
-      # Since Python 3.7, dictionaries preserve insertion order.
-      counters = cache_data.counters
       if initial_counters:
         counters = self._diff_counters(counters, initial_counters)
       print(f'  * Counters: {dict(sorted(counters.items()))}')
-
-      num_calls_in_progress = len(calls_in_progress)
       print(f'  * Calls in progress: {num_calls_in_progress}')
 
     print('Cache summary:')
@@ -464,9 +470,9 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       if not isinstance(backend, caching.CacheEnabled):
         continue
       cache = backend.cache
-      if not hasattr(cache, '_calls_in_progress'):
+      if not hasattr(cache, 'get_calls_in_progress'):
         continue
-      calls_in_progress = cache._calls_in_progress  # pylint: disable=protected-access
+      calls_in_progress = cache.get_calls_in_progress()
       if calls_in_progress:
         print(f'Clearing calls in progress for {backend_name}.')
         print(f'BEFORE: {len(calls_in_progress)}')
