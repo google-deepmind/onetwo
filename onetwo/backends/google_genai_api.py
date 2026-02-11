@@ -558,11 +558,6 @@ class GoogleGenAIAPI(
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_text')
-  @caching.cache_method(  # Cache this method.
-      name='generate_text',
-      is_sampled=True,  # Two calls with same args may return different replies.
-      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['prompt']),
-  )
   async def generate_text(
       self,
       prompt: str | content_lib.ChunkList,
@@ -832,11 +827,6 @@ class GoogleGenAIAPI(
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.chat')
-  @caching.cache_method(  # Cache this stochastic method.
-      name='chat',
-      is_sampled=True,
-      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['messages']),
-  )
   async def chat(
       self,
       messages: Sequence[content_lib.Message],

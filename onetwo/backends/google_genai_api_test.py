@@ -177,8 +177,8 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=4,  # double caching
-              get_miss=4,  # double caching
+              add_new=2,
+              get_miss=2,
           ),
       )
 
@@ -270,8 +270,8 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=4,  # double caching
-              get_miss=4,  # double caching
+              add_new=2,
+              get_miss=2,
           ),
       )
 
@@ -290,14 +290,14 @@ class GoogleGenaiApiTest(
       self._mock_genai_client.models.generate_content.assert_called_once()
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=1, generate_contents=1),
+          Counter(generate_text=2, generate_contents=1),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=2,  # double caching
-              get_miss=2,  # double caching
+              add_new=1,
+              get_miss=1,
               get_hit=1,
           ),
       )
@@ -333,8 +333,8 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=2,  # double caching
-              get_miss=2,  # double caching
+              add_new=1,
+              get_miss=1,
           ),
       )
 
@@ -368,8 +368,8 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=2,  # double caching
-              get_miss=2,  # double caching
+              add_new=1,
+              get_miss=1,
           ),
       )
 
@@ -392,9 +392,7 @@ class GoogleGenaiApiTest(
           backend._counters, Counter(generate_text=1, generate_contents=1)
       )
     with self.subTest('UpdatesCacheCounters'):
-      self.assertCounterEqual(
-          handler._cache_data.counters, Counter(get_miss=2)  # double caching
-      )
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
   def test_repeat_generate_text(self):
     backend = _get_and_register_backend()
@@ -435,10 +433,10 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=2,  # doubled cache
-              add_new_sample=8,  # doubled cache
-              get_miss=2,  # doubled cache
-              get_hit_miss_sample=8,  # doubled cache
+              add_new=1,
+              add_new_sample=4,
+              get_miss=1,
+              get_hit_miss_sample=4,
           ),
       )
 
@@ -479,22 +477,20 @@ class GoogleGenaiApiTest(
       )
       self.assertCounterEqual(
           backend._counters,
-          Counter(generate_text=num_repeats_2, generate_contents=num_repeats_2),
+          Counter(
+              generate_text=num_repeats_1 + num_repeats_2,
+              generate_contents=num_repeats_2,
+          ),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              # The first generate_text from the first run.
-              add_new=2,  # doubled cache
-              # 4 from the first run and 1 from the second run.
-              add_new_sample=10,  # doubled cache
-              # The first generate_text from the first run.
-              get_miss=2,  # doubled cache
-              # The second run hits the cache for the first 5 samples.
+              add_new=1,
+              add_new_sample=5,
+              get_miss=1,
               get_hit=5,
-              # 4 from 1st run + 1 from 2nd run.
-              get_hit_miss_sample=10,  # doubled cache
+              get_hit_miss_sample=5,
           ),
       )
 
@@ -532,8 +528,8 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=len(prompts) * 2,  # double caching
-              get_miss=len(prompts) * 2,  # double caching
+              add_new=len(prompts),
+              get_miss=len(prompts),
           ),
       )
 
@@ -552,14 +548,15 @@ class GoogleGenaiApiTest(
     with self.subTest('CallsApiOnceAndUpdatesCounters'):
       self._mock_genai_client.models.generate_content.assert_called_once()
       self.assertCounterEqual(
-          backend._counters, Counter(generate_text=1, generate_contents=1)
+          backend._counters,
+          Counter(generate_text=num_calls, generate_contents=1),
       )
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=2,  # doubled cache
-              get_miss=2,  # doubled cache
+              add_new=1,
+              get_miss=1,
               get_hit=4,
           ),
       )
@@ -905,8 +902,8 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(
           handler._cache_data.counters,
           Counter(
-              add_new=2,  # double caching
-              get_miss=2,  # double caching
+              add_new=1,
+              get_miss=1,
           ),
       )
 
@@ -931,9 +928,7 @@ class GoogleGenaiApiTest(
           backend._counters, Counter(chat=1, generate_contents=1)
       )
     with self.subTest('UpdatesCacheCounters'):
-      self.assertCounterEqual(
-          handler._cache_data.counters, Counter(get_miss=2)  # double caching
-      )
+      self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
   @parameterized.named_parameters(
       (
