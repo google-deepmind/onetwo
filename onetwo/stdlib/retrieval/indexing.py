@@ -29,16 +29,17 @@ to serve as the superclass of all indexing/retrieval strategies used.
 """
 
 import abc
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import dataclasses
 import random
-from typing import Generic
+from typing import Any, Generic
 
 from onetwo.core import executing
 from onetwo.core import tracing
+from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import constrained_retrieval
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
-
 
 QueryT = retrieval.QueryT
 RetrievalResultT = retrieval.RetrievalResultT
@@ -269,3 +270,77 @@ class NaiveIndex(DocumentIndex):
     result = self.docs[:max_results].copy()
     random.shuffle(result)
     return result
+
+
+def default_prepare_query(query: Any) -> str:
+  """Returns an appropriately formatted query string for embeddings."""
+  return f'task: search result | query: {str(query)}'
+
+
+# TODO: Determine the most effective default formatting strategy.
+def default_prepare_document(doc: Any) -> str:
+  """Returns an appropriately formatted doc string for embeddings."""
+  if not isinstance(doc, retrieval_data_structures.Document):
+    return str(doc)
+  # TODO: Implement proper support for multimodal content.
+  # Currently when formatting the document contents for passing to the
+  # embedding model, we are implicitly converting it to a string, which
+  # ignores any multimodal portions.
+  title = doc.title or 'none'
+  text = doc.content or 'none'
+  return f'title: {title} | text: {text}'
+
+
+# fmt: off
+@dataclasses.dataclass(kw_only=True)
+class AbstractEmbeddingBasedIndex(
+    Index[QueryT, RetrievalResultT, DocT],
+    Generic[QueryT, RetrievalResultT, DocT],
+    constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
+):
+  r"""Abstract base class for embedding-based retrieval indices.
+
+  This base class implements various functionality around processing of
+  queries and documents prior to embedding that is relevant to be in-memory and
+  distributed embedding-based indices. However, note that the child class is
+  still responsible for providing concrete implementations for `add_docs`,
+  `retrieve` and `retrieve_with_scores` along with the embedding functionality.
+
+  Attributes:
+    chunker: Chunker used to split the documents before embedding.
+    prepare_query: Callable that prepares the query for embedding.
+    prepare_document: Callable that prepares the document for embedding.
+    task_type: Task type to use when calling `llm.embed` (optional).
+    discrete_field_extractors: A dictionary where keys are string field names
+      and values are functions. Each function accepts a document (DocT) and
+      returns a discrete value (e.g., str, int) or a list of such values
+      for that field. These extractors populate internal reverse indices,
+      mapping field values to document indices. This allows for efficient
+      application of `RetrievalConstraints` during the retrieval process, using
+      the keys in this dictionary as `field_name` in the constraints.
+      Example:
+      ```python
+        discrete_field_extractors = {
+          'author': lambda doc: doc.author,
+          'tags': lambda doc: doc.tags
+        }
+        # This would allow for constraints like
+        `RetrievalConstraint(field_name='author', value='Jane Doe')`
+        `RetrievalConstraint(
+            field_name='tags',
+            constraint_type=LIST_CONTAINS_ANY,
+            value=['python', 'java'])`.
+      ```
+  """
+  # fmt: on
+  chunker: chunking.Chunker = dataclasses.field(
+      default_factory=chunking.NoChunking
+  )
+
+  prepare_query: Callable[[QueryT], str] = default_prepare_query
+  prepare_document: Callable[[DocT], str] = default_prepare_document
+
+  task_type: str | None = None
+  discrete_field_extractors: dict[str, Callable[[DocT], Any]] = (
+      dataclasses.field(default_factory=dict)
+  )
