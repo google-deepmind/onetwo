@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Classes and protocols for constrained retrieval in OneTwo."""
+"""Classes and protocols for constrained retrieval."""
 
 import abc
 from collections.abc import Iterable
@@ -67,6 +67,69 @@ class RetrievalConstraints:
   constraints: list[RetrievalConstraint] = dataclasses.field(
       default_factory=list
   )
+
+
+def get_indices_for_constraint(
+    constraint: RetrievalConstraint,
+    value_to_id_map: dict[Any, list[int]],
+) -> set[int]:
+  """Returns the set of IDs satisfying a single retrieval constraint.
+
+  Args:
+    constraint: The constraint to evaluate.
+    value_to_id_map: A dictionary mapping discrete field values to the list of
+      IDs associated with that value. Example: {'red': [1, 101], 'blue': [100]}
+  """
+  c_type = constraint.constraint_type
+  c_value = constraint.value
+  matching_indices = set()
+
+  if c_type == RetrievalConstraintType.EQUALS:
+    matching_indices.update(value_to_id_map.get(c_value, []))
+  elif c_type == RetrievalConstraintType.LIST_CONTAINS_ANY:
+    if not isinstance(c_value, list):
+      raise ValueError(f'Value for LIST_CONTAINS_ANY must be a list: {c_value}')
+    for val in c_value:
+      matching_indices.update(value_to_id_map.get(val, []))
+  else:
+    raise ValueError(f'Unhandled constraint type {c_type}')
+  return matching_indices
+
+
+def get_candidate_indices(
+    constraints: RetrievalConstraints | None,
+    field_to_val_id_map: dict[str, dict[Any, list[int]]],
+) -> list[int] | None:
+  """Returns a sorted list of IDs satisfying all constraints (AND logic).
+
+  Args:
+    constraints: The collection of constraints to apply.
+    field_to_val_id_map: A nested dictionary where the outer key is the field
+      name and the inner dictionary is the mapping of values to IDs. Example:
+      {'color': {'red': [101, 102], 'blue': [103]}, 'size': {'S': [101, 103]}}
+  """
+  if not constraints or not constraints.constraints:
+    return None
+
+  candidate_set: set[int] | None = None
+
+  for constraint in constraints.constraints:
+    field_name = constraint.field_name
+    if field_name not in field_to_val_id_map:
+      print(f"Warning: Constraint on unknown field '{field_name}'")
+      return []
+
+    val_to_id_map = field_to_val_id_map.get(field_name)
+    current_matches = get_indices_for_constraint(constraint, val_to_id_map)
+
+    if candidate_set is None:
+      candidate_set = current_matches
+    else:
+      candidate_set.intersection_update(current_matches)
+      if not candidate_set:
+        return []
+
+  return sorted(list(candidate_set))
 
 
 class ConstrainedRetriever(
