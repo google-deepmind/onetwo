@@ -53,7 +53,7 @@ _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 DEFAULT_GENERATE_MODEL: Final[str] = 'models/gemini-2.0-flash'
 DEFAULT_MULTIMODAL_MODEL: Final[str] = 'models/gemini-2.0-flash'
 # input_token_limit=2048.
-DEFAULT_EMBED_MODEL: Final[str] = 'models/embedding-001'
+DEFAULT_EMBED_MODEL: Final[str] = 'models/gemini-embedding-001'
 
 # Refer to
 # https://ai.google.dev/api/python/google/ai/generativelanguage/HarmCategory.
