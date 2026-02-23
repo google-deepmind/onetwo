@@ -450,19 +450,24 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         continue
       cache = backend.cache
       initial_counters = self._initial_counters.get(backend_name)
-      if isinstance(cache, caching.SimpleFunctionCache):
-        print(f'* {backend_name}: {cache.cache_filename}')
+      if isinstance(cache, caching.TwoLayerCache):
+        l1_initial = initial_counters.get('l1') if initial_counters else None
+        l2_initial = initial_counters.get('l2') if initial_counters else None
+        print(f'* {backend_name}: TwoLayerCache - Layer 1')
+        _print_single_cache_summary(cache.l1_cache, l1_initial)
+        print(f'* {backend_name}: TwoLayerCache - Layer 2')
+        _print_single_cache_summary(cache.l2_cache, l2_initial)
+      else:
+        header = (
+            cache.cache_filename
+            if isinstance(cache, caching.SimpleFunctionCache)
+            else ''
+        )
+        print(f'* {backend_name}: {header}')
         _print_single_cache_summary(
             cache,
             initial_counters.get('l1') if initial_counters else None,
         )
-      elif isinstance(cache, caching.TwoLayerCache):
-        print(f'* {backend_name}: TwoLayerCache - Layer 1')
-        l1_initial = initial_counters.get('l1') if initial_counters else None
-        l2_initial = initial_counters.get('l2') if initial_counters else None
-        _print_single_cache_summary(cache.l1_cache, l1_initial)
-        print(f'* {backend_name}: TwoLayerCache - Layer 2')
-        _print_single_cache_summary(cache.l2_cache, l2_initial)
 
   def clear_all_calls_in_progress(self):
     """Clears the record of in-progress calls for all CacheEnabled backends."""

@@ -50,6 +50,40 @@ class TestBackendWithTwoLayerCache(caching.CacheEnabled, backends_base.Backend):
     return arg
 
 
+class GenericCache(caching.SimpleCache):
+
+  def __init__(self):
+    self._counters = collections.Counter()
+    self._calls_in_progress = set()
+
+  def get_cache_counters(self):
+    return {'l1': dict(self._counters)}
+
+  def get_key_count(self):
+    return 0
+
+  def get_calls_in_progress(self):
+    return self._calls_in_progress
+
+  async def get_cached_value(self, key, sampling_key):
+    self._counters['get_miss'] += 1
+    return None
+
+  def cache_value(self, key, sampling_key, value):
+    self._counters['cache_write'] += 1
+
+
+@dataclasses.dataclass
+class TestBackendWithGenericCache(caching.CacheEnabled, backends_base.Backend):
+
+  def __post_init__(self):
+    self.cache = GenericCache()
+
+  @caching.cache_method()
+  def get_value(self, arg: str) -> str:
+    return arg
+
+
 @dataclasses.dataclass
 class TestBackend(caching.FileCacheEnabled, backends_base.Backend):
   """A simple test backend that has a cache and a configurable mock method."""
@@ -702,6 +736,23 @@ class CachedBackendsTest(parameterized.TestCase):
     self.assertIn('No cache filename for backend no_filename', output)
     self.assertIn('not a SimpleFunctionCache. Ignoring.', output)
     self.assertIn('Backend not_cache_enabled is not CacheEnabled', output)
+
+  def test_print_cache_summary_generic_cache(self):
+    cached_backends = colab_utils.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path
+    )
+    backend = TestBackendWithGenericCache()
+    cached_backends['generic_backend'] = backend
+
+    asyncio.run(backend.get_value('arg1'))
+
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cached_backends.print_cache_summary()
+    output = f.getvalue()
+    self.assertIn('* generic_backend:', output)
+    self.assertIn('Cache contains', output)
+    self.assertIn('Counters:', output)
 
   def test_clear_all_calls_in_progress(self):
     cached_backends = colab_utils.CachedBackends(
