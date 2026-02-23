@@ -733,7 +733,7 @@ class CachedBackendsTest(parameterized.TestCase):
       cached_backends.save_caches()
       cached_backends.print_cache_summary()
     output = f.getvalue()
-    self.assertIn('No cache filename for backend no_filename', output)
+    self.assertIn('Cache for no_filename is empty. Not saving.', output)
     self.assertIn('not a SimpleFunctionCache. Ignoring.', output)
     self.assertIn('Backend not_cache_enabled is not CacheEnabled', output)
 

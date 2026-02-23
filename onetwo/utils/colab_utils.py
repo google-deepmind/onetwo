@@ -404,6 +404,9 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         when the backend was created (typically under `own_cache_directory`).
     """
     for backend_name, cache in self._simple_function_caches():
+      if cache.get_key_count() == 0:
+        print(f'Cache for {backend_name} is empty. Not saving.')
+        continue
       cache_filename = cache.cache_filename
       if not cache_filename:
         print(f'No cache filename for backend {backend_name}. Not saving.')
