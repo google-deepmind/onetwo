@@ -69,7 +69,7 @@ class GenericCache(caching.SimpleCache):
     self._counters['get_miss'] += 1
     return None
 
-  def cache_value(self, key, sampling_key, value):
+  async def cache_value(self, key, sampling_key, value):
     self._counters['cache_write'] += 1
 
 

@@ -121,7 +121,9 @@ class ExecutableWithCallback(
         yield update
     self.final_value = updates.to_result()
     if self.final_value_callback is not None:
-      self.final_value_callback(self.final_value)
+      result = self.final_value_callback(self.final_value)
+      if inspect.isawaitable(result):
+        await result
     if iteration_depth == 0:
       yield Update(self.final_value)
 

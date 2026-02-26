@@ -45,7 +45,7 @@ class CacheForTest(caching.SimpleCache[str]):
     self.contents = {}
     self.append_when_caching = append_when_caching
 
-  def cache_value(
+  async def cache_value(
       self,
       key: str,
       sampling_key: str | None,
@@ -530,9 +530,12 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     )
     sampling_key_none = None
     # New cache key.
-    function_cache.cache_value('key1', sampling_key_none, 'value_1')
-    # New cache key.
-    function_cache.cache_value('key2', sampling_key_none, 'value_2')
+    asyncio.run(
+        function_cache.cache_value('key1', sampling_key_none, 'value_1')
+    )
+    asyncio.run(
+        function_cache.cache_value('key2', sampling_key_none, 'value_2')
+    )
     with self.subTest('cache_new_cache_key'):
       self.assertEqual(2, function_cache.get_key_count())
       self.assertEqual(
@@ -546,7 +549,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.num_used_values_by_key,
       )
     # New cache key, sample_id updates.
-    function_cache.cache_value('key3', 'sampling_key_1', 'value_3')
+    asyncio.run(function_cache.cache_value('key3', 'sampling_key_1', 'value_3'))
     with self.subTest('cache_new_cache_key_with_sample_update'):
       self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
@@ -560,7 +563,9 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, no sampling_key, append value.
-    function_cache.cache_value('key1', sampling_key_none, 'value_4')
+    asyncio.run(
+        function_cache.cache_value('key1', sampling_key_none, 'value_4')
+    )
     with self.subTest('cache_matched_cache_key'):
       self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
@@ -575,7 +580,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, new sampling_key, append value, sample_id updates.
-    function_cache.cache_value('key1', 'sampling_key_1', 'value_5')
+    asyncio.run(function_cache.cache_value('key1', 'sampling_key_1', 'value_5'))
     with self.subTest('cache_matched_cache_key_with_sample_update'):
       self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
@@ -641,7 +646,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, matched sampling_key, matched value. Redundant.
-    function_cache.cache_value('key1', 'sampling_key_1', 'value_1')
+    asyncio.run(function_cache.cache_value('key1', 'sampling_key_1', 'value_1'))
     with self.subTest(
         'cache_matched_cache_key_matched_sampling_key_same_value'
     ):
@@ -666,7 +671,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.num_used_values_by_key,
       )
     # Matched cache key, matched sampling_key, new value. Overwrite.
-    function_cache.cache_value('key1', 'sampling_key_1', 'value_2')
+    asyncio.run(function_cache.cache_value('key1', 'sampling_key_1', 'value_2'))
     with self.subTest('cache_matched_cache_key_matched_sampling_key_new_value'):
       self.assertEqual(3, function_cache.get_key_count())
       self.assertEqual(
@@ -690,7 +695,9 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
           function_cache._cache_data.num_used_values_by_key,
       )
     # Deterministic function.
-    function_cache.cache_value('key_det', sampling_key_none, 'value_1')
+    asyncio.run(
+        function_cache.cache_value('key_det', sampling_key_none, 'value_1')
+    )
     with self.subTest('get_cached_deterministic_one_value_no_sampling_key'):
       self.assertEqual(
           asyncio.run(
@@ -771,15 +778,23 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     cache_filename = os.path.join(cache_dir.full_path, cache_filename)
     function_cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
     sampling_key_none = None
-    function_cache.cache_value('key1', sampling_key_none, 'value_1')
-    function_cache.cache_value('key1', sampling_key_none, 'value_2')
-    function_cache.cache_value('key1', sampling_key_none, 'value_3')
-    function_cache.cache_value('key1', 'sampling_key_1', 'value_4')
-    function_cache.cache_value('key1', 'sampling_key_2', 'value_5')
+    asyncio.run(
+        function_cache.cache_value('key1', sampling_key_none, 'value_1')
+    )
+    asyncio.run(
+        function_cache.cache_value('key1', sampling_key_none, 'value_2')
+    )
+    asyncio.run(
+        function_cache.cache_value('key1', sampling_key_none, 'value_3')
+    )
+    asyncio.run(function_cache.cache_value('key1', 'sampling_key_1', 'value_4'))
+    asyncio.run(function_cache.cache_value('key1', 'sampling_key_2', 'value_5'))
     _ = asyncio.run(function_cache.get_cached_value('key1', 'sampling_key_3'))
-    function_cache.cache_value('key2', sampling_key_none, 'value_6')
-    function_cache.cache_value('key2', 'sampling_key_4', 'value_7')
-    function_cache.cache_value('key3', 'sampling_key_5', 'value_8')
+    asyncio.run(
+        function_cache.cache_value('key2', sampling_key_none, 'value_6')
+    )
+    asyncio.run(function_cache.cache_value('key2', 'sampling_key_4', 'value_7'))
+    asyncio.run(function_cache.cache_value('key3', 'sampling_key_5', 'value_8'))
     function_cache.save()
     with self.subTest('cache_file_exists'):
       self.assertTrue(os.path.exists(cache_filename))
@@ -816,8 +831,8 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     cache_filename1 = os.path.join(cache_dir.full_path, 'cache1.json')
     cache_filename2 = os.path.join(cache_dir.full_path, 'cache2.json')
     cache1 = caching.SimpleFunctionCache(cache_filename=cache_filename1)
-    cache1.cache_value('key1', 'sampling_key_1', 'val1')
-    cache1.cache_value('key2', 'sampling_key_1', 'val2')
+    asyncio.run(cache1.cache_value('key1', 'sampling_key_1', 'val1'))
+    asyncio.run(cache1.cache_value('key2', 'sampling_key_1', 'val2'))
 
     # Save the cache to a different location from the one specified at creation
     # time. The write to the secondary location but not to the default location.
@@ -829,7 +844,7 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
 
     # Now save the cache to the default location. Should write to the default
     # location but not to the secondary location.
-    cache1.cache_value('key3', 'sampling_key_1', 'val3')
+    asyncio.run(cache1.cache_value('key3', 'sampling_key_1', 'val3'))
     cache1.save()
     with self.subTest('save_without_arg_should_write_to_the_default_location'):
       self.assertTrue(os.path.exists(cache_filename1))
@@ -856,12 +871,12 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
 
     cache_filename1 = os.path.join(cache_dir.full_path, 'cache1.json')
     cache1 = caching.SimpleFunctionCache(cache_filename=cache_filename1)
-    cache1.cache_value('key1', 'sampling_key_1', 'val1')
-    cache1.cache_value('key1', 'sampling_key_2', 'val2')
-    cache1.cache_value('key2', 'sampling_key_1', 'val3')
-    cache1.cache_value('key2', 'sampling_key_2', 'val4')
-    cache1.cache_value('key3', 'sampling_key_1', 'val5')
-    cache1.cache_value('key3', 'sampling_key_2', 'val6')
+    asyncio.run(cache1.cache_value('key1', 'sampling_key_1', 'val1'))
+    asyncio.run(cache1.cache_value('key1', 'sampling_key_2', 'val2'))
+    asyncio.run(cache1.cache_value('key2', 'sampling_key_1', 'val3'))
+    asyncio.run(cache1.cache_value('key2', 'sampling_key_2', 'val4'))
+    asyncio.run(cache1.cache_value('key3', 'sampling_key_1', 'val5'))
+    asyncio.run(cache1.cache_value('key3', 'sampling_key_2', 'val6'))
     cache1.save()
 
     # Note that the sampling keys from cache2 are expected to be ignored when
@@ -869,13 +884,13 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     # shuffling the sampling keys in some of the cases.
     cache_filename2 = os.path.join(cache_dir.full_path, 'cache2.json')
     cache2 = caching.SimpleFunctionCache(cache_filename=cache_filename2)
-    cache2.cache_value('key1', 'sampling_key_1', 'val7')
-    cache2.cache_value('key1', 'sampling_key_4', 'val8')
-    cache2.cache_value('key1', 'sampling_key_2', 'val9')
-    cache2.cache_value('key1', 'sampling_key_3', 'val10')
-    cache2.cache_value('key2', 'other_sampling_key_1', 'val11')
-    cache2.cache_value('key4', 'sampling_key_1', 'val12')
-    cache2.cache_value('key4', 'sampling_key_2', 'val13')
+    asyncio.run(cache2.cache_value('key1', 'sampling_key_1', 'val7'))
+    asyncio.run(cache2.cache_value('key1', 'sampling_key_4', 'val8'))
+    asyncio.run(cache2.cache_value('key1', 'sampling_key_2', 'val9'))
+    asyncio.run(cache2.cache_value('key1', 'sampling_key_3', 'val10'))
+    asyncio.run(cache2.cache_value('key2', 'other_sampling_key_1', 'val11'))
+    asyncio.run(cache2.cache_value('key4', 'sampling_key_1', 'val12'))
+    asyncio.run(cache2.cache_value('key4', 'sampling_key_2', 'val13'))
     cache2.save()
 
     # We restore the sample id mappings only when loading from the first cache
@@ -884,16 +899,28 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     expected_merged_cache = caching.SimpleFunctionCache(
         cache_filename=cache_filename1
     )
-    expected_merged_cache.cache_value('key1', 'sampling_key_1', 'val1')
-    expected_merged_cache.cache_value('key1', 'sampling_key_2', 'val2')
-    expected_merged_cache.cache_value('key1', None, 'val9')
-    expected_merged_cache.cache_value('key1', None, 'val10')
-    expected_merged_cache.cache_value('key2', 'sampling_key_1', 'val3')
-    expected_merged_cache.cache_value('key2', 'sampling_key_2', 'val4')
-    expected_merged_cache.cache_value('key3', 'sampling_key_1', 'val5')
-    expected_merged_cache.cache_value('key3', 'sampling_key_2', 'val6')
-    expected_merged_cache.cache_value('key4', None, 'val12')
-    expected_merged_cache.cache_value('key4', None, 'val13')
+    asyncio.run(
+        expected_merged_cache.cache_value('key1', 'sampling_key_1', 'val1')
+    )
+    asyncio.run(
+        expected_merged_cache.cache_value('key1', 'sampling_key_2', 'val2')
+    )
+    asyncio.run(expected_merged_cache.cache_value('key1', None, 'val9'))
+    asyncio.run(expected_merged_cache.cache_value('key1', None, 'val10'))
+    asyncio.run(
+        expected_merged_cache.cache_value('key2', 'sampling_key_1', 'val3')
+    )
+    asyncio.run(
+        expected_merged_cache.cache_value('key2', 'sampling_key_2', 'val4')
+    )
+    asyncio.run(
+        expected_merged_cache.cache_value('key3', 'sampling_key_1', 'val5')
+    )
+    asyncio.run(
+        expected_merged_cache.cache_value('key3', 'sampling_key_2', 'val6')
+    )
+    asyncio.run(expected_merged_cache.cache_value('key4', None, 'val12'))
+    asyncio.run(expected_merged_cache.cache_value('key4', None, 'val13'))
 
     overwritten_cache = caching.SimpleFunctionCache(
         cache_filename=cache_filename1
@@ -1017,7 +1044,7 @@ class TwoLayerCacheTest(parameterized.TestCase):
     l2 = CacheForTest()
     cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
 
-    l1.cache_value('key1', None, 'val1')
+    asyncio.run(l1.cache_value('key1', None, 'val1'))
 
     val = asyncio.run(cache.get_cached_value('key1', None))
     self.assertEqual(val, 'val1')
@@ -1028,7 +1055,7 @@ class TwoLayerCacheTest(parameterized.TestCase):
     l2 = CacheForTest()
     cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
 
-    l2.cache_value('key1', None, 'val1')
+    asyncio.run(l2.cache_value('key1', None, 'val1'))
 
     val = asyncio.run(cache.get_cached_value('key1', None))
     self.assertEqual(val, 'val1')
@@ -1041,7 +1068,7 @@ class TwoLayerCacheTest(parameterized.TestCase):
     l2 = CacheForTest()
     cache = caching.TwoLayerCache(l1_cache=l1, l2_cache=l2)
 
-    cache.cache_value('key1', None, 'val1')
+    asyncio.run(cache.cache_value('key1', None, 'val1'))
 
     self.assertEqual(asyncio.run(l1.get_cached_value('key1', None)), 'val1')
     self.assertEqual(asyncio.run(l2.get_cached_value('key1', None)), 'val1')

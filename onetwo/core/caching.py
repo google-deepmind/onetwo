@@ -222,7 +222,7 @@ class SimpleCache(Generic[CachedType], metaclass=abc.ABCMeta):
   """
 
   @abc.abstractmethod
-  def cache_value(
+  async def cache_value(
       self,
       key: str,
       sampling_key: str | None,
@@ -288,15 +288,15 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
     """Overridden from base class (SimpleCache)."""
     return self._calls_in_progress
 
-  def cache_value(
+  async def cache_value(
       self,
       key: str,
       sampling_key: str | None,
       value: CachedType,
   ) -> None:
     """Overridden from base class (SimpleCache)."""
-    self.l1_cache.cache_value(key, sampling_key, value)
-    self.l2_cache.cache_value(key, sampling_key, value)
+    await self.l1_cache.cache_value(key, sampling_key, value)
+    await self.l2_cache.cache_value(key, sampling_key, value)
 
   async def get_cached_value(
       self,
@@ -309,7 +309,7 @@ class TwoLayerCache(Generic[CachedType], SimpleCache[CachedType]):
       return value
     value = await self.l2_cache.get_cached_value(key, sampling_key)
     if value is not None:
-      self.l1_cache.cache_value(key, sampling_key, value)
+      await self.l1_cache.cache_value(key, sampling_key, value)
     return value
 
   def get_key_count(self) -> int:
@@ -602,10 +602,10 @@ class CacheKeyMaker(Generic[CachedType]):
 ReturnType = TypeVar('ReturnType')
 
 
-def return_first_and_cache_remaining(
+async def return_first_and_cache_remaining(
     values: Sequence[CachedType],
     disable_caching: bool,
-    cache_value_callback: Callable[[CachedType], None],
+    cache_value_callback: Callable[[CachedType], Coroutine[None, None, None]],
 ) -> CachedType:
   """Returns the first value and possibly caches the remaining ones.
 
@@ -617,7 +617,8 @@ def return_first_and_cache_remaining(
     values: Sequence of values.
     disable_caching: If True just return the first value and don't cache. If
       False (default) we cache.
-    cache_value_callback: Callback that takes a single argument and caches it.
+    cache_value_callback: Async callback that takes a single argument and caches
+      it.
 
   Returns:
     First value in values Sequence.
@@ -649,7 +650,7 @@ def return_first_and_cache_remaining(
     )
   else:
     for value in values[1:]:
-      cache_value_callback(value)
+      await cache_value_callback(value)
   return values[0]
 
 
@@ -816,8 +817,7 @@ def cache_method(
             sampling_key=sampling_key,
         )
       return value, (key, sampling_key)
-
-    def store(
+    async def store(
         obj_with_cache: CacheEnabled[CachedType],
         value: CachedType,
         key: str,
@@ -848,8 +848,8 @@ def cache_method(
       # of the value once iterated through.
       if isinstance(value, executing.Executable):
 
-        def callback(v: CachedType) -> CachedType:
-          _get_cache(obj_with_cache).cache_value(
+        async def callback(v: CachedType) -> CachedType:
+          await _get_cache(obj_with_cache).cache_value(
               key=key,
               sampling_key=sampling_key,
               value=v,
@@ -860,7 +860,7 @@ def cache_method(
             wrapped=value, postprocessing_callback=callback
         )
       else:
-        _get_cache(obj_with_cache).cache_value(
+        await _get_cache(obj_with_cache).cache_value(
             key=key,
             sampling_key=sampling_key,
             value=value,
@@ -906,7 +906,7 @@ def cache_method(
         if do_cache_extra:
           # Method returns a Sequence of CachedType elements. Handle this case.
           logging.info('Caching extra replies for method %s.', method.__name__)  # pytype: disable=attribute-error
-          value = return_first_and_cache_remaining(
+          value = await return_first_and_cache_remaining(
               values=value,
               disable_caching=self.disable_caching,
               cache_value_callback=functools.partial(
@@ -915,7 +915,7 @@ def cache_method(
                   None,  # No sampling_key set.
               ),
           )
-        result = store(self, value, key, sampling_key)
+        result = await store(self, value, key, sampling_key)
         return result
       finally:
         # Finally remove the call from `_calls_in_progress` to unblock other
@@ -1338,7 +1338,7 @@ class SimpleFunctionCache(
     """Overridden from base class (SimpleCache)."""
     return self._calls_in_progress
 
-  def cache_value(
+  async def cache_value(
       self,
       key: str,
       sampling_key: str | None,

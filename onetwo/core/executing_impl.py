@@ -134,7 +134,10 @@ class ExecutableWithPostprocessing(
       if self.update_callback is not None:
         yield self.update_callback(update)
       else:
-        yield _Update(self.postprocessing_callback(updates.to_result()))
+        result = self.postprocessing_callback(updates.to_result())
+        if inspect.isawaitable(result):
+          result = await result
+        yield _Update(result)
 
   @final
   async def _aexec(self) -> _Result:
@@ -144,7 +147,10 @@ class ExecutableWithPostprocessing(
       The final value given by the AsyncIterator _inner().
     """
     result = await self.wrapped
-    return self.postprocessing_callback(result)
+    result = self.postprocessing_callback(result)
+    if inspect.isawaitable(result):
+      result = await result
+    return result
 
 
 def set_decorated_with_make_executable(f: Callable[..., Any]) -> None:
