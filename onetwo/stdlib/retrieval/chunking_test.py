@@ -15,11 +15,23 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
+from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 
 class ChunkingTest(parameterized.TestCase):
+
+  def testNoChunkingDefaultFormat(self):
+    document = retrieval_data_structures.Document(
+        content=content_lib.ChunkList([content_lib.Chunk('original text')]),
+        title='Test Title',
+        doc_id='test_doc_123',
+        metadata={'key1': 'value1', 'key2': 'value2'},
+    )
+    chunker = chunking.NoChunking()
+    chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+    self.assertEqual(chunks[0].text, 'original text')
 
   def testNoChunkingFormat(self):
     document = retrieval_data_structures.Document(

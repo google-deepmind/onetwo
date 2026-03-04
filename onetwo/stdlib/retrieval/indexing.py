@@ -29,10 +29,9 @@ to serve as the superclass of all indexing/retrieval strategies used.
 """
 
 import abc
-from collections.abc import Callable, Iterable
 import dataclasses
 import random
-from typing import Any, Generic
+from typing import Any, Callable, Generic, Iterable
 
 from onetwo.core import executing
 from onetwo.core import tracing
@@ -140,7 +139,9 @@ class Index(
 
 
 @dataclasses.dataclass(kw_only=True)
-class IndexWrapper(Index[QueryT, RetrievalResultT, DocT]):
+class IndexWrapper(
+    Index[QueryT, RetrievalResultT, DocT],
+):
   """Index that wraps an inner index, delegating calls by default.
 
   Attributes:
@@ -170,6 +171,80 @@ class IndexWrapper(Index[QueryT, RetrievalResultT, DocT]):
   def destroy_index(self) -> None:
     """Overridden from base class (Index)."""
     self.inner_index.destroy_index()
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve(
+      self,
+      query: QueryT,
+      *,
+      max_results: int | None = None,
+      **kwargs,
+  ) -> Iterable[RetrievalResultT]:
+    """Overridden from base class (Retriever)."""
+    return await self.inner_index.retrieve(query, max_results=max_results, **kwargs)  # pytype: disable=wrong-arg-count
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve_with_scores(
+      self,
+      query: QueryT,
+      *,
+      max_results: int | None = None,
+      **kwargs,
+  ) -> Iterable[tuple[RetrievalResultT, float]]:
+    """Overridden from base class (Retriever)."""
+    return await self.inner_index.retrieve_with_scores(  # pytype: disable=wrong-arg-count
+        query, max_results=max_results, **kwargs
+    )
+
+
+@dataclasses.dataclass(kw_only=True)
+class ChunkingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):
+  """Index that chunks documents before adding them to an inner index.
+
+  By default, this class treats the chunks as the primary units of retrieval.
+  When `get_docs`, `retrieve` or `retrieve_with_scores` is called, the objects
+  returned are the individual chunks (derived from the original documents) as
+  stored in the inner index, rather than the original source documents.
+
+  Future iterations could support alternative behaviors, such as:
+  1.  **Parent-Document Retrieval**: Returning the original document associated
+      with a retrieved chunk.
+  2.  **Contextual Windowing**: Returning a chunk along with its neighboring
+      surrounding context.
+
+  Attributes:
+    chunker: Chunker used to split the documents.
+  """
+
+  chunker: chunking.Chunker = dataclasses.field(
+      default_factory=chunking.NoChunking
+  )
+
+  @executing.make_executable(copy_self=False)
+  async def create_index(self, corpus_name: str, docs: Iterable[DocT]) -> None:
+    """Overridden from base class (Index)."""
+    if self.inner_index.num_docs > 0:
+      raise ValueError(
+          'Attempting to call `create_index` on a corpus with existing'
+          f' documents: old_name={self.inner_index.corpus_name},'
+          f' new_name={corpus_name},'
+          f' num_existing_docs={self.inner_index.num_docs},'
+          f' num_docs_to_add={len(list(docs))}'
+      )
+
+    self.inner_index.corpus_name = corpus_name  # pytype: disable=attribute-error
+    await self.add_docs(docs)  # pytype: disable=wrong-arg-count
+
+  @executing.make_executable(copy_self=False)
+  async def add_docs(self, docs: Iterable[DocT]) -> None:
+    """Overridden from base class (Index)."""
+    chunks_by_doc = await executing.parallel(
+        *[self.chunker(doc) for doc in docs]  # pytype: disable=wrong-arg-count
+    )
+    chunks = []
+    for chunk_list in chunks_by_doc:
+      chunks.extend(chunk_list)
+    await self.inner_index.add_docs(docs=chunks)  # pytype: disable=wrong-keyword-args
 
 
 @dataclasses.dataclass
@@ -295,7 +370,6 @@ def default_prepare_document(doc: Any) -> str:
 @dataclasses.dataclass(kw_only=True)
 class AbstractEmbeddingBasedIndex(
     Index[QueryT, RetrievalResultT, DocT],
-    Generic[QueryT, RetrievalResultT, DocT],
     constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
 ):
   r"""Abstract base class for embedding-based retrieval indices.
@@ -307,7 +381,6 @@ class AbstractEmbeddingBasedIndex(
   `retrieve` and `retrieve_with_scores` along with the embedding functionality.
 
   Attributes:
-    chunker: Chunker used to split the documents before embedding.
     prepare_query: Callable that prepares the query for embedding.
     prepare_document: Callable that prepares the document for embedding.
     task_type: Task type to use when calling `llm.embed` (optional).
@@ -333,10 +406,6 @@ class AbstractEmbeddingBasedIndex(
       ```
   """
   # fmt: on
-  chunker: chunking.Chunker = dataclasses.field(
-      default_factory=chunking.NoChunking
-  )
-
   prepare_query: Callable[[QueryT], str] = default_prepare_query
   prepare_document: Callable[[DocT], str] = default_prepare_document
 
