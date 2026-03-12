@@ -221,10 +221,22 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
   def test_retrieve_constrained_list_contains_any(self):
     """Tests pre-filtering with the LIST_CONTAINS_ANY constraint."""
     docs = [
-        Document(doc_id='doc1', content='Doc one', external_keys=['A']),
-        Document(doc_id='doc2', content='Doc two', external_keys=['B']),
-        Document(doc_id='doc3', content='Doc three', external_keys=['C']),
-        Document(doc_id='doc4', content='Doc four', external_keys=['A', 'C']),
+        Document(
+            doc_id='doc1', content='Doc one', metadata={'external_keys': ['A']}
+        ),
+        Document(
+            doc_id='doc2', content='Doc two', metadata={'external_keys': ['B']}
+        ),
+        Document(
+            doc_id='doc3',
+            content='Doc three',
+            metadata={'external_keys': ['C']},
+        ),
+        Document(
+            doc_id='doc4',
+            content='Doc four',
+            metadata={'external_keys': ['A', 'C']},
+        ),
     ]
 
     # Mock embeddings
@@ -238,7 +250,7 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     mock_embed_fn.embeddings = doc_embeds + [query_embed]
 
     def extract_external_keys(doc):
-      return doc.external_keys
+      return doc.metadata.get('external_keys', [])
 
     index = indexing.EmbeddingBasedIndex(
         discrete_field_extractors={'external_keys': extract_external_keys}
@@ -278,10 +290,24 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
   def test_retrieve_constrained_list_contains_any_multiple_lists(self):
     """Tests pre-filtering with multiple LIST_CONTAINS_ANY for AND logic."""
     docs = [
-        Document(doc_id='doc1', content='Doc one', external_keys=['A']),
-        Document(doc_id='doc2', content='Doc two', external_keys=['B', 'C']),
-        Document(doc_id='doc3', content='Doc three', external_keys=['C']),
-        Document(doc_id='doc4', content='Doc four', external_keys=['A', 'C']),
+        Document(
+            doc_id='doc1', content='Doc one', metadata={'external_keys': ['A']}
+        ),
+        Document(
+            doc_id='doc2',
+            content='Doc two',
+            metadata={'external_keys': ['B', 'C']},
+        ),
+        Document(
+            doc_id='doc3',
+            content='Doc three',
+            metadata={'external_keys': ['C']},
+        ),
+        Document(
+            doc_id='doc4',
+            content='Doc four',
+            metadata={'external_keys': ['A', 'C']},
+        ),
     ]
 
     # Mock embeddings
@@ -295,7 +321,7 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     mock_embed_fn.embeddings = doc_embeds + 2 * [query_embed]
 
     def extract_external_keys(doc):
-      return doc.external_keys
+      return doc.metadata.get('external_keys', [])
 
     with self.subTest('build_index_with_external_keys'):
       index = indexing.EmbeddingBasedIndex(

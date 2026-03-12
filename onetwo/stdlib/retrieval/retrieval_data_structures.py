@@ -38,9 +38,6 @@ class Document:
       then `self.content` is expected to exactly match the contents of the file
       at the given URL (modulo, at most, some trivial formatting adjustments),
       as of the time the URL was accessed.
-    external_keys: A list of external keys that apply to the document. The
-      indexing system may use these to enable efficient retrieval of documents
-      that have been associated with a particular external key.
     metadata: Optional metadata about the document (or other custom content).
     text: A view on the document's `content`, represented as a plain text string
       (with just placeholders like '<image/jpeg>' for any multimodal content).
@@ -50,7 +47,6 @@ class Document:
   title: str = ''
   content: str | content_lib.ChunkList = ''
   url: str = ''
-  external_keys: list[str] = dataclasses.field(default_factory=list)
   # TODO: Add a field to track the timestamp at which the content was
   # fetched from the given URL?
   metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
