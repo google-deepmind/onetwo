@@ -20,23 +20,24 @@ storage logic (JSONL/NPY) from the in-memory index implementation.
 """
 
 import dataclasses
-from typing import Any, List
+from typing import Any, Generic, List, TypeVar
 import numpy as np
-from onetwo.stdlib.retrieval import retrieval_data_structures
+
+DocT = TypeVar('DocT')
 
 
 @dataclasses.dataclass(frozen=True)
-class DocumentIndexState:
-  """A point-in-time snapshot of an EmbeddingBasedDocumentIndex state.
+class EmbeddingBasedIndexState(Generic[DocT]):
+  """A point-in-time snapshot of an EmbeddingBasedIndex state.
 
   Attributes:
-    docs: The raw Document objects to be serialized.
+    docs: The raw documents to be serialized.
     doc_embeddings: A list of numpy arrays representing the document embeddings.
     doc_indices_by_discrete_value: Internal reverse index for discrete field
-      values, used for constrained retrieval. See the
-      `EmbeddingBasedDocumentIndex` class for more details.
+      values, used for constrained retrieval. See the `EmbeddingBasedIndex`
+      class for more details.
   """
 
-  docs: List[retrieval_data_structures.Document]
+  docs: List[DocT]
   doc_embeddings: List[np.ndarray]
   doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]]

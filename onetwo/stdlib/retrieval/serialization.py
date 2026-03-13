@@ -14,60 +14,57 @@
 
 """Serialization protocols and simple implementations for retrieval indices."""
 
+import dataclasses
 import json
 import os
-from typing import TypeVar
+from typing import Generic, TypeVar
 
 import numpy as np
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_state
-from onetwo.stdlib.retrieval import retrieval_data_structures
-
-_Document = retrieval_data_structures.Document
 
 DocT = TypeVar('DocT')
-DocEmbeddingT = TypeVar('DocEmbeddingT')
 
 
-class SimpleEmbeddingBasedDocumentIndexSerializer:
-  """Simple serializer for EmbeddingBasedDocumentIndex.
+@dataclasses.dataclass
+class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
+  """Simple serializer for EmbeddingBasedIndex.
 
-  It saves documents and discrete field indices as JSON/JSONL and embeddings as
-  a NumPy .npy file.
-
-  File Layout under `base_path`:
-    - docs.jsonl: Individual Document objects serialized per line.
-    - embeddings.npy: A single NumPy binary file containing the vector matrix.
-    - discrete_indices.json: A JSON map of field values to document offsets.
+  Saves the list of documents to a JSONL file, the embeddings to a NPY file,
+  and the discrete field indices to a JSON file.
 
   Attributes:
-    base_path: The directory where index files are stored. If the directory does
-      not exist during save(), it will be created.
+    doc_class: The class to use for serializing and deserializing documents. It
+      must have `to_json()` and `from_json(json_str)` methods.
+    base_path: The default base path for saving and loading the index state.
     docs_jsonl_name: Name of the file for storing documents (JSON lines).
     embeds_npy_name: Name of the file for storing embeddings (NumPy).
     discrete_indices_json_name: Name of the file for storing discrete indices.
   """
 
+  doc_class: type[DocT]
   base_path: str | None = None
-  docs_jsonl_name = 'docs.jsonl'
-  embeds_npy_name = 'embeddings.npy'
-  discrete_indices_json_name = 'discrete_indices.json'
+  docs_jsonl_name: str = 'docs.jsonl'
+  embeds_npy_name: str = 'embeddings.npy'
+  discrete_indices_json_name: str = 'discrete_indices.json'
 
-  def __init__(self, base_path: str | None = None):
-    self.base_path = base_path
+  def __post_init__(self):
+    """Validates interface at initialization."""
+    for method in ['to_json', 'from_json']:
+      if not hasattr(self.doc_class, method):
+        raise TypeError(f'{self.doc_class.__name__} must implement {method}')
 
   def save(
       self,
-      document_index_state: index_state.DocumentIndexState,
+      state: index_state.EmbeddingBasedIndexState[DocT],
       base_path: str | None = None,
   ) -> None:
-    """Saves the index state to the specified path.
+    """Saves the index state to the given base path.
 
     Args:
-      document_index_state: The index state to save.
-      base_path: The destination directory. If provided, overrides the
-        instance's base_path. Files are saved directly inside this folder; if
-        the folder does not exist, it is created automatically.
+      state: The index state to save.
+      base_path: The directory to save the index to. If not provided, the
+        default `base_path` will be used.
 
     Raises:
       ValueError: If no base_path is provided.
@@ -76,65 +73,61 @@ class SimpleEmbeddingBasedDocumentIndexSerializer:
     if not path:
       raise ValueError('base_path is not set.')
 
-    if not os.path.exists(path):
-      os.makedirs(path)
-
-    # Save documents.
+    os.makedirs(path, exist_ok=True)
+    # Save documents to JSONL.
     docs_path = os.path.join(path, self.docs_jsonl_name)
     with open(docs_path, 'w') as f:
-      for doc in document_index_state.docs:
-        f.write(doc.to_json() + '\n')
+      for doc in state.docs:
+        f.write(doc.to_json() + '\n')  # pytype: disable=attribute-error
 
-    # Save embeddings.
-    embeds_path = os.path.join(path, self.embeds_npy_name)
-    np.save(embeds_path, np.array(document_index_state.doc_embeddings))
+    # Save embeddings to NPY.
+    embeddings_path = os.path.join(path, self.embeds_npy_name)
+    np.save(embeddings_path, np.stack(state.doc_embeddings, axis=0))
 
-    # Save discrete indices.
+    # Save discrete indices to JSON.
     indices_path = os.path.join(path, self.discrete_indices_json_name)
     with open(indices_path, 'w') as f:
-      json.dump(document_index_state.doc_indices_by_discrete_value, f)
+      json.dump(state.doc_indices_by_discrete_value, f)
 
   @executing.make_executable(copy_self=False)
   async def load(
       self,
       base_path: str | None = None,
-  ) -> index_state.DocumentIndexState:
-    """Loads the index state from the specified path.
+  ) -> index_state.EmbeddingBasedIndexState[DocT]:
+    """Loads the index state from the given base path.
 
     Args:
-      base_path: The directory containing the index files. If provided,
-        overrides the instance's base_path.
+      base_path: The directory to load the index from. If not provided, the
+        default `base_path` will be used.
 
     Returns:
-      A DocumentIndexState DTO populated with data from the files.
+      The loaded index state.
 
     Raises:
       ValueError: If no base_path is provided.
-      FileNotFoundError: If the required files are missing from the path.
     """
     path = base_path or self.base_path
     if not path:
       raise ValueError('base_path is not set.')
 
-    # Load documents.
+    # Load documents from JSONL.
     docs_path = os.path.join(path, self.docs_jsonl_name)
-    docs = []  # pylint: disable=protected-access
+    docs = []
     with open(docs_path, 'r') as f:
       for line in f:
         if line.strip():
-          docs.append(_Document.from_json(line))  # pylint: disable=protected-access
+          docs.append(self.doc_class.from_json(line))  # pytype: disable=attribute-error
 
-    # Load embeddings.
-    embeds_path = os.path.join(path, self.embeds_npy_name)
-    embeddings = np.load(embeds_path)
-    doc_embeddings = [embeddings[i] for i in range(embeddings.shape[0])]  # pylint: disable=protected-access
+    # Load embeddings from NPY.
+    embeddings_path = os.path.join(path, self.embeds_npy_name)
+    doc_embeddings = list(np.load(embeddings_path))
 
-    # Load discrete indices.
+    # Load discrete indices from JSON.
     indices_path = os.path.join(path, self.discrete_indices_json_name)
     with open(indices_path, 'r') as f:
-      doc_indices_by_discrete_value = json.load(f)  # pylint: disable=protected-access
+      doc_indices_by_discrete_value = json.load(f)
 
-    return index_state.DocumentIndexState(
+    return index_state.EmbeddingBasedIndexState(
         docs=docs,
         doc_embeddings=doc_embeddings,
         doc_indices_by_discrete_value=doc_indices_by_discrete_value,

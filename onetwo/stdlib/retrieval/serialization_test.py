@@ -37,9 +37,7 @@ class SerializationTest(absltest.TestCase):
     super().tearDown()
 
   def test_simple_serialization_roundtrip(self):
-    serializer = serialization.SimpleEmbeddingBasedDocumentIndexSerializer(
-        base_path=self.test_dir
-    )
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
 
     doc1 = _Document(
         doc_id='id1', content='content1', metadata={'key1': 'val1'}
@@ -47,7 +45,7 @@ class SerializationTest(absltest.TestCase):
     doc2 = _Document(
         doc_id='id2', content='content2', metadata={'key2': 'val2'}
     )
-    state = index_state.DocumentIndexState(
+    state = index_state.EmbeddingBasedIndexState(
         docs=[doc1, doc2],
         doc_embeddings=[
             np.array([1.0, 2.0], dtype=np.float32),
@@ -57,7 +55,7 @@ class SerializationTest(absltest.TestCase):
             'external_keys': {'key1': [0], 'key2': [1]}
         },
     )
-    serializer.save(state)
+    serializer.save(state, self.test_dir)
 
     self.assertTrue(os.path.exists(os.path.join(self.test_dir, 'docs.jsonl')))
     self.assertTrue(
@@ -67,7 +65,7 @@ class SerializationTest(absltest.TestCase):
         os.path.exists(os.path.join(self.test_dir, 'discrete_indices.json'))
     )
 
-    new_state = ot.run(serializer.load())
+    new_state = ot.run(serializer.load(self.test_dir))  # pytype: disable=wrong-arg-count
     self.assertLen(new_state.docs, 2)
     self.assertEqual(new_state.docs[0].doc_id, 'id1')
     self.assertEqual(new_state.docs[1].doc_id, 'id2')
@@ -85,6 +83,27 @@ class SerializationTest(absltest.TestCase):
         new_state.doc_indices_by_discrete_value,
         state.doc_indices_by_discrete_value,
     )
+
+  def test_simple_serializer_init_raises_error(self):
+    class InvalidDoc:
+      """Missing to_json and from_json."""
+
+      pass
+
+    with self.assertRaisesRegex(TypeError, 'InvalidDoc must implement to_json'):
+      serialization.SimpleEmbeddingBasedIndexSerializer(doc_class=InvalidDoc)
+
+  def test_embedding_index_serializer_init_raises_error(self):
+    class IncompleteDoc:
+      """Has one but not both required methods."""
+
+      def to_json(self):
+        return '{}'
+
+    with self.assertRaisesRegex(
+        TypeError, 'IncompleteDoc must implement from_json'
+    ):
+      serialization.SimpleEmbeddingBasedIndexSerializer(doc_class=IncompleteDoc)
 
 
 if __name__ == '__main__':
