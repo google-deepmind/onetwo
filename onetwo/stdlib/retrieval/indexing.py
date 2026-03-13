@@ -40,9 +40,11 @@ from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_retrieval
+from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
+
 
 QueryT = retrieval.QueryT
 RetrievalResultT = retrieval.RetrievalResultT
@@ -740,3 +742,56 @@ class ChunkingEmbeddingBasedIndex(
     return await self.inner_index.retrieve_doc_score(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
         query, doc_index
     )
+
+from onetwo.stdlib.retrieval import serialization
+serializer = serialization.SimpleEmbeddingBasedIndexSerializer
+
+
+@dataclasses.dataclass(kw_only=True)
+class EmbeddingBasedDocumentIndex(
+    EmbeddingBasedIndex[str, Document, Document],
+    DocumentIndex,
+):
+  """Embedding-based index for Document objects."""
+
+  def save(self, base_path: str) -> None:
+    """Saves the index state."""
+    index_state_dto = index_state.EmbeddingBasedIndexState(
+        docs=self._docs,
+        doc_embeddings=self._doc_embeddings,
+        doc_indices_by_discrete_value=self._doc_indices_by_discrete_value,
+    )
+    serializer(Document).save(index_state_dto, base_path)
+
+  @executing.make_executable(copy_self=False)
+  async def load(self, base_path: str) -> None:
+    """Loads the index state."""
+    index_state_dto = await serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
+    self._docs = index_state_dto.docs
+    self._doc_embeddings = index_state_dto.doc_embeddings
+    self._doc_indices_by_discrete_value = (
+        index_state_dto.doc_indices_by_discrete_value
+    )
+    # Build the searcher index.
+    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
+
+
+@dataclasses.dataclass(kw_only=True)
+class ChunkingEmbeddingBasedDocumentIndex(
+    ChunkingEmbeddingBasedIndex[str, Document, Document],
+    EmbeddingBasedDocumentIndex,
+):
+  """Embedding-based index with chunking for Document objects."""
+
+  inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(
+      default_factory=EmbeddingBasedDocumentIndex
+  )
+
+  def save(self, base_path: str) -> None:
+    """Saves the index state."""
+    self.inner_index.save(base_path)
+
+  @executing.make_executable(copy_self=False)
+  async def load(self, base_path: str) -> None:
+    """Loads the index state."""
+    await self.inner_index.load(base_path)  # pytype: disable=wrong-arg-count
