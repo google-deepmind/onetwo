@@ -31,6 +31,7 @@ from typing import Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeV
 
 from onetwo.core import content as content_lib
 from onetwo.core import executing_impl
+from onetwo.core import rpc_tracker as rpc_tracker_lib
 import PIL.Image
 
 _T = TypeVar('_T')
@@ -481,14 +482,30 @@ def with_retry(
         initial_base_delay, self
     ).value()
     max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
+    tracker = rpc_tracker_lib.get_rpc_tracker()
+    func_name = getattr(function, '__name__', 'unknown')
+    request_id = tracker.on_request_start(func_name) if tracker else None
     if not max_retries_value:
-      return function(*args, **kwargs)
+      try:
+        result = function(*args, **kwargs)
+        if tracker and request_id:
+          tracker.on_request_success(request_id, func_name)
+        return result
+      except Exception as e:
+        if tracker and request_id:
+          tracker.on_request_failure(request_id, func_name, e)
+        raise
     base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
-        return function(*args, **kwargs)
+        result = function(*args, **kwargs)
+        if tracker and request_id:
+          tracker.on_request_success(request_id, func_name)
+        return result
       except Exception as e:  # pylint: disable=broad-except
         if not retriable_error_filter(e):
+          if tracker and request_id:
+            tracker.on_request_failure(request_id, func_name, e)
           raise e
         # Increase base_delay after 2 consecutive errors at the current value.
         if i % 2 == 1:
@@ -497,9 +514,13 @@ def with_retry(
         actual_delay = base_delay * (1 + random.random())
         logging.info('Retry #%s: %ss (%s)', i, actual_delay, str(e))
         if i < max_retries_value:
+          if tracker and request_id:
+            tracker.on_request_retry(request_id, func_name, i, e, actual_delay)
           time.sleep(actual_delay)
         else:
           # If we are out of retries, then raise the original exception.
+          if tracker and request_id:
+            tracker.on_request_failure(request_id, func_name, e)
           raise e
 
   async def async_wrapper_impl(*args, **kwargs) -> _ReturnType:
@@ -509,14 +530,30 @@ def with_retry(
         initial_base_delay, self
     ).value()
     max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
+    tracker = rpc_tracker_lib.get_rpc_tracker()
+    func_name = getattr(function, '__name__', 'unknown')
+    request_id = tracker.on_request_start(func_name) if tracker else None
     if not max_retries_value:
-      return await function(*args, **kwargs)
+      try:
+        result = await function(*args, **kwargs)
+        if tracker and request_id:
+          tracker.on_request_success(request_id, func_name)
+        return result
+      except Exception as e:
+        if tracker and request_id:
+          tracker.on_request_failure(request_id, func_name, e)
+        raise
     base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
-        return await call_and_maybe_await(function, *args, **kwargs)
+        result = await call_and_maybe_await(function, *args, **kwargs)
+        if tracker and request_id:
+          tracker.on_request_success(request_id, func_name)
+        return result
       except Exception as e:  # pylint: disable=broad-except
         if not retriable_error_filter(e):
+          if tracker and request_id:
+            tracker.on_request_failure(request_id, func_name, e)
           raise e
         # Increase base_delay after 2 consecutive errors at the current value.
         if i % 2 == 1:
@@ -525,9 +562,13 @@ def with_retry(
         actual_delay = base_delay * (1 + random.random())
         logging.info('Retry #%s: %ss (%s)', i, actual_delay, str(e))
         if i < max_retries_value:
+          if tracker and request_id:
+            tracker.on_request_retry(request_id, func_name, i, e, actual_delay)
           await asyncio.sleep(actual_delay)
         else:
           # If we are out of retries, then raise the original exception.
+          if tracker and request_id:
+            tracker.on_request_failure(request_id, func_name, e)
           raise e
 
   @functools.wraps(function)
