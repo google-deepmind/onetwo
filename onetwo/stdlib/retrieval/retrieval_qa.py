@@ -18,7 +18,7 @@ import abc
 from typing import Protocol
 
 from onetwo.core import executing
-from onetwo.stdlib.qa import qa
+from onetwo.stdlib.retrieval import qa
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
