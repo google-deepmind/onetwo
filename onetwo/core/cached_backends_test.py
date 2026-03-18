@@ -1,0 +1,843 @@
+# Copyright 2026 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import asyncio
+import collections
+import contextlib
+import dataclasses
+import io
+import itertools
+import os
+
+from absl.testing import absltest
+from absl.testing import parameterized
+from onetwo.backends import backends_base
+from onetwo.core import cached_backends
+from onetwo.core import caching
+
+
+CacheData = caching._CacheData  # pylint: disable=protected-access
+
+
+@dataclasses.dataclass
+class NotCacheEnabledBackend(backends_base.Backend):
+  """A backend that is not CacheEnabled."""
+
+
+@dataclasses.dataclass
+class TestBackendWithTwoLayerCache(caching.CacheEnabled, backends_base.Backend):
+  """A test backend with a TwoLayerCache."""
+
+  def __post_init__(self):
+    self.cache = caching.TwoLayerCache(
+        l1_cache=caching.SimpleFunctionCache(),
+        l2_cache=caching.SimpleFunctionCache(),
+    )
+
+  @caching.cache_method()
+  def get_value(self, arg: str) -> str:
+    return arg
+
+
+class GenericCache(caching.SimpleCache):
+
+  def __init__(self):
+    self._counters = collections.Counter()
+    self._calls_in_progress = set()
+
+  def get_cache_counters(self):
+    return {'l1': dict(self._counters)}
+
+  def get_key_count(self):
+    return 0
+
+  def get_calls_in_progress(self):
+    return self._calls_in_progress
+
+  async def get_cached_value(self, key, sampling_key):
+    self._counters['get_miss'] += 1
+    return None
+
+  async def cache_value(self, key, sampling_key, value):
+    self._counters['cache_write'] += 1
+
+
+@dataclasses.dataclass
+class TestBackendWithGenericCache(caching.CacheEnabled, backends_base.Backend):
+
+  def __post_init__(self):
+    self.cache = GenericCache()
+
+  @caching.cache_method()
+  def get_value(self, arg: str) -> str:
+    return arg
+
+
+@dataclasses.dataclass
+class TestBackend(caching.FileCacheEnabled, backends_base.Backend):
+  """A simple test backend that has a cache and a configurable mock method."""
+
+  return_value: str = 'default_return_value'
+
+  def __post_init__(self) -> None:
+    # Create cache.
+    self._cache_handler = caching.SimpleFunctionCache(
+        cache_filename=self.cache_filename,
+    )
+
+  @caching.cache_method(name='get_value')
+  def get_value(self, arg: str) -> str:
+    del arg
+    return self.return_value
+
+
+def _create_cache_data(
+    counters,
+    values_by_key,
+    num_used_values_by_key,
+    sample_id_by_sampling_key_by_key,
+) -> CacheData:
+  counters = counters or {}
+  values_by_key = values_by_key or {}
+  num_used_values_by_key = num_used_values_by_key or {}
+  sample_id_by_sampling_key_by_key = sample_id_by_sampling_key_by_key or {}
+
+  nested_sample_id_dict = collections.defaultdict(
+      lambda: collections.defaultdict(str)
+  )
+  for key, inner_dict in sample_id_by_sampling_key_by_key.items():
+    nested_sample_id_dict[key].update(inner_dict)
+
+  return CacheData(
+      counters=collections.Counter(counters),
+      values_by_key=collections.defaultdict(list, values_by_key),
+      num_used_values_by_key=collections.defaultdict(
+          int, num_used_values_by_key
+      ),
+      sample_id_by_sampling_key_by_key=nested_sample_id_dict,
+  )
+
+
+class CachedBackendsTest(parameterized.TestCase):
+
+  def test_setitem_delitem(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path
+    )
+    backend = TestBackend(return_value='a')
+    backend.name = 'backend1'
+    cb['backend1'] = backend
+    self.assertIn('backend1', cb)
+
+    # Test name mismatch
+    backend2 = TestBackend(return_value='b')
+    backend2.name = 'backend2'
+    with self.assertRaises(ValueError):
+      cb['backend1_different'] = backend2
+
+    # Test delitem
+    del cb['backend1']
+    self.assertNotIn('backend1', cb)
+
+  def test_diff_cache_data(self):
+    empty_cache_data = CacheData()
+    cache_data1 = _create_cache_data(
+        counters={'a': 1, 'b': 2},
+        values_by_key={'k1': ['v1a', 'v1b'], 'k2': ['v2']},
+        num_used_values_by_key={'k1': 1},
+        sample_id_by_sampling_key_by_key={'k1': {'sk1': 'sid1'}},
+    )
+    cache_data2 = _create_cache_data(
+        counters={'a': 1, 'c': 3},  # 'b' removed, 'c' added
+        values_by_key={
+            'k1': ['v1a', 'v1c'],
+            'k3': ['v3'],
+        },  # 'k1' modified, 'k2' removed, 'k3' added
+        num_used_values_by_key={'k1': 2},  # 'k1' modified
+        sample_id_by_sampling_key_by_key={
+            'k1': {'sk1': 'sid2'}
+        },  # 'k1' modified
+    )
+    cache_data3 = _create_cache_data(
+        counters={'a': 1, 'b': 2, 'd': 4},  # 'd' added
+        values_by_key={
+            'k1': ['v1a', 'v1b'],
+            'k2': ['v2'],
+            'k4': ['v4'],
+        },  # 'k4' added
+        num_used_values_by_key={'k1': 1, 'k4': 1},  # 'k4' added
+        sample_id_by_sampling_key_by_key={
+            'k1': {'sk1': 'sid1'},
+            'k4': {'sk4': 'sid4'},
+        },  # 'k4' added
+    )
+
+    with self.subTest('both_empty'):
+      diff = caching.diff_cache_data(
+          before=empty_cache_data, after=empty_cache_data
+      )
+      self.assertEqual(empty_cache_data, diff)
+
+    with self.subTest('before_empty'):
+      diff = caching.diff_cache_data(before=empty_cache_data, after=cache_data1)
+      self.assertEqual(cache_data1, diff)
+
+    with self.subTest('after_empty'):
+      diff = caching.diff_cache_data(before=cache_data1, after=empty_cache_data)
+      self.assertEqual(empty_cache_data, diff)
+
+    with self.subTest('no_change'):
+      diff = caching.diff_cache_data(before=cache_data1, after=cache_data1)
+      self.assertEqual(empty_cache_data, diff)
+
+    with self.subTest('mixed_changes_add_modify_remove'):
+      expected_diff = _create_cache_data(
+          counters={'c': 3},  # 'a' unchanged, 'b' removed, 'c' added
+          values_by_key={
+              'k1': ['v1a', 'v1c'],
+              'k3': ['v3'],
+          },  # 'k1' modified, 'k2' removed, 'k3' added
+          num_used_values_by_key={'k1': 2},  # 'k1' modified
+          sample_id_by_sampling_key_by_key={
+              'k1': {'sk1': 'sid2'}
+          },  # 'k1' modified
+      )
+      diff = caching.diff_cache_data(before=cache_data1, after=cache_data2)
+      self.assertEqual(expected_diff, diff)
+
+    with self.subTest('only_additions'):
+      expected_diff = _create_cache_data(
+          counters=collections.Counter({'d': 4}),
+          values_by_key={'k4': ['v4']},
+          num_used_values_by_key={'k4': 1},
+          sample_id_by_sampling_key_by_key={'k4': {'sk4': 'sid4'}},
+      )
+      diff = caching.diff_cache_data(before=cache_data1, after=cache_data3)
+      self.assertEqual(expected_diff, diff)
+
+  def test_subtract_cache_data(self):
+    cache_dir1 = self.create_tempdir()
+    cache_dir2 = self.create_tempdir()
+
+    backends1 = cached_backends.CachedBackends(
+        own_cache_directory=cache_dir1.full_path
+    )
+    backend1 = TestBackend(
+        cache_filename=backends1.get_cache_path('model_subtract'),
+        return_value='val1',
+    )
+    backends1['model_subtract'] = backend1
+
+    backends2 = cached_backends.CachedBackends(
+        own_cache_directory=cache_dir2.full_path
+    )
+    backend2 = TestBackend(
+        cache_filename=backends2.get_cache_path('model_subtract'),
+        return_value='val2',
+    )
+    backends2['model_subtract'] = backend2
+
+    # backend1: arg1 -> val1, arg2 -> val1
+    _ = asyncio.run(backend1.get_value('arg1'))
+    _ = asyncio.run(backend1.get_value('arg2'))
+    backend1.save_cache()
+
+    # backend2: arg1 -> val2 (different value), arg3 -> val2
+    _ = asyncio.run(backend2.get_value('arg1'))
+    _ = asyncio.run(backend2.get_value('arg3'))
+    backend2.save_cache()
+
+    with self.subTest('subtract_populated_from_populated'):
+      expected_cache_data = _create_cache_data(
+          counters=None,
+          values_by_key={
+              "('arg1',)": ['val1'],
+              "('arg3',)": ['val1'],
+          },
+          num_used_values_by_key=None,
+          sample_id_by_sampling_key_by_key=None,
+      )
+
+      cache_data = backends2.extract_cache_data()
+      backends1.subtract_cache_data(cache_data)
+
+      cache_handler1 = backend1._cache_handler  # pylint: disable=protected-access
+      self.assertIsInstance(cache_handler1, caching.SimpleFunctionCache)
+      cache_handler1._calls_in_progress.clear()  # pylint: disable=protected-access
+      self.assertSequenceEqual(list(expected_cache_data.values_by_key.values()), list(cache_handler1._cache_data.values_by_key.values()))  # pylint: disable=protected-access
+      self.assertEqual(2, cache_handler1.get_key_count())  # pylint: disable=protected-access
+
+  @parameterized.named_parameters(
+      ('base_case', 'search_engine', 'search_engine.json'),
+      ('converts_dashes_and_periods', 'gemini-1.0-pro', 'gemini_1_0_pro.json'),
+  )
+  def test_get_cache_filename(self, backend_name, expected_cache_filename):
+    self.assertEqual(
+        expected_cache_filename,
+        caching.get_cache_filename(backend_name),
+    )
+
+  def test_should_act_like_an_order_preserving_mapping_of_name_to_backend(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path,
+        shared_cache_directory=self.create_tempdir().full_path,
+    )
+    backend1 = TestBackend(
+        cache_filename=cb.get_cache_path('model_1_0'),
+        return_value='a',
+    )
+    backend2 = TestBackend(
+        cache_filename=cb.get_cache_path('model_2_0'),
+        return_value='b',
+    )
+    cb['model_1_0'] = backend1
+    cb['model_2_0'] = backend2
+
+    with self.subTest('get'):
+      self.assertEqual(backend1, cb['model_1_0'])
+      self.assertEqual(backend2, cb['model_2_0'])
+
+    with self.subTest('len'):
+      self.assertLen(cb, 2)
+
+    with self.subTest('keys'):
+      self.assertEqual(['model_1_0', 'model_2_0'], list(cb.keys()))
+
+    with self.subTest('values'):
+      self.assertEqual([backend1, backend2], list(cb.values()))
+
+    with self.subTest('items'):
+      self.assertEqual(
+          [('model_1_0', backend1), ('model_2_0', backend2)],
+          list(cb.items()),
+      )
+    with self.subTest('iteration'):
+      items = []
+      for backend_name, backend in cb.items():
+        items.append((backend_name, backend))
+      self.assertEqual(
+          [('model_1_0', backend1), ('model_2_0', backend2)],
+          items,
+      )
+
+  def test_save_and_load_caches(self):
+    shared_cache_dir = self.create_tempdir()
+    user1_cache_dir = self.create_tempdir()
+    user2_cache_dir = self.create_tempdir()
+
+    shared_cache_filename = os.path.join(
+        shared_cache_dir.full_path, 'model_1_0.json'
+    )
+    user1_cache_filename = os.path.join(
+        user1_cache_dir.full_path, 'model_1_0.json'
+    )
+    user2_cache_filename = os.path.join(
+        user2_cache_dir.full_path, 'model_1_0.json'
+    )
+
+    # `CachedBackends` object for user1. When this user makes calls to the
+    # backend, it will always return 'a' (unless reading from cache).
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=user1_cache_dir.full_path,
+        shared_cache_directory=shared_cache_dir.full_path,
+        additional_cache_directories=[user2_cache_dir.full_path],
+    )
+    backend1 = TestBackend(
+        cache_filename=cb.get_cache_path('model_1_0'),
+        return_value='a',
+    )
+    cb['model_1_0'] = backend1
+
+    # Simulate some calls by user1. None of these should hit the cache.
+    with self.subTest('user1_call_for_arg1'):
+      self.assertEqual('a', asyncio.run(backend1.get_value('arg1')))
+
+    # Save the cache to the default location (i.e., user's own cache directory).
+    cb.save_caches()
+    with self.subTest('by_default_should_only_write_to_own_cache_dir'):
+      self.assertTrue(os.path.exists(user1_cache_filename))
+      self.assertFalse(os.path.exists(shared_cache_filename))
+      self.assertFalse(os.path.exists(user2_cache_filename))
+
+    # If we choose, though, we can also save the cache to the shared cache
+    # directory. After this step, the two directories should have the same
+    # contents.
+    cb.save_caches(cache_directory=cb.shared_cache_directory)
+    with self.subTest('can_optionally_save_to_the_shared_directory'):
+      self.assertTrue(os.path.exists(shared_cache_filename))
+
+    # Populate the cache with some more values.
+    with self.subTest('user1_call_for_arg2'):
+      self.assertEqual('a', asyncio.run(backend1.get_value('arg2')))
+
+    # If we save the caches again, then the user's own cache directory should
+    # get updated (to contain both 'arg1' and 'arg2'), but the shared cached
+    # directory should be left untouched (i.e., with just 'arg1').
+    cb.save_caches()
+
+    # `BackendCaches` object for user2. When this user makes calls to the
+    # backend, it will always return 'b' (unless reading from cache).
+    cb2 = cached_backends.CachedBackends(
+        own_cache_directory=user2_cache_dir.full_path,
+        shared_cache_directory=shared_cache_dir.full_path,
+    )
+    backend2 = TestBackend(
+        cache_filename=cb2.get_cache_path('model_1_0'),
+        return_value='b',
+    )
+    cb2['model_1_0'] = backend2
+    cb2.load_caches()
+
+    # Simulate some calls by user2. Arg1 should hit the cache because it was
+    # saved to the shared cache directory.
+    with self.subTest('user2_call_for_arg1_should_hit_cache'):
+      self.assertEqual('a', asyncio.run(backend2.get_value('arg1')))
+
+    # Arg2 should miss the cache because it was only saved to user1's personal
+    # cache directory.
+    with self.subTest('user2_call_for_arg2_should_miss_cache'):
+      self.assertEqual('b', asyncio.run(backend2.get_value('arg2')))
+
+    # Arg3 should miss the cache as well because it is new.
+    with self.subTest('user2_call_for_arg3_should_miss_cache'):
+      self.assertEqual('b', asyncio.run(backend2.get_value('arg3')))
+
+    # Now let's save the cache for user2.
+    cb2.save_caches()
+    with self.subTest('user2_cache_should_be_saved_in_its_own_directory'):
+      self.assertTrue(os.path.exists(user2_cache_filename))
+
+    # If we reload the caches for user1, we should now have 3 different cache
+    # files to merge together (user1's own cache, the shared cache, and user2's
+    # cache as an "additional_cache_directory").
+    cb.load_caches()
+
+    # Arg1 should be saved to all 3 cache directories. Shared takes precedence.
+    with self.subTest('user1_2nd_call_for_arg1_should_hit_own_cache'):
+      self.assertEqual('a', asyncio.run(backend1.get_value('arg1')))
+
+    # Arg2 should be saved only to user1's own cache.
+    with self.subTest('user1_2nd_call_for_arg2_should_hit_own_cache'):
+      self.assertEqual('a', asyncio.run(backend1.get_value('arg2')))
+
+    # Arg3 should be saved only to the additional cache directory, so we fall
+    # back to it.
+    with self.subTest('user1_2nd_call_for_arg3_should_hit_additional_cache'):
+      self.assertEqual('b', asyncio.run(backend1.get_value('arg3')))
+
+  def test_save_caches_isolated(self):
+    own_cache_dir = self.create_tempdir()
+    other_cache_dir = self.create_tempdir()
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path
+    )
+    backend = TestBackend(
+        cache_filename=cb.get_cache_path('test_backend'),
+        return_value='test_value',
+    )
+    cb['test_backend'] = backend
+
+    # Populate the cache with some initial values.
+    _ = asyncio.run(backend.get_value('arg1'))
+    _ = asyncio.run(backend.get_value('arg2'))
+
+    with self.subTest('to_own_directory'):
+      # Call save_caches without directory argument.
+      cb.save_caches()
+
+      # Verify cache file exists in own_cache_directory.
+      expected_cache_path = os.path.join(
+          own_cache_dir.full_path, 'test_backend.json'
+      )
+      self.assertTrue(os.path.exists(expected_cache_path))
+
+      # Verify contents by loading into a new cache.
+      new_cache = caching.SimpleFunctionCache(
+          cache_filename=expected_cache_path
+      )
+      new_cache.load()
+      self.assertEqual(2, new_cache.get_key_count())
+      values_by_key = (
+          new_cache._cache_data.values_by_key  # pylint: disable=protected-access
+      )
+      self.assertLen(values_by_key, 2)
+      all_values = list(itertools.chain.from_iterable(values_by_key.values()))
+      self.assertCountEqual(['test_value', 'test_value'], all_values)
+
+    with self.subTest('to_specified_directory'):
+      # Call save_caches with directory argument.
+      cb.save_caches(cache_directory=other_cache_dir.full_path)
+
+      # Verify cache file exists in other_cache_dir.
+      expected_other_cache_path = os.path.join(
+          other_cache_dir.full_path, 'test_backend.json'
+      )
+      self.assertTrue(os.path.exists(expected_other_cache_path))
+
+      # Verify contents.
+      other_new_cache = caching.SimpleFunctionCache(
+          cache_filename=expected_other_cache_path
+      )
+      other_new_cache.load()
+      self.assertEqual(2, other_new_cache.get_key_count())
+      values_by_key_other = (
+          other_new_cache._cache_data.values_by_key  # pylint: disable=protected-access
+      )
+      self.assertLen(values_by_key_other, 2)
+      all_values_other = list(
+          itertools.chain.from_iterable(values_by_key_other.values())
+      )
+      self.assertCountEqual(['test_value', 'test_value'], all_values_other)
+
+  def test_save_caches_with_cache_enabled_backend(self):
+    @dataclasses.dataclass
+    class JustCacheEnabledBackend(caching.CacheEnabled, backends_base.Backend):
+      """A backend that is only CacheEnabled."""
+
+      return_value: str = 'default'
+
+      @caching.cache_method(name='get_value')
+      def get_value(self, arg: str) -> str:
+        del arg
+        return self.return_value
+
+    own_cache_dir = self.create_tempdir()
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path
+    )
+    backend_cache_path = os.path.join(
+        own_cache_dir.full_path, 'just_cache_enabled.json'
+    )
+    backend = JustCacheEnabledBackend(return_value='my_value')
+    backend.cache = caching.SimpleFunctionCache(
+        cache_filename=backend_cache_path
+    )
+    cb['just_cache_enabled_backend'] = backend
+
+    # Populate cache.
+    _ = asyncio.run(backend.get_value('some_arg'))
+
+    cb.save_caches()
+
+    self.assertTrue(os.path.exists(backend_cache_path))
+    new_cache = caching.SimpleFunctionCache(cache_filename=backend_cache_path)
+    new_cache.load()
+    self.assertEqual(1, new_cache.get_key_count())
+    values_by_key = (
+        new_cache._cache_data.values_by_key  # pylint: disable=protected-access
+    )
+    all_values = list(itertools.chain.from_iterable(values_by_key.values()))
+    self.assertCountEqual(['my_value'], all_values)
+
+  def test_cache_counters_diff(self):
+    own_cache_dir = self.create_tempdir()
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path
+    )
+    backend_cache_path = os.path.join(
+        own_cache_dir.full_path, 'test_backend.json'
+    )
+    backend = TestBackend(
+        cache_filename=backend_cache_path,
+        return_value='val',
+    )
+    cb['test_backend'] = backend
+
+    # 1. Verify initial counters are empty.
+    # pylint: disable=protected-access
+    self.assertEqual(
+        {'l1': {}},
+        cb.get_backend_counters('test_backend', diff_counters=True),
+    )
+    # pylint: enable=protected-access
+
+    # 2. Perform an operation (cache miss + add).
+    _ = asyncio.run(backend.get_value('arg1'))
+
+    # Verify counters increased.
+    # pylint: disable=protected-access
+    counters_step1 = cb.get_backend_counters('test_backend', diff_counters=True)
+    # pylint: enable=protected-access
+    self.assertEqual({'l1': {'get_miss': 1, 'add_new': 1}}, counters_step1)
+
+    # Check non-diffed counters
+    counters_total = cb.get_backend_counters(
+        'test_backend', diff_counters=False
+    )
+    self.assertEqual(counters_step1, counters_total)
+
+    # 3. Save and load caches. This updates the initial counters snapshot.
+    cb.save_caches()
+    cb.load_caches(overwrite=True)
+
+    # After reload, the diff should be zero for existing counters.
+    counters_after_load = cb.get_backend_counters(
+        'test_backend', diff_counters=True
+    )
+    expected_zeros_l1 = {k: 0 for k in counters_step1['l1']}
+    self.assertEqual({'l1': expected_zeros_l1}, counters_after_load)
+
+    # 4. Perform another operation.
+    _ = asyncio.run(backend.get_value('arg2'))
+
+    # Now counters should show the diff (increment since load).
+    counters_step4 = cb.get_backend_counters('test_backend', diff_counters=True)
+    self.assertEqual({'l1': {'get_miss': 1, 'add_new': 1}}, counters_step4)
+
+    # 5. Perform a cache hit operation.
+    _ = asyncio.run(backend.get_value('arg1'))
+    counters_step5 = cb.get_backend_counters('test_backend', diff_counters=True)
+    self.assertEqual(
+        {'l1': {'get_miss': 1, 'add_new': 1, 'get_hit': 1}},
+        counters_step5,
+    )
+
+  def test_two_layer_cache(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path
+    )
+    backend = TestBackendWithTwoLayerCache()
+    cb['two_layer'] = backend
+    asyncio.run(backend.get_value('arg1'))
+
+    counters = cb.get_backend_counters('two_layer')
+    self.assertIn('l1', counters)
+    self.assertIn('l2', counters)
+
+  def test_print_cache_summary_counters_diff(self):
+    own_cache_dir = self.create_tempdir()
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path,
+        enable_print_statements=True,
+    )
+    backend_cache_path = os.path.join(
+        own_cache_dir.full_path, 'test_backend.json'
+    )
+    backend = TestBackend(
+        cache_filename=backend_cache_path,
+        return_value='val',
+    )
+    cb['test_backend'] = backend
+
+    # 1. Verify initial counters are empty.
+    # pylint: disable=protected-access
+    self.assertEqual(
+        {'l1': {}},
+        cb.get_backend_counters('test_backend', diff_counters=True),
+    )
+    # pylint: enable=protected-access
+
+    # 2. Perform an operation (cache miss + add).
+    _ = asyncio.run(backend.get_value('arg1'))
+
+    # Verify counters increased.
+    # pylint: disable=protected-access
+    counters_step1 = cb.get_backend_counters('test_backend', diff_counters=True)
+    # pylint: enable=protected-access
+    self.assertEqual({'l1': {'get_miss': 1, 'add_new': 1}}, counters_step1)
+
+    # Check non-diffed counters
+    counters_total = cb.get_backend_counters(
+        'test_backend', diff_counters=False
+    )
+    self.assertEqual(counters_step1, counters_total)
+
+    # Check summary shows these counters.
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.print_cache_summary()
+    output = f.getvalue()
+    self.assertIn(
+        f'* Counters: {dict(sorted(counters_step1["l1"].items()))}', output
+    )
+
+    # 3. Save and load caches. This updates the initial counters snapshot.
+    cb.save_caches()
+    cb.load_caches(overwrite=True)
+
+    # After reload, the diff should be zero for existing counters.
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.print_cache_summary()
+    output = f.getvalue()
+
+    # We expect {k: 0, ...}
+    expected_zeros_l1 = {k: 0 for k in counters_step1['l1']}
+    self.assertIn(
+        f'* Counters: {dict(sorted(expected_zeros_l1.items()))}', output
+    )
+
+    # 4. Perform another operation.
+    _ = asyncio.run(backend.get_value('arg2'))
+
+    # Now counters should show the diff (increment since load).
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.print_cache_summary()
+    output = f.getvalue()
+
+    # The diff should correspond to the changes from the second operation.
+    # Since arg2 is new and similar to arg1, the diff should be equal to
+    # counters_step1.
+    self.assertIn(
+        f'* Counters: {dict(sorted(counters_step1["l1"].items()))}', output
+    )
+
+    # 5. Perform a cache hit operation.
+    _ = asyncio.run(backend.get_value('arg1'))
+    counters_step5 = cb.get_backend_counters('test_backend', diff_counters=True)
+    self.assertEqual(
+        {'l1': {'get_miss': 1, 'add_new': 1, 'get_hit': 1}},
+        counters_step5,
+    )
+
+  def test_print_cache_summary_sorted_counters(self):
+    """Verifies that the counters are printed in sorted order."""
+    own_cache_dir = self.create_tempdir()
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=own_cache_dir.full_path,
+        enable_print_statements=True,
+    )
+    backend_cache_path = os.path.join(
+        own_cache_dir.full_path, 'test_backend.json'
+    )
+    backend = TestBackend(
+        cache_filename=backend_cache_path,
+        return_value='val',
+    )
+    cb['test_backend'] = backend
+
+    # Manually populate counters in unsorted order.
+    cache = backend.cache
+    assert isinstance(cache, caching.SimpleFunctionCache)
+    cache._cache_data.counters['b'] = 2  # pylint: disable=protected-access
+    cache._cache_data.counters['a'] = 1  # pylint: disable=protected-access
+    cache._cache_data.counters['c'] = 3  # pylint: disable=protected-access
+
+    # Capture stdout.
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.print_cache_summary()
+    output = f.getvalue()
+
+    # Verify expected output format with sorted keys.
+    expected_counters = "{'a': 1, 'b': 2, 'c': 3}"
+    self.assertIn(f'* Counters: {expected_counters}', output)
+
+  def test_print_cache_summary_two_layer_cache(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path,
+        enable_print_statements=True,
+    )
+    backend = TestBackendWithTwoLayerCache()
+    cb['two_layer'] = backend
+    asyncio.run(backend.get_value('arg1'))
+
+    counters = cb.get_backend_counters('two_layer')
+    self.assertIn('l1', counters)
+    self.assertIn('l2', counters)
+
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.print_cache_summary()
+    output = f.getvalue()
+    self.assertIn('TwoLayerCache - Layer 1', output)
+    self.assertIn('TwoLayerCache - Layer 2', output)
+
+  def test_get_backend_cache_failures(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path
+    )
+    cb['not_cache_enabled'] = NotCacheEnabledBackend()
+    backend_non_simple = TestBackendWithTwoLayerCache()
+    cb['non_simple'] = backend_non_simple
+
+    with self.assertRaisesRegex(ValueError, 'No matching backend'):
+      cb.get_backend_cache('unknown')
+    with self.assertRaisesRegex(ValueError, 'not CacheEnabled'):
+      cb.get_backend_cache('not_cache_enabled')
+
+    self.assertIsNone(cb.get_backend_cache('non_simple'))
+
+  def test_load_missing_cache_file(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path,
+        enable_print_statements=True,
+    )
+    backend = TestBackend(
+        cache_filename=cb.get_cache_path('missing'),
+        return_value='a',
+    )
+    cb['missing'] = backend
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.load_backend_cache('missing')
+    self.assertIn('Cache file does not exist', f.getvalue())
+
+  def test_skip_saving_and_printing(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path,
+        enable_print_statements=True,
+    )
+    backend_no_filename = TestBackend()
+    cb['no_filename'] = backend_no_filename
+    backend_non_simple = TestBackendWithTwoLayerCache()
+    cb['non_simple'] = backend_non_simple
+    cb['not_cache_enabled'] = NotCacheEnabledBackend()
+
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.save_caches()
+      cb.print_cache_summary()
+    output = f.getvalue()
+    self.assertIn('Cache for no_filename is empty. Not saving.', output)
+    self.assertIn('not a SimpleFunctionCache. Ignoring.', output)
+    self.assertIn('Backend not_cache_enabled is not CacheEnabled', output)
+
+  def test_print_cache_summary_generic_cache(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path,
+        enable_print_statements=True,
+    )
+    backend = TestBackendWithGenericCache()
+    cb['generic_backend'] = backend
+
+    asyncio.run(backend.get_value('arg1'))
+
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+      cb.print_cache_summary()
+    output = f.getvalue()
+    self.assertIn('* generic_backend:', output)
+    self.assertIn('Cache contains', output)
+    self.assertIn('Counters:', output)
+
+  def test_clear_all_calls_in_progress(self):
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=self.create_tempdir().full_path
+    )
+    backend = TestBackend(
+        cache_filename=cb.get_cache_path('b'),
+        return_value='a',
+    )
+    cb['b'] = backend
+    cache = backend.cache
+    self.assertIsInstance(cache, caching.SimpleFunctionCache)
+    cache._calls_in_progress.add(('key', None))  # pylint: disable=protected-access
+    cb.clear_all_calls_in_progress()
+    self.assertEmpty(cache._calls_in_progress)  # pylint: disable=protected-access
+
+
+if __name__ == '__main__':
+  absltest.main()

@@ -817,6 +817,7 @@ def cache_method(
             sampling_key=sampling_key,
         )
       return value, (key, sampling_key)
+
     async def store(
         obj_with_cache: CacheEnabled[CachedType],
         value: CachedType,
@@ -1512,3 +1513,51 @@ class SimpleFunctionCache(
       # method in particular applies all the custom encoder transofrmations to
       # the individual fields provided via `metadata`.
       f.write(self._cache_data.to_json())
+
+
+def get_cache_filename(backend_name: Any) -> str:
+  """Returns an appropriately formatted cache filename for the given backend.
+
+  Args:
+    backend_name: An arbitrary string or enum that would uniquely identify the
+      backend within the context of the set of backends whose caches are being
+      managed in the same BackendCaches object (or whose caches will be saved in
+      the same directory). E.g., 'gemini-1.0-pro', 'gemini-1.5-flash', etc.
+  """
+  if not isinstance(backend_name, str):
+    backend_name = str(backend_name)
+  backend_name = backend_name.replace('.', '_')
+  backend_name = backend_name.replace('-', '_')
+  return f'{backend_name}.json'
+
+
+def diff_cache_data(*, before: _CacheData, after: _CacheData) -> _CacheData:
+  """Returns the difference between the two given cache data objects.
+
+  Note that this is not a perfect diff, as values_by_key maps key to a list of
+  entries, and counters map to counts of the events, but this function leaves
+  all entries which are in some way modified (ex. if there was a new entry in
+  values_by_key that has a different sampling key).
+
+  Args:
+    before: The cache data object to compare.
+    after: The cache data object to compare.
+
+  Returns:
+    The difference between the two given cache data objects.
+  """
+
+  def _diff_dict(before: dict[Any, Any], after: dict[Any, Any]):
+    return {k: v for k, v in after.items() if k not in before or v != before[k]}
+
+  return _CacheData(  # pytype: disable=wrong-arg-types
+      counters=collections.Counter(_diff_dict(before.counters, after.counters)),
+      values_by_key=_diff_dict(before.values_by_key, after.values_by_key),
+      num_used_values_by_key=_diff_dict(
+          before.num_used_values_by_key, after.num_used_values_by_key
+      ),
+      sample_id_by_sampling_key_by_key=_diff_dict(
+          before.sample_id_by_sampling_key_by_key,
+          after.sample_id_by_sampling_key_by_key,
+      ),
+  )

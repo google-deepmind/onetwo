@@ -1,0 +1,448 @@
+# Copyright 2026 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Manages collections of backends and their caches."""
+
+from collections.abc import Iterator, Mapping, Sequence
+import copy
+import dataclasses
+import os
+from typing import Any
+
+from onetwo.backends import backends_base
+from onetwo.core import caching
+
+
+
+
+
+@dataclasses.dataclass(kw_only=True)
+class CachedBackends(Mapping[str, backends_base.Backend]):
+  """Manages a set of backends with their caches.
+
+  Can be treated as a mapping from backend name (arbitrary name for display and
+  lookup purposes) to backend object, while also providing methods for managing
+  the caches. The assumption is that all of the backend caches are intended to
+  be stored in the same directory. In the case where one is working as part of
+  a group, the assumption is that the group maintains one shared cache directory
+  (which is updated only occasionally, via careful coordination), and on top of
+  that, each individual would have their own cache directory, which follows the
+  same structure as the shared cache directory, and which they can freely
+  update. Normally, the `cache_filename` attribute of each backend should be a
+  path returned by the `get_cache_path()` method of this object.
+
+  Typical syntax for creating a `CachedBackends` object:
+  ```
+    cached_backends = CachedBackends(
+        own_cache_directory=...,
+        shared_cache_directory=...,
+        additional_cache_directories=[...],
+    )
+    cached_backends['unique_backend_name_1'] = SomeLLMBackendClass(
+        ...,
+        cache_filename=cached_backends.get_cache_path('unique_backend_name_1')
+    cached_backends['unique_backend_name_2'] = SomeOtherBackendClass(
+        ...,
+        cache_filename=cached_backends.get_cache_path('unique_backend_name_2'))
+    ...
+  ```
+  and so on for each backend.
+
+  Attributes:
+    own_cache_directory: A directory owned by the user in which they can freely
+      save updates to the caches, without fear of clobbering anyone else's
+      changes. When we perform `save_backend_caches()`, it will write to
+      `own_cache_directory`.
+    shared_cache_directory: A directory containing an "official" cache file for
+      each of the relevant backends. If specified, then we will read from the
+      shared cache directory (in addition to the `own_cache_directory`) and give
+      precedence to its contents, but we only write to it under special
+      circumstances.
+    additional_cache_directories: If you want to automatically merge in content
+      from any of your teammates' cache directories or from a cache that was
+      output by a batch eval run, you can list the additional directories here.
+      These will be treated in a stritctly read-only manner.
+    enable_print_statements: If True, then print statements will be enabled.
+  """
+
+  own_cache_directory: str
+  shared_cache_directory: str | None = None
+  additional_cache_directories: Sequence[str] | None = None
+  enable_print_statements: bool = False
+
+  # The backends whose caches are being managed by this object. Mapping of
+  # backend name to backend object.
+  _backends: dict[str, backends_base.Backend] = dataclasses.field(
+      default_factory=dict
+  )
+
+  # Initial counters for each backend, captured when the backend was added or
+  # when its cache was loaded. Used to calculate the diff in counters.
+  # Structure: {backend_name: {cache_level: {counter_name: count}}}
+  _initial_counters: dict[str, dict[str, dict[str, int]]] = dataclasses.field(
+      default_factory=dict, init=False
+  )
+
+  def __getitem__(self, key: str):
+    return self._backends[key]
+
+  def __setitem__(self, key: str, item: backends_base.Backend):
+    if item.name:
+      if key != item.name:
+        raise ValueError(
+            f'Backend name {key} does not match backend name {item.name}.'
+        )
+    else:
+      item.name = key
+    self._backends[key] = item
+    self._update_initial_counters(key)
+
+  def __delitem__(self, key: str):
+    del self._backends[key]
+
+  def __iter__(self):
+    return iter(self._backends)
+
+  def __len__(self):
+    return len(self._backends)
+
+  def _update_initial_counters(self, backend_name: str):
+    """Updates the initial counters for the given backend."""
+    backend = self._backends.get(backend_name)
+    if not isinstance(backend, caching.CacheEnabled):
+      return
+    if backend.cache:
+      self._initial_counters[backend_name] = backend.cache.get_cache_counters()
+
+  def _diff_counters(self, current: Any, initial: Any) -> Any:
+    """Calculates the difference between current and initial counters."""
+    if isinstance(current, dict) and isinstance(initial, dict):
+      diff = {}
+      for k, v in current.items():
+        if k in initial:
+          diff[k] = self._diff_counters(v, initial[k])
+        else:
+          diff[k] = v
+      return diff
+    elif isinstance(current, (int, float)) and isinstance(
+        initial, (int, float)
+    ):
+      return current - initial
+    return current
+
+  def get_backend_counters(
+      self, backend_name: str, diff_counters: bool = True
+  ) -> dict[str, Any]:
+    """Returns the counters for the given backend.
+
+    Args:
+      backend_name: Name of the backend.
+      diff_counters: If True (default), returns the difference between the
+        current counters and the counters at the time the backend was added (or
+        loaded). If False, returns the absolute current counters.
+    """
+    backend = self._backends.get(backend_name)
+    if not isinstance(backend, caching.CacheEnabled):
+      return {}
+
+    if backend.cache:
+      current_counters = backend.cache.get_cache_counters()
+    else:
+      current_counters = {}
+
+    if not diff_counters:
+      return current_counters
+
+    initial_counters = self._initial_counters.get(backend_name, {})
+    return self._diff_counters(current_counters, initial_counters)
+
+  def get_cache_path(self, backend_name: str) -> str:
+    """Returns the path for caching a given backend.
+
+    Args:
+      backend_name: An arbitrary string identifying the backend, upon which the
+        cache filename will be based (as per `get_cache_filename()`). The name
+        should be sufficient to uniquely identify the backend within the context
+        of the set of backends whose caches are being managed in the same
+        `CachedBackends` object (or whose caches will be saved in the same
+        directory). E.g., 'gemini_1_0_pro', 'gemini_1_5_flash', 'search_engine',
+        etc.
+    """
+    return os.path.join(
+        self.own_cache_directory, caching.get_cache_filename(backend_name)
+    )
+
+  def _simple_function_caches(
+      self,
+  ) -> Iterator[tuple[str, caching.SimpleFunctionCache]]:
+    """Yields backends that are FileCacheEnabled and use SimpleFunctionCache."""
+    for backend_name, backend in self._backends.items():
+      if not isinstance(backend, caching.CacheEnabled):
+        if self.enable_print_statements:
+          print(f'Backend {backend_name} is not CacheEnabled. Ignoring.')
+        continue
+      cache = backend.cache
+      if not isinstance(cache, caching.SimpleFunctionCache):
+        if self.enable_print_statements:
+          print(
+              f'Cache of backend {backend_name} is not a SimpleFunctionCache.'
+              ' Ignoring.'
+          )
+        continue
+      yield (backend_name, cache)
+
+  def get_backend_cache(
+      self, backend_name: str
+  ) -> caching.SimpleFunctionCache | None:
+    """Returns the cache for the given backend name."""
+    backend = self._backends.get(backend_name, None)
+    if backend is None:
+      raise ValueError(
+          f'No matching backend found for backend name: {backend_name}'
+      )
+    if not isinstance(backend, caching.CacheEnabled):
+      raise ValueError(
+          f'Backend {backend_name} is not CacheEnabled. Not loading.'
+      )
+    cache = backend.cache
+    if not isinstance(cache, caching.SimpleFunctionCache):
+      if self.enable_print_statements:
+        print(
+            f'Cache of backend {backend_name} is not a SimpleFunctionCache. Not'
+            ' loading.'
+        )
+      return
+    return cache
+
+  def load_backend_cache(self, backend_name: str, *, overwrite: bool = True):
+    """Checks if the cache file(s) already exist, in which case we load them.
+
+    Args:
+      backend_name: Name of the backend for which to load the cache.
+      overwrite: If True, then completely replaces the current in-memory cache
+        with the contents of the cache file(s). If False, then preserves the
+        current in-memory cache contents, while merging in any additional
+        content from the file(s).
+    """
+    cache = self.get_backend_cache(backend_name)
+    if cache is None:
+      return
+
+    cache_filenames = []
+    cache_file_basename = os.path.basename(cache.cache_filename)
+    if self.shared_cache_directory:
+      shared_cache_filename = os.path.join(
+          self.shared_cache_directory, cache_file_basename
+      )
+      cache_filenames.append(shared_cache_filename)
+    if cache.cache_filename and cache.cache_filename not in cache_filenames:
+      cache_filenames.append(cache.cache_filename)
+    if self.additional_cache_directories:
+      for cache_directory in self.additional_cache_directories:
+        cache_filename = os.path.join(cache_directory, cache_file_basename)
+        if cache_filename not in cache_filenames:
+          cache_filenames.append(cache_filename)
+
+    if self.enable_print_statements:
+      if cache_filenames:
+        print(
+            f'Loading {len(cache_filenames)} cache file(s) for {backend_name}.'
+        )
+      else:
+        print(f'No cache files specified for {backend_name}.')
+
+    for cache_filename in cache_filenames:
+      if os.path.exists(cache_filename):
+        cache_size_before = cache.get_key_count()
+        if self.enable_print_statements:
+          print(f'Loading cache from {cache_filename} ({overwrite=}).')
+
+        cache.load(overwrite=overwrite, cache_filename=cache_filename)
+
+        if self.enable_print_statements:
+          cache_size_after = cache.get_key_count()
+          print(
+              f'Loaded {cache_size_after - cache_size_before} items: '
+              f'{cache_size_before} => {cache_size_after}.'
+          )
+        overwrite = False
+      else:
+        if self.enable_print_statements:
+          print(f'Cache file does not exist: {cache_filename}')
+
+    self._update_initial_counters(backend_name)
+
+  def load_caches(self, *, overwrite: bool = True):
+    """Loads the caches of all the currently managed backends."""
+    for backend_name in self._backends:
+      self.load_backend_cache(backend_name, overwrite=overwrite)
+
+  # pylint: disable=protected-access
+  def extract_cache_data(self) -> dict[str, caching._CacheData]:
+    """Returns a mapping of backend name to a copy of its cache data."""
+    result = {}
+    for backend_name in self._backends:
+      backend = self._backends[backend_name]
+      if not isinstance(backend, caching.FileCacheEnabled):
+        continue
+      cache_handler = backend._cache_handler
+      if not isinstance(cache_handler, caching.SimpleFunctionCache):
+        raise ValueError(
+            f'Backend {backend_name} has an unsupported cache type'
+            f' ({type(cache_handler)}). Current implementation of'
+            ' CachedBackends only supports SimpleFunctionCache.'
+        )
+      cache_data = cache_handler._cache_data
+      result[backend_name] = copy.deepcopy(cache_data)
+    return result
+
+  def subtract_cache_data(self, cache_data: dict[str, caching._CacheData]):
+    """Updates all currently managed backend caches to contain the just diff.
+
+    This can be used, for example, to determine which specific contents were
+    added to the backend caches during a given experiment run. E.g., if one
+    were to run a large number of experiments in parallel, all starting from
+    the same (potentially large) existing cache file, it can be useful at the
+    end of the experiments to save to file just the contents that were added
+    to each backend cache during the given experiment run (to avoid expensive
+    file I/O on large amounts of duplicate content) and then merge all of those
+    diffs together with the original cache file to create a single new
+    all-encompassing cache file for each backend at the very end.
+
+    Args:
+      cache_data: The cache data to diff against. In the motivating use case,
+        this would typically represent the "original" contents of the backend
+        caches prior to the current experiment run.
+    """
+    for backend_name, cache in self._simple_function_caches():
+      self_cache_data = cache._cache_data
+      self_cache_size = cache.get_key_count()
+
+      if backend_name not in cache_data:
+        if self.enable_print_statements:
+          print(f'Backend {backend_name} not found in cache data to subtract.')
+        continue
+      other_cache_data = cache_data[backend_name]
+
+      cache._cache_data = caching.diff_cache_data(
+          after=self_cache_data, before=other_cache_data
+      )
+
+      if self.enable_print_statements:
+        new_cache_size = cache.get_key_count()
+        print(f'{backend_name}: {self_cache_size} => {new_cache_size}')
+      # pylint: enable=protected-access
+
+  def save_caches(
+      self,
+      *,
+      cache_directory: str | None = None,
+  ):
+    """Saves the caches of all managed backends that use SimpleFunctionCache.
+
+    Args:
+      cache_directory: If specified, then will save the caches to this
+        directory. Otherwise, will save the caches to the location configured
+        when the backend was created (typically under `own_cache_directory`).
+    """
+    for backend_name, cache in self._simple_function_caches():
+      if cache.get_key_count() == 0:
+        if self.enable_print_statements:
+          print(f'Cache for {backend_name} is empty. Not saving.')
+        continue
+      cache_filename = cache.cache_filename
+      if not cache_filename:
+        if self.enable_print_statements:
+          print(f'No cache filename for backend {backend_name}. Not saving.')
+        continue
+      if cache_directory:
+        cache_filename = os.path.join(
+            cache_directory, os.path.basename(cache_filename)
+        )
+      if self.enable_print_statements:
+        print(f'Saving cache for {backend_name} to {cache_filename}.')
+      cache.save(cache_filename=cache_filename, overwrite=True)
+
+  def print_cache_summary(self):
+    """Prints a summary of the caches of all the currently managed backends."""
+    if not self.enable_print_statements:
+      return
+
+    def _print_single_cache_summary(
+        cache, initial_counters: Mapping[str, int] | None = None
+    ):
+      """Prints a summary of the cache of a single backend."""
+      if isinstance(cache, caching.SimpleFunctionCache):
+        cache_data = cache._cache_data  # pylint: disable=protected-access
+        counters = dict(cache_data.counters)
+        num_calls_in_progress = len(cache.get_calls_in_progress())
+      elif hasattr(cache, 'get_cache_counters') and hasattr(
+          cache, 'get_key_count'
+      ):
+        all_counters = cache.get_cache_counters()
+        level = next(iter(all_counters)) if all_counters else ''
+        counters = dict(all_counters.get(level, {}))
+        num_calls_in_progress = len(cache.get_calls_in_progress())
+      else:
+        print(f'  * Ignoring unsupported cache type: {type(cache)}')
+        return
+
+      print(f'  * Cache contains {cache.get_key_count()} items.')
+      if initial_counters:
+        counters = self._diff_counters(counters, initial_counters)
+      print(f'  * Counters: {dict(sorted(counters.items()))}')
+      print(f'  * Calls in progress: {num_calls_in_progress}')
+
+    print('Cache summary:')
+    for backend_name, backend in self._backends.items():
+      if not isinstance(backend, caching.CacheEnabled):
+        print(f'Backend {backend_name} is not CacheEnabled. Ignoring.')
+        continue
+      cache = backend.cache
+      initial_counters = self._initial_counters.get(backend_name)
+      if isinstance(cache, caching.TwoLayerCache):
+        l1_initial = initial_counters.get('l1') if initial_counters else None
+        l2_initial = initial_counters.get('l2') if initial_counters else None
+        print(f'* {backend_name}: TwoLayerCache - Layer 1')
+        _print_single_cache_summary(cache.l1_cache, l1_initial)
+        print(f'* {backend_name}: TwoLayerCache - Layer 2')
+        _print_single_cache_summary(cache.l2_cache, l2_initial)
+      else:
+        header = (
+            cache.cache_filename
+            if isinstance(cache, caching.SimpleFunctionCache)
+            else ''
+        )
+        print(f'* {backend_name}: {header}')
+        _print_single_cache_summary(
+            cache,
+            initial_counters.get('l1') if initial_counters else None,
+        )
+
+  def clear_all_calls_in_progress(self):
+    """Clears the record of in-progress calls for all CacheEnabled backends."""
+    for backend_name, backend in self._backends.items():
+      if not isinstance(backend, caching.CacheEnabled):
+        continue
+      cache = backend.cache
+      if not hasattr(cache, 'get_calls_in_progress'):
+        continue
+      calls_in_progress = cache.get_calls_in_progress()
+      if calls_in_progress:
+        if self.enable_print_statements:
+          print(f'Clearing calls in progress for {backend_name}.')
+          print(f'BEFORE: {len(calls_in_progress)}')
+        calls_in_progress.clear()
+        if self.enable_print_statements:
+          print(f'AFTER: {len(calls_in_progress)}')
