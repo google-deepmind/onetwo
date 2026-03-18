@@ -283,12 +283,15 @@ class LLMForTest(backends_base.Backend):
   def count_tokens(self, content: str | content_lib.ChunkList) -> int:
     if isinstance(content, content_lib.ChunkList):
       content = content.to_simple_string()
-    return len(content.split(' '))
+    return len(content)
 
   def tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
     if isinstance(content, content_lib.ChunkList):
       content = content.to_simple_string()
-    return len(content.split(' ')) * [123]
+    return [ord(c) for c in content]
+
+  def detokenize(self, tokens: Sequence[int]) -> str | content_lib.ChunkList:
+    return ''.join([chr(token) for token in tokens])
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def generate_object(
@@ -319,6 +322,7 @@ class LLMForTest(backends_base.Backend):
     llm.count_tokens.configure(self.count_tokens)
     if register_tokenize:
       llm.tokenize.configure(self.tokenize)
+      llm.detokenize.configure(self.detokenize)
 
 
 @batching.add_batching

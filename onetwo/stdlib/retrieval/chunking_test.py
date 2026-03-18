@@ -12,33 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Sequence
-from unittest import mock
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
-from onetwo.builtins import llm
+from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
-from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 
-async def mock_count_tokens_fn(text: str) -> int:
-  return len(text)
-
-
-async def mock_tokenize_fn(text: str) -> Sequence[int]:
-  return [ord(c) for c in text]
-
-
-@executing.make_executable  # pytype: disable=wrong-arg-types
-async def mock_detokenize_fn(tokens: Sequence[int]) -> str:
-  return ''.join([chr(token) for token in tokens])
-
-
 class ChunkingTest(parameterized.TestCase):
+
+  def setUp(self):
+    """Register LLMForTest backend."""
+    super().setUp()
+    backend = backends_test_utils.LLMForTest()
+    backend.register(register_tokenize=True)
 
   def testNoChunkingDefaultFormat(self):
     document = retrieval_data_structures.Document(
@@ -82,56 +71,26 @@ class ChunkingTest(parameterized.TestCase):
       self.assertEqual(output_chunk.metadata, document.metadata)
 
   def testTruncateStringToMaxTokens(self):
-    with (
-        mock.patch.object(
-            llm, 'count_tokens', autospec=True
-        ) as mock_count_tokens,
-        mock.patch.object(llm, 'detokenize', autospec=True) as mock_detokenize,
-        mock.patch.object(llm, 'tokenize', autospec=True) as mock_tokenize,
-    ):
-      mock_count_tokens.side_effect = mock_count_tokens_fn
-      mock_tokenize.side_effect = mock_tokenize_fn
-      mock_detokenize.side_effect = mock_detokenize_fn
-      text = 'hello world'
-      with self.subTest('truncate_to_6_tokens'):
-        truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 6))
-        # Trimming is done by the chunking method, not the truncation method.
-        self.assertEqual(truncated_text, 'hello ')
+    text = 'hello world'
+    with self.subTest('truncate_to_6_tokens'):
+      truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 6))
+      # Trimming is done by the chunking method, not the truncation method.
+      self.assertEqual(truncated_text, 'hello ')
 
-      with self.subTest('truncate_to_60_tokens'):
-        truncated_text = ot.run(
-            chunking.truncate_string_to_max_tokens(text, 60)
-        )
-        self.assertEqual(truncated_text, 'hello world')
+    with self.subTest('truncate_to_60_tokens'):
+      truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 60))
+      self.assertEqual(truncated_text, 'hello world')
 
   def testFilterByMaxTokens(self):
-    with (
-        mock.patch.object(
-            llm, 'count_tokens', autospec=True
-        ) as mock_count_tokens,
-        mock.patch.object(llm, 'detokenize', autospec=True) as mock_detokenize,
-        mock.patch.object(llm, 'tokenize', autospec=True) as mock_tokenize,
-    ):
-      mock_count_tokens.side_effect = mock_count_tokens_fn
-      mock_tokenize.side_effect = mock_tokenize_fn
-      mock_detokenize.side_effect = mock_detokenize_fn
-      texts = ['one', 'two', 'three', 'four']
-      filtered_texts = ot.run(chunking.filter_by_max_tokens(texts, 10))
-      self.assertEqual(filtered_texts, ['one', 'two', 'thre'])
+    texts = ['one', 'two', 'three', 'four']
+    filtered_texts = ot.run(chunking.filter_by_max_tokens(texts, 10))
+    self.assertEqual(filtered_texts, ['one', 'two', 'thre'])
 
   @parameterized.named_parameters(
       ('strip_whitespace_true', True),
       ('strip_whitespace_false', False),
   )
-  @mock.patch.object(llm, 'count_tokens', autospec=True)
-  @mock.patch.object(llm, 'detokenize', autospec=True)
-  @mock.patch.object(llm, 'tokenize', autospec=True)
-  def testChunkByMaxTokens(
-      self, strip_whitespace, mock_tokenize, mock_detokenize, mock_count_tokens
-  ):
-    mock_count_tokens.side_effect = mock_count_tokens_fn
-    mock_tokenize.side_effect = mock_tokenize_fn
-    mock_detokenize.side_effect = mock_detokenize_fn
+  def testChunkByMaxTokens(self, strip_whitespace):
     document = retrieval_data_structures.Document(content='hello world')
     chunker = chunking.ChunkByMaxTokens(
         max_tokens_per_chunk=6, strip_whitespace=strip_whitespace
@@ -143,8 +102,6 @@ class ChunkingTest(parameterized.TestCase):
         ),
         retrieval_data_structures.Document(content='world'),
     ]
-    # Note that in this case, tokenization and concatenation are commutative,
-    # so the fast chunker will produce the same chunks as the regular chunker.
     with self.subTest('chunker_is_equivalent'):
       self.assertEqual(
           chunks,
@@ -175,28 +132,16 @@ class ChunkingTest(parameterized.TestCase):
       overlap_window,
       expected_chunks,
   ):
-    with (
-        mock.patch.object(
-            llm, 'count_tokens', autospec=True
-        ) as mock_count_tokens,
-        mock.patch.object(llm, 'detokenize', autospec=True) as mock_detokenize,
-        mock.patch.object(llm, 'tokenize', autospec=True) as mock_tokenize,
-    ):
-      mock_count_tokens.side_effect = mock_count_tokens_fn
-      mock_tokenize.side_effect = mock_tokenize_fn
-      mock_detokenize.side_effect = mock_detokenize_fn
-      document = retrieval_data_structures.Document(content='hello world')
-      chunker = chunking.ChunkByMaxTokens(
-          max_tokens_per_chunk=6, overlap_window=overlap_window
+    document = retrieval_data_structures.Document(content='hello world')
+    chunker = chunking.ChunkByMaxTokens(
+        max_tokens_per_chunk=6, overlap_window=overlap_window
+    )
+    chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+    with self.subTest('chunker_is_equivalent'):
+      self.assertEqual(
+          chunks,
+          expected_chunks,
       )
-      chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
-      # Note that in this case, tokenization and concatenation are commutative,
-      # so the fast chunker will produce the same chunks as the regular chunker.
-      with self.subTest('chunker_is_equivalent'):
-        self.assertEqual(
-            chunks,
-            expected_chunks,
-        )
 
 
 if __name__ == '__main__':
