@@ -20,6 +20,31 @@ from typing import Any
 import dataclasses_json
 from onetwo.core import content as content_lib
 
+# ============================================================================
+# Built-in metadata fields that apply to documents being outputed by chunkers.
+# ============================================================================
+
+# Chunkers produce new documents from a given one. The most popular chunkers
+# split documents into several shorter documents that contain finer-grained
+# information. These shorter documents are therefore easier to retrieve and
+# more digestible to the LLM.
+# Chunkers that might generate more than one chunk from a given document or
+# return a single chunk that is a modified version of the original document
+# should populate these fields.
+
+# **chunk_number**: The chunk number of the document.
+# This field denotes the position of the chunk within a document.
+# The value associated with this field should be 1-indexed.
+METADATA_FIELD_CHUNK_NUMBER = 'chunk_number'
+
+# **total_number_of_chunks**: This field denotes the total number
+# of chunks that the document was split into.
+METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS = 'total_number_of_chunks'
+
+# **original_doc_id**: The id of the original document producing
+# the chunk.
+METADATA_FIELD_ORIGINAL_DOC_ID = 'original_doc_id'
+
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)

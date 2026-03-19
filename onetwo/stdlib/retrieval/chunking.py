@@ -26,6 +26,12 @@ from onetwo.core import tracing
 from onetwo.core import utils
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
+_ORIGINAL_DOC_ID = retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID
+_CHUNK_NUMBER = retrieval_data_structures.METADATA_FIELD_CHUNK_NUMBER
+_TOTAL_NUMBER_OF_CHUNKS = (
+    retrieval_data_structures.METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS
+)
+
 
 class Chunker(Protocol):
   """Generic interface for a strategy that converts documents to chunks.
@@ -45,7 +51,30 @@ class Chunker(Protocol):
 
     Args:
       document: The document to chunk.
+
+    Returns:
+      An iterable of documents. If the chunking strategy produces more than
+      one chunk from a given document, or a single chunk that is not equal to
+      the original document, then the metadata of the chunk should include the
+      built-in fields defined in `retrieval_data_structures` to keep track of
+      the original document producing the chunks and the position of the chunk
+      within the original document. No-op Chunkers such as NoChunking are not
+      required to populate these metadata fields.
     """
+
+
+@dataclasses.dataclass(kw_only=True)
+class NoChunking(Chunker):
+  """Simple chunker that returns the original document as-is."""
+
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  @executing.make_executable(copy_self=False)
+  async def __call__(
+      self,
+      document: retrieval_data_structures.Document,
+  ) -> Iterable[retrieval_data_structures.Document]:
+    """Returns `document` as-is."""
+    return [document]
 
 
 # TODO: Implement proper support for multimodal content.
@@ -60,13 +89,16 @@ class TextChunker(Chunker):
   logic for transforming the text of the document (and only the text). Any other
   attributes of the document (e.g., title, metadata) will be passed through to
   the output chunks as-is, and can be used to modify the text of the document
-  before chunking or after chunking.
+  before chunking or after chunking. The metadata of the chunk will additionally
+  include `original_doc_id`, `chunk_number` and `total_number_of_chunks`, which
+  can be used for formatting the text in the chunk to locate the chunk within
+  the document.
 
   Attributes:
     document_format: A string template that can be used to format the text of
       the document before chunking. The template may refer to the following
       fields: `text`, `title`, `doc_id`, and any other fields in the `metadata`
-      dictionary of the document. Example: '{text} (Title: {title})'.
+        dictionary of the document. Example: '{text} (Title: {title})'.
     chunk_format: A string template that can be used to format the text of the
       chunk after chunking. The template may refer to the following fields:
       `text`, `title`, `doc_id`, and any other fields in the `metadata` field of
@@ -109,22 +141,22 @@ class TextChunker(Chunker):
     """
     document_text = self._format_text(document, self.document_format)
     chunks = []
-    for chunk_text in await self._chunk_text(document_text):  # pytype: disable=wrong-arg-count
+    for i, chunk_text in enumerate(await self._chunk_text(document_text)):  # pytype: disable=wrong-arg-count
       chunk = copy.deepcopy(document)
       chunk.content = chunk_text
-      chunk.content = self._format_text(chunk, self.chunk_format)
+      # Modify the doc_id of every chunk to produce a unique id for each chunk.
+      chunk.doc_id = f'{document.doc_id}_{i+1}'
       chunks.append(chunk)
+
+    # Add additional metadata to chunks.
+    # This is done in order to keep track of the order of the chunks.
+    total_number_of_chunks = len(chunks)
+    for i, chunk in enumerate(chunks):
+      chunk.metadata[_ORIGINAL_DOC_ID] = document.doc_id
+      chunk.metadata[_CHUNK_NUMBER] = i + 1
+      chunk.metadata[_TOTAL_NUMBER_OF_CHUNKS] = total_number_of_chunks
+      chunk.content = self._format_text(chunk, self.chunk_format)
     return chunks
-
-
-@dataclasses.dataclass(kw_only=True)
-class NoChunking(TextChunker):
-  """Trivial chunker that returns the original document as-is."""
-
-  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
-  async def _chunk_text(self, text: str) -> Iterable[str]:
-    """Returns `document` as-is."""
-    return [text]
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
