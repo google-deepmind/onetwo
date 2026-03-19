@@ -14,16 +14,18 @@
 
 import collections
 from collections.abc import Iterator
+import dataclasses
 import datetime
 import os
 import pprint
 import random
 import string
 import time
-from typing import Any, Final, TypeAlias, cast
+from typing import Any, Final, Mapping, TypeAlias, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import dataclasses_json
 import freezegun
 import immutabledict
 from onetwo.agents import agents_base
@@ -42,13 +44,19 @@ from onetwo.evaluation import agent_evaluation
 
 
 
-_Example: TypeAlias = agent_evaluation.Example
+_Example: TypeAlias = Mapping[str, Any]
 _ExecutionResult: TypeAlias = results.ExecutionResult
 _EvaluationResult: TypeAlias = results.EvaluationResult
 _EvaluationSummary: TypeAlias = results.EvaluationSummary
 _EvaluationTiming: TypeAlias = results.EvaluationTiming
 _UpdateListState: TypeAlias = agents_base.UpdateListState
 
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class CustomExample:
+  question: str | content_lib.ChunkList = ''
+  answer: str | None = None
 
 _EXAMPLES_WITH_ONE_OPTION: Final[tuple[_Example, ...]] = tuple([
     immutabledict.immutabledict({
@@ -1073,6 +1081,28 @@ class AgentEvaluationTest(parameterized.TestCase):
 
     with self.subTest('metrics_should_reflect_expected_results'):
       self.assertEqual(1.0, metrics.get('accuracy', None))
+
+  def test_custom_example_type(self):
+    examples = [
+        CustomExample(question='a', answer='b'),
+        CustomExample(question='c', answer='c'),
+    ]
+    summary = agent_evaluation.evaluate(
+        strategy=ordinary_identity_function,
+        examples=examples,
+        inputs_extractor=lambda x: ([x.question], {}),
+        target_extractor=lambda x: x.answer,
+        metric_functions={'accuracy': ordinary_accuracy_function},
+        output_results=True,
+    )
+    _reset_times(summary)
+
+    with self.subTest('metrics'):
+      self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
+
+    with self.subTest('outputs'):
+      self.assertEqual('a', summary.results[0].outputs['output'])
+      self.assertEqual('c', summary.results[1].outputs['output'])
 
 
 if __name__ == '__main__':

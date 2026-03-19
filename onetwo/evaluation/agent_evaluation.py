@@ -41,8 +41,7 @@ import tqdm
 _Args = ParamSpec('_Args')
 _I = TypeVar('_I')
 _O = TypeVar('_O')
-
-Example: TypeAlias = Mapping[str, Any]
+_Example = TypeVar('_Example')
 
 
 MetricValue: TypeAlias = float | None
@@ -62,7 +61,7 @@ EvaluationMetricPossibleReturnTypes: TypeAlias = (
 )
 
 
-class MetricFunctionWithExampleArg(Protocol[_O]):
+class MetricFunctionWithExampleArg(Protocol[_O, _Example]):
   """Function to compute an evaluation metric for a given example.
 
   The most basic notion of a metric function is that it takes a target and a
@@ -91,7 +90,7 @@ class MetricFunctionWithExampleArg(Protocol[_O]):
       self,
       target: _O,
       prediction: _O,
-      example: Example | None = None,
+      example: _Example | None = None,
   ) -> EvaluationMetricPossibleReturnTypes:
     """Returns the value of the metric (+extra info?) for a given example."""
     ...
@@ -219,22 +218,30 @@ async def _execute_with_tracing(
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
 async def _evaluate_example(
-    strategy: Callable[[_I], _O] | Callable[[_I], executing.Executable[_O]],
-    example: Example,
+    strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
+    example: _Example,
     *,
-    inputs_extractor: Callable[[Example], _I] = lambda x: x['question'],
-    target_extractor: Callable[[Example], _O] = lambda x: x['answer'],
+    inputs_extractor: Callable[
+        [_Example], tuple[Sequence[Any], Mapping[str, Any]]
+    ] = lambda x: ([x['question']], {}),
+    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],
     metric_functions: dict[str, MetricFunction] | None = None,
     output_final_states: bool = False,
     enable_tracing: bool = True,
-) -> tuple[Example, results.EvaluationSummary]:
+) -> tuple[_Example, results.EvaluationSummary]:
   """Evaluates the given strategy on the given example.
 
   Args:
-    strategy: The prompting strategy to evaluate.
-    example: The example to evaluate the strategy on..
-    inputs_extractor: Function that given an example returns a tuple of args and
-      kwargs to pass as inputs to the strategy.
+    strategy: The prompting strategy to evaluate. Can be an arbitrary callable
+      (async or ordinary function, decorated with `@executing.make_executable`
+      or not, agent, other callable, etc.). The arguments of `strategy` could be
+      any arbitrary arguments (which must be compatible with whatever args and
+      kwargs get returned by the `inputs_extractor` -- but that can only be
+      validated at runtime, not at compile time).
+    example: The example to evaluate the strategy on.
+    inputs_extractor: Function that given an example returns a tuple of `(args,
+      kwargs)`, i.e., `tuple[Sequence[Any], Mapping[str, Any]]` to pass as
+      inputs to the strategy.
     target_extractor: Function that given an example returns the target value
       (if any) to which the prediction can be compared for determining accuracy.
     metric_functions: Mapping of metric name to a function that calculates the
@@ -403,26 +410,30 @@ async def _evaluate_example(
 
 
 def evaluate(
-    strategy: Callable[[_I], _O] | Callable[[_I], executing.Executable[_O]],
-    examples: Iterable[Example],
+    strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
+    examples: Iterable[_Example],
     *,
-    inputs_extractor: Callable[[Example], _I] = lambda x: ([x['question']], {}),
-    target_extractor: Callable[[Example], _O] = lambda x: x['answer'],
+    inputs_extractor: Callable[
+        [_Example], tuple[Sequence[Any], Mapping[str, Any]]
+    ] = lambda x: ([x['question']], {}),
+    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],
     metric_functions: Mapping[str, MetricFunction] | None = None,
     aggregation_functions: Sequence[AggregationFunction] | None = None,
     callback: (
-        Callable[[int, Example, results.EvaluationSummary], None] | None
+        Callable[[int, _Example, results.EvaluationSummary], None] | None
     ) = None,
     examples_total_num: int | None = None,
     output_results: bool = False,
     output_results_debug: bool = False,
     output_final_states: bool = False,
     output_filter: (
-        Callable[[Example, results.EvaluationResult], bool] | None
+        Callable[[_Example, results.EvaluationResult], bool] | None
     ) = None,
-    example_key_function: Callable[[int, Example], str | int] | None = None,
+    example_key_function: Callable[[int, _Example], str | int] | None = None,
     chunk_size: int = 100,
     enable_tracing: bool = True,
+    dataset_name: str | None = None,
+    dataset_description: str | None = None,
 ) -> results.EvaluationSummary:
   # Disable formatting of the following docstring to preserve readability of the
   # Args section.
@@ -432,10 +443,14 @@ def evaluate(
   Args:
     strategy: Prompting strategy to evaluate. Can be an arbitrary callable
       (async or ordinary function, decorated with `@executing.make_executable`
-      or not, agent, other callable, etc.).
+      or not, agent, other callable, etc.). The arguments of `strategy` could
+      be any arbitrary arguments (which must be compatible with whatever args
+      and kwargs get returned by the `inputs_extractor` -- but that can only
+      be validated at runtime, not at compile time).
     examples: Examples on which to evaluate the strategy.
-    inputs_extractor: Function that given an example returns a tuple of args and
-      kwargs to pass as inputs to the strategy.
+    inputs_extractor: Function that given an example returns a tuple of
+      `(args, kwargs)`, i.e., `tuple[Sequence[Any], Mapping[str, Any]]` to pass
+      as inputs to the strategy.
     target_extractor: Function that given an example returns the target value
       (if any) to which the prediction can be compared for determining accuracy.
     metric_functions: Mapping of metric name to a function that calculates the
@@ -467,6 +482,8 @@ def evaluate(
     chunk_size: Number of examples to extract at a time for parallel evaluation
       while iterating through `examples`.
     enable_tracing: Whether to enable tracing for each example evaluation.
+    dataset_name: Name of the dataset being evaluated on.
+    dataset_description: Description of the dataset being evaluated on.
 
   Returns:
     EvaluationSummary containing the evaluation results.
@@ -485,6 +502,11 @@ def evaluate(
           start_time=datetime.datetime.now(), end_time=datetime.datetime.now()
       ),
   )
+  if dataset_name is not None:
+    evaluation_summary.info['dataset_name'] = dataset_name
+  if dataset_description is not None:
+    evaluation_summary.info['dataset_description'] = dataset_description
+
   executables = (
       _evaluate_example(
           strategy=strategy,
