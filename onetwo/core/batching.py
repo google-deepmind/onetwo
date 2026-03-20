@@ -677,6 +677,13 @@ def run(
     (return_value, execution_result) if enable_tracing=True.
   """
 
+  # Inherit the tracer from the parent context if none was explicitly provided.
+  # This is necessary because asyncio_run_wrapper may create a new event loop,
+  # and running_context unconditionally sets execution_tracer, which would
+  # overwrite any tracer set by an outer tracing.run() call.
+  if tracer is None:
+    tracer = tracing.execution_tracer.get(None)
+
   async def wrap():
     async with running_context(enable_batching=enable_batching, tracer=tracer):
       # Run the coroutine.
@@ -713,6 +720,9 @@ def stream_with_callback(
       the whole execution.
     tracer: Optional custom tracer to use for recording the execution.
   """
+  # Inherit the tracer from the parent context if none was explicitly provided.
+  if tracer is None:
+    tracer = tracing.execution_tracer.get(None)
 
   async def wrapper():
     async with running_context(enable_batching=enable_batching, tracer=tracer):
@@ -798,6 +808,10 @@ def safe_stream(
     An iterator that yields the results yielded by the iterator or a pair
     (result, execution_result).
   """
+  # Inherit the tracer from the parent context if none was explicitly provided.
+  if tracer is None:
+    tracer = tracing.execution_tracer.get(None)
+
   async def wrap():
     async with running_context(enable_batching=enable_batching, tracer=tracer):
       execution_result = tracing.execution_context.get(None)

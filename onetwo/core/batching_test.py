@@ -25,6 +25,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import batching
 from onetwo.core import executing
+from onetwo.core import results as ot_results
 from onetwo.core import tracing
 from onetwo.core import utils
 
@@ -114,7 +115,8 @@ class BatchingTest(parameterized.TestCase):
       ('function_batchingfunction_list', False, True, False),
   )
   def test_batching_decorators(
-      self, method, has_batching_function, call_normal_signature):
+      self, method, has_batching_function, call_normal_signature
+  ):
     c = ClassWithBatch()
 
     async def serial_plan(i):
@@ -218,7 +220,8 @@ class BatchingTest(parameterized.TestCase):
         'c3 d0 f0.0 done',
     ]
     expected_results = (
-        expected_single_results if call_normal_signature
+        expected_single_results
+        if call_normal_signature
         else expected_dict_results
     )
 
@@ -404,6 +407,7 @@ class BatchingTest(parameterized.TestCase):
     def something():
       async def inner():
         return await process([2])
+
       return batching.run(inner())
 
     async def plan():
@@ -432,12 +436,8 @@ class BatchingTest(parameterized.TestCase):
 
       return batching.run(plan(), enable_batching=False)
 
-    thread1 = threading.Thread(
-        target=functools.partial(send, [1, 2, 3])
-    )
-    thread2 = threading.Thread(
-        target=functools.partial(send, [4, 5, 6])
-    )
+    thread1 = threading.Thread(target=functools.partial(send, [1, 2, 3]))
+    thread2 = threading.Thread(target=functools.partial(send, [4, 5, 6]))
     thread1.start()
     # We ensure the second thread starts a bit after the first.
     time.sleep(0.5)
@@ -537,9 +537,7 @@ class BatchingTest(parameterized.TestCase):
 
     with self.subTest('should_produce_the_right_updates'):
       expected_updates = ['0 sent', 1, '1 sent', 2, '2 sent', 3, '3 sent', 4]
-      self.assertListEqual(
-          results, expected_updates, pprint.pformat(results)
-      )
+      self.assertListEqual(results, expected_updates, pprint.pformat(results))
 
     with self.subTest('should_raise_on_loop_interruption'):
       with self.assertRaisesRegex(ValueError, 'test'):
@@ -603,6 +601,7 @@ class BatchingTest(parameterized.TestCase):
     batches = []
     calls = {}
     call_ids = []
+
     @batching.batch_function(batch_size=3, debug=True)
     async def process(requests):
       nonlocal batches
@@ -805,6 +804,7 @@ class BatchingTest(parameterized.TestCase):
 
   def test_run_method_in_threadpool(self):
     class C:
+
       @batching.run_method_in_threadpool
       def process(self, request):
         return request
@@ -865,6 +865,7 @@ class BatchingTest(parameterized.TestCase):
 
     @batching.add_batching
     class C:
+
       @batching.batch_method(batch_size=3)
       @batching.run_method_in_threadpool
       def process_batch(self, request):
@@ -908,6 +909,7 @@ class BatchingTest(parameterized.TestCase):
 
     def wrapper(function):
       nonlocal num_batches
+
       @functools.wraps(function)
       def wrapped_function(requests: Sequence[Any]) -> Sequence[Any]:
         nonlocal num_batches
@@ -962,6 +964,7 @@ class BatchingTest(parameterized.TestCase):
 
     @batching.add_batching
     class C:
+
       def __init__(self):
         self.batches = 0
         self.calls = 0
@@ -976,6 +979,7 @@ class BatchingTest(parameterized.TestCase):
         return request
 
     c_instance = C()
+
     async def run_plan():
       nonlocal c_instance
       coroutines = [c_instance.process(i) for i in range(10)]
@@ -1004,6 +1008,7 @@ class BatchingTest(parameterized.TestCase):
   def test_fills_batches_in_par_of_par(self):
     @batching.add_batching
     class BatchClass:
+
       def __init__(self):
         self.results = []
 
@@ -1014,9 +1019,7 @@ class BatchingTest(parameterized.TestCase):
         return ''
 
       @batching.batch_method(batch_size=10, debug=True)
-      def my_fn(
-          self, requests: Sequence[Mapping[str, Any]]
-      ) -> Sequence[str]:
+      def my_fn(self, requests: Sequence[Mapping[str, Any]]) -> Sequence[str]:
         # We simulate that each step takes a bit of time.
         time.sleep(0.1)
         results = [str((r['i'], r['j'], r['k'])) for r in requests]
@@ -1499,6 +1502,7 @@ class BatchingTest(parameterized.TestCase):
     """Test thread pools with parallel/sequential calls."""
 
     class C:
+
       def __init__(self):
         self.submitted = []
         self.processed = []
@@ -1531,9 +1535,7 @@ class BatchingTest(parameterized.TestCase):
         return await asyncio.gather(*coroutines)
 
     c = C()
-    results = asyncio.run(
-        c.parallel([(1, 1), (2, 1), (3, 0), (4, 1)])
-    )
+    results = asyncio.run(c.parallel([(1, 1), (2, 1), (3, 0), (4, 1)]))
     with self.subTest('results_are_correct'):
       self.assertEqual([[1, 2], [3, 4]], results)
 
@@ -1574,9 +1576,7 @@ class BatchingTest(parameterized.TestCase):
       ('return_exceptions', True),
       ('no_return_exceptions', False),
   )
-  def test_to_thread_pool_method_with_exceptions(
-      self, return_exceptions
-  ):
+  def test_to_thread_pool_method_with_exceptions(self, return_exceptions):
     class C:
 
       @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -1624,6 +1624,58 @@ class BatchingTest(parameterized.TestCase):
 
     results = batching.run(run_plan())
     self.assertListEqual(['set_value', 'set_value'], list(results))
+
+  def test_tracer_context_propagation(self):
+    """Verifies that batching.run propagates the tracer context.
+
+    When an ExecutionResultTracer is set in the parent context before calling
+    batching.run(), the tracer should be inherited and have its stages
+    populated with the traced execution results.
+    """
+    # Set up tracer in the parent context.
+    root_execution_result = ot_results.ExecutionResult()
+    tracer = tracing.ExecutionResultTracer(root_execution_result)
+    tracing.execution_tracer.set(tracer)
+
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    async def traced_add(x, y):
+      return x + y
+
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    async def traced_outer(a):
+      result = await traced_add(a, 10)
+      return result
+
+    async def plan():
+      return await traced_outer(5)
+
+    result = batching.run(plan())
+
+    with self.subTest('should_return_correct_result'):
+      self.assertEqual(15, result)
+
+    with self.subTest('tracer_should_have_stages_populated'):
+      # The root execution result should have at least one stage from the
+      # traced execution that ran inside batching.run().
+      self.assertNotEmpty(
+          root_execution_result.stages,
+          'Tracer stages should not be empty after batching.run() with traced'
+          ' coroutines. Got: %s'
+          % pprint.pformat(root_execution_result),
+      )
+
+    with self.subTest('tracer_stages_should_have_correct_structure'):
+      # The outer traced function should appear as a stage.
+      outer_stage = root_execution_result.stages[0]
+      self.assertEqual('traced_outer', outer_stage.stage_name)
+      self.assertEqual({'a': 5}, outer_stage.inputs)
+      self.assertEqual({ot_results.MAIN_OUTPUT: 15}, outer_stage.outputs)
+      # The inner traced function should appear as a sub-stage.
+      self.assertLen(outer_stage.stages, 1)
+      inner_stage = outer_stage.stages[0]
+      self.assertEqual('traced_add', inner_stage.stage_name)
+      self.assertEqual({'x': 5, 'y': 10}, inner_stage.inputs)
+      self.assertEqual({ot_results.MAIN_OUTPUT: 15}, inner_stage.outputs)
 
 
 if __name__ == '__main__':
