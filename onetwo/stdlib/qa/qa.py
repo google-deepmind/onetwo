@@ -16,8 +16,10 @@
 
 import abc
 import dataclasses
-from typing import Protocol, Sequence, TypeVar
+from typing import Any, Protocol, Sequence, TypeVar
 
+import dataclasses_json
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
@@ -109,3 +111,36 @@ class SimpleContextualQAStrategy(ContextualQAStrategy[str, str, _Document]):
   ) -> str:
     """Returns a plain string answer."""
     raise NotImplementedError('Subclasses must implement the generation logic.')
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class QAExample:
+  """An example (or few-shot exemplar) for use with a QAStrategy.
+
+  Attributes:
+    question: The question to ask.
+    answer: The golden answer to the question.
+    metadata: Optional metadata about the example (or other custom content).
+      Note that if you plan on serializing/deserializing instances of this
+      class, the values in the `metadata` dict must be types supported by the
+      serialization library (like `dataclass_json`). This typically includes
+      basic types such as str, int, float, bool, list, and dict. Other complex
+      objects may not (de)serialize correctly.
+  """
+
+  question: str | content_lib.ChunkList = ''
+  answer: Any = None
+  metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class ContextualQAExample(QAExample):
+  """An example (or few-shot exemplar) for use with a ContextualQAStrategy.
+
+  Attributes:
+    docs: Documents (or passages) to use as context for the question.
+  """
+
+  docs: list[_Document] = dataclasses.field(default_factory=list)
