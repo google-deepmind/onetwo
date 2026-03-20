@@ -12,101 +12,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import collections
 from collections.abc import Iterator
-import dataclasses
 import datetime
-import os
-import pprint
+import functools
+import logging
 import random
-import string
+import textwrap
 import time
-from typing import Any, Final, Mapping, TypeAlias, cast
+from typing import Any, Final, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import dataclasses_json
-import freezegun
 import immutabledict
-from onetwo.agents import agents_base
-from onetwo.agents import agents_test_utils
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
-from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import iterating
-from onetwo.core import results
-from onetwo.core import tracing
 from onetwo.evaluation import evaluation
 
 
-
-
-
-_Example: TypeAlias = Mapping[str, Any]
-_ExecutionResult: TypeAlias = results.ExecutionResult
-_EvaluationResult: TypeAlias = results.EvaluationResult
-_EvaluationSummary: TypeAlias = results.EvaluationSummary
-_EvaluationTiming: TypeAlias = results.EvaluationTiming
-_UpdateListState: TypeAlias = agents_base.UpdateListState
-
-
-@dataclasses_json.dataclass_json
-@dataclasses.dataclass(kw_only=True)
-class CustomExample:
-  question: str | content_lib.ChunkList = ''
-  answer: str | None = None
-
-
-_EXAMPLES_WITH_ONE_OPTION: Final[tuple[_Example, ...]] = tuple([
+_GROUND_TRUTH_KEY: Final[str] = 'answer'
+_GENERATE_TEXT_MAX_WAIT_SECS: Final[datetime.timedelta] = (
+    datetime.timedelta(seconds=1.0)
+)
+_EXAMPLES_WITH_ONE_OPTION: Final[tuple[evaluation.Example, ...]] = tuple([
     immutabledict.immutabledict({
         'question': 'bla',
         'option': num,
-        'answer': f'bla_generated option={num}',
+        _GROUND_TRUTH_KEY: f'bla_generated option={num}',
     })
     for num in range(5)
 ])
-_EXAMPLES_WITH_TWO_OPTIONS: Final[tuple[_Example, ...]] = tuple([
+_EXAMPLES_WITH_TWO_OPTIONS: Final[tuple[evaluation.Example, ...]] = tuple([
     immutabledict.immutabledict({
         'question': 'bla',
         'option': num,
         'another_option': 'something',
-        'answer': f'bla_generated option={num} another_option=something',
+        _GROUND_TRUTH_KEY: (
+            f'bla_generated option={num} another_option=something'
+        ),
     })
     for num in range(5)
 ])
 
 
-def _reset_times(eval_summary: _EvaluationSummary):
-  for er in eval_summary.results.values():
-    core_test_utils.reset_times(er)
-  for er in eval_summary.results_debug.values():
-    core_test_utils.reset_times(er)
-
-
-def _get_iterator_of_examples(total_num: int) -> Iterator[_Example]:
+def _get_iterator_of_examples(total_num: int) -> Iterator[evaluation.Example]:
   for num in range(total_num):
     yield immutabledict.immutabledict({
         'question': 'bla',
         'option': num,
-        'answer': f'bla_generated option={num}',
+        _GROUND_TRUTH_KEY: f'bla_generated option={num}',
     })
-
-
-def _accuracy_function_that_returns_example_option(
-    target: str, prediction: str, example: _Example
-) -> tuple[float, dict[str, Any]]:
-  correct_val = float(target == prediction)
-  extra_info = {'some_key': example.get('option', None)}
-  return correct_val, extra_info
-
-
-def _aggregate_via_dict_update(
-    aggregate_summary: _EvaluationSummary, example_summary: _EvaluationSummary
-) -> None:
-  """Aggregation function matching default behavior of `evaluation.evaluate`."""
-  aggregate_summary.info.update(example_summary.info)
 
 
 def _fake_generate_text(prompt: str | content_lib.ChunkList) -> str:
@@ -121,56 +78,29 @@ def _fake_generate_text_returns_anything(
   return return_value
 
 
-def ordinary_identity_function(x):
-  return x
-
-
-async def async_identity_function(x):
-  return x
-
-
-@executing.make_executable  # pytype: disable=wrong-arg-types
-def executable_identity_function(x):
-  return x
-
-
-@tracing.trace  # pytype: disable=wrong-arg-types
-def traced_ordinary_identity_function(x):
-  return x
-
-
-@executing.make_executable
-@tracing.trace  # pytype: disable=wrong-arg-types
-async def executable_traced_identity_function(x):
-  return x
-
-
-def ordinary_accuracy_function(target: str, prediction: str):
-  return float(target == prediction)
-
-
-async def async_accuracy_function(target: str, prediction: str):
-  return float(target == prediction)
-
-
-@executing.make_executable  # pytype: disable=wrong-arg-types
-def executable_accuracy_function(target: str, prediction: str):
-  return float(target == prediction)
-
-
-@executing.make_executable  # pytype: disable=wrong-arg-types
-def executable_accuracy_function_taking_example_as_arg(
-    target: str, prediction: str, example: _Example
-):
-  del example
-  return float(target == prediction)
-
-
-@executing.make_executable  # pytype: disable=wrong-arg-types
-async def strategy_taking_question_and_option_and_calling_llm(
-    question: str, option: int, **kwargs
+def _fake_generate_text_with_random_wait(
+    prompt: str | content_lib.ChunkList,
 ) -> str:
+  time_to_sleep = _GENERATE_TEXT_MAX_WAIT_SECS.total_seconds()
+  time_to_sleep *= random.random()
+  time.sleep(time_to_sleep)
+  return f'{prompt}_generated'
+
+
+def _metric_fn(
+    answer: str,
+    example: evaluation.Example,
+) -> evaluation.MetricResult:
+  correct_val = float(answer == example[_GROUND_TRUTH_KEY])
+  extra_info = {'some_key': example.get('option', None)}
+  return correct_val, extra_info
+
+
+@executing.make_executable()
+async def simple_strategy(question: str, option: int, **kwargs) -> str:
   """Simple strategy that requires `question` and `option` args."""
+  if _GROUND_TRUTH_KEY in kwargs:
+    del kwargs[_GROUND_TRUTH_KEY]  # Never look at ground truth when evalutaing!
   result = await llm.generate_text(prompt=question)  # pytype: disable=wrong-keyword-args
   another_option = kwargs.get('another_option', None)
   if another_option is not None:
@@ -178,725 +108,59 @@ async def strategy_taking_question_and_option_and_calling_llm(
   return f'{result} {option=}'
 
 
-class OrdinaryAccuracyCallable:
+class EvaluateTest(parameterized.TestCase):
 
-  def __call__(self, target: str, prediction: str):
-    return float(target == prediction)
+  def setUp(self):
+    super().setUp()
 
-
-class AsyncAccuracyCallable:
-
-  async def __call__(self, target: str, prediction: str):
-    return float(target == prediction)
-
-
-class ExecutableAccuracyCallable:
-
-  @executing.make_executable  # pytype: disable=wrong-arg-types
-  def __call__(self, target: str, prediction: str):
-    return float(target == prediction)
-
-
-class ExecutableAccuracyCallableTakingExampleAsArg:
-
-  @executing.make_executable  # pytype: disable=wrong-arg-types
-  def __call__(self, target: str, prediction: str, example: _Example):
-    del example
-    return float(target == prediction)
-
-
-# When tracing is disabled, we can only access the inputs and outputs.
-# The rest of the fields, including the default kwargs, are not populated.
-# When tracing is disabled, results and results_debug are the same.
-# TODO: Should we inspect the signature of the strategy and
-# populate the default kwargs accordingly?
-EXPECTED_AGENT_RESULTS_WITHOUT_TRACING = {
-    0: _EvaluationResult(
-        stage_name='StringAgent',
-        inputs={
-            'args': ['a'],
-            'kwargs': {},
-        },
-        outputs={'output': 'a b c'},
-        targets={'target': 'b'},
-        metrics={
-            'total_count': 1,
-            'error_count': 0,
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-        },
-    ),
-    1: _EvaluationResult(
-        stage_name='StringAgent',
-        inputs={
-            'args': ['c'],
-            'kwargs': {},
-        },
-        outputs={'output': 'd e f'},
-        targets={'target': 'c'},
-        metrics={
-            'total_count': 1,
-            'error_count': 0,
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-        },
-    ),
-}
-# When tracing is enabled, we can access the full inputs and outputs,
-# including the default kwargs.
-EXPECTED_AGENT_RESULTS_WITH_TRACING = {
-    0: _EvaluationResult(
-        stage_name='StringAgent',
-        inputs={
-            'inputs': 'a',
-            'initial_state': None,
-            'max_steps': None,
-            'stop_condition': None,
-            'return_final_state': True,
-        },
-        outputs={'output': 'a b c'},
-        targets={'target': 'b'},
-        metrics={
-            'total_count': 1,
-            'error_count': 0,
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-        },
-    ),
-    1: _EvaluationResult(
-        stage_name='StringAgent',
-        inputs={
-            'inputs': 'c',
-            'initial_state': None,
-            'max_steps': None,
-            'stop_condition': None,
-            'return_final_state': True,
-        },
-        outputs={'output': 'd e f'},
-        targets={'target': 'c'},
-        metrics={
-            'total_count': 1,
-            'error_count': 0,
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-        },
-    ),
-}
-# When tracing is enabled, results_debug is the same as results but with
-# the stages field populated.
-EXPECTED_AGENT_RESULTS_DEBUG_WITH_TRACING = {
-    0: _EvaluationResult(
-        stage_name='StringAgent',
-        inputs={
-            'inputs': 'a',
-            'initial_state': None,
-            'max_steps': None,
-            'stop_condition': None,
-            'return_final_state': True,
-        },
-        outputs={'output': 'a b c'},
-        stages=[
-            _ExecutionResult(
-                stage_name='SingleSampleAgent.sample_next_step',
-                inputs={
-                    'state': _UpdateListState(inputs='a', updates=[]),
-                    'num_candidates': 1,
-                },
-                outputs={'output': ['a']},
-            ),
-            _ExecutionResult(
-                stage_name='SingleSampleAgent.sample_next_step',
-                inputs={
-                    'state': _UpdateListState(inputs='a', updates=['a']),
-                    'num_candidates': 1,
-                },
-                outputs={'output': ['b']},
-            ),
-            _ExecutionResult(
-                stage_name='SingleSampleAgent.sample_next_step',
-                inputs={
-                    'state': _UpdateListState(inputs='a', updates=['a', 'b']),
-                    'num_candidates': 1,
-                },
-                outputs={'output': ['c']},
-            ),
-        ],
-        targets={'target': 'b'},
-        metrics={
-            'total_count': 1,
-            'error_count': 0,
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-        },
-    ),
-    1: _EvaluationResult(
-        stage_name='StringAgent',
-        inputs={
-            'inputs': 'c',
-            'initial_state': None,
-            'max_steps': None,
-            'stop_condition': None,
-            'return_final_state': True,
-        },
-        outputs={'output': 'd e f'},
-        stages=[
-            _ExecutionResult(
-                stage_name='SingleSampleAgent.sample_next_step',
-                inputs={
-                    'state': _UpdateListState(inputs='c', updates=[]),
-                    'num_candidates': 1,
-                },
-                outputs={'output': ['d']},
-            ),
-            _ExecutionResult(
-                stage_name='SingleSampleAgent.sample_next_step',
-                inputs={
-                    'state': _UpdateListState(inputs='c', updates=['d']),
-                    'num_candidates': 1,
-                },
-                outputs={'output': ['e']},
-            ),
-            _ExecutionResult(
-                stage_name='SingleSampleAgent.sample_next_step',
-                inputs={
-                    'state': _UpdateListState(inputs='c', updates=['d', 'e']),
-                    'num_candidates': 1,
-                },
-                outputs={'output': ['f']},
-            ),
-        ],
-        targets={'target': 'c'},
-        metrics={
-            'total_count': 1,
-            'error_count': 0,
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-        },
-    ),
-}
-
-
-class EvaluationTest(parameterized.TestCase):
-
-  def assertFileExists(self, filename: str):
-    self.assertTrue(
-        os.path.exists(filename),
-        f'File expected to exist but does not: {filename}',
-    )
-
-  @parameterized.named_parameters(
-      {
-          'testcase_name': 'ordinary_function_tracing_enabled',
-          'strategy': ordinary_identity_function,
-          'enable_tracing': True,
-          'expected_stage_name': 'ordinary_identity_function',
-          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
-      },
-      {
-          'testcase_name': 'ordinary_function_tracing_disabled',
-          'strategy': ordinary_identity_function,
-          'enable_tracing': False,
-          'expected_stage_name': 'ordinary_identity_function',
-          'expected_inputs': [
-              {'args': ['a'], 'kwargs': {}},
-              {'args': ['c'], 'kwargs': {}},
-          ],
-      },
-      {
-          'testcase_name': 'async_function_tracing_enabled',
-          'strategy': async_identity_function,
-          'enable_tracing': True,
-          'expected_stage_name': 'async_identity_function',
-          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
-      },
-      {
-          'testcase_name': 'async_function_tracing_disabled',
-          'strategy': async_identity_function,
-          'enable_tracing': False,
-          'expected_stage_name': 'async_identity_function',
-          'expected_inputs': [
-              {'args': ['a'], 'kwargs': {}},
-              {'args': ['c'], 'kwargs': {}},
-          ],
-      },
-      {
-          'testcase_name': 'executable_function_tracing_enabled',
-          'strategy': executable_identity_function,
-          'enable_tracing': True,
-          'expected_stage_name': 'executable_identity_function',
-          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
-      },
-      {
-          'testcase_name': 'executable_function_tracing_disabled',
-          'strategy': executable_identity_function,
-          'enable_tracing': False,
-          'expected_stage_name': 'executable_identity_function',
-          'expected_inputs': [
-              {'args': ['a'], 'kwargs': {}},
-              {'args': ['c'], 'kwargs': {}},
-          ],
-      },
-      {
-          'testcase_name': 'traced_ordinary_function_tracing_enabled',
-          'strategy': traced_ordinary_identity_function,
-          'enable_tracing': True,
-          'expected_stage_name': 'traced_ordinary_identity_function',
-          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
-      },
-      {
-          'testcase_name': 'traced_ordinary_function_tracing_disabled',
-          'strategy': traced_ordinary_identity_function,
-          'enable_tracing': False,
-          'expected_stage_name': 'traced_ordinary_identity_function',
-          'expected_inputs': [
-              {'args': ['a'], 'kwargs': {}},
-              {'args': ['c'], 'kwargs': {}},
-          ],
-      },
-      {
-          'testcase_name': 'executable_traced_function_tracing_enabled',
-          'strategy': executable_traced_identity_function,
-          'enable_tracing': True,
-          'expected_stage_name': 'executable_traced_identity_function',
-          'expected_inputs': [{'x': 'a'}, {'x': 'c'}],
-      },
-      {
-          'testcase_name': 'executable_traced_function_tracing_disabled',
-          'strategy': executable_traced_identity_function,
-          'enable_tracing': False,
-          'expected_stage_name': 'executable_traced_identity_function',
-          'expected_inputs': [
-              {'args': ['a'], 'kwargs': {}},
-              {'args': ['c'], 'kwargs': {}},
-          ],
-      },
-  )
-  def test_evaluate_simple_strategies(
-      self, strategy, enable_tracing, expected_stage_name, expected_inputs
-  ):
-    examples = [
-        {'question': 'a', 'answer': 'b'},
-        {'question': 'c', 'answer': 'c'},
-    ]
-    now = datetime.datetime(2024, 5, 9, 12, 0, 0)
-    with freezegun.freeze_time(now):
-      summary = evaluation.evaluate(
-          strategy=strategy,
-          examples=examples,
-          metric_functions={'accuracy': ordinary_accuracy_function},
-          output_results=True,
-          output_results_debug=True,
-          output_final_states=True,
-          enable_tracing=enable_tracing,
-      )
-      _reset_times(summary)
-
-    expected_timing = _EvaluationTiming(start_time=now, end_time=now)
-    expected_results = {
-        0: _EvaluationResult(
-            stage_name=expected_stage_name,
-            inputs=expected_inputs[0],
-            outputs={'output': 'a'},
-            targets={'target': 'b'},
-            metrics={
-                'total_count': 1,
-                'error_count': 0,
-                'accuracy': 0.0,
-                'accuracy_count': 1,
-            },
-        ),
-        1: _EvaluationResult(
-            stage_name=expected_stage_name,
-            inputs=expected_inputs[1],
-            outputs={'output': 'c'},
-            targets={'target': 'c'},
-            metrics={
-                'total_count': 1,
-                'error_count': 0,
-                'accuracy': 1.0,
-                'accuracy_count': 1,
-            },
-        ),
-    }
-    expected_summary = _EvaluationSummary(
-        metrics={'accuracy': 0.5},
-        counters=collections.Counter(
-            {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
-        ),
-        example_keys={0: 0, 1: 1},
-        results=expected_results,
-        # In this case, the results_debug should be the same as the results
-        # because the strategy consists of just a single step.
-        results_debug=expected_results,
-    )
-
-    # We separate out the timing field because it requires some special handling
-    # for comparing the FakeDatetime objects returned by freezegun.
-    actual_timing = summary.timing
-    summary.timing = expected_summary.timing = None
-
-    with self.subTest('timing'):
-      self.assertEqual(expected_timing, actual_timing)
-
-    with self.subTest('summary_except_timing'):
-      self.assertMultiLineEqual(
-          pprint.pformat(expected_summary, width=160),
-          pprint.pformat(summary, width=160),
-          f'Incorrect EvaluationSummary contents:\n{summary}\n----\nDiff',
-      )
-
-  @parameterized.named_parameters(
-      {
-          'testcase_name': 'with_tracing',
-          'enable_tracing': True,
-          'expected_results': EXPECTED_AGENT_RESULTS_WITH_TRACING,
-          'expected_results_debug': EXPECTED_AGENT_RESULTS_DEBUG_WITH_TRACING,
-      },
-      {
-          'testcase_name': 'without_tracing',
-          'enable_tracing': False,
-          'expected_results': EXPECTED_AGENT_RESULTS_WITHOUT_TRACING,
-          'expected_results_debug': EXPECTED_AGENT_RESULTS_WITHOUT_TRACING,
-      },
-  )
-  def test_evaluate_agent(
-      self, enable_tracing, expected_results, expected_results_debug
-  ):
-    strategy = agents_test_utils.StringAgent(
-        max_length=3, sequence=list(string.ascii_lowercase)
-    )
-    examples = [
-        {'question': 'a', 'answer': 'b'},
-        {'question': 'c', 'answer': 'c'},
-    ]
-    now = datetime.datetime(2024, 5, 9, 12, 0, 0)
-    with freezegun.freeze_time(now):
-      summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
-          strategy=strategy,
-          examples=examples,
-          metric_functions={'accuracy': ordinary_accuracy_function},
-          output_results=True,
-          output_results_debug=True,
-          output_final_states=True,
-          enable_tracing=enable_tracing,
-      )
-      _reset_times(summary)
-
-    expected_timing = _EvaluationTiming(start_time=now, end_time=now)
-    expected_summary = _EvaluationSummary(
-        metrics={'accuracy': 0.0},
-        counters=collections.Counter(
-            {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
-        ),
-        example_keys={0: 0, 1: 1},
-        results=expected_results,
-        results_debug=expected_results_debug,
-        final_states={
-            0: _UpdateListState(inputs='a', updates=['a', 'b', 'c']),
-            1: _UpdateListState(inputs='c', updates=['d', 'e', 'f']),
-        },
-    )
-
-    # We separate out the timing field because it requires some special handling
-    # for comparing the FakeDatetime objects returned by freezegun.
-    actual_timing = summary.timing
-    summary.timing = expected_summary.timing = None
-
-    with self.subTest('timing'):
-      self.assertEqual(expected_timing, actual_timing)
-
-    with self.subTest('summary_except_timing'):
-      self.assertMultiLineEqual(
-          pprint.pformat(expected_summary, width=160),
-          pprint.pformat(summary, width=160),
-          f'Incorrect EvaluationSummary contents:\n{summary}\n----\nDiff',
-      )
-
-  def test_inputs_and_target_extractors(self):
-    strategy = agents_test_utils.StringAgent(
-        max_length=3, sequence=list(string.ascii_lowercase)
-    )
-    examples = [{'q': 'q1', 'context': 'context1', 'golden': 'b'}]
-    summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
-        strategy=strategy,
-        examples=examples,
-        inputs_extractor=lambda x: ([x['context'] + x['q']], {}),
-        target_extractor=lambda x: x['golden'],
-        output_results=True,
-    )
-    _reset_times(summary)
-
-    with self.subTest('inputs_extractor'):
-      self.assertEqual('context1q1', summary.results[0].inputs.get('inputs'))
-
-    with self.subTest('target_extractor'):
-      self.assertEqual('b', summary.results[0].targets.get('target'))
-
-  @parameterized.named_parameters(
-      ('output_results', True, False, False),
-      ('output_results_debug', False, True, False),
-      ('output_final_states', False, False, True),
-  )
-  def test_output_flags(
-      self, output_results, output_results_debug, output_final_states
-  ):
-    strategy = agents_test_utils.StringAgent(
-        max_length=3, sequence=list(string.ascii_lowercase)
-    )
-    examples = [{'question': 'q1', 'answer': 'b'}]
-    summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
-        strategy=strategy,
-        examples=examples,
-        output_results=output_results,
-        output_results_debug=output_results_debug,
-        output_final_states=output_final_states,
-    )
-    _reset_times(summary)
-
-    with self.subTest('output_results'):
-      self.assertEqual(output_results, bool(summary.results))
-    with self.subTest('output_results_debug'):
-      self.assertEqual(output_results_debug, bool(summary.results_debug))
-    with self.subTest('output_final_states'):
-      self.assertEqual(output_final_states, bool(summary.final_states))
-
-  @parameterized.named_parameters(
-      (
-          'none',
-          None,
-          {0, 1},
-      ),
-      (
-          'based_on_example',
-          lambda example, result: example['question'] == 'a',
-          {0},
-      ),
-      (
-          'based_on_evaluation_result',
-          lambda example, result: result.metrics['accuracy'] > 0.0,
-          {1},
-      ),
-  )
-  def test_output_filter(self, output_filter, expected_example_keys):
-    examples = [
-        {'question': 'a', 'answer': 'b'},  # Identity function will be wrong.
-        {'question': 'c', 'answer': 'c'},  # Identity function will be correct.
-    ]
-    summary = evaluation.evaluate(
-        strategy=ordinary_identity_function,
-        examples=examples,
-        metric_functions={'accuracy': ordinary_accuracy_function},
-        output_filter=output_filter,
-        output_results=True,
-        output_results_debug=True,
-        output_final_states=True,
-    )
-    _reset_times(summary)
-
-    with self.subTest('example_keys'):
-      self.assertSameElements(
-          expected_example_keys,
-          summary.example_keys.values(),
-          str(summary.example_keys),
-      )
-
-    with self.subTest('results_keys'):
-      self.assertSameElements(
-          expected_example_keys, summary.results.keys(), str(summary.results)
-      )
-
-    with self.subTest('results_debug_keys'):
-      self.assertSameElements(
-          expected_example_keys,
-          summary.results_debug.keys(),
-          str(summary.results_debug),
-      )
-
-    with self.subTest('metrics_should_be_unaffected_by_the_filter'):
-      self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
-
-  def test_example_key_function(self):
-    strategy = agents_test_utils.StringAgent(
-        max_length=3, sequence=list(string.ascii_lowercase)
-    )
-    examples = [
-        {'question': 'q1', 'answer': 'b'},
-        {'question': 'q2', 'answer': 'c'},
-    ]
-    summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
-        strategy=strategy,
-        examples=examples,
-        example_key_function=lambda index, example: str(example['question']),
-        output_results=True,
-        output_results_debug=True,
-        output_final_states=True,
-    )
-    _reset_times(summary)
-
-    with self.subTest('example_keys'):
-      self.assertEqual({0: 'q1', 1: 'q2'}, summary.example_keys)
-    with self.subTest('results_keys'):
-      self.assertSameElements({'q1', 'q2'}, summary.results.keys())
-    with self.subTest('results_debug_keys'):
-      self.assertSameElements({'q1', 'q2'}, summary.results_debug.keys())
-    with self.subTest('final_states_keys'):
-      self.assertSameElements({'q1', 'q2'}, summary.final_states.keys())
-
-  @parameterized.named_parameters(
-      (
-          'ordinary_function',
-          ordinary_accuracy_function,
-      ),
-      (
-          'async_function',
-          async_accuracy_function,
-      ),
-      (
-          'executable_function',
-          executable_accuracy_function,
-      ),
-      (
-          'function_taking_example_as_arg',
-          executable_accuracy_function_taking_example_as_arg,
-      ),
-      ('ordinary_callable', OrdinaryAccuracyCallable()),
-      ('async_callable', AsyncAccuracyCallable()),
-      ('executable_callable', ExecutableAccuracyCallable()),
-      (
-          'callable_taking_example_as_arg',
-          ExecutableAccuracyCallableTakingExampleAsArg(),
-      ),
-  )
-  def test_metric_function_types(self, metric_function):
-    examples = [
-        {'question': 'a', 'answer': 'b'},  # Identity function will be wrong.
-        {'question': 'c', 'answer': 'c'},  # Identity function will be correct.
-    ]
-    summary = evaluation.evaluate(
-        strategy=ordinary_identity_function,
-        examples=examples,
-        metric_functions={'accuracy': metric_function},
-    )
-    _reset_times(summary)
-    self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
-
-  def test_metric_function_returning_extra_info(self):
-    metric_function = lambda target, prediction, example: (
-        float(target == prediction),
-        {'accuracy_rationale': 'because', 'group': example['group']},
-    )
-    examples = [
-        # Identity function will be wrong.
-        {'question': 'a', 'answer': 'b', 'group': 'group1'},
-        # Identity function will be correct.
-        {'question': 'c', 'answer': 'c', 'group': 'group2'},
-    ]
-    summary = evaluation.evaluate(
-        strategy=ordinary_identity_function,
-        examples=examples,
-        metric_functions={'accuracy': metric_function},
-        output_results=True,
-    )
-    _reset_times(summary)
-
-    with self.subTest('metrics'):
-      self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
-
-    with self.subTest('results_info'):
-      self.assertDictEqual(
-          {'accuracy_rationale': 'because', 'group': 'group1'},
-          summary.results[0].info,
-      )
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
 
   def test_strategy_arg_mismatch(self):
-    summary = evaluation.evaluate(
-        strategy=strategy_taking_question_and_option_and_calling_llm,
+    executables = evaluation.compile_strategies(
+        strategies=[simple_strategy],
         examples=[{'question': 'Something'}],
-        metric_functions={'accuracy': ordinary_accuracy_function},
-        # Note that we only extract `question`, not `option` (arg mismatch).
-        inputs_extractor=lambda x: ([x['question']], {}),
-        target_extractor=lambda x: '',
-        output_results=True,
     )
-
-    expected_result = _EvaluationResult(
-        stage_name='strategy_taking_question_and_option_and_calling_llm',
-        inputs={'args': ['Something'], 'kwargs': {}},
-        error=TypeError(
-            'strategy_taking_question_and_option_and_calling_llm()'
-            " missing 1 required positional argument: 'option'"
-        ),
-        targets={'target': ''},
-        metrics={
-            'accuracy': 0.0,
-            'accuracy_count': 1,
-            'total_count': 1,
-            'error_count': 1,
-        },
-    )
-
-    with self.subTest('counters_should_reflect_error'):
-      self.assertDictEqual(
-          {'total_count': 1, 'error_count': 1, 'accuracy_count': 1},
-          summary.counters,
-      )
-
-    with self.subTest('metrics_should_still_be_calculated'):
-      self.assertDictEqual({'accuracy': 0.0}, summary.metrics)
-
-    with self.subTest('result_should_include_inputs_and_error_message'):
-      self.assertMultiLineEqual(
-          pprint.pformat(expected_result, width=160),
-          pprint.pformat(summary.results[0], width=160),
-          f'Incorrect EvaluationResult contents:\n{summary}\n----\nDiff',
-      )
+    with self.subTest('raises_value_error_when_missing_args'):
+      with self.assertRaisesRegex(
+          TypeError,
+          'required positional argument: \'option\'',
+      ):
+        for ex in executables:
+          _ = executing.run(ex[0])
 
   @parameterized.named_parameters(
       ('list_examples', _EXAMPLES_WITH_ONE_OPTION + _EXAMPLES_WITH_TWO_OPTIONS),
       ('generator_examples', _get_iterator_of_examples(5)),
   )
-  def test_example_formats(self, examples):
+  def test_simple_strategy(self, examples):
     """Verifies evaluation of a simple strategy produces expected results."""
-
     llm.generate_text.configure(_fake_generate_text)
 
-    extract_all_example_fields_except_target = lambda x: (
-        [],
-        {k: v for k, v in x.items() if k != 'answer'},
-    )
-
-    summary = evaluation.evaluate(
-        strategy=strategy_taking_question_and_option_and_calling_llm,
+    time_elapsed, avg_metric, metric_info = evaluation.evaluate(
+        strategy=simple_strategy,
         examples=examples,
-        inputs_extractor=extract_all_example_fields_except_target,
-        metric_functions={
-            'accuracy': _accuracy_function_that_returns_example_option
-        },
-        aggregation_functions=[_aggregate_via_dict_update],
-        output_results=True,
+        critic=_metric_fn,
     )
-    _reset_times(summary)
-    timing: _EvaluationTiming = summary.timing
 
     with self.subTest('produces_plausible_timedelta'):
-      self.assertGreater(timing.time_elapsed.total_seconds(), 0.0)
+      self.assertGreater(time_elapsed.total_seconds(), 0.0)
 
     with self.subTest('produces_correct_avg_metric'):
       # We expect all answers to be correct by design.
-      self.assertEqual(
-          1.0, summary.metrics['accuracy'], pprint.pformat(summary, width=160)
-      )
+      self.assertEqual(avg_metric, 1.0)
 
     with self.subTest('produces_correct_aggregate_metric_info'):
-      # The aggregation function we specified simply calls `update` on the
-      # info dict.
-      self.assertDictEqual({'some_key': 4}, summary.info)
+      # By default the metric info dict gets simply updated.
+      self.assertEqual(metric_info, {'some_key': 4})
 
   def test_llm_with_batching(self):
     """Verifies correct execution when running with batched LLMs."""
     examples = _EXAMPLES_WITH_ONE_OPTION
-    inputs_extractor = lambda x: ([x['question']], {'option': x['option']})
-
     # First, sequential slow execution.
     fake_llm_model = backends_test_utils.LLMForTest(
         batch_size=1,
@@ -905,20 +169,15 @@ class EvaluationTest(parameterized.TestCase):
     )
     fake_llm_model.register()  # Configure llm.generate_text.
     # Runs in ~ 5sec.
-    summary_slow = evaluation.evaluate(
-        strategy=strategy_taking_question_and_option_and_calling_llm,
+    time_elapsed_slow, avg_metric, _ = evaluation.evaluate(
+        strategy=simple_strategy,
         examples=examples,
-        inputs_extractor=inputs_extractor,
-        metric_functions={
-            'accuracy': _accuracy_function_that_returns_example_option
-        },
+        critic=_metric_fn,
     )
-    _reset_times(summary_slow)
-    timing_slow: _EvaluationTiming = summary_slow.timing
 
     with self.subTest('runs_correctly_with_batchsize_eq_1'):
       # We expect all answers to be correct by design.
-      self.assertEqual(1.0, summary_slow.metrics['accuracy'])
+      self.assertEqual(avg_metric, 1.0)
 
     # Second, parallel fast execution.
     fake_llm_model = backends_test_utils.LLMForTest(
@@ -928,204 +187,73 @@ class EvaluationTest(parameterized.TestCase):
     )
     fake_llm_model.register()  # Configure llm.generate_text.
     # Runs in ~ 1sec.
-    summary_fast = evaluation.evaluate(
-        strategy=strategy_taking_question_and_option_and_calling_llm,
+    time_elapsed_fast, avg_metric, _ = evaluation.evaluate(
+        strategy=simple_strategy,
         examples=examples,
-        inputs_extractor=inputs_extractor,
-        metric_functions={
-            'accuracy': _accuracy_function_that_returns_example_option
-        },
+        critic=_metric_fn,
     )
-    _reset_times(summary_fast)
-    timing_fast: _EvaluationTiming = summary_fast.timing
-
     with self.subTest('runs_correctly_with_batchsize_gt_1'):
       # We expect all answers to be correct by design.
-      self.assertEqual(1.0, summary_fast.metrics['accuracy'])
+      self.assertEqual(avg_metric, 1.0)
 
     with self.subTest('runs_efficiently_with_batching'):
-      self.assertBetween(timing_slow.time_elapsed.total_seconds(), 5.0, 6.0)
-      self.assertBetween(timing_fast.time_elapsed.total_seconds(), 1.0, 2.0)
+      self.assertBetween(time_elapsed_slow.total_seconds(), 5., 7.)
+      self.assertBetween(time_elapsed_fast.total_seconds(), 1., 2.)
 
   def test_random_execution_order(self):
     """Verifies arbitrary execution order is handled correctly."""
-    examples = [{'example_id': num, 'answer': str(num)} for num in range(10)]
-    metric_function = lambda target, prediction: (
-        float(target == prediction),
-        {'processed_id': prediction},
-    )
+    examples = [
+        {
+            'example_id': num,
+            _GROUND_TRUTH_KEY: str(num),
+        }
+        for num in range(10)
+    ]
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable()
     async def _strategy(example_id: int, **kwargs) -> str:
       del kwargs  # Not used.
       # Receives f'{example_id}_generated'.
       result = await llm.generate_text(prompt=str(example_id))  # pytype: disable=wrong-keyword-args
       return cast(str, result).replace('_generated', '')
 
-    def _fake_generate_text_with_random_wait(
-        prompt: str | content_lib.ChunkList,
-    ) -> str:
-      seconds_to_sleep = random.random()
-      time.sleep(seconds_to_sleep)
-      return f'{prompt}_generated'
-
     def _keep_track_of_execution_order(
-        aggregate_summary: _EvaluationSummary,
-        example_summary: _EvaluationSummary,
+        aggr_info: dict[str, Any],
+        new_info: evaluation.ExtraInfo,
     ) -> None:
-      if 'execution_order' not in aggregate_summary.info:
-        aggregate_summary.info['execution_order'] = []
-      aggregate_summary.info['execution_order'].append(
-          example_summary.info['processed_id']
-      )
+      if 'execution_order' not in aggr_info:
+        aggr_info['execution_order'] = []
+      aggr_info['execution_order'].append(new_info['processed_id'])
 
     llm.generate_text.configure(
         iterating.to_thread(_fake_generate_text_with_random_wait),
     )
-    summary = evaluation.evaluate(
+    _, avg_metric, aggr_info = evaluation.evaluate(
         strategy=_strategy,
         examples=examples,
-        inputs_extractor=lambda example: ([example['example_id']], {}),
-        metric_functions={'accuracy': metric_function},
-        aggregation_functions=[_keep_track_of_execution_order],
+        critic=lambda answer, example: (
+            float(answer == example[_GROUND_TRUTH_KEY]),
+            {'processed_id': answer},
+        ),
+        update_extra_info_fn=_keep_track_of_execution_order,
     )
-    _reset_times(summary)
+
     with self.subTest('examples_are_iterated_not_in_order'):
       # Chance of this subtest failing is one over 10 factorial, i.e. small.
-      self.assertNotEqual(list(range(10)), summary.info['execution_order'])
+      self.assertNotEqual(aggr_info['execution_order'], list(range(10)))
     with self.subTest('evaluation_metrics_are_correct'):
-      self.assertEqual(1.0, summary.metrics['accuracy'])
-
-  def test_callback(self):
-    strategy = agents_test_utils.StringAgent(
-        max_length=3, sequence=list(string.ascii_lowercase)
-    )
-    examples = [
-        {'question': 'a', 'answer': 'wrong'},  # This will be wrong.
-        {'question': 'c', 'answer': 'd e f'},  # This will be correct.
-    ]
-
-    # Here we illustrate how to use a callback to do some kind of custom
-    # processing of the results (in this case, just logging).
-    log_messages = []
-
-    def callback(
-        example_index: int, example: _Example, summary: _EvaluationSummary
-    ) -> None:
-      log_messages.append(
-          f"{example_index}: {example['question']} =>"
-          f" {summary.metrics['accuracy']}"
-      )
-
-    _ = evaluation.evaluate(  # pytype: disable=wrong-arg-types
-        strategy=strategy,
-        examples=examples,
-        metric_functions={'accuracy': ordinary_accuracy_function},
-        callback=callback,
-    )
-    log_messages.sort()
-
-    with self.subTest('callback_was_called_once_per_example'):
-      self.assertLen(log_messages, 2)
-
-    with self.subTest('log_messages_from_callback_reflect_correct_args'):
-      self.assertSequenceEqual(['0: a => 0.0', '1: c => 1.0'], log_messages)
-
-  def test_write_evaluation_summary_as_json(self):
-    tmp_dir = self.create_tempdir().full_path
-    output_dir = os.path.join(tmp_dir, 'test_write_evaluation_summary_as_json')
-    os.makedirs(output_dir, exist_ok=True)
-
-    strategy = agents_test_utils.StringAgent(
-        max_length=3, sequence=list(string.ascii_lowercase)
-    )
-    examples = [
-        {'question': 'a', 'answer': 'a b c'},
-        {'question': 'c', 'answer': 'd e f'},
-    ]
-    now = datetime.datetime(2024, 5, 9, 12, 0, 0)
-    with freezegun.freeze_time(now):
-      summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
-          strategy=strategy,
-          examples=examples,
-          metric_functions={'accuracy': ordinary_accuracy_function},
-          output_results=True,
-          output_results_debug=True,
-          output_final_states=True,
-      )
-      _reset_times(summary)
-
-    evaluation.write_evaluation_summary_as_json(
-        summary=summary, output_dir=output_dir
-    )
-
-    # Assert that files were output successfully.
-    counters_path = os.path.join(output_dir, 'counters.json')
-    counters_json = core_test_utils.maybe_read_json(counters_path)
-    counters = counters_json if counters_json else {}
-    metrics_path = os.path.join(output_dir, 'metrics.json')
-    metrics_json = core_test_utils.maybe_read_json(metrics_path)
-    metrics = metrics_json if metrics_json else {}
-
-    with self.subTest('should_output_metrics'):
-      self.assertFileExists(metrics_path)
-
-    with self.subTest('should_output_results'):
-      self.assertFileExists(os.path.join(output_dir, 'results.json'))
-
-    with self.subTest('should_output_results_debug'):
-      self.assertFileExists(os.path.join(output_dir, 'results_debug.json'))
-
-    with self.subTest('should_output_final_states'):
-      self.assertFileExists(os.path.join(output_dir, 'final_states.json'))
-
-    with self.subTest('counters_should_be_valid_json'):
-      self.assertIsNotNone(counters_json)
-
-    with self.subTest('counters_should_reflect_expected_results'):
-      self.assertEqual(0, counters.get('error_count', None))
-      self.assertEqual(2, counters.get('total_count', None))
-
-    with self.subTest('metrics_should_be_valid_json'):
-      self.assertIsNotNone(metrics_json)
-
-    with self.subTest('metrics_should_reflect_expected_results'):
-      self.assertEqual(1.0, metrics.get('accuracy', None))
-
-  def test_custom_example_type(self):
-    examples = [
-        CustomExample(question='a', answer='b'),
-        CustomExample(question='c', answer='c'),
-    ]
-    summary = evaluation.evaluate(
-        strategy=ordinary_identity_function,
-        examples=examples,
-        inputs_extractor=lambda x: ([x.question], {}),
-        target_extractor=lambda x: x.answer,
-        metric_functions={'accuracy': ordinary_accuracy_function},
-        output_results=True,
-    )
-    _reset_times(summary)
-
-    with self.subTest('metrics'):
-      self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
-
-    with self.subTest('outputs'):
-      self.assertEqual('a', summary.results[0].outputs['output'])
-      self.assertEqual('c', summary.results[1].outputs['output'])
-
-
-class NaiveEvaluationCriticTest(parameterized.TestCase):
-
-  def setUp(self):
-    super().setUp()
-    llm.reset_defaults()
+      self.assertEqual(avg_metric, 1.0)
 
   @parameterized.named_parameters(
       (
           'no_question_key',
           {'bla': 'bla', 'golden_answer': 'bla'},
-          'Example must be provided and contain the question key',
+          'Example does not contain the question key',
+      ),
+      (
+          'no_golden_answer_key',
+          {'question': 'bla'},
+          'Example does not contain the golden answer key',
       ),
   )
   def test_naive_evaluation_critic_example_error_handling(
@@ -1133,9 +261,7 @@ class NaiveEvaluationCriticTest(parameterized.TestCase):
   ):
     with self.assertRaisesRegex(ValueError, expected_error_message):
       _ = executing.run(
-          evaluation.naive_evaluation_critic(
-              target='bla', prediction='answer 1', example=example
-          )
+          evaluation.naive_evaluation_critic('answer 1', example=example)
       )
 
   @parameterized.named_parameters(
@@ -1154,110 +280,115 @@ class NaiveEvaluationCriticTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, expected_error_message):
       _ = executing.run(
           evaluation.naive_evaluation_critic(
-              target='bla',
-              prediction='answer 1',
-              example={'question': 'bla'},
+              'answer 1',
+              example={'question': 'bla', 'golden_answer': 'bla'},
           )
       )
 
   @parameterized.named_parameters(
-      (
-          'yes_with_reason_lowercase',
-          'yes\nReason: because',
-          1.0,
-          'because',
-      ),
-      (
-          'yes_with_reason_uppercase',
-          'Yes\nReason: because',
-          1.0,
-          'because',
-      ),
-      (
-          'no_with_reason_lowercase',
-          'no\nReason: because',
-          0.0,
-          'because',
-      ),
-      (
-          'no_with_reason_uppercase',
-          'no\nReason: because',
-          0.0,
-          'because',
-      ),
+      ('yes_with_reason_lowercase', 'yes\nreason: because\n\n', 1.0, 'because'),
+      ('yes_with_reason_uppercase', 'Yes\nReason: because\n\n', 1.0, 'because'),
+      ('no_with_reason_lowercase', 'no\nReason: because\n\n', 0.0, 'because'),
+      ('no_with_reason_uppercase', 'no\nReason: because\n\n', 0.0, 'because'),
       ('yes_without_reason', 'yes', 1.0, ''),
       ('no_without_reason', 'no', 0.0, ''),
       (
           'yes_with_reason_bold',
-          '**yes**\n**Reason:** because',
+          '**yes**\n**Reason:** because\n\n',
           1.0,
           'because',
       ),
       (
           'no_with_reason_bold',
-          '**no**\n**Reason:** because',
+          '**no**\n**Reason:** because\n\n',
           0.0,
           'because',
       ),
       (
           'yes_with_reason_strong',
-          '<strong>yes</strong>\nReason: because',
+          '<strong>yes</strong>\nReason: because\n\n',
           1.0,
           'because',
       ),
       (
           'no_with_reason_strong',
-          '<strong>no</strong>\nReason: because',
+          '<strong>no</strong>\nReason: because\n\n',
           0.0,
           'because',
       ),
       (
           'should_not_be_confused_by_no_in_reason',
-          'yes\nReason: because no',
+          'yes\nReason: because no\n\n',
           1.0,
           'because no',
       ),
       (
           'should_not_be_confused_by_yes_in_reason',
-          'no\nReason: because yes',
+          'no\nReason: because yes\n\n',
           0.0,
           'because yes',
+      ),
+      (
+          'yes_as_part_of_longer_phrase_with_misleading_reason',
+          '100% yes!\nReason: I considered no, but changed my mind.\n\n',
+          1.0,
+          'I considered no, but changed my mind.',
+      ),
+      (
+          'no_as_part_of_longer_phrase_with_misleading_reason',
+          '100% no!\nReason: I considered yes, but changed my mind.\n\n',
+          0.0,
+          'I considered yes, but changed my mind.',
       ),
   )
   def test_naive_evaluation_critic_produces_correct_output(
       self, critic_llm_reply, expected_value, expected_reason
   ):
     question = 'some question'
+    # We test the critic with a prediction that contains a newline, to make
+    # sure that this doesn't interfere with the prompt formatting (e.g., due to
+    # use of `textwrap.dedent`).
     prediction_containing_newline = 'Answer first line\nAnswer second line'
     llm.generate_text.configure(
-        _fake_generate_text_returns_anything, return_value=critic_llm_reply
+        _fake_generate_text_returns_anything,
+        return_value=critic_llm_reply,
     )
     rating, extra_info = executing.run(
         evaluation.naive_evaluation_critic(
-            target='bla',
-            prediction=prediction_containing_newline,
-            example={'question': question},
+            prediction_containing_newline,
+            example={'question': question, 'golden_answer': 'bla'},
         )
     )
 
-    critic_prompt = extra_info['critic_prompt']
+    # The critic prompt in the extra info is a list of chunks, or a single
+    # string. We merge them into a single string here to make the test
+    # independent of the implementation details of the critic.
+    critic_prompt = extra_info[question]['critic_prompt']
     if isinstance(critic_prompt, list):
       critic_prompt_text = ''.join(x.content for x in critic_prompt)
     else:
       critic_prompt_text = str(critic_prompt)
+    logging.info('Naive evaluation critic prompt:\n%s', critic_prompt_text)
 
-    expected_critic_prompt_text = """Please judge whether the predicted answer means the same thing as the target answer, in the context of the given question. Give your rating (yes/no), and then give the reason for your rating.
+    # This is the expected plain text version of the prompt that is sent to the
+    # critic (i.e., with the content chunks concatenated, and roles ignored).
+    # We explicitly check the full prompt text to avoid any misunderstandings
+    # in the critic implementation regarding newlines, indentations, etc.
+    expected_critic_prompt_text = """\
+Please judge whether the predicted answer means the same thing as the target answer, in the context of the given question. Give your rating (yes/no), and then give the reason for your rating.
 
 Question: Circumference of a circle with radius 1cm?
 Target: 2pi cm
 Prediction: 6.28 centimenter
 Does prediction agree with target? (yes/no): yes
 Reason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate enough answer.
+
 Question: Spell first 5 digits of pi.
 Target: 3.1415
 Prediction: 3.14
 Does prediction agree with target? (yes/no): no
 Reason: Answer 2 provides only 3 digits, while 5 were required.
+
 Question: some question
 Target: bla
 Prediction: Answer first line
@@ -1267,10 +398,11 @@ Does prediction agree with target? (yes/no): """
     with self.subTest('should_return_correct_numeric_rating'):
       self.assertEqual(expected_value, rating)
 
+    with self.subTest('extra_info_should_be_keyed_by_question'):
+      self.assertIn(question, extra_info)
+
     with self.subTest('should_return_reason_in_extra_info'):
-      print(f'expected_reason: {expected_reason}')
-      print(f'extra_info: {extra_info['critic_reason']}')
-      self.assertEqual(expected_reason, extra_info['critic_reason'])
+      self.assertEqual(expected_reason, extra_info[question]['reason'])
 
     with self.subTest('critic_prompt_in_extra_info_should_be_correct_type'):
       self.assertEqual(list, type(critic_prompt))
@@ -1279,26 +411,23 @@ Does prediction agree with target? (yes/no): """
     with self.subTest('critic_prompt_in_extra_info_should_be_correct_text'):
       self.assertEqual(expected_critic_prompt_text, critic_prompt_text)
 
-  def test_naive_fuzzy_evaluation_critic_example_error_handling(
-      self,
-  ):
-    with self.assertRaisesRegex(ValueError, 'Example must be provided'):
-      _ = executing.run(
-          evaluation.naive_fuzzy_evaluation_critic(
-              target='bla', prediction='answer 1', example={}
-          )
-      )
-
   @parameterized.named_parameters(
+      ('perfect_match', '1.0\nReason: Perfect match', 1.0, 'Perfect match'),
       (
-          'score_only',
-          '0.8',
-          0.8,
-          '',
+          'moderate_match',
+          '0.5\nReason: Somewhat related',
+          0.5,
+          'Somewhat related',
       ),
       (
-          'score_with_reason',
-          '0.8\nReason: Close enough',
+          'poor_match',
+          '0.25\nReason: Not really related',
+          0.25,
+          'Not really related',
+      ),
+      (
+          'score_with_bold',
+          '**0.8**\n**Reason:** Close enough',
           0.8,
           'Close enough',
       ),
@@ -1320,19 +449,27 @@ Does prediction agree with target? (yes/no): """
     )
     rating, extra_info = executing.run(
         evaluation.naive_fuzzy_evaluation_critic(
-            target='bla',
-            prediction=prediction,
-            example={'question': question},
+            prediction,
+            example={'question': question, 'golden_answer': 'bla'},
         )
     )
 
-    critic_prompt = extra_info['critic_prompt']
+    # The critic prompt in the extra info is a list of chunks, or a single
+    # string. We merge them into a single string here to make the test
+    # independent of the implementation details of the critic.
+    critic_prompt = extra_info[question]['critic_prompt']
     if isinstance(critic_prompt, list):
       prompt_text = ''.join(x.content for x in critic_prompt)
     else:
       prompt_text = str(critic_prompt)
+    logging.info('Naive fuzzy evaluation critic prompt:\n%s', prompt_text)
 
-    expected_prompt_text = """Please evaluate the predicted answer against the target answer, in the context of the given question. Give your rating as a float between 0.0 and 1.0, where 1 indicates a perfect semantic match and 0 indicates no similarity. Then give the reason for your rating.
+    # This is the expected plain text version of the prompt that is sent to the
+    # critic (i.e., with the content chunks concatenated, and roles ignored).
+    # We explicitly check the full prompt text to avoid any misunderstandings
+    # in the critic implementation regarding newlines, indentations, etc.
+    expected_prompt_text = """\
+Please evaluate the predicted answer against the target answer, in the context of the given question. Give your rating as a float between 0.0 and 1.0, where 1 indicates a perfect semantic match and 0 indicates no similarity. Then give the reason for your rating.
 
 1.0: Perfect semantic equivalence, conveying the same information and nuance.
 0.8-0.9: Very strong alignment, perhaps minor stylistic differences or slight omissions that do not alter core meaning.
@@ -1378,8 +515,11 @@ Score prediction against target in [0.0, 1.0]: """
     with self.subTest('should_return_correct_numeric_rating'):
       self.assertEqual(expected_value, rating)
 
+    with self.subTest('extra_info_should_be_keyed_by_question'):
+      self.assertIn(question, extra_info)
+
     with self.subTest('should_return_reason_in_extra_info'):
-      self.assertEqual(expected_reason, extra_info['critic_reason'])
+      self.assertEqual(expected_reason, extra_info[question]['reason'])
 
     with self.subTest('critic_prompt_in_extra_info_should_be_correct_type'):
       self.assertEqual(list, type(critic_prompt))
@@ -1397,11 +537,282 @@ Score prediction against target in [0.0, 1.0]: """
     ):
       _ = executing.run(
           evaluation.naive_fuzzy_evaluation_critic(
-              target='bla',
-              prediction='answer 1',
-              example={'question': 'bla'},
+              'answer 1',
+              example={'question': 'bla', 'golden_answer': 'bla'},
           )
       )
+
+
+class CompareWithCriticTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+
+    # This class tests various `llm` builtins. In case `import llm` is not
+    # executed (this may happen when running `pytest` with multiple tests that
+    # import `llm` module) various builtins from `llm` may be already configured
+    # elsewhere in unexpected ways. We manually reset all the default builtin
+    # implementations to make sure they are set properly.
+    llm.reset_defaults()
+
+  def test_apply_critic_to_answers(self):
+
+    fake_example = {'fake_example_key': 'fake_example_value'}
+
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    async def some_executable(a: int, b: int):
+      return f'{a}_{b}', fake_example
+
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    async def some_comparison_critic(answers, example):
+      del example
+      return '+'.join(answers)
+
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    async def some_evaluation_critic(answer, example):
+      del example
+      return answer
+
+    def exec_seq_generator(num_examples: int = 10, num_execs=3):
+      for example in range(num_examples):
+        executables = []
+        for executable in range(num_execs):
+          executables.append(some_executable(example, executable))
+        yield executables
+
+    critic_values_generator = evaluation.apply_critic_to_answers(
+        stream_of_exec_seq=exec_seq_generator(),
+        critic=some_comparison_critic,
+    )
+    with self.subTest('comparison_produces_correct_output'):
+      for el_id, el in enumerate(critic_values_generator):
+        expected_value = (f'{el_id}_0+{el_id}_1+{el_id}_2', fake_example)
+        self.assertEqual(executing.run(el), expected_value)
+
+    critic_values_generator = evaluation.apply_critic_to_answers(
+        stream_of_exec_seq=exec_seq_generator(num_execs=1),
+        critic=some_evaluation_critic,
+        critic_takes_single_answer=True,
+    )
+    with self.subTest('evaluation_produces_correct_output'):
+      for el_id, el in enumerate(critic_values_generator):
+        expected_value = (f'{el_id}_0', fake_example)
+        self.assertEqual(executing.run(el), expected_value)
+
+    critic_values_generator = evaluation.apply_critic_to_answers(
+        stream_of_exec_seq=exec_seq_generator(num_execs=3),
+        critic=some_evaluation_critic,
+        critic_takes_single_answer=True,
+    )
+    with self.subTest('raises_error_when_evaluation_critic_gets_many_execs'):
+      with self.assertRaisesRegex(
+          ValueError,
+          'Critic function is expected to take only one answer',
+      ):
+        for el in critic_values_generator:
+          _ = executing.run(el)
+
+  def test_compare_two_simple_strategies(self):
+    """Verifies comparison of simple strategies produces expected results."""
+    def _generate_text(prompt: str | content_lib.ChunkList) -> str:
+      if (
+          (isinstance(prompt, str) or isinstance(prompt, content_lib.ChunkList))
+          and str(prompt).endswith('Answer')
+      ):  # Prompt of naive_comparison_critic ends with 'Answer'.
+        return '1'
+      else:
+        return 'generated'
+
+    # This way default critic always chooses the first answer.
+    llm.generate_text.configure(_generate_text)
+
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    async def strategy_a(question, **unused_kwargs):
+      del unused_kwargs
+      return await llm.generate_text(prompt=f'{question}_a')  # pytype: disable=wrong-keyword-args
+
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    async def strategy_b(question, **unused_kwargs):
+      del unused_kwargs
+      return await llm.generate_text(prompt=f'{question}_b')  # pytype: disable=wrong-keyword-args
+
+    questions = ['question 1', 'question 2', 'question 3', 'question 4']
+    reference_answers = ['answer 1', 'answer 2', 'answer 3', 'answer 4']
+
+    _, total_votes, _ = evaluation.compare_with_critic(
+        strategies=[strategy_a, strategy_b],
+        examples=[{'question': q} for q in questions],
+        critic=functools.partial(
+            evaluation.naive_comparison_critic,
+            shuffle_answers=False,
+        ),
+    )
+
+    with self.subTest('produces_correct_total_votes'):
+      self.assertEqual(total_votes, [4, 0])
+
+    _, total_votes, _ = evaluation.compare_with_critic(
+        strategies=[strategy_a, strategy_b],
+        examples=[
+            {'question': q, 'reference_answer': ra}
+            for (q, ra) in zip(questions, reference_answers)
+        ],
+        critic=functools.partial(
+            evaluation.naive_comparison_critic,
+            use_reference_answer=True,
+            shuffle_answers=False,
+        ),
+    )
+
+    with self.subTest('produces_correct_total_votes_when_ran_with_reference'):
+      self.assertEqual(total_votes, [4, 0])
+
+  def test_naive_comparison_critic(self):
+    with self.subTest('raises_error_if_no_question_key'):
+      with self.assertRaisesRegex(
+          ValueError,
+          'Example does not contain the question key',
+      ):
+        _ = executing.run(
+            evaluation.naive_comparison_critic(
+                answers=['answer 1', 'answer 2'],
+                example={'bla': 'bla'},
+            )
+        )
+
+    with self.subTest('raises_error_if_less_than_two_answers'):
+      with self.assertRaisesRegex(
+          ValueError,
+          'Comparison critic is meant to compare multiple',
+      ):
+        _ = executing.run(evaluation.naive_comparison_critic(
+            answers=[],
+            example={'question': 'some question'},
+        ))
+      with self.assertRaisesRegex(
+          ValueError,
+          'Comparison critic is meant to compare multiple',
+      ):
+        _ = executing.run(evaluation.naive_comparison_critic(
+            answers=['answer 1'],
+            example={'question': 'some question'},
+        ))
+
+    with self.subTest('raises_error_if_no_reference_answer_key'):
+      with self.assertRaisesRegex(
+          ValueError,
+          'Example does not contain the reference answer key',
+      ):
+        _ = executing.run(evaluation.naive_comparison_critic(
+            'answer 1',
+            'answer 2',
+            example={'question': 'some question'},
+            use_reference_answer=True,
+        ))
+
+    # naive_critic is based on llm.generate_text.
+    llm.generate_text.configure(_fake_generate_text)
+    with self.subTest('raises_error_if_critic_returns_not_int_str'):
+      with self.assertRaisesRegex(
+          ValueError,
+          'Critic is expected to return a string that contains an int and that',
+      ):
+        _ = executing.run(evaluation.naive_comparison_critic(
+            answers=['answer 1', 'answer 2'],
+            example={'question': 'some question'},
+        ))
+
+    with self.subTest('raises_error_if_critic_returns_unexpected_int'):
+      llm.generate_text.configure(
+          _fake_generate_text_returns_anything,
+          return_value='3',
+      )
+      with self.assertRaisesRegex(
+          ValueError,
+          ' which is not a valid answer number.',
+      ):
+        _ = executing.run(evaluation.naive_comparison_critic(
+            answers=['answer 1', 'answer 2'],
+            example={'question': 'some question'},
+        ))
+      llm.generate_text.configure(
+          _fake_generate_text_returns_anything,
+          return_value='0',
+      )
+      with self.assertRaisesRegex(
+          ValueError,
+          ' which is not a valid answer number.',
+      ):
+        _ = executing.run(evaluation.naive_comparison_critic(
+            answers=['answer 1', 'answer 2'],
+            example={'question': 'some question'},
+        ))
+
+    llm.generate_text.configure(
+        _fake_generate_text_returns_anything,
+        return_value='2',
+    )
+    with self.subTest('produces_correct_output'):
+      res = executing.run(
+          evaluation.naive_comparison_critic(
+              answers=['answer 1', 'answer 2'],
+              example={'question': 'bla'},
+              shuffle_answers=False,
+          )
+      )
+      # Stringify the prompt (ChunkList -> str).
+      res[1]['bla']['critic_prompt'] = str(res[1]['bla']['critic_prompt'])
+      self.assertEqual(res, (
+          1,
+          {
+              'bla': {
+                  'best_answer': 'answer 2',
+                  'answers': ['answer 1', 'answer 2'],
+                  'critic_prompt': textwrap.dedent("""\
+                      Here are 2 different answers:
+                      Answer 1. answer 1
+                      Answer 2. answer 2
+
+                      Here is a question (or task description):
+                      bla
+
+                      The best answer for the question above is Answer"""),
+              }
+          },
+      ))
+
+    with self.subTest('produces_correct_output_when_using_reference_answers'):
+      res = executing.run(
+          evaluation.naive_comparison_critic(
+              answers=['answer 1', 'answer 2'],
+              example={'question': 'bla', 'reference_answer': 'haha'},
+              use_reference_answer=True,
+              shuffle_answers=False,
+          )
+      )
+      # Stringify the prompt (ChunkList -> str).
+      res[1]['bla']['critic_prompt'] = str(res[1]['bla']['critic_prompt'])
+      self.assertEqual(res, (
+          1,
+          {
+              'bla': {
+                  'best_answer': 'answer 2',
+                  'answers': ['answer 1', 'answer 2'],
+                  'critic_prompt': textwrap.dedent("""\
+                      Here are 2 different answers:
+                      Answer 1. answer 1
+                      Answer 2. answer 2
+
+                      Here is a question (or task description):
+                      bla
+
+                      A good answer could look something like this:
+                      haha
+
+                      The best answer for the question above is Answer"""),
+              }
+          },
+      ))
 
 
 if __name__ == '__main__':

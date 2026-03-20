@@ -24,7 +24,7 @@ from typing import Generic, TypeVar
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
-from onetwo.evaluation import evaluation
+from onetwo.evaluation import agent_evaluation
 
 # Type representing a strategy's output.
 _O = TypeVar('_O')
@@ -44,7 +44,7 @@ class AccuracyAtK(Generic[_O]):
   """
 
   k: int | None = 1
-  base_metric: evaluation.MetricFunction = lambda t, p: 1.0 * (t == p)
+  base_metric: agent_evaluation.MetricFunction = lambda t, p: 1.0 * (t == p)
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)

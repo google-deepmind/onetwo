@@ -29,6 +29,7 @@ from onetwo.evaluation import evaluation
 
 __version__: str = version.__version__
 
+compare_with_critic = evaluation.compare_with_critic
 copy_registry = routing.copy_registry
 evaluate = evaluation.evaluate
 Executable = executing.Executable
@@ -37,6 +38,7 @@ function_registry = routing.function_registry
 HTMLRenderer = results.HTMLRenderer
 make_composable = composing.make_composable
 make_executable = executing.make_executable
+naive_comparison_critic = evaluation.naive_comparison_critic
 naive_evaluation_critic = evaluation.naive_evaluation_critic
 naive_fuzzy_evaluation_critic = evaluation.naive_fuzzy_evaluation_critic
 par_iter = executing.par_iter
