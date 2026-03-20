@@ -24,10 +24,14 @@ from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_retrieval
+from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 Document = retrieval_data_structures.Document
+
+# TODO: Remove all chunking-related tests once the migration to
+# rewriting-based indexes is complete.
 
 
 # Mock llm.embed to be async
@@ -776,6 +780,387 @@ class EmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
 
       new_index.rename_discrete_field_key('external_keys', 'new', 'another')
       new_index.rename_discrete_field_key('external_keys', 'another', 'new')
+      self.assertIn('new', index_for_field)
+      self.assertEqual(index_for_field['new'], [0])
+
+
+# Tests replicating the behavior of the Chunking-based Indexes but using
+# Rewriting-based Indexes.
+class RewritingEmbeddingBasedIndexTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    mock_embed_fn.embeddings = []
+    mock_embed_fn.call_count = 0
+    self.mock_llm_embed = mock.patch(
+        'onetwo.builtins.llm.embed', new=mock_embed_fn
+    ).start()
+    self.addCleanup(mock.patch.stopall)
+
+  def test_delegates_to_inner_index(self):
+    docs = [
+        Document(
+            doc_id='doc1', title='Geography', content='This is document one.'
+        ),
+        Document(
+            doc_id='doc2',
+            title='History',
+            content='This is document two.',
+        ),
+    ]
+
+    doc1_embed = np.array([0.9, 0.1])
+    doc2_embed = np.array([0.1, 0.9])
+    query_embed = np.array([1.0, 0.0])
+
+    mock_embed_fn.embeddings = [
+        doc1_embed,
+        doc2_embed,
+        query_embed,
+        query_embed,
+        query_embed,
+    ]
+
+    inner_index = indexing.EmbeddingBasedIndex(
+        discrete_field_extractors={'title': lambda doc: doc.title}
+    )
+    # Using ChunkingCorpusRewriter with default chunker to mirror ChunkingIndex
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=chunking.NoChunking()
+    )
+    index = indexing.RewritingEmbeddingBasedIndex(
+        inner_index=inner_index, rewriter=rewriter
+    )
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('retrieve_doc_indices_and_scores'):
+      original_search = inner_index.retrieve_doc_indices_and_scores
+      with mock.patch.object(
+          inner_index, 'retrieve_doc_indices_and_scores', wraps=original_search
+      ) as wrapped_search:
+        results = ot.run(index.retrieve_doc_indices_and_scores('query'))  # pytype: disable=wrong-arg-count
+        wrapped_search.assert_called_once()
+        self.assertLen(results, 2)
+
+    with self.subTest('rename_discrete_field_key'):
+      original_rename = inner_index.rename_discrete_field_key
+      with mock.patch.object(
+          inner_index, 'rename_discrete_field_key', wraps=original_rename
+      ) as wrapped_rename:
+        index.rename_discrete_field_key('title', 'Geography', 'Science')
+        wrapped_rename.assert_called_once_with('title', 'Geography', 'Science')
+
+    with self.subTest('retrieve_doc_score'):
+      original_score = inner_index.retrieve_doc_score
+      with mock.patch.object(
+          inner_index, 'retrieve_doc_score', wraps=original_score
+      ) as wrapped_score:
+        score = ot.run(index.retrieve_doc_score('query', 0))  # pytype: disable=wrong-arg-count
+        wrapped_score.assert_called_once_with('query', 0)
+        np.testing.assert_allclose(score, 0.9)
+
+  def test_custom_rewriter(self):
+    class HelloRewriter(corpus_rewriting.CorpusRewriter):
+
+      @executing.make_executable(copy_self=False)
+      async def __call__(self, corpus):
+        results = []
+        for doc in corpus:
+          results.append(
+              Document(
+                  doc_id=f'{doc.doc_id}_chunk', content=f'Hello {doc.content}'
+              )
+          )
+        return results
+
+    docs = [
+        Document(doc_id='doc1', content='world'),
+        Document(doc_id='doc2', content='there'),
+    ]
+
+    mock_embed_fn.embeddings = [
+        np.array([0.9, 0.1]),
+        np.array([0.1, 0.9]),
+    ]
+
+    inner_index = indexing.EmbeddingBasedIndex()
+    index = indexing.RewritingEmbeddingBasedIndex(
+        inner_index=inner_index, rewriter=HelloRewriter()
+    )
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    chunks = list(index.get_docs())
+    self.assertLen(chunks, 2)
+    self.assertEqual(chunks[0].content, 'Hello world')
+    self.assertEqual(chunks[1].content, 'Hello there')
+    self.assertEqual(chunks[0].doc_id, 'doc1_chunk')
+    self.assertEqual(chunks[1].doc_id, 'doc2_chunk')
+
+
+class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    mock_embed_fn.embeddings = []
+    mock_embed_fn.call_count = 0
+    self.mock_llm_embed = mock.patch(
+        'onetwo.builtins.llm.embed', new=mock_embed_fn
+    ).start()
+    self.addCleanup(mock.patch.stopall)
+    self.temp_dir = tempfile.mkdtemp()
+
+  def tearDown(self):
+    shutil.rmtree(self.temp_dir)
+    super().tearDown()
+
+  def testAddingAndRetrievingDocuments(self):
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=chunking.NoChunking()
+    )
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+    docs = [
+        Document(doc_id='doc1', content='This is document one.'),
+        Document(doc_id='doc2', content='This is document two.'),
+        Document(doc_id='doc3', content='This is document three.'),
+    ]
+
+    doc1_embed = np.array([0.9, 0.1])
+    doc2_embed = np.array([0.8, 0.2])
+    doc3_embed = np.array([0.1, 0.9])
+    query_embed = np.array([1.0, 0.0])
+
+    mock_embed_fn.embeddings = [
+        doc1_embed,
+        doc2_embed,
+        doc3_embed,
+        query_embed,
+        query_embed,
+        query_embed,
+        query_embed,
+        query_embed,
+    ]
+
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    query = 'find document one'
+    retrieved_docs = ot.run(index(query, max_results=2))  # pytype: disable=wrong-arg-count
+
+    retrieved_list = list(retrieved_docs)
+    self.assertLen(retrieved_list, 2)
+
+    self.assertEqual(retrieved_list[0].doc_id, 'doc1')
+    self.assertEqual(retrieved_list[1].doc_id, 'doc2')
+
+    self.assertEqual(mock_embed_fn.call_count, 4)
+
+    score_zero = ot.run(index.retrieve_doc_score(query, 0))  # pytype: disable=wrong-arg-count
+    score_one = ot.run(index.retrieve_doc_score(query, 1))  # pytype: disable=wrong-arg-count
+    score_two = ot.run(index.retrieve_doc_score(query, 2))  # pytype: disable=wrong-arg-count
+
+    self.assertEqual(score_zero, 0.9)
+    self.assertEqual(score_one, 0.8)
+    self.assertEqual(score_two, 0.1)
+
+    docs_and_scores = ot.run(
+        index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
+    )
+    self.assertLen(docs_and_scores, 1)
+    self.assertEqual(docs_and_scores[0][0].doc_id, 'doc1')
+    self.assertEqual(docs_and_scores[0][1], 0.9)
+
+    index.destroy_index()
+
+  def test_create_index_with_rewriter(self):
+    with (
+        mock.patch.object(llm, 'detokenize', autospec=True) as mock_detokenize,
+        mock.patch.object(llm, 'tokenize', autospec=True) as mock_tokenize,
+    ):
+      mock_tokenize.side_effect = mock_tokenize_fn
+      mock_detokenize.side_effect = mock_detokenize_fn
+      docs = [
+          Document(doc_id='doc1', content='This is document one.'),
+          Document(doc_id='doc2', content='This is document two.'),
+          Document(doc_id='doc3', content='This is document three.'),
+      ]
+      mock_embed_fn.embeddings = [np.array([0.9, 0.1]) for _ in range(20)]
+      rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+          chunker=chunking.ChunkByMaxTokens(max_tokens_per_chunk=5)
+      )
+      index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+      ot.run(index.create_index(corpus_name='test_corpus', docs=docs))  # pytype: disable=wrong-keyword-args
+      num_docs = len(list(index.get_docs()))
+      retrieved_docs = ot.run(
+          index('find document one', max_results=None)  # pytype: disable=wrong-arg-count
+      )
+      with self.subTest('num_docs_and_retrieved_docs_match'):
+        self.assertLen(retrieved_docs, num_docs)
+
+  def test_save_load_roundtrip(self):
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=chunking.NoChunking()
+    )
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+    docs = [
+        Document(doc_id='doc1', content='This is document one.'),
+        Document(doc_id='doc2', content='This is document two.'),
+    ]
+
+    mock_embed_fn.embeddings = [
+        np.array([0.9, 0.1]),
+        np.array([0.8, 0.2]),
+    ]
+
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    index.save(self.temp_dir)
+    new_index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+    ot.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+    self.assertEqual(new_index.inner_index._docs, index.inner_index._docs)
+    self.assertEqual(
+        len(new_index.inner_index._doc_embeddings),
+        len(index.inner_index._doc_embeddings),
+    )
+
+  def test_retrieve_after_load(self):
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=chunking.NoChunking()
+    )
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+    docs = [
+        Document(doc_id='doc1', content='This is document one.'),
+        Document(doc_id='doc2', content='This is document two.'),
+    ]
+
+    doc1_embed = np.array([0.9, 0.1])
+    doc2_embed = np.array([0.8, 0.2])
+    query_embed = np.array([1.0, 0.0])
+
+    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    index.save(self.temp_dir)
+
+    new_index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+    ot.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+
+    mock_embed_fn.embeddings = [query_embed]
+    mock_embed_fn.call_count = 0
+    retrieved_docs = ot.run(new_index('find document one', max_results=2))  # pytype: disable=wrong-arg-count
+    retrieved_list = list(retrieved_docs)
+    self.assertLen(retrieved_list, 2)
+    self.assertEqual(retrieved_list[0].doc_id, 'doc1')
+
+
+class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    mock_embed_fn.embeddings = []
+    mock_embed_fn.call_count = 0
+    self.mock_llm_embed = mock.patch(
+        'onetwo.builtins.llm.embed', new=mock_embed_fn
+    ).start()
+    self.addCleanup(mock.patch.stopall)
+    self.temp_dir = tempfile.mkdtemp()
+
+  def tearDown(self):
+    shutil.rmtree(self.temp_dir)
+    super().tearDown()
+
+  def test_save_load_roundtrip_full(self):
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=chunking.NoChunking()
+    )
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=rewriter,
+        inner_index=indexing.EmbeddingBasedDocumentIndex(
+            discrete_field_extractors={
+                'external_keys': (
+                    lambda doc: doc.metadata.get('external_keys', [])
+                    if doc.metadata
+                    else []
+                )
+            }
+        ),
+    )
+    docs = [
+        Document(doc_id='a', content='A', metadata={'external_keys': ['a']}),
+        Document(doc_id='b', content='B', metadata={'external_keys': ['b']}),
+    ]
+    mock_embed_fn.embeddings = [
+        np.array([0.1, 0.2]),
+        np.array([0.3, 0.4]),
+    ]
+    executing.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('save_index'):
+      index.save(self.temp_dir)
+
+    with self.subTest('load_index'):
+      new_index = indexing.RewritingEmbeddingBasedDocumentIndex(
+          rewriter=rewriter,
+          inner_index=indexing.EmbeddingBasedDocumentIndex(
+              discrete_field_extractors={
+                  'external_keys': (
+                      lambda doc: doc.metadata.get('external_keys', [])
+                      if doc.metadata
+                      else []
+                  )
+              }
+          ),
+      )
+      executing.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('verify_correct_attributes'):
+      self.assertEqual(new_index.inner_index._docs, docs)
+      self.assertEqual(
+          new_index.inner_index._doc_indices_by_discrete_value,
+          {'external_keys': {'a': [0], 'b': [1]}},
+      )
+
+  def test_rename_discrete_field_key_type_handling(self):
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=chunking.NoChunking()
+    )
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=rewriter,
+        inner_index=indexing.EmbeddingBasedDocumentIndex(
+            discrete_field_extractors={
+                'external_keys': (
+                    lambda doc: doc.metadata.get('external_keys', [])
+                    if doc.metadata
+                    else []
+                )
+            }
+        ),
+    )
+    docs = [
+        Document(doc_id='a', content='A', metadata={'external_keys': ['old']}),
+    ]
+    mock_embed_fn.embeddings = [np.array([0.1, 0.2])]
+    executing.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    index.save(self.temp_dir)
+
+    new_index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=rewriter,
+        inner_index=indexing.EmbeddingBasedDocumentIndex(
+            discrete_field_extractors={
+                'external_keys': (
+                    lambda doc: doc.metadata.get('external_keys', [])
+                    if doc.metadata
+                    else []
+                )
+            }
+        ),
+    )
+    executing.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('rename_with_defaultdict_works'):
+      new_index.rename_discrete_field_key('external_keys', 'old', 'new')
+      index_for_field = new_index.inner_index._doc_indices_by_discrete_value[
+          'external_keys'
+      ]
+      self.assertNotIn('old', index_for_field)
       self.assertIn('new', index_for_field)
       self.assertEqual(index_for_field['new'], [0])
 

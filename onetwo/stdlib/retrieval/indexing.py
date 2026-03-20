@@ -40,11 +40,14 @@ from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_retrieval
+from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
 
+# TODO: Migrate all chunking-based indexes to rewriting-based
+# indexes.
 
 QueryT = retrieval.QueryT
 RetrievalResultT = retrieval.RetrievalResultT
@@ -251,6 +254,67 @@ class ChunkingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):
     for chunk_list in chunks_by_doc:
       chunks.extend(chunk_list)
     await self.inner_index.add_docs(docs=chunks)  # pytype: disable=wrong-keyword-args
+
+
+@dataclasses.dataclass(kw_only=True)
+class RewritingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):
+  """Index that rewrites a corpus before adding it to an inner index.
+
+  By default, this class treats the rewritten documents as the primary units of
+  retrieval. When `get_docs`, `retrieve` or `retrieve_with_scores` is called,
+  the objects returned are the individual rewritten documents (derived from the
+  original documents) as stored in the inner index, rather than the original
+  source documents.
+
+  One specific usecase is to use this class to chunk documents before adding
+  them to an inner index. In this case, the `rewriter` would be a
+  `ChunkingRewriter`:
+
+  Example:
+
+    chunking_index = RewritingIndex(
+      rewriter = corpus_rewriting.ChunkingRewriter(
+        chunker = chunking.ChunkByMaxTokens(
+          max_tokens_per_chunk = 128,
+          overlap_tokens = 16,
+        )
+      )
+    )
+
+  Future iterations could support alternative behaviors, such as:
+  1.  **Parent-Document Retrieval**: Returning the original document associated
+      with a retrieved rewritten document.
+  2.  **Contextual Windowing**: Returning a chunk along with its neighboring
+      surrounding context.
+
+  Attributes:
+    rewriter: CorpusRewriter used to rewrite the documents.
+  """
+
+  rewriter: corpus_rewriting.CorpusRewriter = dataclasses.field(
+      default_factory=corpus_rewriting.NoRewriting
+  )
+
+  @executing.make_executable(copy_self=False)
+  async def create_index(self, corpus_name: str, docs: Iterable[DocT]) -> None:
+    """Overridden from base class (Index)."""
+    if self.inner_index.num_docs > 0:
+      raise ValueError(
+          'Attempting to call `create_index` on a corpus with existing'
+          f' documents: old_name={self.inner_index.corpus_name},'
+          f' new_name={corpus_name},'
+          f' num_existing_docs={self.inner_index.num_docs},'
+          f' num_docs_to_add={len(list(docs))}'
+      )
+
+    self.inner_index.corpus_name = corpus_name  # pytype: disable=attribute-error
+    await self.add_docs(docs)  # pytype: disable=wrong-arg-count
+
+  @executing.make_executable(copy_self=False)
+  async def add_docs(self, docs: Iterable[DocT]) -> None:
+    """Overridden from base class (Index)."""
+    rewritten_docs = await self.rewriter(docs)  # pytype: disable=wrong-arg-count
+    await self.inner_index.add_docs(docs=rewritten_docs)  # pytype: disable=wrong-keyword-args
 
 
 @dataclasses.dataclass
@@ -743,6 +807,61 @@ class ChunkingEmbeddingBasedIndex(
         query, doc_index
     )
 
+
+@dataclasses.dataclass(kw_only=True)
+class RewritingEmbeddingBasedIndex(
+    RewritingIndex[QueryT, RetrievalResultT, DocT],
+    EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
+    Generic[QueryT, RetrievalResultT, DocT],
+):
+  """Index that rewrites documents and provides embedding-specific methods.
+
+  This class combines the behavior of `RewritingIndex` with the vector-search
+  capabilities of `EmbeddingBasedIndex`. Note that the document access and
+  retrieval methods (`get_docs`, `retrieve`, `retrieve_with_scores`, and
+  `retrieve_doc_indices_and_scores`) currently return the specific rewritten
+  documents and their corresponding level embeddings/scores.
+
+  Attributes:
+    inner_index: The underlying `EmbeddingBasedIndex` used for vector storage
+      and similarity search.
+  """
+
+  inner_index: EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT]
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve_doc_indices_and_scores(
+      self,
+      query: QueryT,
+      *,
+      max_results: int | None = None,
+      min_score: float | None = None,
+      constraints: constrained_retrieval.RetrievalConstraints | None = None,
+  ) -> Sequence[tuple[int, float]]:
+    """Delegates to the inner index."""
+    return await self.inner_index.retrieve_doc_indices_and_scores(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
+        query,
+        max_results=max_results,
+        min_score=min_score,
+        constraints=constraints,
+    )
+
+  def rename_discrete_field_key(
+      self, field_name: str, old_key: str, new_key: str
+  ) -> None:
+    """Delegates to the inner index."""
+    self.inner_index.rename_discrete_field_key(  # pytype: disable=attribute-error
+        field_name, old_key, new_key
+    )
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
+    """Delegates to the inner index."""
+    return await self.inner_index.retrieve_doc_score(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
+        query, doc_index
+    )
+
+
 from onetwo.stdlib.retrieval import serialization
 serializer = serialization.SimpleEmbeddingBasedIndexSerializer
 
@@ -782,6 +901,27 @@ class ChunkingEmbeddingBasedDocumentIndex(
     EmbeddingBasedDocumentIndex,
 ):
   """Embedding-based index with chunking for Document objects."""
+
+  inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(
+      default_factory=EmbeddingBasedDocumentIndex
+  )
+
+  def save(self, base_path: str) -> None:
+    """Saves the index state."""
+    self.inner_index.save(base_path)
+
+  @executing.make_executable(copy_self=False)
+  async def load(self, base_path: str) -> None:
+    """Loads the index state."""
+    await self.inner_index.load(base_path)  # pytype: disable=wrong-arg-count
+
+
+@dataclasses.dataclass(kw_only=True)
+class RewritingEmbeddingBasedDocumentIndex(
+    RewritingEmbeddingBasedIndex[str, Document, Document],
+    EmbeddingBasedDocumentIndex,
+):
+  """Embedding-based index with rewriting for Document objects."""
 
   inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(
       default_factory=EmbeddingBasedDocumentIndex
