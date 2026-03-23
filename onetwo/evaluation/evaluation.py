@@ -12,385 +12,487 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Various evaluation routines.
+"""Library for evaluating agents and other prompting strategies."""
 
-All functions are meant as minimal templates that demonstrate how to run
-custom prompt strategies on multiple examples in an efficient way and evaluate
-the results.
+from __future__ import annotations
 
-We encourage our users to fork this file and modify it according to their needs.
-
-We cover a few types of evaluation scenarios:
-1. Compare strategy's answer with the ground truth answer in a programmatic way.
-  E.g., `float(answer == example['golden_answer']` (see `evaluate`);
-2. Compare strategy's answer with the ground truth answer using LLM critic.
-  E.g., if we want both "2pi cm" and "6.28 centimeters" to count as correct
-  answers (see `evaluate`).
-3. Compare answers of multiple strategies using LLM critic
-  (see `compare_with_critic`);
-"""
-
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+import copy
 import datetime
+import functools
+import json
+import logging
+import os
 import pprint
-import random
 import re
-import time
-from typing import Any, Final, Protocol, TypeAlias, TypeVar, cast
+import traceback
+from typing import Any, Final, ParamSpec, Protocol, TypeAlias, TypeVar, cast
 
+from onetwo.agents import agents_base
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import results
+from onetwo.core import tracing
 from onetwo.core import updating
+from onetwo.core import utils
+
 import tqdm
 
 
+
 _QUESTION_KEY: Final[str] = 'question'
-_REFERENCE_ANSWER_KEY: Final[str] = 'reference_answer'
-_GOLDEN_ANSWER_KEY: Final[str] = 'golden_answer'
-
-_Result = TypeVar('_Result')
-_CriticResult = TypeVar('_CriticResult')
-_ChunkList: TypeAlias = content_lib.ChunkList
-_Message: TypeAlias = content_lib.Message
-_PredefinedRole: TypeAlias = content_lib.PredefinedRole
-Example: TypeAlias = Mapping[str, Any]
-SingleMetricValue: TypeAlias = float
-ExtraInfo: TypeAlias = Mapping[str, Any]
-MetricResult: TypeAlias = tuple[SingleMetricValue, ExtraInfo]
-# Tuple of [id_of_best_answer, extra_info], where id_of_best_answer is 0-based.
-ComparisonResult: TypeAlias = tuple[int, ExtraInfo]
+_Args = ParamSpec('_Args')
+_I = TypeVar('_I')
+_O = TypeVar('_O')
+_Example = TypeVar('_Example')
 
 
-class _EvaluationCritic(Protocol[_Result]):
-
-  def __call__(
-      self,
-      answer: _Result,
-      example: Example,
-      **kwargs: Any,
-  ) -> executing.Executable[MetricResult] | MetricResult:
-    ...
+MetricValue: TypeAlias = float | None
+MetricValueWithExtraInfo: TypeAlias = tuple[MetricValue, Mapping[str, Any]]
 
 
-class _ComparisonCritic(Protocol[_Result]):
+EvaluationMetricPossibleReturnTypes: TypeAlias = (
+    # Option 1: Just return a float (or None).
+    MetricValue
+    | Awaitable[MetricValue]
+    | executing.Executable[MetricValue]
+    |
+    # Option 2: Return a float (or None), paired with a dict of extra info.
+    MetricValueWithExtraInfo
+    | Awaitable[MetricValueWithExtraInfo]
+    | executing.Executable[MetricValueWithExtraInfo]
+)
 
-  def __call__(
-      self,
-      answers: Sequence[_Result],
-      example: Example,
-      **kwargs: Any,
-  ) -> executing.Executable[ComparisonResult] | ComparisonResult:
-    ...
 
+class MetricFunctionWithExampleArg(Protocol[_O, _Example]):
+  """Function to compute an evaluation metric for a given example.
 
-def compile_strategies(
-    strategies: Sequence[Callable[..., executing.Executable[_Result]]],
-    examples: Iterable[Example],
-) -> Iterator[Sequence[executing.Executable[tuple[_Result, Example]]]]:
-  """Compiles multiple strategies into executables on a sequence of examples.
+  The most basic notion of a metric function is that it takes a target and a
+  prediction, and returns a float representing how good the prediction is, in
+  comparison to the target.
 
-  Args:
-    strategies: Sequence of prompting strategies. We assume that examples
-      contain all the arguments required for every strategy, i.e., that
-      `strategy(**example)` returns a valid Executable for any example in
-      examples and strategy in strategies.
-    examples: Iterable of examples on which to evaluate the strategy.
-
-  Yields:
-    For each example in examples yields Sequence[Executable], where every
-      elements correspond to different elements in strategies. Running each of
-      these executables corresponds to applying the corresponding prompting
-      strategy on the example.
-
-  Raises:
-    ValueError: If `strategy(**example)` raises a TypeError for any example in
-      examples or strategy in strategies. This likely means that signature of
-      `strategy` is not compatible with fields stored in the example, e.g., if
-      example did not provide all the required arguments for `strategy`
-      function.
+  A number of variations, however, are also supported:
+  * The function can take the example as an additional argument, which can be
+    used to retrieve additional information about the example that is not
+    otherwise available from the target or prediction.
+  * The function can be async, or decorated with `@executing.make_executable`,
+    e.g., for a metric function that is backed by an AI rater.
+  * The function can return `None`, in which case no value for the given metric
+    will be recorded for that example, and that example will not be included
+    when calculating the aggregated value of that metric over the dataset.
+  * The function can return along with the float value a dict of extra
+    information, which can be used to store arbitrary additional information
+    about the example that is not necessarily represented as a float (e.g., in
+    the case of an AI rater that internally uses chain-of-thought prompting, the
+    extra info could include the AI rater's rationale). If provided, the extra
+    info will be included in the `info` field of the `EvaluationResult` and
+    `EvaluationSummary` for the example.
   """
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
-  async def _execute_and_add_example(
-      executable: executing.Executable,
-      example: Example,
-  ):
-    # Note: arg `executable` will be executed before entering the function.
-    return executable, example
+  def __call__(
+      self,
+      target: _O,
+      prediction: _O,
+      example: _Example | None = None,
+  ) -> EvaluationMetricPossibleReturnTypes:
+    """Returns the value of the metric (+extra info?) for a given example."""
+    ...
 
-  for example in examples:
-    executables = []
-    for strategy in strategies:
-      try:
-        executable = strategy(**example)
-      except TypeError as err:
-        raise ValueError(
-            'Error occurred when calling `strategy(**example)` for '
-            f'example={pprint.pformat(example)}.'
-        ) from err
-      executables.append(executable)
-    # We wrap the user defined executable to also return an example that was
-    # used to define it. This is done to make sure that later we have an
-    # access to that example in case we may need it.
-    yield [_execute_and_add_example(exec, example) for exec in executables]
+
+class MetricFunctionWithoutExampleArg(Protocol[_O]):
+  """Metric function that does not take the example as an argument."""
+
+  def __call__(
+      self,
+      target: _O,
+      prediction: _O,
+  ) -> EvaluationMetricPossibleReturnTypes:
+    """Returns the value of the metric (+extra info?) for a given example."""
+    ...
+
+
+MetricFunction: TypeAlias = (
+    MetricFunctionWithExampleArg | MetricFunctionWithoutExampleArg
+)
+
+
+class AggregationFunction(Protocol):
+  """Function for performing custom aggregation of evaluation result info."""
+
+  def __call__(
+      self,
+      aggregate_summary: results.EvaluationSummary,
+      example_summary: results.EvaluationSummary,
+  ) -> None:
+    """Updates `aggregate_summary.info` based on `example_summary.info`.
+
+    Args:
+      aggregate_summary: Aggregated results for the evaluation run so far,
+        including the current example (i.e, after updating metrics, counters,
+        etc., in the standard way, and possibly after applying some other custom
+        aggregation functions).
+      example_summary: Results for the current example, which are to be merged
+        into the aggregate results.
+    """
+    ...
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
-async def naive_comparison_critic(
-    answers: Sequence[str | _ChunkList],
-    example: Example,
-    question_key: str = _QUESTION_KEY,
-    reference_answer_key: str = _REFERENCE_ANSWER_KEY,
-    use_reference_answer: bool = False,
-    shuffle_answers: bool = True,
-) -> ComparisonResult:
-  """Naive implementation of a comparison critic strategy.
+async def _execute_with_tracing(
+    strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
+    *args: _Args.args,
+    **kwargs: _Args.kwargs,
+) -> tuple[_O, results.ExecutionResult]:
+  """Returns the result of executing the strategy, along with a trace.
+
+  Unlike `executing.run(..., enable_tracing=True)`, which can only be applied
+  once at the outermost level of a given evaluation run, this function can be
+  applied multiple places within an evaluation strategy. The canonical use case
+  is to individually wrap the evaluation of each example within a run over a
+  larger dataset, so that we can get a trace associated with that specific
+  example and stream it together with the example's results.
+
+  The intention would be to eventually allow calls to `_execute_with_tracing` to
+  be nested at arbitrary levels of the prompting strategy, without interference.
+  At that point, it could make sense to move this function into a more central
+  location such as the `executing` module for wider reuse. Currently, however,
+  there are some caveats, in that using `_execute_with_tracing` essentially
+  hijacks the tracing mechanism, which means that it cannot be safely nested and
+  cannot be used meaningfully with `executing.run(..., enable_tracing=True)`
 
   Args:
-    answers: Sequence of different answers for the question contained in the
-      example.
-    example: Example that contains the question.
-    question_key: Key of the element in the example dictionary that contains the
-      question.
-    reference_answer_key: Key of the element in the example dictionary that
-      contains the reference answer (if present).
-    use_reference_answer: Use the reference answer when comparing different
-      answers.
-    shuffle_answers: If True (default) answers will be shuffled before
-      comparison is performed (to break any order bias).
+    strategy: The strategy to execute. Can be an arbitrary callable (async or
+      ordinary function, decorated with `@executing.make_executable or not,
+      agent, other callable, etc.).
+    *args: Positional arguments to pass to the strategy.
+    **kwargs: Keyword arguments to pass to the strategy.
+  """
+
+  # TODO: We are wrapping the whole call to the strategy in a fresh
+  # ExecutionResult object so as to ensure that we can subsequently extract a
+  # single ExecutionResult object containing precisely the trace of what
+  # occurred during the call to the strategy. What is the best solution in the
+  # long run? Should we just throw this temporary ExecutionResult away once we
+  # have extracted the child ExecutionResult from it? Or will we ever need to
+  # keep it (e.g., if for whatever reason it ends up having multiple child
+  # stages)? What should we do about the existing value of the context variable
+  # (if any)? Do we need to attach the new ExecutionResult object(s) as stage(s)
+  # of it?
+  parent_trace = results.ExecutionResult(stage_name='_execute_with_tracing')
+  tracing.execution_context.set(parent_trace)
+
+  @tracing.trace(skip=['return_final_state'])
+  @functools.wraps(strategy)
+  async def wrapper(*args: _Args.args, **kwargs: _Args.kwargs) -> _O:
+    return await utils.call_and_maybe_await(strategy, *args, **kwargs)
+
+  prediction = await wrapper(*args, **kwargs)  # pytype: disable=bad-return-type
+
+  # Harvest the trace that was defined in the wrapper function above.
+  trace = copy.deepcopy(tracing.execution_context.get(None))
+  if len(trace.stages) != 1:  # pytype: disable=attribute-error
+    raise ValueError(
+        'Expected exactly one stage in the trace:'
+        f' {pprint.pformat(trace, width=160)}'
+    )
+  trace = trace.stages[0]  # pytype: disable=attribute-error
+
+  # If the underlying function was already being traced, then the outer trace
+  # layer defined via the wrapper will be redundant, and we can omit it.
+  is_outer_trace_redundant = len(trace.stages) == 1 and (
+      isinstance(strategy, agents_base.Agent)
+      or (
+          trace.stages[0].stage_name == trace.stage_name
+          and trace.stages[0].inputs == trace.inputs
+          and trace.stages[0].outputs == trace.outputs
+      )
+  )
+  if is_outer_trace_redundant:
+    trace = trace.stages[0]
+
+  # TODO: Make sure that if an outer tracer is defined, the traces
+  # from `function` and its sub-stages still show up as stages of the outer
+  # trace object, the same as if `function` were called directly.
+  # if tracer is not None:
+  #   tracing.execution_tracer.reset(tracer_token)
+
+  return prediction, trace
+
+
+@executing.make_executable  # pytype: disable=wrong-arg-types
+async def _evaluate_example(
+    strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
+    example: _Example,
+    *,
+    inputs_extractor: Callable[
+        [_Example], tuple[Sequence[Any], Mapping[str, Any]]
+    ] = lambda x: ([x['question']], {}),
+    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],
+    metric_functions: dict[str, MetricFunction] | None = None,
+    output_final_states: bool = False,
+    enable_tracing: bool = True,
+) -> tuple[_Example, results.EvaluationSummary]:
+  """Evaluates the given strategy on the given example.
+
+  Args:
+    strategy: The prompting strategy to evaluate. Can be an arbitrary callable
+      (async or ordinary function, decorated with `@executing.make_executable`
+      or not, agent, other callable, etc.). The arguments of `strategy` could be
+      any arbitrary arguments (which must be compatible with whatever args and
+      kwargs get returned by the `inputs_extractor` -- but that can only be
+      validated at runtime, not at compile time).
+    example: The example to evaluate the strategy on.
+    inputs_extractor: Function that given an example returns a tuple of `(args,
+      kwargs)`, i.e., `tuple[Sequence[Any], Mapping[str, Any]]` to pass as
+      inputs to the strategy.
+    target_extractor: Function that given an example returns the target value
+      (if any) to which the prediction can be compared for determining accuracy.
+    metric_functions: Mapping of metric name to a function that calculates the
+      value of that metric for a single example. For each entry in this mapping,
+      a corresponding entry will be added in `EvaluationSummary.metrics`,
+      containing the average of that metric's values across all examples.
+    output_final_states: Whether to populate `final_states` field in
+      `EvaluationSummary`. Only applicable to agent strategies.
+    enable_tracing: Whether to enable tracing. If True, the evaluation summary
+      will contain the trace of every stage of the strategy execution.
 
   Returns:
-    A tuple (best_answer_id, extra_info), where best_answer_id is 0-based.
-
-  Raises:
-    ValueError:
-      If example does not contain the question key. Or use_reference_answer is
-      True and example doed not contain the reference answer key. Or if critic
-      returned a string that does not consist of a single integer, i.e., can not
-      be used with int().
+    A tuple of the example and an evaluation summary containing the results for
+    just that example.
   """
-  if question_key not in example:
-    raise ValueError(
-        f'Example does not contain the question key {question_key}:\n'
-        f'{pprint.pformat(example)}'
-    )
-
-  if len(answers) < 2:
-    raise ValueError(
-        'Comparison critic is meant to compare multiple (more than 1) answers '
-        f'but received only {len(answers)}:\n{answers}'
-    )
-
-  # Possibly shuffle the answers for comparison.
-  possibly_shuffled_answers = list(answers)
-  answer_ids = list(range(len(possibly_shuffled_answers)))
-  if shuffle_answers:
-    random.shuffle(answer_ids)  # Shuffle ids randomly.
-    # Shuffle the answers in the same order.
-    possibly_shuffled_answers = [
-        possibly_shuffled_answers[el_id] for el_id in answer_ids
-    ]
-
-  # Create a prompt for comparison.
-  num_answers = len(possibly_shuffled_answers)
-  list_of_answers = _ChunkList()
-  for answer_id, answer in enumerate(possibly_shuffled_answers):
-    list_of_answers += f'Answer {answer_id + 1}. ' + answer.lstrip().rstrip()
-    list_of_answers += '\n'
-  critic_prompt = _ChunkList()
-  critic_prompt += f'Here are {num_answers} different answers:\n'
-  critic_prompt += list_of_answers + '\n'
-  critic_prompt += 'Here is a question (or task description):\n'
-  critic_prompt += example[question_key].lstrip().rstrip() + '\n\n'
-  if use_reference_answer:
-    if reference_answer_key not in example:
-      raise ValueError(
-          f'Example does not contain the reference answer key {question_key}:\n'
-          f'{pprint.pformat(example)}'
-      )
-    critic_prompt += 'A good answer could look something like this:\n'
-    critic_prompt += example[reference_answer_key].lstrip().rstrip() + '\n\n'
-  critic_prompt += 'The best answer for the question above is Answer'
-  res = await llm.generate_text(  # pytype: disable=wrong-keyword-args
-      prompt=critic_prompt,
-      max_tokens=3,
-      stop=['.', '\n'],
+  summary = results.EvaluationSummary(
+      timing=results.EvaluationTiming(
+          start_time=datetime.datetime.now(), end_time=datetime.datetime.now()
+      ),
   )
+  args, kwargs = inputs_extractor(example)
+  target = target_extractor(example)
+
+  prediction = None
+  execution_result = None
+  final_state = None
+  error = None
+
   try:
-    res = int(res)
-  except ValueError as err:
-    raise ValueError(
-        'Critic is expected to return a string that contains an int and that '
-        f'can be used with int() function. Instead got:\n{res}'
-    ) from err
-  if res not in range(1, num_answers + 1):
-    raise ValueError(
-        f'Critic returned "{res}" which is not a valid answer number.'
-    )
-  best_answer_id = res - 1
-  best_answer = possibly_shuffled_answers[best_answer_id]
-  if shuffle_answers:
-    # Map critic's choice back to the original ids.
-    best_answer_id = answer_ids[best_answer_id]
-  return best_answer_id, {
-      example[question_key]: {
-          'best_answer': best_answer,
-          # Highlights that the order is irrelevant:
-          'answers': list(answers),
-          'critic_prompt': critic_prompt,
-      }
-  }
-
-
-def _validate_example_keys(
-    example: Example, question_key: str, golden_answer_key: str
-) -> None:
-  """Validates that the example contains the required keys."""
-  if question_key not in example:
-    raise ValueError(
-        f'Example does not contain the question key {question_key}:\n'
-        f'{pprint.pformat(example)}'
-    )
-  if golden_answer_key not in example:
-    raise ValueError(
-        f'Example does not contain the golden answer key {golden_answer_key}:\n'
-        f'{pprint.pformat(example)}'
-    )
-
-
-def apply_critic_to_answers(
-    stream_of_exec_seq: Iterator[
-        Sequence[executing.Executable[tuple[_Result, Example]]]
-    ],
-    critic: _EvaluationCritic[_Result] | _ComparisonCritic[_Result],
-    critic_takes_single_answer: bool = False,
-) -> Iterator[executing.Executable[tuple[_CriticResult, Example]]]:
-  """Create a stream of executables with critic answers.
-
-  Converts stream of (non-executed) strategy tuples into stream of
-  (non-executed) critic values.
-
-  Args:
-    stream_of_exec_seq: Iterator where i-th element is [s_1_i, ..., s_K_i].
-      s_k_i is an answer of `k`-th strategy (out of K) on the i-th example. When
-      executed, s_k_i returns a tuple (answer, example).
-    critic: A function that follows either _EvaluationCritic or
-      _ComparisonCritic protocol. Returns Executable[_CriticResult] (or
-      _CriticResult).
-    critic_takes_single_answer: Whether the critic function is expected to match
-      _EvaluationCritic or _ComparisonCritic protocol. For the first case use
-      True, for the latter use False (default).
-
-  Yields:
-    Stream of critic's values on the stream of answers.
-  """
-
-  @executing.make_executable  # pytype: disable=wrong-arg-types
-  async def _apply_critic(
-      executables: Sequence[executing.Executable[tuple[_Result, Example]]],
-  ) -> tuple[_CriticResult, Example]:
-    """Call a critic on unpacked answers and examples."""
-    # While `make_executable` decorator does execute all the Executable
-    # arguments, in our case `executables` is a Sequence of Executables, so
-    # `make_executable` won't do it for us. We need to execute them first.
-    answers_and_examples = []
-    for el in executables:
-      res = await el
-      answers_and_examples.append(res)
-    # All examples should be the same, but we don't check it.
-    example = answers_and_examples[0][1]
-    answers_arg = [answer for (answer, _) in answers_and_examples]
-    if critic_takes_single_answer:
-      if len(answers_arg) > 1:
-        raise ValueError(
-            'Critic function is expected to take only one answer, because'
-            '`critic_takes_single_answer` flag is set to True. However, critic '
-            f'received {len(answers_arg)} answers to process:\n{answers_arg}'
+    if enable_tracing:
+      if isinstance(strategy, agents_base.Agent):
+        (prediction, final_state), execution_result = (
+            await _execute_with_tracing(
+                strategy, *args, **kwargs, return_final_state=True
+            )
         )
-      critic_result = cast(_EvaluationCritic, critic)(
-          answer=answers_arg[0],
-          example=example,
-      )
+      else:
+        prediction, execution_result = await _execute_with_tracing(
+            strategy, *args, **kwargs
+        )
     else:
-      critic_result = cast(_ComparisonCritic, critic)(
-          answers=answers_arg,
-          example=example,
+      if isinstance(strategy, agents_base.Agent):
+        prediction, final_state = await utils.call_and_maybe_await(
+            strategy, *args, **kwargs, return_final_state=True
+        )
+      else:
+        prediction = await utils.call_and_maybe_await(strategy, *args, **kwargs)
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    traceback.print_exc()
+    error = e
+
+  # Counters
+  summary.counters[results.COUNTER_TOTAL_EXAMPLES] = 1
+  summary.counters[results.COUNTER_ERRORS] = 1 if error else 0
+
+  # Metrics (and extra info)
+  extra_info = {}
+  if metric_functions:
+    for metric_name, metric_function in metric_functions.items():
+      try:
+        metric_value = await utils.call_and_maybe_await(
+            metric_function,
+            target=target,
+            prediction=prediction,
+            example=example,
+        )
+      except TypeError:
+        # Since not all metric functions require access to the `example` dict,
+        # we fall back to trying calling the metric function with just the
+        # `target` and `prediction` arguments.
+        metric_value = await utils.call_and_maybe_await(
+            metric_function, target=target, prediction=prediction
+        )
+      if isinstance(metric_value, tuple):
+        metric_value, extra_info = metric_value
+      if metric_value is not None:
+        summary.metrics[metric_name] = metric_value
+        metric_counter_name = results.get_metric_counter_name(metric_name)
+        summary.counters[metric_counter_name] = 1
+
+  # The below placeholders will be replaced by an actual example key calculated
+  # on the caller side.
+  example_index = 0
+  example_key = 'placeholder'
+
+  # Example keys
+  summary.example_keys[example_index] = example_key
+
+  # Results and results debug
+  if execution_result is None:
+    # Error occurred during strategy execution or tracing was disabled.
+    # Output just a minimal summary.
+    if hasattr(strategy, '__name__'):
+      strategy_name = strategy.__name__
+    else:
+      strategy_name = strategy.__class__.__name__
+    if error:
+      outputs = {}
+    elif isinstance(strategy, agents_base.Agent):
+      outputs = {'output': (prediction, final_state)}
+    else:
+      outputs = {'output': prediction}
+    evaluation_debug = results.EvaluationResult(
+        stage_name=strategy_name,
+        inputs={'args': args, 'kwargs': kwargs},
+        outputs=outputs,
+        error=error if error else '',
+    )
+  else:
+    # Strategy executed without error. Output a full summary.
+    evaluation_debug = results.EvaluationResult.from_execution_result(
+        execution_result
+    )
+
+  if final_state:
+    # For agents, we are setting `return_final_state=True` internally as a
+    # means of retrieving the final_state. This has the side effect that the
+    # `outputs` of the agent show up as a tuple of `(answer, final_state)`,
+    # rather than simply `answer`. We clean this up manually here, so that
+    # final_state appears only in `summary.final_states`, not in the `outputs`
+    # of `summary.results` or `summary.results_debug`.
+    if not isinstance(evaluation_debug.outputs, dict) or set(
+        evaluation_debug.outputs.keys()
+    ) != {'output'}:
+      raise ValueError(
+          'Expected agent outputs to be a dict with a single key `output`,'
+          f' but got: {pprint.pformat(evaluation_debug.outputs)}'
       )
-    if isinstance(critic_result, executing.Executable):
-      # Critic function returned Executable[_CriticResult]. Need to await.
-      critic_result = await critic_result
-    return critic_result, example
+    output = evaluation_debug.outputs['output']
+    if (
+        not isinstance(output, tuple)
+        or len(output) != 2
+        or output[1] != final_state
+    ):
+      raise ValueError(
+          'Expected agent output to be a tuple of length 2, where the 2nd'
+          f' element is the final_state, but got: {pprint.pformat(output)}'
+      )
+    evaluation_debug.outputs['output'] = output[0]
 
-  for exec_seq in stream_of_exec_seq:
-    yield _apply_critic(executables=exec_seq)
+  if error and not evaluation_debug.error:
+    evaluation_debug.error = error
+  evaluation_debug.counters = summary.counters
+  # TODO: Modify `EvaluationResult.targets` to accept `Any`, and
+  # then store the target value there directly rather than wrapping as a dict.
+  evaluation_debug.targets = {'target': target}
+  # TODO: Modify `EvaluationResult` to separate `counters` from
+  # `metrics`.
+  evaluation_debug.metrics = {}
+  evaluation_debug.metrics.update(summary.counters)
+  evaluation_debug.metrics.update(summary.metrics)
+  if extra_info:
+    evaluation_debug.info.update(extra_info)
+  evaluation_result = copy.deepcopy(evaluation_debug)
+  evaluation_result.stages = []
+  summary.results[example_key] = evaluation_result
+  summary.results_debug[example_key] = evaluation_debug
+
+  # Final states
+  if output_final_states and final_state is not None:
+    summary.final_states[example_key] = final_state
+
+  summary.timing.end_time = datetime.datetime.now()
+
+  return example, summary
 
 
-def compare_with_critic(
+def evaluate(
+    strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
+    examples: Iterable[_Example],
     *,
-    strategies: Sequence[Callable[..., executing.Executable[_Result]]],
-    examples: Iterable[Example],
-    critic: _ComparisonCritic[_Result] = naive_comparison_critic,
+    inputs_extractor: Callable[
+        [_Example], tuple[Sequence[Any], Mapping[str, Any]]
+    ] = lambda x: ([x['question']], {}),
+    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],
+    metric_functions: Mapping[str, MetricFunction] | None = None,
+    aggregation_functions: Sequence[AggregationFunction] | None = None,
+    callback: (
+        Callable[[int, _Example, results.EvaluationSummary], None] | None
+    ) = None,
     examples_total_num: int | None = None,
-    update_extra_info_fn: Callable[
-        [dict[str, Any], ExtraInfo], None
-    ] = lambda aggr_info, new_info: aggr_info.update(new_info),
-    print_debug: bool = False,
-) -> tuple[
-    datetime.timedelta,
-    Sequence[int],
-    ExtraInfo,
-]:
-  """Compares multiple prompting strategies on a sequence of examples.
-
-  Often it is difficult to evaluate model's (strategy's) answer on a single
-  example, e.g., for open ended questions like "compose a short poem" or "write
-  a funny joke about rabbits that rhymes". In the same time often it is much
-  easier to compare answers of two (or more) different models (strategies) on
-  the same example. Doing so may provide a good signal for improving the
-  strategies and hill climbing.
-
-  It may be a good idea to shuffle the answers before showing them to the
-  comparison critic in order to avoid an order bias. Shuffling should be
-  performed by the critic.
-
-  In onetwo we often represent a prompting strategy as a function that takes in
-  any arguments and returns an Executable. This Executable produces an answer
-  when awaited or ran (with onetwo.run). Formally, a "strategy" is an object
-  of type `Callable[..., executing.Executable[ReturnType]]`.
+    output_results: bool = False,
+    output_results_debug: bool = False,
+    output_final_states: bool = False,
+    output_filter: (
+        Callable[[_Example, results.EvaluationResult], bool] | None
+    ) = None,
+    example_key_function: Callable[[int, _Example], str | int] | None = None,
+    chunk_size: int = 100,
+    enable_tracing: bool = True,
+    dataset_name: str | None = None,
+    dataset_description: str | None = None,
+) -> results.EvaluationSummary:
+  # Disable formatting of the following docstring to preserve readability of the
+  # Args section.
+  # pyformat: disable
+  """Evaluates the given strategy on the given examples.
 
   Args:
-    strategies: Sequence of K prompting strategies that we want to compare. We
-      assume that examples contain all the arguments required for every strategy
-      in strategies, i.e., that `strategy(**example)` returns a valid Executable
-      for any example in examples and every strategy in strategies.
-    examples: Iterable of examples on which to compare the K strategies.
-    critic: A strategy that takes (i) answers produced by all the different
-      strategies that we want to compare and (ii) an example on which these
-      answers were produced and returns an Executable. Upon execution it needs
-      to return a tuple (best_answer_id, extra_info), where best_answer_id is a
-      0-based id of the best answer. Signature must follow _ComparisonCritic
-      protocol.
+    strategy: Prompting strategy to evaluate. Can be an arbitrary callable
+      (async or ordinary function, decorated with `@executing.make_executable`
+      or not, agent, other callable, etc.). The arguments of `strategy` could
+      be any arbitrary arguments (which must be compatible with whatever args
+      and kwargs get returned by the `inputs_extractor` -- but that can only
+      be validated at runtime, not at compile time).
+    examples: Examples on which to evaluate the strategy.
+    inputs_extractor: Function that given an example returns a tuple of
+      `(args, kwargs)`, i.e., `tuple[Sequence[Any], Mapping[str, Any]]` to pass
+      as inputs to the strategy.
+    target_extractor: Function that given an example returns the target value
+      (if any) to which the prediction can be compared for determining accuracy.
+    metric_functions: Mapping of metric name to a function that calculates the
+      value of that metric for a single example. For each entry in this mapping,
+      a corresponding entry will be added in `EvaluationSummary.metrics`,
+      containing the average of that metric's value across all examples.
+    aggregation_functions: Functions for performing custom aggregation of
+      example-level information across a dataset.
+    callback: Function to call after each example is evaluated. The function
+      will be called with the following arguments:
+      * The index of the example in the input `examples` iterable.
+      * The example itself.
+      * The `EvaluationSummary` containing the results for that example.
     examples_total_num: Even if examples object has no implementation of __len__
       (examples could be a generator function with `yield`) user may still know
       (and provide) its exact length. This value is used only for logging the
       progress of evaluation.
-    update_extra_info_fn: Function that aggregates additional metric
-      information, returned by _ComparisonCritic. We aggregate additional
-      information in-place with `update_extra_info_fn(aggr_info, new_info)`. By
-      default we use dict's `update` method.
-    print_debug: Print per example debug information.
+    output_results: Whether to populate `results` field in `EvaluationSummary`.
+    output_results_debug: Whether to populate `results_debug` field in
+      `EvaluationSummary`.
+    output_final_states: Whether to populate `final_states` field in
+      `EvaluationSummary`. Only applicable to agent strategies.
+    output_filter: Function to indicate whether a given example should have its
+      details included in the results/traces/final_states. If not specified,
+      then all examples will be included.
+    example_key_function: Function to determine the key for a given example, for
+      use in the results/traces/final_states mappings. If not specified, then
+      will use the example index as the key.
+    chunk_size: Number of examples to extract at a time for parallel evaluation
+      while iterating through `examples`.
+    enable_tracing: Whether to enable tracing for each example evaluation.
+    dataset_name: Name of the dataset being evaluated on.
+    dataset_description: Description of the dataset being evaluated on.
 
   Returns:
-    A tuple of comparison duration, total votes per strategy, and additional
-    comparison information.
-
-  Raises:
-    RuntimeError: If `stream_updates` returns unexpected results.
+    EvaluationSummary containing the evaluation results.
   """
-
-  num_strategies = len(strategies)
-
+  # pyformat: enable
   if hasattr(examples, '__len__'):
     examples_len = len(examples)
   elif examples_total_num is not None:
@@ -399,99 +501,168 @@ def compare_with_critic(
     # In this case tqdm will only print progress without progressbar and ETA.
     examples_len = None
 
-  start_time = time.monotonic()
-
-  # -> Iterable[Sequence[Executable[tuple[_Result, Example]]]].
-  strategies_exec_per_example = compile_strategies(strategies, examples)
-  # -> Iterable[Executable[tuple[ComparisonResult, Example]]].
-  critics_exec_per_example = apply_critic_to_answers(
-      stream_of_exec_seq=strategies_exec_per_example,
-      critic=critic,
+  evaluation_summary = results.EvaluationSummary(
+      timing=results.EvaluationTiming(
+          start_time=datetime.datetime.now(), end_time=datetime.datetime.now()
+      ),
   )
-  eval_executable = executing.par_iter(critics_exec_per_example)
-  votes_by_strategy = [0 for _ in range(num_strategies)]
-  aggr_comparison_info = {}
-  num_examples = 0
-  with executing.stream_updates(eval_executable, iteration_depth=1) as iterator:
+  if dataset_name is not None:
+    evaluation_summary.info['dataset_name'] = dataset_name
+  if dataset_description is not None:
+    evaluation_summary.info['dataset_description'] = dataset_description
+
+  executables = (
+      _evaluate_example(
+          strategy=strategy,
+          example=example,
+          inputs_extractor=inputs_extractor,
+          target_extractor=target_extractor,
+          metric_functions=metric_functions,
+          output_final_states=output_final_states,
+          enable_tracing=enable_tracing,
+      )
+      for example in examples
+  )
+  eval_executable = executing.par_iter(
+      executables=executables, chunk_size=chunk_size
+  )
+
+  with executing.safe_stream(eval_executable, iteration_depth=1) as iterator:
     pbar = tqdm.tqdm(iterator, total=examples_len)
     update: updating.ListUpdate  # ListUpdate because of par_iter.
     for update in pbar:
       if len(update.payload) != 1:
-        raise RuntimeError(
+        raise ValueError(
             'ListUpdate returned by stream_updates is expected to have '
             f'exactly one element in its payload. Got {pprint.pformat(update)}'
         )
       # Payload contains a single element of the form
-      # (critic_result, example_id).
-      critic_result, _ = update.payload[0]
-      (best_strategy_id, extra_comparison_info), example = critic_result
-      votes_by_strategy[best_strategy_id] += 1
-      num_examples += 1
-      if print_debug:
-        msg = (
-            f"example='{pprint.pformat(example)}', "
-            f'critic_choice={best_strategy_id + 1}/{num_strategies}, '
-            f'votes={votes_by_strategy}'
-        )
-        tqdm.tqdm.write(msg)
-      update_extra_info_fn(aggr_comparison_info, dict(extra_comparison_info))
-      msg = f'votes={votes_by_strategy}'
-      pbar.set_description(msg)
+      # (critic_result, example_index).
+      (example, example_evaluation_summary), example_index = update.payload[0]
+      if example_key_function:
+        example_key = example_key_function(example_index, example)
+      else:
+        example_key = example_index
+      example_evaluation_summary.replace_example_index_and_key(
+          example_index=example_index, example_key=example_key
+      )
 
-  duration_secs = time.monotonic() - start_time
-  normalized_votes = [
-      round(votes / num_examples, 3) for votes in votes_by_strategy
+      if len(example_evaluation_summary.results) != 1:
+        raise ValueError(
+            'Expected exactly one result in EvaluationSummary.results when'
+            ' evaluating on a single example. Got'
+            f' {pprint.pformat(example_evaluation_summary.results)}.\nFull'
+            f' summary: {pprint.pformat(example_evaluation_summary)}'
+        )
+      evaluation_result = list(example_evaluation_summary.results.values())[0]
+      example_evaluation_summary.info = evaluation_result.info
+      # TODO: Support storing traces output by custom tracers.
+
+      if output_filter:
+        include_outputs_for_example = output_filter(example, evaluation_result)
+      else:
+        include_outputs_for_example = True
+
+      if not include_outputs_for_example:
+        example_evaluation_summary.example_keys = {}
+      if not output_results or not include_outputs_for_example:
+        example_evaluation_summary.results = {}
+      if not output_results_debug or not include_outputs_for_example:
+        example_evaluation_summary.results_debug = {}
+      if not output_final_states or not include_outputs_for_example:
+        example_evaluation_summary.final_states = {}
+
+      evaluation_summary += example_evaluation_summary
+      if aggregation_functions:
+        for aggregation_function in aggregation_functions:
+          aggregation_function(evaluation_summary, example_evaluation_summary)
+      if callback:
+        callback(example_index, example, example_evaluation_summary)
+
+  # TODO: Capture the backend and tool caches and store them in the
+  # evaluation summary too.
+
+  return evaluation_summary
+
+
+def write_evaluation_summary_as_json(
+    summary: results.EvaluationSummary, output_dir: str
+) -> None:
+  """Writes evaluation results as JSON files in the given directory.
+
+  Args:
+    summary: The evaluation summary to write.
+    output_dir: The directory to write the results to.
+  """
+  logging.info('Writing evaluation summary to: %s', output_dir)
+  os.makedirs(output_dir, exist_ok=True)
+
+  # Make sure that the contents of each file that we will write are sorted in a
+  # consistent order.
+  sorted_keys = [summary.example_keys[i] for i in sorted(summary.example_keys)]
+  results_list = [
+      summary.results[key] for key in sorted_keys if key in summary.results
   ]
-  print(
-      '\nCompare result: votes: %s, processed examples: %d, duration=%.2f secs.'
-      % (str(normalized_votes), num_examples, duration_secs)
-  )
-  return (
-      datetime.timedelta(seconds=duration_secs),
-      votes_by_strategy,
-      aggr_comparison_info,
-  )
+  results_debug_list = [
+      summary.results_debug[key]
+      for key in sorted_keys
+      if key in summary.results_debug
+  ]
+
+  # Write json files.
+  object_by_file = {
+      'metrics.json': summary.metrics,
+      'counters.json': summary.counters,
+      'results.json': [x.to_dict() if x else {} for x in results_list],
+      'results_debug.json': [x.to_dict() for x in results_debug_list],
+      'final_states.json': summary.final_states,
+  }
+  for filename, data_object in object_by_file.items():
+    logging.info('Writing json file: %s', filename)
+    with open(os.path.join(output_dir, filename), 'w') as f:
+      json.dump(data_object, f, indent=4, default=str, sort_keys=True)
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
 async def naive_evaluation_critic(
-    answer: str | _ChunkList,
-    example: Example,
+    target: str,
+    prediction: str | content_lib.ChunkList,
+    example: Mapping[str, Any] | None = None,
     question_key: str = _QUESTION_KEY,
-    golden_answer_key: str = _GOLDEN_ANSWER_KEY,
-) -> MetricResult:
+) -> tuple[float, dict[str, Any]]:
   """Naive implementation of an evaluation critic strategy.
 
-  Given a question, a golden answer, and a candidate answer, this critic should
-  decide whether the answers are equivalent. E.g., "2pi cm" and "6.28
-  centimeters" could be both considered correct for the question "What is
-  circumference of a circle with radius 1cm?".
+  Given a question, a target answer, and a prediction, this critic should decide
+  whether the answers are equivalent. E.g., "2pi cm" and "6.28 centimeters"
+  could be both considered correct for the question "What is circumference of a
+  circle with radius 1cm?".
 
   Args:
-    answer: Candidate answer for the question (contained in the example) that a
-      critic needs to evaluate.
-    example: Example that contains the question and the golden answer.
+    target: The expected golden answer.
+    prediction: Candidate answer that the critic needs to evaluate.
+    example: Example dict that contains the question.
     question_key: Key of the element in the example dictionary that contains the
       question.
-    golden_answer_key: Key of the element in the example dictionary that
-      contains the golden answer.
 
   Returns:
-    A tuple (SingleMetricValue, ExtraInfo).
-
+    A tuple containing the metric floating point value (1.0 or 0.0), and
+    a dictionary of extra info (such as the critic's rationale).
   Raises:
     ValueError:
-      If example does not contain the question key. Or use_reference_answer is
-      True and example does not contain the reference answer key. Or if critic
-      returned a string that does not consist of a single integer, i.e., can not
-      be used with int().
+      If example does not contain the question key, or if the critic
+      generates an unexpected result that can't be parsed.
   """
-  _validate_example_keys(example, question_key, golden_answer_key)
+  if not example or question_key not in example:
+    raise ValueError(
+        'Example must be provided and contain the question key'
+        f' {question_key}:\n{pprint.pformat(example)}'
+    )
+
   question = example[question_key]
-  golden_answer = example[golden_answer_key]
+
   messages = [
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           'Please judge whether the predicted answer means the same thing as'
           ' the target answer, in the context of the given question. Give your'
           ' rating (yes/no), and then give the reason for your rating.'
@@ -501,52 +672,46 @@ async def naive_evaluation_critic(
           'Prediction: 6.28 centimenter\n'
           'Does prediction agree with target? (yes/no): ',
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           'yes\nReason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate'
           ' enough answer.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           """
-
 Question: Spell first 5 digits of pi.
 Target: 3.1415
 Prediction: 3.14
 Does prediction agree with target? (yes/no): """,
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           'no\nReason: Answer 2 provides only 3 digits, while 5 were required.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           f"""
-
 Question: {question}
-Target: {golden_answer}
-Prediction: {answer}
+Target: {target}
+Prediction: {prediction}
 Does prediction agree with target? (yes/no): """,
       ),
   ]
   res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
   res = cast(str, res).strip()
-
   # Defaults in case no reason is provided.
   rating = res
   reason = ''
-
   # Attempt to parse the reason from the response.
   separators = ['\nReason: ', '\nreason: ', '\n**Reason:** ', '\n**reason:** ']
   for separator in separators:
     if separator in res:
       rating, reason = res.split(separator, 1)
       break
-
   # Normalize the rating and reason.
   rating = rating.lower().strip()
   reason = reason.split('\n\n')[0].strip()
-
   # Some models are stubborn about returning the answer in a certain format
   # such as boldface (e.g. **yes**), regardless of how they are prompted.
   # We try to cover such cases on a best effort basis.
@@ -562,6 +727,7 @@ Does prediction agree with target? (yes/no): """,
   )
   contains_yes = 'yes' in rating
   contains_no = 'no' in rating
+
   if starts_with_yes or contains_yes and not contains_no:
     is_correct = 1.0
   elif starts_with_no or contains_no and not contains_yes:
@@ -571,54 +737,56 @@ Does prediction agree with target? (yes/no): """,
         'Critic is expected to start its answer from " yes" or " no" . Instead '
         f'it generated an unexpected result:\n{res}'
     )
+
   extra_evaluation_info = {
-      example[question_key]: {
-          'golden_answer': example[golden_answer_key],
-          'candidate_answer': answer,
-          'answer_is_correct': is_correct,
-          'reason': reason,
-          'critic_prompt': messages,
-      }
+      'critic_golden_answer': target,
+      'critic_candidate_answer': prediction,
+      'critic_answer_is_correct': is_correct,
+      'critic_reason': reason,
+      'critic_prompt': messages,
   }
-  return (is_correct, extra_evaluation_info)
+
+  return float(is_correct), extra_evaluation_info
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
 async def naive_fuzzy_evaluation_critic(
-    answer: str | _ChunkList,
-    example: Example,
+    target: str,
+    prediction: str | content_lib.ChunkList,
+    example: Mapping[str, Any] | None = None,
     question_key: str = _QUESTION_KEY,
-    golden_answer_key: str = _GOLDEN_ANSWER_KEY,
-) -> MetricResult:
+) -> tuple[float, dict[str, Any]]:
   """Naive implementation of a fuzzy evaluation critic strategy.
 
   Like the naive_evaluation_critic, but instead of returning a binary rating
   (yes/no), it returns a continuous score between 0 and 1.
 
   Args:
-    answer: Candidate answer for the question (contained in the example) that a
-      critic needs to evaluate.
-    example: Example that contains the question and the golden answer.
+    target: The expected golden answer.
+    prediction: Candidate answer that the critic needs to evaluate.
+    example: Example dict that contains the question.
     question_key: Key of the element in the example dictionary that contains the
       question.
-    golden_answer_key: Key of the element in the example dictionary that
-      contains the golden answer.
 
   Returns:
-    A tuple (SingleMetricValue, ExtraInfo).
+    A tuple containing the floating point score between 0.0 and 1.0, and
+    a dictionary of extra info (such as the critic's rationale).
 
   Raises:
     ValueError:
-      If example does not contain the question key. Or use_reference_answer is
-      True and example does not contain the reference answer key. Or if critic
+      If example does not contain the question key, or if critic
       returned a string that cannot be parsed.
   """
-  _validate_example_keys(example, question_key, golden_answer_key)
+  if not example or question_key not in example:
+    raise ValueError(
+        'Example must be provided and contain the question key'
+        f' {question_key}:\n{pprint.pformat(example)}'
+    )
+
   question = example[question_key]
-  golden_answer = example[golden_answer_key]
   messages = [
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           'Please evaluate the predicted answer against the target answer, in'
           ' the context of the given question. Give your rating as a float'
           ' between 0.0 and 1.0, where 1 indicates a perfect semantic match and'
@@ -634,13 +802,13 @@ async def naive_fuzzy_evaluation_critic(
           ' 1cm?\nTarget: 2pi cm\nPrediction: 6.28 centimenter\nScore'
           ' prediction against target in [0.0, 1.0]: ',
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           '1.0\nReason: pi is ~3.141 and 2pi is ~6.282. 6.28 is an accurate'
           ' enough answer.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           """
 
 Question: Which U.S. President authorized the use of atomic bombs during World War II?
@@ -648,13 +816,13 @@ Target: Harry S. Truman
 Prediction: Harry Truman
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           '0.9\nReason: Clearly the correct answer, only the middle initial is'
           ' missing.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           """
 
 Question: What is a "black hole"?
@@ -662,13 +830,13 @@ Target: A region of spacetime where gravity is so strong that nothing, not even 
 Prediction: A black hole is like a vacuum cleaner in space that sucks everything up.
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           '0.3\nReason: We can give some credit for recognizing the basic'
           ' concept, but there is a significant lack of scientific precision.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           """
 
 Question: How many green shapes are there in the picture?
@@ -676,13 +844,13 @@ Target: 12
 Prediction: There are 3 green squares and 9 green circles.
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           '0.9\nReason: The answer is more specific than the target but the'
           ' numbers add up to the target value.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           """
 
 Question: Which Beatles are shown in the picture?
@@ -690,18 +858,18 @@ Target: Paul and George
 Prediction: [Paul McCartney, George Harrison, Ringo Starr]
 Score prediction against target in [0.0, 1.0]: """,
       ),
-      _Message(
-          _PredefinedRole.MODEL,
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
           '0.6\nReason: Format and last names do not matter much here, but the'
           ' answer contains one extra person.',
       ),
-      _Message(
-          _PredefinedRole.USER,
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
           f"""
 
 Question: {question}
-Target: {golden_answer}
-Prediction: {answer}
+Target: {target}
+Prediction: {prediction}
 Score prediction against target in [0.0, 1.0]: """,
       ),
   ]
@@ -734,132 +902,12 @@ Score prediction against target in [0.0, 1.0]: """,
         f'it generated an unexpected result:\n{res}'
     )
   extra_evaluation_info = {
-      example[question_key]: {
-          'golden_answer': example[golden_answer_key],
-          'candidate_answer': answer,
-          'answer_is_correct': score,
-          'reason': reason,
-          'critic_prompt': messages,
-      }
+      'critic_golden_answer': target,
+      'critic_candidate_answer': prediction,
+      'critic_answer_is_correct': score,
+      'critic_reason': reason,
+      'critic_prompt': messages,
   }
-  return (score, extra_evaluation_info)
 
+  return score, extra_evaluation_info
 
-def evaluate(
-    *,
-    strategy: Callable[..., executing.Executable[_Result]],
-    examples: Iterable[Example],
-    critic: _EvaluationCritic[_Result] = naive_evaluation_critic,
-    examples_total_num: int | None = None,
-    update_extra_info_fn: Callable[
-        [dict[str, Any], ExtraInfo], None
-    ] = lambda aggr_info, new_info: aggr_info.update(new_info),
-    print_debug: bool = False,
-) -> tuple[
-    datetime.timedelta,
-    SingleMetricValue,
-    ExtraInfo,
-]:
-  """Evaluates a prompting strategy on a sequence of examples possibly with LLM.
-
-  When programmatically comparing strategy's answer with the ground truth answer
-  is hard one may use LLM "critic" to evaluate the answer. For example, we may
-  want to count both "2pi cm" and "6.28 centimeter" as correct answers. In this
-  case `evaluate` can be used with LLM based critic. Otherwise, if
-  comparison can be performed programmatically, this function can be also used
-  with `critic` that is a normal function (i.e., function that returns
-  `MetricResult` instead of `Executable[MetricResult]`).
-
-  In onetwo we often represent a prompting strategy as a function that takes in
-  any arguments and returns an Executable. Formally, a strategy is an object of
-  type `Callable[..., executing.Executable[ReturnType]]`.
-
-  Args:
-    strategy: Prompting strategy to evaluate. We assume that examples contain
-      all the arguments required for the strategy, i.e., that
-      `strategy(**example)` returns a valid Executable for any example in
-      examples.
-    examples: Iterable of examples on which to evaluate the strategy.
-    critic: A strategy (or a normal function) that takes (i) an answer produced
-      by the strategy that we want to evaluate and (ii) an example on which the
-      answer was produced (that contains the question and the golden answer),
-      and returns an Executable[MetricResult] (or simply MetricResult). Must
-      follow the _EvaluationCritic protocol.
-    examples_total_num: Even if examples object has no implementation of __len__
-      (examples could be a generator function with `yield`) user may still know
-      (and provide) its exact length. This value is used only for logging the
-      progress of evaluation.
-    update_extra_info_fn: Function that aggregates additional evaluation
-      information, returned by `metric_fn`. We aggregate additional information
-      in-place with `update_extra_info_fn(aggr_info, new_info)`. By default we
-      use dict's `update` method.
-    print_debug: Print per example debug information.
-
-  Returns:
-    A tuple of evaluation duration, average metric value, and additional metric
-      information.
-
-  Raises:
-    RuntimeError: If `stream_updates` returns unexpected results.
-  """
-
-  if hasattr(examples, '__len__'):
-    examples_len = len(examples)
-  elif examples_total_num is not None:
-    examples_len = examples_total_num
-  else:
-    # In this case tqdm will only print progress without progressbar and ETA.
-    examples_len = None
-
-  start_time = time.monotonic()
-
-  # -> Iterable[Sequence[Executable[tuple[_Result, Example]]]].
-  strategy_exec_per_example = compile_strategies([strategy], examples)
-  # -> Iterable[Executable[tuple[MetricResult, Example]]].
-  critics_exec_per_example = apply_critic_to_answers(
-      stream_of_exec_seq=strategy_exec_per_example,
-      critic=critic,
-      critic_takes_single_answer=True,  # Because we use _EvaluationCritic.
-  )
-  eval_executable = executing.par_iter(critics_exec_per_example)
-  aggr_evaluation_info = {}
-  metric_values, avg_metric = [], 0.0
-  with executing.stream_updates(eval_executable, iteration_depth=1) as iterator:
-    pbar = tqdm.tqdm(iterator, total=examples_len)
-    update: updating.ListUpdate  # ListUpdate because of par_iter.
-    for update in pbar:
-      if len(update.payload) != 1:
-        raise RuntimeError(
-            'ListUpdate returned by stream_updates is expected to have '
-            f'exactly one element in its payload. Got {pprint.pformat(update)}'
-        )
-      # Payload contains a single element of the form
-      # (critic_result, example_id).
-      critic_result, _ = update.payload[0]
-      (metric, extra_evaluation_info), example = critic_result
-      if print_debug:
-        msg = (
-            f"example='{pprint.pformat(example)}', "
-            f'metric={metric} '
-            f'extra_info={extra_evaluation_info}'
-        )
-        tqdm.tqdm.write(msg)
-      update_extra_info_fn(
-          aggr_evaluation_info,
-          dict(extra_evaluation_info),
-      )
-      metric_values.append(metric)
-      avg_metric = sum(metric_values) / len(metric_values)
-      msg = f'Avg metric={avg_metric:.4f}'
-      pbar.set_description(msg)
-
-  duration_secs = time.monotonic() - start_time
-  print(
-      '\nEval result: Avg metric=%.4f, processed examples=%d, duration=%.2f'
-      ' secs.' % (avg_metric, len(metric_values), duration_secs)
-  )
-  return (
-      datetime.timedelta(seconds=duration_secs),
-      avg_metric,
-      aggr_evaluation_info,
-  )
