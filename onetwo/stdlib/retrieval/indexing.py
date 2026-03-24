@@ -38,7 +38,6 @@ import numpy as np
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import tracing
-from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_retrieval
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_state
@@ -204,56 +203,6 @@ class IndexWrapper(
     return await self.inner_index.retrieve_with_scores(  # pytype: disable=wrong-arg-count
         query, max_results=max_results, **kwargs
     )
-
-
-@dataclasses.dataclass(kw_only=True)
-class ChunkingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):
-  """Index that chunks documents before adding them to an inner index.
-
-  By default, this class treats the chunks as the primary units of retrieval.
-  When `get_docs`, `retrieve` or `retrieve_with_scores` is called, the objects
-  returned are the individual chunks (derived from the original documents) as
-  stored in the inner index, rather than the original source documents.
-
-  Future iterations could support alternative behaviors, such as:
-  1.  **Parent-Document Retrieval**: Returning the original document associated
-      with a retrieved chunk.
-  2.  **Contextual Windowing**: Returning a chunk along with its neighboring
-      surrounding context.
-
-  Attributes:
-    chunker: Chunker used to split the documents.
-  """
-
-  chunker: chunking.Chunker = dataclasses.field(
-      default_factory=chunking.NoChunking
-  )
-
-  @executing.make_executable(copy_self=False)
-  async def create_index(self, corpus_name: str, docs: Iterable[DocT]) -> None:
-    """Overridden from base class (Index)."""
-    if self.inner_index.num_docs > 0:
-      raise ValueError(
-          'Attempting to call `create_index` on a corpus with existing'
-          f' documents: old_name={self.inner_index.corpus_name},'
-          f' new_name={corpus_name},'
-          f' num_existing_docs={self.inner_index.num_docs},'
-          f' num_docs_to_add={len(list(docs))}'
-      )
-
-    self.inner_index.corpus_name = corpus_name  # pytype: disable=attribute-error
-    await self.add_docs(docs)  # pytype: disable=wrong-arg-count
-
-  @executing.make_executable(copy_self=False)
-  async def add_docs(self, docs: Iterable[DocT]) -> None:
-    """Overridden from base class (Index)."""
-    chunks_by_doc = await executing.parallel(
-        *[self.chunker(doc) for doc in docs]  # pytype: disable=wrong-arg-count
-    )
-    chunks = []
-    for chunk_list in chunks_by_doc:
-      chunks.extend(chunk_list)
-    await self.inner_index.add_docs(docs=chunks)  # pytype: disable=wrong-keyword-args
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -751,64 +700,6 @@ class EmbeddingBasedIndex(
 
 
 @dataclasses.dataclass(kw_only=True)
-class ChunkingEmbeddingBasedIndex(
-    ChunkingIndex[QueryT, RetrievalResultT, DocT],
-    EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
-    Generic[QueryT, RetrievalResultT, DocT],
-):
-  """Index that chunks documents and provides embedding-specific methods.
-
-  This class combines the behavior of `ChunkingIndex` with the vector-search
-  capabilities of `EmbeddingBasedIndex`. Note that the document access and
-  retrieval methods (`get_docs`, `retrieve`, `retrieve_with_scores`, and
-  `retrieve_doc_indices_and_scores`) currently return the specific chunks and
-  their corresponding chunk-level embeddings/scores.
-
-  As with `ChunkingIndex`, this behavior is currently "chunk-centric". Future
-  updates may introduce the ability to map these results back to the original
-  document IDs.
-
-  Attributes:
-    inner_index: The underlying `EmbeddingBasedIndex` used for vector storage
-      and similarity search.
-  """
-
-  inner_index: EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT]
-
-  @executing.make_executable(copy_self=False)
-  async def retrieve_doc_indices_and_scores(
-      self,
-      query: QueryT,
-      *,
-      max_results: int | None = None,
-      min_score: float | None = None,
-      constraints: constrained_retrieval.RetrievalConstraints | None = None,
-  ) -> Sequence[tuple[int, float]]:
-    """Delegates to the inner index."""
-    return await self.inner_index.retrieve_doc_indices_and_scores(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
-        query,
-        max_results=max_results,
-        min_score=min_score,
-        constraints=constraints,
-    )
-
-  def rename_discrete_field_key(
-      self, field_name: str, old_key: str, new_key: str
-  ) -> None:
-    """Delegates to the inner index."""
-    self.inner_index.rename_discrete_field_key(  # pytype: disable=attribute-error
-        field_name, old_key, new_key
-    )
-
-  @executing.make_executable(copy_self=False)
-  async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
-    """Delegates to the inner index."""
-    return await self.inner_index.retrieve_doc_score(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
-        query, doc_index
-    )
-
-
-@dataclasses.dataclass(kw_only=True)
 class RewritingEmbeddingBasedIndex(
     RewritingIndex[QueryT, RetrievalResultT, DocT],
     EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
@@ -893,27 +784,6 @@ class EmbeddingBasedDocumentIndex(
     )
     # Build the searcher index.
     await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
-
-
-@dataclasses.dataclass(kw_only=True)
-class ChunkingEmbeddingBasedDocumentIndex(
-    ChunkingEmbeddingBasedIndex[str, Document, Document],
-    EmbeddingBasedDocumentIndex,
-):
-  """Embedding-based index with chunking for Document objects."""
-
-  inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(
-      default_factory=EmbeddingBasedDocumentIndex
-  )
-
-  def save(self, base_path: str) -> None:
-    """Saves the index state."""
-    self.inner_index.save(base_path)
-
-  @executing.make_executable(copy_self=False)
-  async def load(self, base_path: str) -> None:
-    """Loads the index state."""
-    await self.inner_index.load(base_path)  # pytype: disable=wrong-arg-count
 
 
 @dataclasses.dataclass(kw_only=True)
