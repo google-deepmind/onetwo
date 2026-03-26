@@ -12,7 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Classes and protocols for constrained retrieval."""
+"""Classes and protocols for constrained retrieval.
+
+Standard retrieval typically performs a broad semantic search across the entire
+index. In contrast, 'Constrained Retrieval' applies structured filters to
+narrow the search space **before** the retrieval or ranking process begins.
+
+By defining constraints upfront, the system can exclude irrelevant documents
+at the index level. This 'pre-filtering' approach is more efficient than
+retrieving a large set of results and filtering them afterward, as it
+significantly reduces the computational overhead of semantic similarity
+calculations.
+
+This module provides the schema for defining these filters (Constraints) and
+the interface for Retrievers that are capable of applying them before the
+retrieval process.
+
+An example use case could be: Given an index comprising news articles about
+technology, travel and sports, one might want to filter the search of relevant
+articles to "sports" if the query is "When did Lionel Messi win his last
+Ballon d'or?"
+"""
 
 import abc
 from collections.abc import Iterable
@@ -28,18 +48,25 @@ DocT = retrieval.DocT
 
 
 class RetrievalConstraintType(enum.Enum):
-  """Enumeration of supported retrieval constraint types."""
+  """Defines the logic used to evaluate document fields against constraints.
 
+  Attributes:
+    EQUALS: The document field value must exactly match the provided value.
+    LIST_CONTAINS_ANY: Used when a document field contains a list of values.
+      The constraint is satisfied if at least one of the provided values
+      is present in that list.
+  """
   EQUALS = 'equals'
   LIST_CONTAINS_ANY = 'list_contains_any'
 
 
 @dataclasses.dataclass(kw_only=True)
 class RetrievalConstraint:
-  """Represents a single retrieval constraint on a field to filter documents.
+  """A single pre-filter rule used to prune the retrieval search space.
 
-  This class is used within a `RetrievalConstraints` object to specify
-  conditions that documents must meet to be included in the retrieval results.
+  Each constraint defines a requirement that a document must satisfy to be
+  eligible for retrieval. These rules are usually applied to the document's
+  metadata fields.
 
   Attributes:
     field_name: The identifier that corresponds to a value extracted or derived
@@ -57,7 +84,11 @@ class RetrievalConstraint:
 
 @dataclasses.dataclass(kw_only=True)
 class RetrievalConstraints:
-  """Represents constraints that are used for limiting retrieval.
+  """A collection of pre-filter rules that define the active search space.
+
+  Documents must satisfy **ALL** individual constraints in this collection
+  (logical AND) to be visible to the retriever. If a document fails any
+  constraint, it is ignored during the semantic search phase.
 
   Attributes:
     constraints: A list of RetrievalConstraint objects. The retrieved documents
