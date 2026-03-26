@@ -12,7 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Retrieval-related interfaces for QA strategies."""
+"""Retrieval-related interfaces for QA strategies.
+
+This module defines the standardized `Retriever` interface. A Retriever acts
+as a bridge between a user's question and a collection of data. Its primary
+responsibility is to take a query and return a ranked list of relevant
+information, typically used to provide context to an LLM to generate an
+answer.
+
+By using the abstract `Retriever` protocol, OneTwo allows developers to
+write RAG logic that is 'backend-agnostic.' Whether you are using a
+web-based search engine, a local vector database, or a simple keyword-based
+index, the calling code interacts with them all in the same way.
+"""
 
 import abc
 from collections.abc import Iterable
@@ -20,20 +32,19 @@ from typing import Protocol, TypeVar, final
 
 from onetwo.core import executing
 
-# Types used to represent the objects (documents) that can be retrieved or added
-# to a corpus, and the data type that can be used to query for them.
-#
-# The `RetrievalResultT` and `DocT` types may or may not be the same (e.g.,
-# could accept a structured document data structure for adding to the corpus,
-# but then convert the relevant content to plain text at retrieval time).
-# These are also not strictly limited to traditional "document"-like data
-# structures, but could be an object that we want to index and retrieve.
-#
-# The `QueryT` would most traditionally be a `str`, but it could also be
-# something like a `ChunkList` (to support multimodal queries), or it could be
-# identical to the `RetrievalResultT` and/or `DocT` type in the case where we
-# want to retrieve by object similarity.
 
+# ============================================================================
+# Type Definitions:
+
+# QueryT: The type of the input query. While usually a `str`, this can be a
+# `ChunkList` (to support multimodal queries like images).
+
+# RetrievalResultT: The type of object returned by the `retrieve` method.
+# This is often a `Document` or a text snippet.
+
+# DocT: The type of object that can be added to an index. This is used by
+# subclasses that support data ingestion.
+# ============================================================================
 QueryT = TypeVar('QueryT')
 RetrievalResultT = TypeVar('RetrievalResultT')
 DocT = TypeVar('DocT')
