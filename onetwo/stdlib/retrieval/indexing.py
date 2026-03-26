@@ -14,6 +14,10 @@
 
 """Index classes for retrieval and retrieval-augmented generation.
 
+An **Index** is a specialized container that stores documents and organizes
+them for fast retrieval. In a RAG pipeline, the `Index` is the 'Knowledge Base'
+that the system queries to find relevant context.
+
 Design principles:
 
 * To support uniform eval sweeps and modularity, we define all
@@ -26,6 +30,18 @@ query and document data structure.
 document representation (the `Document` data structure defined in
 `retrieval_data_structures.py`) and query representation (str) and is intended
 to serve as the superclass of all indexing/retrieval strategies used.
+
+Key Index Types:
+
+* RewritingIndex: Acts as a transformation layer. Before documents are
+stored, they are passed through a 'Rewriter' (e.g., a Chunker). This is
+essential for formatting documents and breaking large documents into smaller,
+semantically dense fragments to improve the quality of retrieval.
+
+* EmbeddingBasedIndex: Implements Semantic Search. Instead of traditional
+keyword matching, it uses LLM backends to convert documents into
+high-dimensional embeddings. Retrieval is performed by finding embeddings that
+are mathematically closest to the query embedding.
 """
 
 import abc
@@ -44,9 +60,6 @@ from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
-
-# TODO: Migrate all chunking-based indexes to rewriting-based
-# indexes.
 
 QueryT = retrieval.QueryT
 RetrievalResultT = retrieval.RetrievalResultT
