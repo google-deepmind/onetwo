@@ -23,6 +23,7 @@ from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import document_formatting
 
 DocT = TypeVar('DocT')
 
@@ -102,16 +103,52 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
 
 
 @dataclasses.dataclass(frozen=True)
+class FormattingCorpusRewriter(CorpusRewriter[DocT]):
+  """Rewriter that formats each document individually.
+
+  A document formatter maps exactly one input document to exactly one output
+  document (1:1), usually by reformatting its text content (e.g., adding
+  titles, applying templates). This CorpusRewriter applies the formatter to
+  each document in the corpus in parallel. For more details on document
+  formatters, see `onetwo.stdlib.retrieval.document_formatting`.
+
+  Attributes:
+    formatter: The document formatter to apply to each document.
+  """
+
+  formatter: document_formatting.DocumentFormatter
+
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  @executing.make_executable(copy_self=False)
+  async def __call__(
+      self,
+      corpus: Iterable[DocT],
+  ) -> Iterable[DocT]:
+    """Overridden from base class (CorpusRewriter)."""
+    return await ot.parallel(
+        *[self.formatter(document) for document in corpus]  # pytype: disable=wrong-arg-count
+    )
+
+
+@dataclasses.dataclass(frozen=True)
 class SequentialCorpusRewriter(CorpusRewriter[DocT]):
-  """Rewriter that applies a sequence of corpus rewriters in order.
+  r"""Rewriter that applies a sequence of corpus rewriters in order.
 
   This CorpusRewriter can be useful for applying multiple transformations to a
   corpus, for example chunking and then formatting each chunk. This allows
   creating a configurable pipeline of transformations that are applied to a
   corpus.
 
-  # TODO: Add example of a rewriter applying chunking and
-  # formatting once the formatting interface is implemented.
+  Example: A rewriter that chunks documents and then formats each chunk::
+
+    SequentialCorpusRewriter(rewriters=[
+        ChunkingCorpusRewriter(chunker=chunking.ChunkByMaxTokens()),
+        FormattingCorpusRewriter(
+            formatter=document_formatting.TextDocumentFormatter(
+                format_str='Title: {title}\nContent: {text}',
+            ),
+        ),
+    ])
 
   Attributes:
     rewriters: The sequence of corpus rewriters to apply.

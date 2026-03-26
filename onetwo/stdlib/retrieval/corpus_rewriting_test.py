@@ -19,6 +19,7 @@ from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
+from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 _ORIGINAL_DOC_ID = retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID
@@ -217,6 +218,96 @@ class CorpusRewritingTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       {
+          'testcase_name': 'NoFormatting_one_doc',
+          'formatter': document_formatting.NoFormatting(),
+          'corpus': [DOCS[0]],
+          'expected_corpus': [DOCS[0]],
+      },
+      {
+          'testcase_name': 'NoFormatting_chunk_list_doc',
+          'formatter': document_formatting.NoFormatting(),
+          'corpus': [DOCS[1]],
+          'expected_corpus': [DOCS[1]],
+      },
+      {
+          'testcase_name': 'NoFormatting_multimodal_doc',
+          'formatter': document_formatting.NoFormatting(),
+          'corpus': [DOCS[2]],
+          'expected_corpus': [DOCS[2]],
+      },
+      {
+          'testcase_name': 'NoFormatting_all_docs',
+          'formatter': document_formatting.NoFormatting(),
+          'corpus': DOCS,
+          'expected_corpus': DOCS,
+      },
+      {
+          'testcase_name': 'TextDocumentFormatter_identity_one_doc',
+          'formatter': document_formatting.TextDocumentFormatter(),
+          'corpus': [DOCS[0]],
+          'expected_corpus': [DOCS[0]],
+      },
+      {
+          'testcase_name': 'TextDocumentFormatter_with_title_one_doc',
+          'formatter': document_formatting.TextDocumentFormatter(
+              format_str='Title: {title}\nContent: {text}',
+          ),
+          'corpus': [DOCS[0]],
+          'expected_corpus': [
+              retrieval_data_structures.Document(
+                  content='Title: Text-only doc\nContent: original text',
+                  title='Text-only doc',
+                  doc_id='1',
+                  metadata={'key1': 'value1', 'key2': 'value2'},
+              ),
+          ],
+      },
+      {
+          'testcase_name': 'TextDocumentFormatter_with_title_two_docs',
+          'formatter': document_formatting.TextDocumentFormatter(
+              format_str='Title: {title}\nContent: {text}',
+          ),
+          'corpus': [DOCS[0], DOCS[1]],
+          'expected_corpus': [
+              retrieval_data_structures.Document(
+                  content='Title: Text-only doc\nContent: original text',
+                  title='Text-only doc',
+                  doc_id='1',
+                  metadata={'key1': 'value1', 'key2': 'value2'},
+              ),
+              retrieval_data_structures.Document(
+                  content='Title: ChunkList doc\nContent: original text',
+                  title='ChunkList doc',
+                  doc_id='2',
+                  metadata={'key1': 'value1', 'key2': 'value2'},
+              ),
+          ],
+      },
+      {
+          'testcase_name': 'TextDocumentFormatter_with_metadata',
+          'formatter': document_formatting.TextDocumentFormatter(
+              format_str='{text} (key1={key1})',
+          ),
+          'corpus': [DOCS[0]],
+          'expected_corpus': [
+              retrieval_data_structures.Document(
+                  content='original text (key1=value1)',
+                  title='Text-only doc',
+                  doc_id='1',
+                  metadata={'key1': 'value1', 'key2': 'value2'},
+              ),
+          ],
+      },
+  ])
+  def testFormattingCorpusRewriter(self, formatter, corpus, expected_corpus):
+    rewriter = corpus_rewriting.FormattingCorpusRewriter(formatter=formatter)
+    rewritten_corpus = ot.run(rewriter(corpus))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('out_corpus_as_expected'):
+      self.assertEqual(rewritten_corpus, expected_corpus)
+
+  @parameterized.named_parameters([
+      {
           'testcase_name': 'empty_rewriters',
           'rewriters': [],
           'corpus': DOCS,
@@ -297,6 +388,48 @@ class CorpusRewritingTest(parameterized.TestCase):
           ],
           'corpus': [DOCS[0], DOCS[1]],
           'expected_corpus': DOC1_CHUNKS_5TOKENS + DOC2_CHUNKS_5TOKENS,
+      },
+      {
+          'testcase_name': 'ChunkByMaxTokens_then_formatting',
+          'rewriters': [
+              corpus_rewriting.ChunkingCorpusRewriter(
+                  chunking.ChunkByMaxTokens(max_tokens_per_chunk=6)
+              ),
+              corpus_rewriting.FormattingCorpusRewriter(
+                  formatter=document_formatting.TextDocumentFormatter(
+                      format_str='Title: {title}\nContent: {text}',
+                  ),
+              ),
+          ],
+          'corpus': [
+              retrieval_data_structures.Document(
+                  content='hello world',
+                  title='Test Title',
+                  doc_id='1',
+              ),
+          ],
+          'expected_corpus': [
+              retrieval_data_structures.Document(
+                  content='Title: Test Title\nContent: hello',
+                  title='Test Title',
+                  doc_id='1_1',
+                  metadata={
+                      _ORIGINAL_DOC_ID: '1',
+                      _CHUNK_NUMBER: 1,
+                      _TOTAL_NUMBER_OF_CHUNKS: 2,
+                  },
+              ),
+              retrieval_data_structures.Document(
+                  content='Title: Test Title\nContent: world',
+                  title='Test Title',
+                  doc_id='1_2',
+                  metadata={
+                      _ORIGINAL_DOC_ID: '1',
+                      _CHUNK_NUMBER: 2,
+                      _TOTAL_NUMBER_OF_CHUNKS: 2,
+                  },
+              ),
+          ],
       },
   ])
   def testSequentialCorpusRewriter(self, rewriters, corpus, expected_corpus):
