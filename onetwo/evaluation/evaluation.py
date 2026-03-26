@@ -303,6 +303,10 @@ async def _evaluate_example(
 
   # Metrics (and extra info)
   extra_info = {}
+  metrics_trace = None
+  if enable_tracing and metric_functions:
+    metrics_trace = results.ExecutionResult(stage_name='metrics')
+    tracing.execution_context.set(metrics_trace)
   if metric_functions:
     for metric_name, metric_function in metric_functions.items():
       try:
@@ -399,6 +403,9 @@ async def _evaluate_example(
   evaluation_debug.metrics.update(summary.metrics)
   if extra_info:
     evaluation_debug.info.update(extra_info)
+  # Attach metric traces to the evaluation debug result.
+  if metrics_trace is not None and metrics_trace.stages:
+    evaluation_debug.stages.extend(metrics_trace.stages)
   evaluation_result = copy.deepcopy(evaluation_debug)
   evaluation_result.stages = []
   summary.results[example_key] = evaluation_result
