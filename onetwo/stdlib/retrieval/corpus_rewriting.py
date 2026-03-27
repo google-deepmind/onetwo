@@ -12,7 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for rewriting corpora."""
+r"""Utilities for transforming and pre-processing document collections (corpora).
+
+In a RAG system, raw data is rarely ready for indexing as-is. A **Corpus
+Rewriter** is a tool that transforms a collection of documents into a
+more useful format before they are indexed. These transformations are critical
+for ensuring that the indexed documents are mathematically optimized for the
+searcher, and contextually grounded for the user.
+
+We provide implementations of the following common rewriting patterns:
+
+* Chunking: Converting large documents into many smaller, semantically
+cohesive pieces. This is typically a $1 \to N$ relationship.
+* Formatting: Standardizing how information is presented (e.g., prepending
+titles to text) to help the LLM understand the context of each document or
+chunk. This is typically a $1 \to 1$ relationship.
+
+We provide a `SequentialCorpusRewriter` that can be used to combine multiple
+transformations in a specific order (e.g., first chunk the text, then format
+each chunk) before indexing.
+"""
 
 from collections.abc import Iterable
 import dataclasses
@@ -42,10 +61,10 @@ class CorpusRewriter(Protocol[DocT]):
       self,
       corpus: Iterable[DocT],
   ) -> Iterable[DocT]:
-    """Returns a rewritten corpus.
+    """Processes the input corpus and returns the transformed version.
 
     Args:
-      corpus: The corpus to rewrite.
+      corpus: An iterable collection of documents to be processed.
 
     Returns:
       The rewritten corpus represented as an iterable of documents.
@@ -74,7 +93,7 @@ class NoRewriting(CorpusRewriter[DocT]):
 
 @dataclasses.dataclass(frozen=True)
 class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
-  """Rewriter that chunks documents individually.
+  """Rewriter that fragments documents into smaller pieces (chunks).
 
   A chunker generates one or more documents from a given document, usually
   excerpts of the original document. This CorpusRewriter chunks each document
@@ -104,10 +123,12 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
 
 @dataclasses.dataclass(frozen=True)
 class FormattingCorpusRewriter(CorpusRewriter[DocT]):
-  """Rewriter that formats each document individually.
+  """Rewriter that applies a consistent structure to every document.
 
+  While chunking changes the **quantity** of documents, formatting
+  changes the **content structure** of each document (a 1 to 1 mapping).
   A document formatter maps exactly one input document to exactly one output
-  document (1:1), usually by reformatting its text content (e.g., adding
+  document, usually by reformatting its text content (e.g., adding
   titles, applying templates). This CorpusRewriter applies the formatter to
   each document in the corpus in parallel. For more details on document
   formatters, see `onetwo.stdlib.retrieval.document_formatting`.

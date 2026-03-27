@@ -12,10 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for formatting documents.
+"""Utilities for formatting and structuring documents for indexing.
 
-A document formatter maps exactly one input document to exactly one output
-document (1:1).
+In a RAG pipeline, the quality of an LLM's answer depends heavily on how
+information is presented in its prompt. A **Document Formatter** ensures
+that raw document content is augmented with critical context (like titles,
+authors, or source URLs) before it is indexed.
+
+A document formatter always maintains a 1 to 1 relationship: one input document
+results in exactly one output document.
 """
 
 import copy

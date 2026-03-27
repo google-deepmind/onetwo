@@ -12,7 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for chunking text into smaller pieces."""
+"""Utilities for chunking text into smaller pieces.
+
+**Chunking** is the process of breaking a large `Document` into smaller units
+(chunks) before they are indexed. It is easier for an index to find a
+specific paragraph that answers a question than to find a 50-page PDF.
+
+When a document is split (1 to N), the resulting chunks must remain
+linked to their parent (the original document). This module automatically
+populates metadata fields like `original_doc_id` and `chunk_number` so that the
+LLM (and the user) can always trace information back to its source.
+"""
 
 import abc
 from collections.abc import Iterable
