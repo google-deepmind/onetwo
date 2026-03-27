@@ -12,7 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Searchers for nearest neighbor search between query and documents."""
+r"""Searchers for maximum similarity operations in vector space.
+
+In an embedding-based retrieval system, the query and documents are converted
+into embeddings (vectors). A 'Searcher' is the component that performs the
+actual mathematical comparison between a query embedding and a set of document
+embeddings to find the most relevant matches.
+
+Rather than returning a single match, a searcher identifies the **top $k$
+results** (specified by `final_num_neighbors`) and returns them **ranked by
+decreasing similarity** to the query.
+
+While these operations are often referred to as "nearest neighbor" searches,
+this module specifically focuses on **maximum similarity** (typically via dot
+product or cosine similarity) rather than $\ell_2$ distance. This ensures that
+documents with the highest semantic alignment to the query are prioritized.
+
+This module provides a generic interface for these search operations and
+concrete implementations:
+
+* BruteForceSearcher: An exhaustive searcher that compares the query embedding
+against every single document embedding in the index. While computationally
+expensive for massive indexes, it guarantees 100% accuracy (no approximations).
+* ConstrainedBruteForceSearcher: A specialized version used for constrained
+retrieval. It allows you to restrict the search to a specific list of document
+IDs — ensuring you only calculate similarity scores for documents that have
+already passed your pre-filtering criteria (e.g., "only search documents from
+2024").
+
+This modular approach allows you to swap a simple in-memory brute force
+searcher for a high-performance Approximate Nearest Neighbor (ANN) searcher
+as your index size grows, without changing your high-level RAG logic.
+"""
 
 import abc
 import dataclasses
