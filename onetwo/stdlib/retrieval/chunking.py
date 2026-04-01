@@ -92,42 +92,17 @@ class NoChunking(Chunker):
 class TextChunker(Chunker):
   """Chunks the document based on its text content only.
 
-  Preprocesses the document text prior to chunking, and postprocesses the
-  chunked text afterwards, based on configurable format strings.
-  All other document attributes are passed through to the output chunks.
-  The method `_format_text` can be overridden to provide additional custom
-  logic for transforming the text of the document (and only the text). Any other
-  attributes of the document (e.g., title, metadata) will be passed through to
-  the output chunks as-is, and can be used to modify the text of the document
-  before chunking or after chunking. The metadata of the chunk will additionally
-  include `original_doc_id`, `chunk_number` and `total_number_of_chunks`, which
-  can be used for formatting the text in the chunk to locate the chunk within
-  the document.
+  Chunks contain content derived from the original document's text content
+  through the `_chunk_text` method. All other document attributes are passed
+  through to the output chunks. The metadata of the chunk will additionally
+  include `original_doc_id`, `chunk_number` and `total_number_of_chunks`.
 
-  Attributes:
-    document_format: A string template that can be used to format the text of
-      the document before chunking. The template may refer to the following
-      fields: `text`, `title`, `doc_id`, and any other fields in the `metadata`
-        dictionary of the document. Example: '{text} (Title: {title})'.
-    chunk_format: A string template that can be used to format the text of the
-      chunk after chunking. The template may refer to the following fields:
-      `text`, `title`, `doc_id`, and any other fields in the `metadata` field of
-      the document. Example: '{text} (Title: {title})'.
+  If formatting is desired before or after chunking, use a `DocumentFormatter`
+  (see `onetwo.stdlib.retrieval.document_formatting`). To compose chunking and
+  formatting, please use a `SequentialCorpusRewriter` with a
+  `ChunkingCorpusRewriter` and a `FormattingCorpusRewriter`
+  (see `onetwo.stdlib.retrieval.corpus_rewriting`).
   """
-
-  document_format: str = '{text}'
-  chunk_format: str = '{text}'
-
-  def _format_text(
-      self, document: retrieval_data_structures.Document, format_str: str
-  ) -> str:
-    """Formats the chunk text."""
-    return format_str.format(
-        text=document.content,
-        title=document.title,
-        doc_id=document.doc_id,
-        **document.metadata,
-    )
 
   @abc.abstractmethod
   @executing.make_executable(copy_self=False)
@@ -149,7 +124,7 @@ class TextChunker(Chunker):
     Args:
       document: The document to chunk.
     """
-    document_text = self._format_text(document, self.document_format)
+    document_text = document.text
     chunks = []
     for i, chunk_text in enumerate(await self._chunk_text(document_text)):  # pytype: disable=wrong-arg-count
       chunk = copy.deepcopy(document)
@@ -165,7 +140,6 @@ class TextChunker(Chunker):
       chunk.metadata[_ORIGINAL_DOC_ID] = document.doc_id
       chunk.metadata[_CHUNK_NUMBER] = i + 1
       chunk.metadata[_TOTAL_NUMBER_OF_CHUNKS] = total_number_of_chunks
-      chunk.content = self._format_text(chunk, self.chunk_format)
     return chunks
 
 
@@ -256,8 +230,7 @@ class ChunkByMaxTokens(TextChunker):
   Tokenize("happy").
 
   Attributes:
-    max_tokens_per_chunk: The maximum number of tokens per chunk. Note that this
-      is only partially enforced since chunk_format is applied after chunking.
+    max_tokens_per_chunk: The maximum number of tokens per chunk.
     tokenizer_backend: The LLM backend to use for tokenization. If not
       specified, then will default to the currently-registered backend.
     strip_whitespace: Whether to strip whitespace from the ends of each chunk.

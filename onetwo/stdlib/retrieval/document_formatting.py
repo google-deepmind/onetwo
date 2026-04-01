@@ -69,8 +69,6 @@ class NoFormatting(DocumentFormatter):
     return document
 
 
-# TODO: Offload formatting from the TextChunker and use the
-# composition of chunking + formatting instead.
 @dataclasses.dataclass(kw_only=True)
 class TextDocumentFormatter(DocumentFormatter):
   """Formats the document text based on a configurable format string.

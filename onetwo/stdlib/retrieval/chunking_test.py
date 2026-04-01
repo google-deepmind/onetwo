@@ -109,10 +109,8 @@ class ChunkingTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       {
-          'testcase_name': 'strip_whitespace_true_no_format',
+          'testcase_name': 'strip_whitespace_true',
           'strip_whitespace': True,
-          'document_format': """{text}""",
-          'chunk_format': """{text}""",
           'max_tokens_per_chunk': 6,
           'expected_chunks': [
               retrieval_data_structures.Document(
@@ -138,10 +136,8 @@ class ChunkingTest(parameterized.TestCase):
           ],
       },
       {
-          'testcase_name': 'strip_whitespace_false_no_format',
+          'testcase_name': 'strip_whitespace_false',
           'strip_whitespace': False,
-          'document_format': """{text}""",
-          'chunk_format': """{text}""",
           'max_tokens_per_chunk': 6,
           'expected_chunks': [
               retrieval_data_structures.Document(
@@ -166,103 +162,10 @@ class ChunkingTest(parameterized.TestCase):
               ),
           ],
       },
-      {
-          'testcase_name': 'strip_whitespace_true_with_chunk_format',
-          'strip_whitespace': True,
-          'document_format': """{text}""",
-          'chunk_format': """Title: {title}\nContent: {text}""",
-          'max_tokens_per_chunk': 6,
-          'expected_chunks': [
-              retrieval_data_structures.Document(
-                  title='Test Title',
-                  content='Title: Test Title\nContent: hello',
-                  doc_id='1_1',
-                  metadata={
-                      _ORIGINAL_DOC_ID: '1',
-                      _CHUNK_NUMBER: 1,
-                      _TOTAL_NUMBER_OF_CHUNKS: 2,
-                  },
-              ),
-              retrieval_data_structures.Document(
-                  title='Test Title',
-                  content='Title: Test Title\nContent: world',
-                  doc_id='1_2',
-                  metadata={
-                      _ORIGINAL_DOC_ID: '1',
-                      _CHUNK_NUMBER: 2,
-                      _TOTAL_NUMBER_OF_CHUNKS: 2,
-                  },
-              ),
-          ],
-      },
-      {
-          'testcase_name': (
-              'strip_whitespace_true_with_chunk_format_include_metadata'
-          ),
-          'strip_whitespace': True,
-          'document_format': """{text}""",
-          'chunk_format': (
-              """Title: {title}\nContent: {text}\nChunk Rank: {chunk_number}/{total_number_of_chunks}"""
-          ),
-          'max_tokens_per_chunk': 6,
-          'expected_chunks': [
-              retrieval_data_structures.Document(
-                  title='Test Title',
-                  content='Title: Test Title\nContent: hello\nChunk Rank: 1/2',
-                  doc_id='1_1',
-                  metadata={
-                      _ORIGINAL_DOC_ID: '1',
-                      _CHUNK_NUMBER: 1,
-                      _TOTAL_NUMBER_OF_CHUNKS: 2,
-                  },
-              ),
-              retrieval_data_structures.Document(
-                  title='Test Title',
-                  content='Title: Test Title\nContent: world\nChunk Rank: 2/2',
-                  doc_id='1_2',
-                  metadata={
-                      _ORIGINAL_DOC_ID: '1',
-                      _CHUNK_NUMBER: 2,
-                      _TOTAL_NUMBER_OF_CHUNKS: 2,
-                  },
-              ),
-          ],
-      },
-      {
-          'testcase_name': 'strip_whitespace_true_with_document_format',
-          'strip_whitespace': True,
-          'document_format': """Title: {title}\nContent: {text}""",
-          'chunk_format': """{text}""",
-          'max_tokens_per_chunk': 19,
-          'expected_chunks': [
-              retrieval_data_structures.Document(
-                  title='Test Title',
-                  content='Title: Test Title\nC',
-                  doc_id='1_1',
-                  metadata={
-                      _ORIGINAL_DOC_ID: '1',
-                      _CHUNK_NUMBER: 1,
-                      _TOTAL_NUMBER_OF_CHUNKS: 2,
-                  },
-              ),
-              retrieval_data_structures.Document(
-                  title='Test Title',
-                  content='ontent: hello world',
-                  doc_id='1_2',
-                  metadata={
-                      _ORIGINAL_DOC_ID: '1',
-                      _CHUNK_NUMBER: 2,
-                      _TOTAL_NUMBER_OF_CHUNKS: 2,
-                  },
-              ),
-          ],
-      },
   ])
   def testChunkByMaxTokens(
       self,
       strip_whitespace,
-      document_format,
-      chunk_format,
       max_tokens_per_chunk,
       expected_chunks,
   ):
@@ -272,8 +175,6 @@ class ChunkingTest(parameterized.TestCase):
     chunker = chunking.ChunkByMaxTokens(
         max_tokens_per_chunk=max_tokens_per_chunk,
         strip_whitespace=strip_whitespace,
-        document_format=document_format,
-        chunk_format=chunk_format,
     )
     chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
     with self.subTest('chunker_is_equivalent'):
