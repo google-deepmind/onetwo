@@ -18,6 +18,7 @@ dependencies = [
     "absl-py",
     "aenum",
     "dataclasses-json",
+    "datasets",
     "fastapi",
     "freezegun",
     # Note: there is a PYPI `gemma` library, which is not what we want.
