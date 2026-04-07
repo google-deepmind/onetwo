@@ -80,7 +80,7 @@ EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS = 'golden_doc_ids'
 _ExampleDict = dict[str, Any]
 
 
-class QADatasetLoader(Protocol[_Example]):
+class DatasetLoader(Protocol[_Example]):
   """Abstract base class for loading a dataset and returning examples."""
 
   @executing.make_executable()
@@ -112,7 +112,7 @@ def _decode_list(value) -> list[str]:
 
 
 @dataclasses.dataclass
-class HotpotQADatasetLoader(QADatasetLoader[_ExampleDict]):
+class HotpotQADatasetLoader(DatasetLoader[_ExampleDict]):
   """Loads the HotpotQA dataset via TFDS, returning examples and documents.
 
   This loader uses TFDS's HuggingFace bridge to load the `hotpot_qa` dataset
