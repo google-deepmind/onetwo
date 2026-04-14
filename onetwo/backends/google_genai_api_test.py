@@ -16,6 +16,8 @@ from collections.abc import Callable, Sequence
 import dataclasses
 import io
 import os
+import shutil
+import tempfile
 import time
 from typing import Any, Counter, Final, TypeAlias
 from unittest import mock
@@ -150,6 +152,11 @@ class GoogleGenaiApiTest(
     )
 
     self._mock_genai_client.models.list.return_value = _mock_list_models()
+    self.temp_dir = tempfile.mkdtemp()
+
+  def tearDown(self):
+    shutil.rmtree(self.temp_dir)
+    super().tearDown()
 
   def test_generate_text(self):
     backend = _get_and_register_backend()
@@ -620,8 +627,7 @@ class GoogleGenaiApiTest(
       self.assertCounterEqual(backend._counters, Counter(generate_contents=1))
 
   def test_generate_object_caching(self):
-    cache_dir = self.create_tempdir()
-    cache_filename = os.path.join(cache_dir.full_path, 'test_cache.json')
+    cache_filename = os.path.join(self.temp_dir, 'test_cache.json')
 
     # Instance 1: Populate cache
     cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
