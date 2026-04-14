@@ -97,7 +97,7 @@ reason, use tools, and solve complex problems. Compose agents naturally using
 Python control flow while OneTwo takes care of batching, streaming, and
 execution details behind the scenes.
 
-...
+![Agent Flow](./agent_flow.gif)
 
 Want to create and play with this agent? Check out our
 [in-depth tutorial](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/tutorial.ipynb).
