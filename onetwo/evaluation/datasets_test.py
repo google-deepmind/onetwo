@@ -325,7 +325,7 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     ot.run(loader.load_examples())
 
     mock_tfds.load.assert_called_once_with(
-        'huggingface:hotpot_qa/distractor', split='train'
+        'huggingface:hotpotqa__hotpot_qa/distractor', split='train'
     )
 
   @mock.patch('onetwo.evaluation.datasets.tfds')
