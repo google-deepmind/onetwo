@@ -14,6 +14,7 @@
 
 """Serialization protocols and simple implementations for retrieval indices."""
 
+import collections
 import dataclasses
 import json
 import os
@@ -125,7 +126,15 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     # Load discrete indices from JSON.
     indices_path = os.path.join(path, self.discrete_indices_json_name)
     with open(indices_path, 'r') as f:
-      doc_indices_by_discrete_value = json.load(f)
+      loaded_indices = json.load(f)
+
+    doc_indices_by_discrete_value = collections.defaultdict(
+        lambda: collections.defaultdict(list)
+    )
+    for field_name, field_dict in loaded_indices.items():
+      doc_indices_by_discrete_value[field_name] = collections.defaultdict(
+          list, field_dict
+      )
 
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
