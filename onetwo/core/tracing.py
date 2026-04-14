@@ -47,6 +47,8 @@ execution_context = contextvars.ContextVar('execution_context')
 
 
 class Tracer(metaclass=abc.ABCMeta):
+  """Base class for tracing the execution tree."""
+
   @abc.abstractmethod
   def add_stage(self) -> Tracer:
     """Adds a stage."""
@@ -58,6 +60,11 @@ class Tracer(metaclass=abc.ABCMeta):
   @abc.abstractmethod
   def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
     """Updates the outputs."""
+
+  @abc.abstractmethod
+  def record_exception(self, name: str, exception: Exception) -> None:
+    """Records an exception."""
+
 
 execution_tracer = contextvars.ContextVar('execution_tracer')
 
@@ -84,6 +91,9 @@ class ExecutionResultTracer(Tracer):
   def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
     self.execution_result.outputs.update(outputs)
 
+  def record_exception(self, name: str, exception: Exception) -> None:
+    self.execution_result.error = str(exception)
+
 
 @dataclasses.dataclass
 class StringTracer(Tracer):
@@ -107,6 +117,10 @@ class StringTracer(Tracer):
     indents = ' ' * self.indent
     self.stream.writelines([f'{indents}{name}: {outputs}\n'])
 
+  def record_exception(self, name: str, exception: Exception) -> None:
+    indents = ' ' * self.indent
+    self.stream.writelines([f'{indents}{name} failed with: {exception}\n'])
+
 
 @dataclasses.dataclass
 class QueueTracer(Tracer):
@@ -127,6 +141,9 @@ class QueueTracer(Tracer):
     raise NotImplementedError()
 
   def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
+    raise NotImplementedError()
+
+  def record_exception(self, name: str, exception: Exception) -> None:
     raise NotImplementedError()
 
 
@@ -217,6 +234,10 @@ class OutputTracer(QueueTracer):
         self.callback(outputs[results.MAIN_OUTPUT])
       else:
         self.callback(outputs)
+
+  def record_exception(self, name: str, exception: Exception) -> None:
+    if self.depth != 0:
+      self.callback(exception)
 
 
 def stream_updates(
@@ -512,15 +533,20 @@ def trace(
       try:
         execution_result.update_start_time()
         return_value = await function(*args, **kwargs)
+        if isinstance(return_value, executing_impl.Executable):
+          return_value = _wrap_executable_to_trace_outputs(
+              return_value, execution_result, tracer
+          )
+        else:
+          _update_outputs(execution_result, return_value)
+        return return_value
+      except Exception as e:
+        execution_result.error = str(e)
+        if tracer is not None:
+          tracer.record_exception(execution_result.stage_name, e)
+        raise
       finally:
         execution_result.update_end_time()
-      if isinstance(return_value, executing_impl.Executable):
-        return_value = _wrap_executable_to_trace_outputs(
-            return_value, execution_result, tracer
-        )
-      else:
-        _update_outputs(execution_result, return_value)
-      return return_value
     finally:
       _reset_execution_context_and_tracer(token, tracer_token)
 
@@ -532,16 +558,21 @@ def trace(
     )
     try:
       try:
-        # Call
         execution_result.update_start_time()
-        async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
-          if isinstance(return_value, executing_impl.Executable):
-            return_value = _wrap_executable_to_trace_outputs(
-                return_value, execution_result, tracer
-            )
-          else:
-            _update_outputs(execution_result, return_value)
-          yield return_value
+        try:
+          async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
+            if isinstance(return_value, executing_impl.Executable):
+              return_value = _wrap_executable_to_trace_outputs(
+                  return_value, execution_result, tracer
+              )
+            else:
+              _update_outputs(execution_result, return_value)
+            yield return_value
+        except Exception as e:
+          execution_result.error = str(e)
+          if tracer is not None:
+            tracer.record_exception(execution_result.stage_name, e)
+          raise
       finally:
         execution_result.update_end_time()
     finally:
@@ -555,16 +586,21 @@ def trace(
     )
     try:
       try:
-        # Call
         execution_result.update_start_time()
-        for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
-          if isinstance(return_value, executing_impl.Executable):
-            return_value = _wrap_executable_to_trace_outputs(
-                return_value, execution_result, tracer
-            )
-          else:
-            _update_outputs(execution_result, return_value)
-          yield return_value
+        try:
+          for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
+            if isinstance(return_value, executing_impl.Executable):
+              return_value = _wrap_executable_to_trace_outputs(
+                  return_value, execution_result, tracer
+              )
+            else:
+              _update_outputs(execution_result, return_value)
+            yield return_value
+        except Exception as e:
+          execution_result.error = str(e)
+          if tracer is not None:
+            tracer.record_exception(execution_result.stage_name, e)
+          raise
       finally:
         execution_result.update_end_time()
     finally:
@@ -580,15 +616,20 @@ def trace(
       try:
         execution_result.update_start_time()
         return_value = function(*args, **kwargs)
+        if isinstance(return_value, executing_impl.Executable):
+          return_value = _wrap_executable_to_trace_outputs(
+              return_value, execution_result, tracer
+          )
+        else:
+          _update_outputs(execution_result, return_value)
+        return return_value
+      except Exception as e:
+        execution_result.error = str(e)
+        if tracer is not None:
+          tracer.record_exception(execution_result.stage_name, e)
+        raise
       finally:
         execution_result.update_end_time()
-      if isinstance(return_value, executing_impl.Executable):
-        return_value = _wrap_executable_to_trace_outputs(
-            return_value, execution_result, tracer
-        )
-      else:
-        _update_outputs(execution_result, return_value)
-      return return_value
     finally:
       _reset_execution_context_and_tracer(token, tracer_token)
 

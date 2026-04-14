@@ -100,6 +100,21 @@ def traced_executable_traced_add(x, y):
   return x + y
 
 
+@tracing.trace  # pytype: disable=wrong-arg-types
+async def async_returns_executable(x, y):
+  return executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
+
+
+@tracing.trace  # pytype: disable=wrong-arg-types
+async def async_gen_yields_executable(x, y):
+  yield executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
+
+
+@tracing.trace  # pytype: disable=wrong-arg-types
+def gen_yields_executable(x, y):
+  yield executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
+
+
 class ClassForTest:
 
   @tracing.trace  # pytype: disable=wrong-arg-types
@@ -125,6 +140,9 @@ class StringTracerForTest(tracing.Tracer):
   def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
     self.inner_tracer.update_outputs(name, outputs)
 
+  def record_exception(self, name: str, exception: Exception) -> None:
+    self.inner_tracer.record_exception(name, exception)
+
 
 class ExecutionResultTracerForTest(tracing.Tracer):
 
@@ -143,6 +161,9 @@ class ExecutionResultTracerForTest(tracing.Tracer):
 
   def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
     self.inner_tracer.update_outputs(name, outputs)
+
+  def record_exception(self, name: str, exception: Exception) -> None:
+    self.inner_tracer.record_exception(name, exception)
 
 
 class TracingTest(parameterized.TestCase):
@@ -408,6 +429,64 @@ class TracingTest(parameterized.TestCase):
       return 'done'
 
     tracing.run(wrapper_fn)
+
+  def test_execution_result_tracer_records_exception(self):
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    def failing_fn():
+      raise ValueError('expected error')
+
+    tracer = ExecutionResultTracerForTest()
+    with self.assertRaisesRegex(ValueError, 'expected error'):
+      tracing.run(failing_fn, tracer=tracer)
+
+    trace = tracer.get_result()
+    self.assertEqual('expected error', trace.stages[0].error)
+
+  def test_string_tracer_records_exception(self):
+    buffer = io.StringIO()
+    tracer = tracing.StringTracer(buffer)
+    tracer.record_exception('my_stage', ValueError('test error'))
+    self.assertEqual('my_stage failed with: test error\n', buffer.getvalue())
+
+  def test_output_tracer_records_exception(self):
+    mock_callback = mock.Mock()
+    tracer = tracing.OutputTracer(callback=mock_callback, depth=1)
+    e = ValueError('test error')
+    tracer.record_exception('my_stage', e)
+    mock_callback.assert_called_once_with(e)
+
+  def test_awrapper_returns_executable(self):
+    tracer = ExecutionResultTracerForTest()
+    res, _ = tracing.run(
+        functools.partial(async_returns_executable, 1, 2), tracer=tracer
+    )
+    self.assertIsInstance(res, executing.Executable)
+    final_res = executing.run(res)
+    self.assertEqual(3, final_res)
+
+  def test_iwrapper_yields_executable(self):
+    tracer = ExecutionResultTracerForTest()
+
+    async def run_test():
+      res = []
+      async for r in async_gen_yields_executable(1, 2):
+        res.append(r)
+      return res
+
+    res, _ = tracing.run(run_test, tracer=tracer)
+    self.assertIsInstance(res[0], executing.Executable)
+
+  def test_gwrapper_yields_executable(self):
+    tracer = ExecutionResultTracerForTest()
+
+    def run_test():
+      res = []
+      for r in gen_yields_executable(1, 2):
+        res.append(r)
+      return res
+
+    res, _ = tracing.run(run_test, tracer=tracer)
+    self.assertIsInstance(res[0], executing.Executable)
 
   def test_awrapper_resets_context_on_error(self):
     @tracing.trace  # pytype: disable=wrong-arg-types
