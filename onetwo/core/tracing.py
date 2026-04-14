@@ -508,20 +508,21 @@ def trace(
     token, tracer_token = _set_execution_context_and_tracer(
         execution_result, tracer
     )
-    # Call
     try:
-      execution_result.update_start_time()
-      return_value = await function(*args, **kwargs)
+      try:
+        execution_result.update_start_time()
+        return_value = await function(*args, **kwargs)
+      finally:
+        execution_result.update_end_time()
+      if isinstance(return_value, executing_impl.Executable):
+        return_value = _wrap_executable_to_trace_outputs(
+            return_value, execution_result, tracer
+        )
+      else:
+        _update_outputs(execution_result, return_value)
+      return return_value
     finally:
-      execution_result.update_end_time()
-    if isinstance(return_value, executing_impl.Executable):
-      return_value = _wrap_executable_to_trace_outputs(
-          return_value, execution_result, tracer
-      )
-    else:
-      _update_outputs(execution_result, return_value)
-    _reset_execution_context_and_tracer(token, tracer_token)
-    return return_value
+      _reset_execution_context_and_tracer(token, tracer_token)
 
   @functools.wraps(function)
   async def iwrapper(*args, **kwargs) -> AsyncIterator[_ReturnType]:
@@ -530,19 +531,21 @@ def trace(
         execution_result, tracer
     )
     try:
-      # Call
-      execution_result.update_start_time()
-      async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
-        if isinstance(return_value, executing_impl.Executable):
-          return_value = _wrap_executable_to_trace_outputs(
-              return_value, execution_result, tracer
-          )
-        else:
-          _update_outputs(execution_result, return_value)
-        yield return_value
+      try:
+        # Call
+        execution_result.update_start_time()
+        async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
+          if isinstance(return_value, executing_impl.Executable):
+            return_value = _wrap_executable_to_trace_outputs(
+                return_value, execution_result, tracer
+            )
+          else:
+            _update_outputs(execution_result, return_value)
+          yield return_value
+      finally:
+        execution_result.update_end_time()
     finally:
-      execution_result.update_end_time()
-    _reset_execution_context_and_tracer(token, tracer_token)
+      _reset_execution_context_and_tracer(token, tracer_token)
 
   @functools.wraps(function)
   def gwrapper(*args, **kwargs) -> Iterator[_ReturnType]:
@@ -551,19 +554,21 @@ def trace(
         execution_result, tracer
     )
     try:
-      # Call
-      execution_result.update_start_time()
-      for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
-        if isinstance(return_value, executing_impl.Executable):
-          return_value = _wrap_executable_to_trace_outputs(
-              return_value, execution_result, tracer
-          )
-        else:
-          _update_outputs(execution_result, return_value)
-        yield return_value
+      try:
+        # Call
+        execution_result.update_start_time()
+        for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
+          if isinstance(return_value, executing_impl.Executable):
+            return_value = _wrap_executable_to_trace_outputs(
+                return_value, execution_result, tracer
+            )
+          else:
+            _update_outputs(execution_result, return_value)
+          yield return_value
+      finally:
+        execution_result.update_end_time()
     finally:
-      execution_result.update_end_time()
-    _reset_execution_context_and_tracer(token, tracer_token)
+      _reset_execution_context_and_tracer(token, tracer_token)
 
   @functools.wraps(function)
   def wrapper(*args, **kwargs) -> _ReturnType:
@@ -571,20 +576,21 @@ def trace(
     token, tracer_token = _set_execution_context_and_tracer(
         execution_result, tracer
     )
-    # Call
     try:
-      execution_result.update_start_time()
-      return_value = function(*args, **kwargs)
+      try:
+        execution_result.update_start_time()
+        return_value = function(*args, **kwargs)
+      finally:
+        execution_result.update_end_time()
+      if isinstance(return_value, executing_impl.Executable):
+        return_value = _wrap_executable_to_trace_outputs(
+            return_value, execution_result, tracer
+        )
+      else:
+        _update_outputs(execution_result, return_value)
+      return return_value
     finally:
-      execution_result.update_end_time()
-    if isinstance(return_value, executing_impl.Executable):
-      return_value = _wrap_executable_to_trace_outputs(
-          return_value, execution_result, tracer
-      )
-    else:
-      _update_outputs(execution_result, return_value)
-    _reset_execution_context_and_tracer(token, tracer_token)
-    return return_value
+      _reset_execution_context_and_tracer(token, tracer_token)
 
   if isinstance(name, utils.FromInstance) and not utils.is_method(function):
     raise ValueError(

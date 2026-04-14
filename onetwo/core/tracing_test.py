@@ -391,6 +391,82 @@ class TracingTest(parameterized.TestCase):
           pprint.pformat(execution_result),
       )
 
+  def test_wrapper_resets_context_on_error(self):
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    def failing_fn():
+      raise ValueError('error')
+
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    def wrapper_fn():
+      ctx_before = tracing.execution_context.get(None)
+      try:
+        failing_fn()
+      except ValueError:
+        pass
+      ctx_after = tracing.execution_context.get(None)
+      self.assertEqual(ctx_before, ctx_after)
+      return 'done'
+
+    tracing.run(wrapper_fn)
+
+  def test_awrapper_resets_context_on_error(self):
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    async def failing_fn():
+      raise ValueError('error')
+
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    async def wrapper_fn():
+      ctx_before = tracing.execution_context.get(None)
+      try:
+        await failing_fn()
+      except ValueError:
+        pass
+      ctx_after = tracing.execution_context.get(None)
+      self.assertEqual(ctx_before, ctx_after)
+      return 'done'
+
+    tracing.run(wrapper_fn)
+
+  def test_gwrapper_resets_context_on_error(self):
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    def failing_gen():
+      yield 1
+      raise ValueError('error')
+
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    def wrapper_fn():
+      ctx_before = tracing.execution_context.get(None)
+      try:
+        for _ in failing_gen():
+          pass
+      except ValueError:
+        pass
+      ctx_after = tracing.execution_context.get(None)
+      self.assertEqual(ctx_before, ctx_after)
+      return 'done'
+
+    tracing.run(wrapper_fn)
+
+  def test_iwrapper_resets_context_on_error(self):
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    async def failing_igen():
+      yield 1
+      raise ValueError('error')
+
+    @tracing.trace  # pytype: disable=wrong-arg-types
+    async def wrapper_fn():
+      ctx_before = tracing.execution_context.get(None)
+      try:
+        async for _ in failing_igen():
+          pass
+      except ValueError:
+        pass
+      ctx_after = tracing.execution_context.get(None)
+      self.assertEqual(ctx_before, ctx_after)
+      return 'done'
+
+    tracing.run(wrapper_fn)
+
   @parameterized.named_parameters(
       ('no_tracer', None, None),
       (
