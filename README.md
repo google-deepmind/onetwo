@@ -142,19 +142,20 @@ Some of the frequently asked questions are discussed here: [FAQ](docs/faq.md).
 To cite this repository:
 
 ```bibtex
-@software{onetwo2024github,
-  author = {Olivier Bousquet and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
+@software{onetwo2026github,
+  author = {Olivier Bousquet and Parth Kothari and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
   url = {https://github.com/google-deepmind/onetwo},
   version = {0.4.0},
-  year = {2024},
+  date = {2026-04-15},
+  year = {2026}
 }
 ```
 
 In the above BibTeX entry, names are in alphabetical order, the version number
 is intended to be the one returned by `ot.__version__` (i.e., the latest version
 mentioned in [version.py](version.py) and in the [CHANGELOG](CHANGELOG.md), and
-the year corresponds to the project's open-source release.
+the year and date correspond to the release of this specific version.
 
 ## License
 
