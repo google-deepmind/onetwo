@@ -1,5 +1,85 @@
 # OneTwo Change Log
 
+## v0.4.0
+
+*   **Backends**
+    *   **GoogleGenAIAPI:** Set `httpx` connection limits according to
+        `threadpool_size` to allow higher throughput. Handled safety filter
+        blocks more explicitly, raising a specific error. Removed redundant
+        `@caching.cache_method` decorators from `generate_text` and `chat`
+        methods to avoid double caching. Automatically retry on empty responses
+        caused by safety filters. Refactored `generate_text` and `chat` to use
+        `generate_content` as the base implementation. Added support for
+        `output_dimensionality` and `task_type` in `llm.embed`.
+    *   **Gemini API:** Updated default embedding model name, as
+        `models/embedding-001` is deprecated.
+*   **Core**
+    *   **Caching:** Made `SimpleCache.cache_value` asynchronous for
+        non-blocking I/O. Improved printing of cache summaries in `colab_utils`,
+        including support for `TwoLayerCaches` and sorting keys. Made cache read
+        resilient to empty file reads caused by race conditions. Added a generic
+        `TwoLayerCache` implementation.
+    *   **Execution & Parallelism:** Optimized `executing.parallel` to reduce
+        overhead for nested and fixed-size sequences using `asyncio.gather`
+        directly in a fast path. Allowed changing the default value of
+        `max_parallel_executions` globally. Propagated context variables in
+        `run_method_in_threadpool`. Used `ContextualExecutor` instead of
+        `ThreadPoolExecutor` to ensure context propagation for debugging tools
+        like Sherlog. Propagated OneTwo tracers across async boundaries in
+        `batching.py`. Improved exception handling and reporting within the
+        tracing system.
+*   **Agents**
+    *   **ReAct:** Added option `retry_on_parsing_error` to provide more
+        detailed error messages on action parsing failures, including the
+        thought and failed action string to help the LLM self-correct.
+*   **Standard library**
+    *   **Retrieval & QA:** Added a comprehensive suite of modules under
+        `third_party/py/onetwo/stdlib/retrieval` and
+        `third_party/py/onetwo/stdlib/qa` to support building advanced
+        Retrieval-Augmented Generation (RAG) and Question Answering systems. Key
+        features include:
+        *   **Core Interfaces:** Introduced fundamental interfaces for RAG like
+            `Retriever`, `Index`, `Searcher`, `CorpusRewriter`, `Chunker` and
+            `DocumentFormatter`.
+        *   **Data Structures:** Added the `Document` dataclass for representing
+            content to be indexed and retrieved.
+        *   **Indexing:** Introduced various index types: in particular
+            `EmbeddingBasedIndex`, `RewritingIndex`.
+        *   **CorpusRewriter:** `CorpusRewriter` interface and implementations
+            to enable flexible document processing pipelines before indexing.
+            Indexes leverage the `CorpusRewriter` abstraction for more general
+            transformations.
+        *   **Chunking:** Provided implementations like `TextChunker`,
+            `NoChunking`, and `ChunkByMaxTokens` for splitting documents.
+        *   **Formatter:** Provided implementations for formatting documents.
+        *   **Searcher:** Added `BruteForceSearcher` for nearest neighbor search
+            between embeddings.
+        *   **Constrained Retrieval:** Introduced `RetrievalConstraint` classes
+            and the `ConstrainedRetriever` and `ConstrainedSearcher` protocols
+            to enable efficient pre-filtering of documents based on metadata
+            fields before vector search.
+        *   **Index Serialization:** Added `EmbeddingBasedIndexState` to store
+            the state of `EmbeddingBasedIndex` and serializers for persisting
+            and loading index data.
+        *   **QA Strategies:** Defined interfaces for question answering,
+            including `QAStrategy`, `ContextualQAStrategy`, and
+            `RetrievalQAStrategy`.
+*   **Colabs**
+    *   Introduced a Getting Started tutorial.
+    *   **OneTwo tutorial:** Demonstrated use of `llm.embed()` for multimodal
+        contents.
+    *   Introduced a RAG Tutorial.
+*   **Testing**
+    *   Modified `LLMForTest` tokenizer and added detokenizer for better
+        testing.
+*   **Evaluation**
+    *   **Tracing:** Improved tracing for metrics in `metrics.py` and
+        `evaluation.py`.
+    *   **ot.evaluate:** Unified `evaluation` and `agent_evaluation` modules
+        into `onetwo.evaluation.evaluation`. Made `ot.evaluate` more generic to
+        support arbitrary example types and strategy signatures. Added
+        `dataset_name` and `dataset_description` parameters to `evaluate`.
+
 ## v0.3.0
 
 *   **Backends**
