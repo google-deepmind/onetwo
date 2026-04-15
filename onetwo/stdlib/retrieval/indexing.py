@@ -449,6 +449,16 @@ class AbstractEmbeddingBasedIndex(
   )
 
 
+def _default_list_map():
+  """Returns a defaultdict(list)."""
+  return collections.defaultdict(list)
+
+
+def _default_discrete_value_map():
+  """Returns a nested defaultdict for discrete value indexing."""
+  return collections.defaultdict(_default_list_map)
+
+
 def _validate_docs(docs: Sequence[Document]) -> None:
   """Validates that the given documents all have doc_id attributes.
 
@@ -499,11 +509,7 @@ class EmbeddingBasedIndex(
   # (e.g., continuous values for which constraints may be specified in terms of
   # a value range).
   _doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]] = (
-      dataclasses.field(
-          default_factory=lambda: collections.defaultdict(
-              lambda: collections.defaultdict(list)
-          )
-      )
+      dataclasses.field(default_factory=_default_discrete_value_map)
   )
 
   @executing.make_executable(copy_self=False)

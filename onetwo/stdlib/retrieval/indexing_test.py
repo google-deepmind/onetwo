@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
+import pickle
 import shutil
 import tempfile
 from unittest import mock
@@ -866,6 +868,96 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
       new_index.rename_discrete_field_key('external_keys', 'another', 'new')
       self.assertIn('new', index_for_field)
       self.assertEqual(index_for_field['new'], [0])
+
+
+class PickleabilityTest(absltest.TestCase):
+  """Tests that EmbeddingBasedIndex is pickle-able for Flume pipelines."""
+
+  def setUp(self):
+    super().setUp()
+    mock_embed_fn.embeddings = []
+    mock_embed_fn.call_count = 0
+    self.mock_llm_embed = mock.patch(
+        'onetwo.builtins.llm.embed', new=mock_embed_fn
+    ).start()
+    self.addCleanup(mock.patch.stopall)
+
+  def test_default_list_map_is_pickleable(self):
+    """Verifies the _default_list_map helper pickles correctly."""
+    d = indexing._default_list_map()
+    d['key'].append(42)
+    restored = pickle.loads(pickle.dumps(d))
+    self.assertEqual(restored['key'], [42])
+    # Restored object should preserve defaultdict(list) behavior.
+    self.assertIsInstance(restored, collections.defaultdict)
+    self.assertEqual(restored['nonexistent'], [])
+
+  def test_default_discrete_value_map_is_pickleable(self):
+    """Verifies the _default_discrete_value_map helper pickles correctly."""
+    d = indexing._default_discrete_value_map()
+    d['field']['value'].append(0)
+    restored = pickle.loads(pickle.dumps(d))
+    self.assertEqual(restored['field']['value'], [0])
+    # Nested defaultdict behavior should be preserved.
+    self.assertIsInstance(restored, collections.defaultdict)
+    self.assertIsInstance(restored['new_field'], collections.defaultdict)
+    self.assertEqual(restored['new_field']['new_value'], [])
+
+  def test_empty_embedding_based_index_is_pickleable(self):
+    """An empty EmbeddingBasedIndex should survive a pickle roundtrip."""
+    index = indexing.EmbeddingBasedIndex()
+    restored = pickle.loads(pickle.dumps(index))
+    self.assertEqual(restored.num_docs, 0)
+    self.assertIsInstance(
+        restored._doc_indices_by_discrete_value, collections.defaultdict
+    )
+
+  def test_populated_embedding_based_index_is_pickleable(self):
+    """A populated EmbeddingBasedIndex should survive a pickle roundtrip."""
+    docs = [
+        Document(doc_id='doc1', content='hello'),
+        Document(doc_id='doc2', content='world'),
+    ]
+    doc1_embed = np.array([0.9, 0.1])
+    doc2_embed = np.array([0.1, 0.9])
+    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]
+
+    index = indexing.EmbeddingBasedIndex()
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    restored = pickle.loads(pickle.dumps(index))
+    self.assertEqual(restored.num_docs, 2)
+    restored_docs = list(restored.get_docs())
+    self.assertEqual(restored_docs[0].doc_id, 'doc1')
+    self.assertEqual(restored_docs[1].doc_id, 'doc2')
+
+  def test_doc_indices_by_discrete_value_is_pickleable(self):
+    """The _doc_indices_by_discrete_value defaultdict survives pickling."""
+    index = indexing.EmbeddingBasedIndex()
+    # Manually populate the discrete value index to simulate what add_docs does,
+    # without needing a pickleable extractor function.
+    index._doc_indices_by_discrete_value['title']['Geography'].append(0)
+    index._doc_indices_by_discrete_value['title']['History'].append(1)
+
+    restored = pickle.loads(pickle.dumps(index))
+    # The discrete value index should be preserved.
+    self.assertIn('title', restored._doc_indices_by_discrete_value)
+    self.assertEqual(
+        restored._doc_indices_by_discrete_value['title']['Geography'], [0]
+    )
+    self.assertEqual(
+        restored._doc_indices_by_discrete_value['title']['History'], [1]
+    )
+    # defaultdict behavior should be preserved after unpickling.
+    self.assertEqual(
+        restored._doc_indices_by_discrete_value['new_field']['new_val'], []
+    )
+
+  def test_embedding_based_document_index_is_pickleable(self):
+    """EmbeddingBasedDocumentIndex should also be pickle-able."""
+    index = indexing.EmbeddingBasedDocumentIndex()
+    restored = pickle.loads(pickle.dumps(index))
+    self.assertEqual(restored.num_docs, 0)
 
 
 if __name__ == '__main__':
