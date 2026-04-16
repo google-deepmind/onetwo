@@ -76,14 +76,14 @@ DEFAULT_GENERATE_MODEL: Final[ModelName] = ModelName(
 DEFAULT_MULTIMODAL_MODEL: Final[ModelName] = DEFAULT_GENERATE_MODEL
 DEFAULT_IMAGE_GENERATE_MODEL: Final[ModelName] = ModelName(
     vertex_ai=(
-        'publishers/google/models/gemini-3.1-flash-image-preview'
+        'publishers/google/models/gemini-2.0-flash-preview-image-generation'
     ),
-    gemini_api='models/gemini-3.1-flash-image-preview',
+    gemini_api='models/gemini-2.5-flash-image-preview',
 )
 # input_token_limit=2048.
 DEFAULT_EMBED_MODEL: Final[ModelName] = ModelName(
-    vertex_ai='publishers/google/models/text-embedding-004',
-    gemini_api='models/text-embedding-004',
+    vertex_ai='publishers/google/models/gemini-embedding-001',
+    gemini_api='models/gemini-embedding-001',
 )
 
 # Refer to
