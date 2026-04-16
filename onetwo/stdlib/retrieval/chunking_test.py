@@ -264,6 +264,16 @@ class ChunkingTest(parameterized.TestCase):
           expected_chunks,
       )
 
+  def testChunkByMaxTokensOverlapEqualsMaxTokensRaisesError(self):
+    document = retrieval_data_structures.Document(
+        content='hello world', doc_id='1'
+    )
+    chunker = chunking.ChunkByMaxTokens(
+        max_tokens_per_chunk=6, overlap_window=6
+    )
+    with self.assertRaises(ValueError):
+      ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+
 
 if __name__ == '__main__':
   absltest.main()

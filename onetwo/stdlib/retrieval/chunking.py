@@ -263,24 +263,17 @@ class ChunkByMaxTokens(TextChunker):
       raise ValueError(
           f'overlap_window must be non-negative, got {self.overlap_window}'
       )
-    if self.overlap_window > self.max_tokens_per_chunk:
+    if self.overlap_window >= self.max_tokens_per_chunk:
       raise ValueError(
           'overlap_window must be smaller than max_tokens_per_chunk, got'
-          f' {self.overlap_window} > {self.max_tokens_per_chunk}'
+          f' {self.overlap_window} >= {self.max_tokens_per_chunk}'
       )
-    tokenized_chunks = []
-    remaining_tokens = await llm.tokenize(text)  # pytype: disable=wrong-arg-count
-    while remaining_tokens:
-      if self.overlap_window > 0:
-        truncated_tokens = remaining_tokens[: self.max_tokens_per_chunk]
-        truncated_non_overlap_tokens = remaining_tokens[
-            : self.max_tokens_per_chunk - self.overlap_window
-        ]
-        remaining_tokens = remaining_tokens[len(truncated_non_overlap_tokens) :]
-      else:
-        truncated_tokens = remaining_tokens[: self.max_tokens_per_chunk]
-        remaining_tokens = remaining_tokens[len(truncated_tokens) :]
-      tokenized_chunks.append(truncated_tokens)
+    all_tokens = await llm.tokenize(text)  # pytype: disable=wrong-arg-count
+    step = self.max_tokens_per_chunk - self.overlap_window
+    tokenized_chunks = [
+        all_tokens[i : i + self.max_tokens_per_chunk]
+        for i in range(0, len(all_tokens), step)
+    ]
     chunks = await ot.parallel(*[
         llm.detokenize(tokenized_chunk)  # pytype: disable=wrong-arg-count
         for tokenized_chunk in tokenized_chunks
