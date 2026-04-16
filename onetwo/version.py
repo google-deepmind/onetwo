@@ -16,4 +16,4 @@
 
 # A new GitHub release will be pushed everytime `__version__` is increased.
 # When changing this, also update the CHANGELOG.md.
-__version__ = '0.4.0'
+__version__ = '0.5.0'
