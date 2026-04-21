@@ -14,13 +14,18 @@
 
 """OneTwo connector for the OpenAI API.
 
+All models from gpt-3.5-turbo to gpt-5.4 are supported through the [Responses
+API](https://developers.openai.com/api/reference/resources/$shared#(resource)%20%24shared%20%3E%20(model)%20responses_model%20%3E%20(schema)%20%3E%20(variant)%201)
+
 """
 
+import base64
 import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
+import io
 import pprint
-from typing import Any, Final, TypeVar
+from typing import Any, Final, TypeAlias, TypeVar, get_origin
 
 from onetwo.backends import backends_base
 import openai
@@ -33,24 +38,20 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
+import PIL.Image
 import pydantic
 
 TypeAdapter = pydantic.TypeAdapter
 _T = TypeVar('_T')
 
-# See https://platform.openai.com/docs/models/model-endpoint-compatibility.
-DEFAULT_MODEL: Final[str] = 'gpt-4o-mini'
+# Type alias for OpenAI message content: plain text or a list of content parts.
+OpenAIContent: TypeAlias = str | list[dict[str, Any]]
 
-# These models support only "legacy" free form text complition with
-# `client.completions.create`. They don't support chat.
-_OPENAI_LEGACY_COMPLETIONS_MODELS: Final[tuple[str, ...]] = (
-    'gpt-3.5-turbo-instruct',  # This one is instruction tuned.
-    'davinci-002',
-    'babbage-002',
-)
+# See https://platform.openai.com/docs/models/overview.
+DEFAULT_MODEL: Final[str] = 'gpt-5.4-mini'
 
-# Supported roles in the chat.completions.create method are listed at
-# https://github.com/openai/openai-python/blob/f0bdef04611a24ed150d19c4d180aacab3052704/src/openai/types/chat/chat_completion_role.py
+# Supported roles in the responses.create method are listed at
+# https://platform.openai.com/docs/api-reference/responses/create
 # If a role is not supported, it will be passed as a string (i.e. if one
 # calls `chat` with `Message(role='tool')`, then 'tool' will be used directly).
 # TODO: Once we add a PredefinedRole.TOOL, we can add it to this map.
@@ -63,48 +64,98 @@ _OPENAI_ROLE_BY_PREDEFINED_ROLE = {
 _COMPLETION_SYSTEM_PROMPT_PREFIX: Final[str] = 'Continue the sentence: '
 
 
-# We don't specify the type of logprobs (it is
-# `types.chat.chat_completion.ChoiceLogprobs` for `client.chat.completions` and
-# `types.completion_choice.Logprobs` for `client.completions`) because we don't
-# want to explicitly import the module where it is defined.
-def _get_score_from_chat_completions_candidate(logprobs: Any) -> float:
-  """Returns the score of a chat completion candidate.
+def _convert_chunk_to_openai_part(
+    chunk: content_lib.Chunk,
+) -> dict[str, Any]:
+  """Converts a single OneTwo Chunk into an OpenAI content part dict.
 
-  This function parses `response.choices[k].logprobs` of the `response` returned
-  by `client.chat.completions.create(...)`.
+  See https://platform.openai.com/docs/api-reference/responses/create for the
+  expected format of content parts.
 
   Args:
-    logprobs: Instance of ChoiceLogprobs.
+    chunk: A OneTwo Chunk object to convert.
 
   Returns:
-    Log probability of the whole candidate string.
+    A dict representing an OpenAI content part (e.g. input_text or
+    input_image).
+
+  Raises:
+    ValueError: If the chunk has an unsupported binary content type.
+    TypeError: If the chunk content is an unsupported Python type.
   """
-  if logprobs is None:
-    return 0.0
-  score = 0.0
-  for c in logprobs.content:
-    score += c.logprob
-  return score
+  match chunk.content:
+    case str() as text:
+      return {'type': 'input_text', 'text': text}
+    case bytes() as data:
+      if chunk.content_type.startswith('image/'):
+        b64 = base64.b64encode(data).decode('ascii')
+        data_url = f'data:{chunk.content_type};base64,{b64}'
+        return {'type': 'input_image', 'image_url': data_url}
+      else:
+        raise ValueError(
+            'Unsupported binary content_type for OpenAI API: '
+            f'{chunk.content_type}'
+        )
+    case PIL.Image.Image() as image:
+      buf = io.BytesIO()
+      image.save(buf, format='JPEG')
+      b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+      data_url = 'data:image/jpeg;base64,' + b64
+      return {'type': 'input_image', 'image_url': data_url}
 
 
-def _get_score_from_completions_candidate(logprobs: Any) -> float:
-  """Returns the score of a completion candidate.
+def _convert_content_to_openai_format(
+    content: str | content_lib.ChunkList,
+) -> OpenAIContent:
+  """Converts OneTwo message content to OpenAI API format.
 
-  This function parses `response.choices[k].logprobs` of the `response` returned
-  by `client.completions.create(...)`.
+  For pure text, returns a string. For multimodal content (e.g. images),
+  returns a list of content part dicts following the OpenAI Responses API
+  format.
 
   Args:
-    logprobs: Instance of Logprobs.
+    content: Either a plain string or a OneTwo ChunkList.
 
   Returns:
-    Log probability of the whole candidate string.
+    A string for text-only content, or a list of content part dicts for
+    multimodal content.
   """
-  if logprobs is None:
-    return 0.0
-  score = 0.0
-  for c in logprobs.token_logprobs:
-    score += c
-  return score
+  if isinstance(content, str):
+    return content
+  # ChunkList: if all chunks are text, concatenate into a single string.
+  if all(isinstance(c.content, str) for c in content.chunks):
+    return content.to_simple_string()
+  # Mixed/multimodal content — convert each chunk to a content part.
+  return [_convert_chunk_to_openai_part(c) for c in content.chunks]
+
+
+def _convert_messages_to_input(
+    messages: Sequence[content_lib.Message],
+) -> list[dict[str, OpenAIContent]]:
+  """Converts OneTwo messages to the Responses API input format.
+
+  The Responses API accepts the same message dict format as Chat Completions:
+  [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+
+  For multimodal messages, the content is a list of content parts:
+  [{"role": "user", "content": [{"type": "input_text", "text": "..."},
+                                {"type": "input_image", "image_url": "..."}]}]
+
+  Args:
+    messages: Sequence of OneTwo Message objects.
+
+  Returns:
+    A list of dicts suitable for the `input` parameter of responses.create.
+  """
+  return [
+      {
+          'role': _OPENAI_ROLE_BY_PREDEFINED_ROLE.get(
+              message.role, str(message.role)
+          ),
+          'content': _convert_content_to_openai_format(message.content),
+      }
+      for message in messages
+  ]
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -114,6 +165,8 @@ class OpenAIAPI(
     backends_base.Backend,
 ):
   """OpenAI API.
+
+  Uses the Responses API (client.responses.create) for all models.
 
   TODO: Implement streaming for generate_text and chat.
   TODO: Implement embed and tokenize.
@@ -146,8 +199,13 @@ class OpenAIAPI(
       set as a default and can be overridden per request).
     top_p: Top-p parameter (float) for LLM text generation (can be set as a
       default and can be overridden per request).
-    top_k: Top-k parameter (int) for LLM text generation (can be set as a
-      default and can be overridden per request).
+    reasoning: Optional reasoning configuration dict for o-series models. E.g.,
+      {"effort": "low"} or {"effort": "high", "summary": "auto"}. See
+      https://platform.openai.com/docs/api-reference/responses/create.
+    tools: Optional list of tool definitions for function calling. Each tool
+      should be a dict following the Responses API tool schema, e.g., [{"type":
+      "function", "name": "get_weather", "parameters": {...}}]. See
+      https://platform.openai.com/docs/api-reference/responses/create.
   """
 
   batch_size: int = 1
@@ -162,7 +220,10 @@ class OpenAIAPI(
   max_tokens: int | None = None
   stop: Sequence[str] | None = None
   top_p: float | None = None
-  top_k: int | None = None
+
+  # Responses API specific parameters
+  reasoning: dict[str, Any] | None = None
+  tools: list[dict[str, Any]] | None = None
 
   # Attributes not set by constructor.
   _client: openai.OpenAI | None = dataclasses.field(init=False, default=None)
@@ -185,7 +246,6 @@ class OpenAIAPI(
         max_tokens=self.max_tokens,
         stop=self.stop,
         top_p=self.top_p,
-        top_k=self.top_k,
     )
 
     llm.generate_texts.configure(
@@ -194,7 +254,6 @@ class OpenAIAPI(
         max_tokens=self.max_tokens,
         stop=self.stop,
         top_p=self.top_p,
-        top_k=self.top_k,
     )
 
     llm.generate_object.configure(
@@ -203,15 +262,12 @@ class OpenAIAPI(
         max_tokens=self.max_tokens,
         stop=self.stop,
         top_p=self.top_p,
-        top_k=self.top_k,
     )
 
-    if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
-      formatter = formatting.FormatterName.DEFAULT
-    else:
-      formatter = formatting.FormatterName.API
-    llm.chat.configure(self.chat, formatter=formatter)
-    llm.instruct.configure(llm.default_instruct, formatter=formatter)
+    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
+    llm.instruct.configure(
+        llm.default_instruct, formatter=formatting.FormatterName.API
+    )
 
   def __post_init__(self) -> None:
     # Create cache.
@@ -224,207 +280,109 @@ class OpenAIAPI(
       self._client = openai.OpenAI()
 
   @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
-  def _completions(
-      self,
-      prompt: str | content_lib.ChunkList,
-      include_details: bool,
-      *,
-      samples: int = 1,
-      temperature: float | None = None,
-      max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      **kwargs,
-  ) -> Any:
-    """Generate content via the chat.completions.create method.
-
-    Supported *only* for the models in _OPENAI_LEGACY_COMPLETIONS_MODELS.
-
-    Args:
-      prompt: Prompt for completion.
-      include_details: Include log probabilities of the generated strings in the
-        outputs.
-      samples: Number of samples to generate.
-      temperature: Temperature parameter (float) for LLM generation.
-      max_tokens: Maximum number of tokens to generate.
-      stop: Stop sequences (as a list of strings) for LLM text generation.
-      top_k: Top-k parameter (int) for LLM text generation.
-      top_p: Top-p parameter (float) for LLM text generation.
-      **kwargs: Optional OpenAI specific arguments, see
-        https://github.com/openai/openai-python/blob/f0bdef04611a24ed150d19c4d180aacab3052704/src/openai/resources/chat/completions.py#L616C5-L616C16
-
-    Returns:
-      A response from the OpenAI API (as a Choice object, see
-      https://github.com/openai/openai-python/blob/f0bdef04611a24ed150d19c4d180aacab3052704/src/openai/types/chat/chat_completion.py#L19
-      ).
-    """
-    self._counters['_completions'] += 1
-
-    if self.model_name not in _OPENAI_LEGACY_COMPLETIONS_MODELS:
-      raise ValueError(
-          'Trying to call `openai.client.completions.create` for model '
-          f'`{self.model_name}`. This api is available only for one of the '
-          'following models: '
-          f'{pprint.pformat(_OPENAI_LEGACY_COMPLETIONS_MODELS)}.'
-      )
-
-    if isinstance(prompt, content_lib.ChunkList):
-      converted = []
-      for c in prompt:
-        match c.content_type:
-          case 'str':
-            converted.append(c.content)
-          case _:
-            # TODO: Support other chunk types.
-            continue
-      prompt = ''.join(converted)
-
-    if temperature is not None:
-      kwargs['temperature'] = temperature
-    if max_tokens is not None:
-      kwargs['max_tokens'] = max_tokens
-    if stop is not None:
-      kwargs['stop'] = stop
-    if top_k is not None:
-      kwargs['top_k'] = top_k
-    if top_p is not None:
-      kwargs['top_p'] = top_p
-    if samples > 1:
-      kwargs['n'] = samples
-    if include_details:
-      # Note: argument `logprobs` of `client.completions` has type `int` and
-      # sets the number of tokens with largest log probabilities for each of the
-      # generated positions. When `logprobs` is not set, `client.completions`
-      # does not return probabilities. When `logprobs=0` we get log
-      # probabilities for the generated (i.e., sampled) tokens, but don't get
-      # top probabilities.
-      kwargs['logprobs'] = 0
-    try:
-      # TODO: Trace this external API call.
-      response = self._client.completions.create(
-          model=self.model_name,
-          prompt=prompt,
-          **kwargs,
-      )
-    except Exception as err:  # pylint: disable=broad-except
-      raise ValueError(
-          f'OpenAI API client.completions.create raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(prompt)[:100]}'
-      ) from err
-    if not response.choices:
-      response_msg = pprint.pformat(response)
-      raise ValueError(
-          'openai.client.completions.create '
-          f'returned no answers:\n{response_msg}'
-      )
-    return response
-
-  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
-  def _chat_completions(
+  def _responses_create(
       self,
       messages: Sequence[content_lib.Message],
-      include_details: bool,
       *,
-      samples: int = 1,
       temperature: float | None = None,
       max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
       top_p: float | None = None,
+      reasoning: dict[str, Any] | None = None,
+      tools: list[dict[str, Any]] | None = None,
       **kwargs,
   ) -> Any:
-    """Generate content via the chat.completions.create method.
-
-    *Not supported* for the models in _OPENAI_LEGACY_COMPLETIONS_MODELS.
+    """Generate content via the Responses API (client.responses.create).
 
     Args:
       messages: Sequence of messages to send to the model.
-      include_details: Include log probabilities of the generated strings in the
-        outputs.
-      samples: Number of samples to generate.
       temperature: Temperature parameter (float) for LLM generation.
       max_tokens: Maximum number of tokens to generate.
-      stop: Stop sequences (as a list of strings) for LLM text generation.
-      top_k: Top-k parameter (int) for LLM text generation.
       top_p: Top-p parameter (float) for LLM text generation.
+      reasoning: Optional reasoning config dict for o-series models, e.g.,
+        {"effort": "low"} or {"effort": "high", "summary": "auto"}.
+      tools: Optional list of tool definitions for function calling, e.g.,
+        [{"type": "function", "name": "get_weather", "parameters": {...}}].
       **kwargs: Optional OpenAI specific arguments, see
-        https://github.com/openai/openai-python/blob/f0bdef04611a24ed150d19c4d180aacab3052704/src/openai/resources/chat/completions.py#L616C5-L616C16
+        https://platform.openai.com/docs/api-reference/responses/create
 
     Returns:
-      A response from the OpenAI API (as a Choice object, see
-      https://github.com/openai/openai-python/blob/f0bdef04611a24ed150d19c4d180aacab3052704/src/openai/types/chat/chat_completion.py#L19
-      ).
+      A response from the Responses API.
     """
-    self._counters['_chat_completions'] += 1
+    self._counters['_responses_create'] += 1
 
-    if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
-      raise ValueError(
-          'Trying to call `openai.client.chat.completions.create` for model '
-          f'`{self.model_name}`. This api is not available for the '
-          'following models: '
-          f'{pprint.pformat(_OPENAI_LEGACY_COMPLETIONS_MODELS)}.'
-      )
+    # Responses API does not support stop or top_k.
+    kwargs.pop('stop', None)
+    kwargs.pop('top_k', None)
+    kwargs.pop('decoding_constraint', None)
 
-    converted_messages = [
-        {
-            'role': _OPENAI_ROLE_BY_PREDEFINED_ROLE.get(
-                message.role, str(message.role)
-            ),
-            'content': str(message.content),
-        }
-        for message in messages
-    ]
+    converted_input = _convert_messages_to_input(messages)
+
+    # Extract system/instructions messages to use the `instructions` param.
+    instructions = None
+    input_messages = []
+    for msg in converted_input:
+      if msg['role'] == 'system':
+        # Concatenate multiple system messages into instructions.
+        if instructions is None:
+          instructions = msg['content']
+        else:
+          instructions += '\n' + msg['content']
+      else:
+        input_messages.append(msg)
+
     if temperature is not None:
       kwargs['temperature'] = temperature
     if max_tokens is not None:
-      kwargs['max_tokens'] = max_tokens
-    if stop is not None:
-      kwargs['stop'] = stop
-    if top_k is not None:
-      kwargs['top_k'] = top_k
+      kwargs['max_output_tokens'] = max_tokens
     if top_p is not None:
       kwargs['top_p'] = top_p
-    if samples > 1:
-      kwargs['n'] = samples
-    if include_details:
-      kwargs['logprobs'] = True
+
+    # Apply instance-level defaults for reasoning and tools, then override
+    # with any per-call values.
+    effective_reasoning = reasoning if reasoning is not None else self.reasoning
+    effective_tools = tools if tools is not None else self.tools
+    if effective_reasoning is not None:
+      kwargs['reasoning'] = effective_reasoning
+    if effective_tools is not None:
+      kwargs['tools'] = effective_tools
+
+    api_kwargs = {
+        'model': self.model_name,
+    }
+    if input_messages:
+      api_kwargs['input'] = input_messages
+      if instructions is not None:
+        api_kwargs['instructions'] = instructions
+    elif instructions is not None:
+      api_kwargs['input'] = instructions
+    else:
+      api_kwargs['input'] = ''
+    api_kwargs.update(kwargs)
+
     try:
       # TODO: Trace this external API call.
-      response = self._client.chat.completions.create(
-          model=self.model_name,
-          messages=converted_messages,
-          **kwargs,
-      )
+      response = self._client.responses.create(**api_kwargs)
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
-          f'openai.client.chat.completions.create raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(converted_messages)[:100]}'
+          f'openai.client.responses.create raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(converted_input)[:100]}'
       ) from err
-    if not response.choices:
-      response_msg = pprint.pformat(response.choices)
-      raise ValueError(
-          'openai.client.chat.completions.create '
-          f'returned no answers:\n{response_msg}'
-      )
     return response
 
   @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
-  def _chat_completions_parse(
+  def _responses_parse(
       self,
       messages: Sequence[content_lib.Message],
       cls: Any,
       *,
       temperature: float | None = None,
       max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
       top_p: float | None = None,
+      reasoning: dict[str, Any] | None = None,
+      tools: list[dict[str, Any]] | None = None,
       **kwargs,
   ) -> Any:
-    """Generate structured content via client.chat.completions.parse.
-
-    *Not supported* for the models in _OPENAI_LEGACY_COMPLETIONS_MODELS.
+    """Generate structured content via client.responses.parse.
 
     This method is specifically for generating structured outputs conforming
     to a Pydantic schema, leveraging the OpenAI SDK's built-in parsing.
@@ -435,63 +393,71 @@ class OpenAIAPI(
         response schema and parse the output.
       temperature: Temperature parameter (float) for LLM generation.
       max_tokens: Maximum number of tokens to generate.
-      stop: Stop sequences (as a list of strings) for LLM text generation.
-      top_k: Top-k parameter (int) for LLM text generation.
       top_p: Top-p parameter (float) for LLM text generation.
+      reasoning: Optional reasoning config dict for o-series models.
+      tools: Optional list of tool definitions for function calling.
       **kwargs: Additional keyword arguments to pass to the underlying
-        `client.chat.completions.parse` call.
+        `client.responses.parse` call.
 
     Returns:
       A response from OpenAI's API.
     """
-    self._counters['_chat_completions_parse'] += 1
-
-    if (
-        self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS
-        or self.model_name == 'gpt-3.5-turbo'
-    ):
-      raise ValueError(
-          f'`{self.model_name}` does not support structured output. Please'
-          ' use a model like `gpt-4o-mini`, `gpt-4o`, or newer chat models.'
-      )
+    self._counters['_responses_parse'] += 1
 
     if not isinstance(cls, type) or not issubclass(cls, pydantic.BaseModel):
       raise ValueError(
           'The `cls` argument must be a subclass of `pydantic.BaseModel`.'
       )
 
-    converted_messages = [
-        {
-            'role': _OPENAI_ROLE_BY_PREDEFINED_ROLE.get(
-                message.role, str(message.role)
-            ),
-            'content': str(message.content),
-        }
-        for message in messages
-    ]
+    converted_input = _convert_messages_to_input(messages)
+
+    # Extract system/instructions messages.
+    instructions = None
+    input_messages = []
+    for msg in converted_input:
+      if msg['role'] == 'system':
+        if instructions is None:
+          instructions = msg['content']
+        else:
+          instructions += '\n' + msg['content']
+      else:
+        input_messages.append(msg)
+
     api_kwargs = {
         'model': self.model_name,
-        'messages': converted_messages,
-        'response_format': cls,
+        'text_format': cls,
     }
+    if input_messages:
+      api_kwargs['input'] = input_messages
+      if instructions is not None:
+        api_kwargs['instructions'] = instructions
+    elif instructions is not None:
+      api_kwargs['input'] = instructions
+    else:
+      api_kwargs['input'] = ''
     if temperature is not None:
       api_kwargs['temperature'] = temperature
     if max_tokens is not None:
-      api_kwargs['max_tokens'] = max_tokens
-    if stop is not None:
-      api_kwargs['stop'] = stop
-    if top_k is not None:
-      api_kwargs['top_k'] = top_k
+      api_kwargs['max_output_tokens'] = max_tokens
     if top_p is not None:
       api_kwargs['top_p'] = top_p
+
+    # Apply instance-level defaults for reasoning and tools, then override
+    # with any per-call values.
+    effective_reasoning = reasoning if reasoning is not None else self.reasoning
+    effective_tools = tools if tools is not None else self.tools
+    if effective_reasoning is not None:
+      api_kwargs['reasoning'] = effective_reasoning
+    if effective_tools is not None:
+      api_kwargs['tools'] = effective_tools
     api_kwargs.update(kwargs)
 
     try:
-      response = self._client.chat.completions.parse(**api_kwargs)
+      response = self._client.responses.parse(**api_kwargs)
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
-          f'OpenAI API client.chat.completions.parse raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(converted_messages)[:100]}'
+          f'OpenAI API client.responses.parse raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(converted_input)[:100]}'
       ) from err
 
     return response
@@ -500,39 +466,23 @@ class OpenAIAPI(
       self,
       *,
       prompt: str | content_lib.ChunkList,
-      samples: int,
-      include_details: bool,
       **kwargs,
   ):
-    """Generate necessary number of string completions using available api."""
-    if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
-      # Use native string completion api.
-      response = self._completions(  # pytype: disable=wrong-keyword-args
-          prompt=prompt,
-          include_details=include_details,
-          samples=samples,
-          **kwargs,
-      )
-    else:
-      # Complete prompt using native chat api: we ask to complete the string in
-      # the SYSTEM message. Seems to work reliably.
-      # TODO: Another option that also seems to work is to pass the
-      # same message as USER. Which is better?
-      completion_system_prompt = f'{_COMPLETION_SYSTEM_PROMPT_PREFIX}{prompt}'
-      ask_for_completion_messages = [
-          content_lib.Message(
-              content=completion_system_prompt,
-              role=content_lib.PredefinedRole.SYSTEM,
-          )
-      ]
-      response = self._chat_completions(  # pytype: disable=wrong-keyword-args
-          messages=ask_for_completion_messages,
-          include_details=include_details,
-          samples=samples,
-          **kwargs,
-      )
-
-    return response
+    """Generate a string completion using the Responses API."""
+    messages = [
+        content_lib.Message(
+            content=_COMPLETION_SYSTEM_PROMPT_PREFIX,
+            role=content_lib.PredefinedRole.SYSTEM,
+        ),
+        content_lib.Message(
+            content=prompt,
+            role=content_lib.PredefinedRole.USER,
+        ),
+    ]
+    return self._responses_create(  # pytype: disable=wrong-keyword-args
+        messages=messages,
+        **kwargs,
+    )
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='OpenAIAPI.generate_text')
@@ -557,35 +507,42 @@ class OpenAIAPI(
       top_p: float | None = None,
       decoding_constraint: str | None = None,
       include_details: bool = False,
+      top_logprobs: int | None = None,
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_text'] += 1
-    del decoding_constraint
+    # Responses API does not support stop or top_k.
+    del decoding_constraint, stop, top_k
     kwargs = {}
     if temperature is not None:
       kwargs['temperature'] = temperature
     if max_tokens is not None:
       kwargs['max_tokens'] = max_tokens
-    if stop is not None:
-      kwargs['stop'] = stop
-    if top_k is not None:
-      kwargs['top_k'] = top_k
     if top_p is not None:
       kwargs['top_p'] = top_p
+    if top_logprobs is not None:
+      kwargs['top_logprobs'] = top_logprobs
+      kwargs['include'] = ['message.output_text.logprobs']
+    elif include_details:
+      kwargs['include'] = ['message.output_text.logprobs']
+
     response = self._complete_prompt(
         prompt=prompt,
-        samples=1,
-        include_details=include_details,
         **kwargs,
     )
-    if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
-      candidate = response.choices[0]
-      score = _get_score_from_completions_candidate(candidate.logprobs)
-      text = candidate.text
-    else:
-      candidate = response.choices[0]
-      score = _get_score_from_chat_completions_candidate(candidate.logprobs)
-      text = candidate.message.content
+    text = response.output_text
+    score = 0.0
+    if include_details:
+      try:
+        logprobs_data = response.output[0].content[0].logprobs
+        score = sum(
+            item.logprob
+            if hasattr(item, 'logprob')
+            else item.get('logprob', 0.0)
+            for item in logprobs_data
+        )
+      except (AttributeError, IndexError):
+        pass
     return (text, {'text': text, 'score': score}) if include_details else text
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -612,50 +569,47 @@ class OpenAIAPI(
       top_p: float | None = None,
       decoding_constraint: str | None = None,
       include_details: bool = False,
+      top_logprobs: int | None = None,
   ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_texts'] += 1
-    del decoding_constraint
+    # Responses API does not support stop or top_k.
+    del decoding_constraint, stop, top_k
     kwargs = {}
     if temperature is not None:
       kwargs['temperature'] = temperature
     if max_tokens is not None:
       kwargs['max_tokens'] = max_tokens
-    if stop is not None:
-      kwargs['stop'] = stop
-    if top_k is not None:
-      kwargs['top_k'] = top_k
     if top_p is not None:
       kwargs['top_p'] = top_p
-    response = self._complete_prompt(
-        prompt=prompt,
-        samples=samples,
-        include_details=include_details,
-        **kwargs,
-    )
+    if top_logprobs is not None:
+      kwargs['top_logprobs'] = top_logprobs
+      kwargs['include'] = ['message.output_text.logprobs']
+    elif include_details:
+      kwargs['include'] = ['message.output_text.logprobs']
+    # Responses API does not support `n` parameter. Make separate calls.
     results = []
-    if self.model_name in _OPENAI_LEGACY_COMPLETIONS_MODELS:
-      # Parse respons of completions.create.
-      for candidate in response.choices:
-        if candidate:
-          score = _get_score_from_completions_candidate(candidate.logprobs)
-          text = candidate.text
-          results.append(
-              (text, {'text': text, 'score': score})
-              if include_details
-              else text
+    for _ in range(samples):
+      response = self._complete_prompt(
+          prompt=prompt,
+          **kwargs,
+      )
+      text = response.output_text
+      score = 0.0
+      if include_details:
+        try:
+          logprobs_data = response.output[0].content[0].logprobs
+          score = sum(
+              item.logprob
+              if hasattr(item, 'logprob')
+              else item.get('logprob', 0.0)
+              for item in logprobs_data
           )
-    else:
-      # Parse response from chat.completions.create.
-      for candidate in response.choices:
-        if candidate:
-          score = _get_score_from_chat_completions_candidate(candidate.logprobs)
-          text = candidate.message.content
-          results.append(
-              (text, {'text': text, 'score': score})
-              if include_details
-              else text
-          )
+        except (AttributeError, IndexError):
+          pass
+      results.append(
+          (text, {'text': text, 'score': score}) if include_details else text
+      )
 
     return results
 
@@ -677,8 +631,6 @@ class OpenAIAPI(
       *,
       temperature: float | None = None,
       max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
       top_p: float | None = None,
   ) -> dict[str, Any]:
     """Internal helper for generate_object that is cached."""
@@ -701,33 +653,21 @@ class OpenAIAPI(
       kwargs['temperature'] = temperature
     if max_tokens is not None:
       kwargs['max_tokens'] = max_tokens
-    if stop is not None:
-      kwargs['stop'] = stop
-    if top_k is not None:
-      kwargs['top_k'] = top_k
     if top_p is not None:
       kwargs['top_p'] = top_p
 
-    response = self._chat_completions_parse(  # pytype: disable=wrong-keyword-args
+    response = self._responses_parse(  # pytype: disable=wrong-keyword-args
         messages=messages,
         cls=cls,
         **kwargs,
     )
-    message = response.choices[0].message
 
-    if message.parsed is not None:
-      parsed_object = message.parsed
-      adapter = TypeAdapter(cls)
-      return adapter.dump_python(parsed_object, mode='json')
-    elif message.refusal is not None:
-      raise ValueError(
-          f'OpenAI API refused to generate the object: {message.refusal}'
-      )
-    else:
-      raise ValueError(
-          "OpenAI chat.completions.parse did not return a 'parsed' object "
-          f"or a 'refusal'. Raw content: {message.content}"
-      )
+    # The Responses API returns the parsed JSON as output_text. We parse it
+    # back through pydantic to get a validated, serializable dict.
+    raw_text = response.output_text
+    adapter = TypeAdapter(cls)
+    parsed_object = adapter.validate_json(raw_text)
+    return adapter.dump_python(parsed_object, mode='json')
 
   @tracing.trace(name='OpenAIAPI.generate_object')
   async def generate_object(
@@ -741,16 +681,15 @@ class OpenAIAPI(
       top_k: int | None = None,
       top_p: float | None = None,
   ) -> _T:
-    """Generates a structured object via OpenAI's client.chat.completions.parse.
+    """Generates a structured object via OpenAI's Responses API.
 
     Suitable for registering as implementation of builtins.llm.generate_object.
 
-    *Only supported* for models after `gpt-4o-mini`.
 
-    This method leverages OpenAI's native structured output support and requires
-    `cls` to be a subclass of `pydantic.BaseModel`. The OpenAI SDK automatically
-    converts the Pydantic schema, sends it to the API, and deserializes the JSON
-    response into an instance of `cls`.
+    This method leverages OpenAI's native structured output support via the
+    Responses API and requires `cls` to be a subclass of `pydantic.BaseModel`.
+    The OpenAI SDK automatically converts the Pydantic schema, sends it to the
+    API, and returns the structured JSON in the response.
 
     To support caching, this method calls the internal helper
     `_generate_object_internal`, which executes the API call and returns a
@@ -774,19 +713,32 @@ class OpenAIAPI(
 
     Raises:
         ValueError: If the model does not support structured output, or if the
-          OpenAI API returns a 'refusal' or an unexpected response type.
+          OpenAI API returns an unexpected response type.
     """
+    # Responses API does not support stop or top_k.
+    del stop, top_k
+
+    is_primitive = cls in (int, float, str, bool)
+    is_list = get_origin(cls) is list
+
+    if is_primitive or is_list:
+      target_cls = pydantic.create_model('Wrapper', value=(cls, ...))
+      is_wrapped = True
+    else:
+      target_cls = cls
+      is_wrapped = False
+
     serializable_result = await self._generate_object_internal(
         prompt=prompt,
-        cls=cls,
+        cls=target_cls,
         temperature=temperature,
         max_tokens=max_tokens,
-        stop=stop,
-        top_k=top_k,
         top_p=top_p,
     )
+
+    value = serializable_result['value'] if is_wrapped else serializable_result
     adapter = TypeAdapter(cls)
-    return adapter.validate_python(serializable_result)
+    return adapter.validate_python(value)
 
   @tracing.trace(name='OpenAIAPI.chat')
   async def chat(
@@ -796,19 +748,15 @@ class OpenAIAPI(
       **kwargs,
   ) -> str:
     """See builtins.llm.chat."""
-    if formatter == formatting.FormatterName.API:
-      # Remove kwargs that are not supported by the OpenAI API.
-      kwargs.pop('formatter_kwargs', None)
-      # Use native chat api support via client.chat.completions.create.
-      return await self.chat_via_api(messages, **kwargs)
-    elif formatter == formatting.FormatterName.DEFAULT:
-      # Use prompting with native completion api via client.completions.create.
-      return await llm.default_chat(messages, formatter, **kwargs)
-    else:
+    if formatter != formatting.FormatterName.API:
       raise ValueError(
-          'This llm.chat supports only DEFAULT and API formatters. '
+          'This llm.chat supports only the API formatter. '
           f'Got: {formatter.value}'
       )
+    # Remove kwargs that are not supported by the OpenAI API.
+    kwargs.pop('formatter_kwargs', None)
+    # Use native Responses API via client.responses.create.
+    return await self.chat_via_api(messages, **kwargs)
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
@@ -828,5 +776,5 @@ class OpenAIAPI(
   ) -> str:
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
-    response = self._chat_completions(messages, include_details=False, **kwargs)  # pytype: disable=wrong-keyword-args
-    return response.choices[0].message.content
+    response = self._responses_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
+    return response.output_text

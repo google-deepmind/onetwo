@@ -14,6 +14,7 @@
 
 """Tests for OpenAIAPI engine."""
 
+import base64
 import collections
 import os
 from typing import Counter, Final, TypeAlias
@@ -31,8 +32,8 @@ from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
+import PIL.Image
 import pydantic
-
 
 import openai
 
@@ -100,7 +101,6 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     res = executing.run(
         llm.chat(  # pytype: disable=wrong-keyword-args
             messages=[_Message(content=prompt_text, role=_PredefinedRole.USER)],
-            stop=['\n\n'],
             max_tokens=512,
         )
     )
@@ -108,7 +108,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res, openai_mock._DEFAULT_REPLY)
     expected_backend_counters = collections.Counter({
         'chat': 1,
-        '_chat_completions': 1,
+        '_responses_create': 1,
         'chat_via_api_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls'):
@@ -121,7 +121,6 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     res = executing.run(
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt_text,
-            stop=['\n\n'],
             max_tokens=512,
         )
     )
@@ -132,7 +131,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     expected_backend_counters = collections.Counter({
         'generate_text': 1,
         'generate_text_batches': 1,
-        '_chat_completions': 1,
+        '_responses_create': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls_1'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
@@ -147,7 +146,6 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     res = executing.run(
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt_text,
-            stop=['\n\n'],
             max_tokens=512,
         )
     )
@@ -165,14 +163,14 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     res = executing.run(
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt_text,
-            stop=['different'],
             max_tokens=512,
+            temperature=0.0,
         )
     )
     with self.subTest('returns_correct_result_3'):
       self.assertEqual(res, openai_mock._DEFAULT_REPLY)
     expected_backend_counters = collections.Counter({
-        '_chat_completions': 2,
+        '_responses_create': 2,
         'generate_text': 2,
         'generate_text_batches': 2,
     })
@@ -185,18 +183,60 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
           handler._cache_data.counters, expected_cache_counters
       )
 
+  def test_generate_with_details(self):
+    """Verifies that generate_text with include_details returns score."""
+    _get_and_register_backend()
+    prompt_text = 'Something'
+    res = executing.run(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
+            prompt=prompt_text,
+            max_tokens=512,
+            include_details=True,
+        )
+    )
+    with self.subTest('returns_correct_result'):
+      self.assertEqual(res[0], openai_mock._DEFAULT_REPLY)
+    with self.subTest('returns_correct_score'):
+      self.assertEqual(res[1]['score'], -0.5)
+
+  def test_generate_text_prepends_prefix(self):
+    """Verifies that generate_text prepends the completion prefix."""
+    backend = _get_and_register_backend()
+    prompt_text = 'Something'
+
+    with mock.patch.object(
+        backend,
+        '_responses_create',
+        autospec=True,
+        return_value=mock.MagicMock(output_text='ignored'),
+    ) as mock_create:
+      _ = executing.run(
+          llm.generate_text(  # pytype: disable=wrong-keyword-args
+              prompt=prompt_text,
+          )
+      )
+
+      self.assertTrue(mock_create.called)
+      kwargs = mock_create.call_args.kwargs
+      messages = kwargs.get('messages')
+      self.assertLen(messages, 2)
+      self.assertEqual(messages[0].role, _PredefinedRole.SYSTEM)
+      self.assertEqual(
+          messages[0].content, openai_api._COMPLETION_SYSTEM_PROMPT_PREFIX
+      )
+      self.assertEqual(messages[1].role, _PredefinedRole.USER)
+      self.assertEqual(messages[1].content, prompt_text)
+
   def test_generate_object(self):
     """Verifies that generate_object works and calls the mock parse API."""
     backend = _get_and_register_backend()
 
     class MyTestSchema(pydantic.BaseModel):
-      item_name: str = 'default_item'
-      item_id: int = 123
-      is_valid: bool = True
+      # Must match the mock data in openai_mock.ResponsesNamespace.parse.
+      name: str = 'default'
+      population: int = 0
 
-    prompt_text = 'Create an object representing a valid item.'
-
-    expected_object = MyTestSchema.model_construct()
+    prompt_text = 'Create an object representing a city.'
 
     res = executing.run(
         llm.generate_object(  # pytype: disable=wrong-keyword-args
@@ -207,35 +247,17 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
     with self.subTest('returns_correct_object_type'):
       self.assertIsInstance(res, MyTestSchema)
-    with self.subTest('object_matches_mock_construct'):
-      self.assertEqual(res.item_name, expected_object.item_name)
-      self.assertEqual(res.item_id, expected_object.item_id)
-      self.assertEqual(res.is_valid, expected_object.is_valid)
+    with self.subTest('object_has_mock_data'):
+      self.assertEqual(res.name, 'Mock string')
+      self.assertEqual(res.population, 42)
 
     expected_backend_counters = collections.Counter({
         'generate_object': 1,
-        '_chat_completions_parse': 1,
+        '_responses_parse': 1,
         '_generate_object_internal_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
-
-  def test_generate_object_legacy_model_raises_error(self):
-    """Tests that generate_object raises ValueError for models < gpt-4o-mini."""
-    _ = _get_and_register_backend(model_name='gpt-3.5-turbo')
-
-    class MyTestSchema(pydantic.BaseModel):
-      test: str
-
-    with self.assertRaisesRegex(
-        ValueError, '`gpt-3.5-turbo` does not support structured output'
-    ):
-      executing.run(
-          llm.generate_object(  # pytype: disable=wrong-keyword-args
-              prompt='test',
-              cls=MyTestSchema,
-          )
-      )
 
   def test_generate_object_with_invalid_cls_raises_error(self):
     """Test generate_object raise ValueError if cls not a Pydantic BaseModel."""
@@ -254,18 +276,6 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
             llm.generate_object(  # pytype: disable=wrong-keyword-args
                 prompt='test prompt',
                 cls=NotPydantic,
-            )
-        )
-
-    with self.subTest('cls_is_built_in_type_raises_error'):
-      with self.assertRaisesRegex(
-          ValueError,
-          r'The `cls` argument must be a subclass of `pydantic.BaseModel`\.',
-      ):
-        executing.run(
-            llm.generate_object(  # pytype: disable=wrong-keyword-args
-                prompt='another prompt',
-                cls=str,
             )
         )
 
@@ -292,17 +302,13 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         city='Paris', population=2141000, landmarks=['Eiffel Tower', 'Louvre']
     )
 
-    # Mocks for the OpenAI API call
-    mock_message = mock.MagicMock()
-    mock_message.parsed = test_object
-    mock_message.refusal = None
-    mock_choice = mock.MagicMock()
-    mock_choice.message = mock_message
+    # Mock for the Responses API: returns a Response-like object with
+    # output_text containing the JSON of the test object.
     mock_response = mock.MagicMock()
-    mock_response.choices = [mock_choice]
+    mock_response.output_text = test_object.model_dump_json()
 
     backend1 = openai_api.OpenAIAPI(
-        model_name='gpt-4o-mini',
+        model_name='gpt-5.4-mini',
         api_key='test_key',
         cache_filename=cache_filename,
     )
@@ -310,10 +316,10 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
     with mock.patch.object(
         backend1,
-        '_chat_completions_parse',
+        '_responses_parse',
         autospec=True,
         return_value=mock_response,
-    ) as mock_chat_completions_parse:
+    ) as mock_responses_parse:
 
       with self.subTest('PopulateCache'):
         obj1 = executing.run(
@@ -321,7 +327,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
                 prompt='Describe a city', cls=CityInfoTestData
             )
         )
-        mock_chat_completions_parse.assert_called_once()
+        mock_responses_parse.assert_called_once()
         self.assertEqual(obj1, test_object)
         self.assertIsInstance(obj1, CityInfoTestData)
         self.assertEqual(backend1._counters['generate_object'], 1)
@@ -332,7 +338,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
                 prompt='Describe a city', cls=CityInfoTestData
             )
         )
-        self.assertEqual(mock_chat_completions_parse.call_count, 1)
+        self.assertEqual(mock_responses_parse.call_count, 1)
         self.assertEqual(obj2, test_object)
         self.assertIsInstance(obj2, CityInfoTestData)
         self.assertEqual(backend1._counters['generate_object'], 1)
@@ -341,7 +347,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertTrue(os.path.exists(cache_filename))
 
       backend2 = openai_api.OpenAIAPI(
-          model_name='gpt-4o-mini',
+          model_name='gpt-5.4-mini',
           api_key='test_key',
           cache_filename=cache_filename,
       )
@@ -350,19 +356,112 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       with self.subTest('CacheHitNewBackend'):
         with mock.patch.object(
             backend2,
-            '_chat_completions_parse',
+            '_responses_parse',
             autospec=True,
             return_value=mock_response,
-        ) as mock_chat_completions_parse_new:
+        ) as mock_responses_parse_new:
           obj3 = executing.run(
               backend2.generate_object(  # pytype: disable=wrong-keyword-args
                   prompt='Describe a city', cls=CityInfoTestData
               )
           )
-          mock_chat_completions_parse_new.assert_not_called()
+          mock_responses_parse_new.assert_not_called()
           self.assertEqual(obj3, test_object)
           self.assertIsInstance(obj3, CityInfoTestData)
           self.assertEqual(backend2._counters['generate_object'], 0)
+
+
+class ConvertChunkToContentPartTest(parameterized.TestCase):
+  """Tests for _convert_chunk_to_content_part."""
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='simple_string',
+          chunk=content_lib.Chunk('Hello, world!'),
+          expected={'type': 'input_text', 'text': 'Hello, world!'},
+      ),
+      dict(
+          testcase_name='empty_string',
+          chunk=content_lib.Chunk(''),
+          expected={'type': 'input_text', 'text': ''},
+      ),
+      dict(
+          testcase_name='string_with_special_characters',
+          chunk=content_lib.Chunk('Line 1\nLine 2\t"quoted"'),
+          expected={'type': 'input_text', 'text': 'Line 1\nLine 2\t"quoted"'},
+      ),
+      dict(
+          testcase_name='control_token_string',
+          chunk=content_lib.Chunk('<start_of_turn>', content_type='ctrl'),
+          expected={'type': 'input_text', 'text': '<start_of_turn>'},
+      ),
+  )
+  def test_string_chunks(self, chunk, expected):
+    result = openai_api._convert_chunk_to_openai_part(chunk)
+    self.assertEqual(result, expected)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='jpeg_image_bytes',
+          data=b'\xff\xd8\xff\xe0fake_jpeg_data',
+          content_type='image/jpeg',
+          expected_mime='image/jpeg',
+      ),
+      dict(
+          testcase_name='png_image_bytes',
+          data=b'\x89PNG\r\n\x1a\nfake_png_data',
+          content_type='image/png',
+          expected_mime='image/png',
+      ),
+  )
+  def test_image_bytes_chunks(self, data, content_type, expected_mime):
+    chunk = content_lib.Chunk(data, content_type=content_type)
+    result = openai_api._convert_chunk_to_openai_part(chunk)
+    self.assertEqual(result['type'], 'input_image')
+    expected_b64 = base64.b64encode(data).decode('ascii')
+    expected_url = f'data:{expected_mime};base64,{expected_b64}'
+    self.assertEqual(result['image_url'], expected_url)
+
+  def test_pil_image_chunk(self):
+    image = PIL.Image.new('RGB', (2, 2), color='red')
+    chunk = content_lib.Chunk(image)
+    result = openai_api._convert_chunk_to_openai_part(chunk)
+    self.assertEqual(result['type'], 'input_image')
+    self.assertTrue(
+        result['image_url'].startswith('data:image/jpeg;base64,'),
+        'Expected data URL to start with "data:image/jpeg;base64,", '
+        f'got: {result["image_url"][:40]}...',
+    )
+    # Verify the base64 payload is valid and decodes to non-empty bytes.
+    b64_payload = result['image_url'].split(',', 1)[1]
+    decoded = base64.b64decode(b64_payload)
+    self.assertNotEmpty(decoded)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='video_bytes',
+          data=b'fake_video_data',
+          content_type='video/mp4',
+      ),
+      dict(
+          testcase_name='audio_bytes',
+          data=b'fake_audio_data',
+          content_type='audio/wav',
+      ),
+      dict(
+          testcase_name='application_bytes',
+          data=b'fake_pdf_data',
+          content_type='application/pdf',
+      ),
+  )
+  def test_unsupported_binary_content_type_raises_value_error(
+      self, data, content_type
+  ):
+    chunk = content_lib.Chunk(data, content_type=content_type)
+    with self.assertRaisesRegex(
+        ValueError, 'Unsupported binary content_type for OpenAI API'
+    ):
+      openai_api._convert_chunk_to_openai_part(chunk)
 
 
 if __name__ == '__main__':

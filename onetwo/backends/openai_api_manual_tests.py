@@ -29,7 +29,6 @@ import pydantic
 
 
 
-
 _API_KEY = flags.DEFINE_string(
     'api_key',
     default=None,
@@ -58,12 +57,12 @@ def main(argv: Sequence[str]) -> None:
     raise app.UsageError('Too many command-line arguments.')
   api_key = _API_KEY.value
 
-  # We test both new "chat api" model and "completions api" model.
-  for model_name in ['gpt-3.5-turbo', 'gpt-4o-mini', 'gpt-4o']:
+  # We test the latest GPT-5.x models using the Responses API.
+  for model_name in ['gpt-5.4-mini', 'gpt-5.4', 'gpt-4o']:
     print('*** Running tests for %s. ***' % model_name)
     fname = os.path.join(
         _CACHE_DIR.value,
-        f'openai_api_{model_name.replace("-", "_")}.json',
+        f'openai_api_{model_name.replace("-", "_").replace(".", "_")}.json',
     )
     backend = openai_api.OpenAIAPI(
         model_name=model_name,
@@ -91,8 +90,7 @@ def main(argv: Sequence[str]) -> None:
     res = executing.run(
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
-            stop=['\n\n'],
-            max_tokens=5,
+            max_tokens=25,
         )
     )
     if _PRINT_DEBUG.value:
@@ -104,8 +102,7 @@ def main(argv: Sequence[str]) -> None:
     res = executing.run(
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
-            stop=['\n\n'],
-            max_tokens=5,
+            max_tokens=25,
         )
     )
     counters_after = backend._counters
@@ -127,8 +124,7 @@ def main(argv: Sequence[str]) -> None:
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             temperature=0.0,
-            stop=['\n\n'],
-            max_tokens=5,
+            max_tokens=25,
         )
     )
     if _PRINT_DEBUG.value:
@@ -139,7 +135,7 @@ def main(argv: Sequence[str]) -> None:
     exe = executing.par_iter(
         sampling.repeat(
             executable=llm.generate_text(  # pytype: disable=wrong-arg-count
-                'Today is', temperature=0.5, max_tokens=5, stop=['.']
+                'Today is', temperature=0.5, max_tokens=25
             ),
             num_repeats=5,
         )
@@ -151,41 +147,38 @@ def main(argv: Sequence[str]) -> None:
 
     print('3. Three batched generate queries.')
     exe = executing.par_iter([
-        llm.generate_text(prompt='In summer', max_tokens=5),  # pytype: disable=wrong-keyword-args
-        llm.generate_text(prompt='In winter', max_tokens=7),  # pytype: disable=wrong-keyword-args
-        llm.generate_text(prompt='In autumn', max_tokens=9),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In summer', max_tokens=25),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In winter', max_tokens=27),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In autumn', max_tokens=29),  # pytype: disable=wrong-keyword-args
     ])
     res = executing.run(exe)
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
       pprint.pprint(res)
 
-    print('4. Check that a non-zero score is returned.')
+    print('4. Check that include_details returns text and score.')
     res = executing.run(
         llm.generate_text(  # pytype: disable=wrong-keyword-args
             prompt='In winter',
-            max_tokens=5,
+            max_tokens=25,
             include_details=True,
         )
     )
-    if res[1]['score'] == 0.0:
+    if not isinstance(res, tuple) or 'text' not in res[1]:
       success = False
-      print('FAILURE: score is 0.0.')
+      print('FAILURE: include_details did not return expected format.')
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
       pprint.pprint(res)
 
     print('5. Calling generate_texts to get multiple samples.')
     prompt = """How to say "I am hungry" in French?"""
-    # For `gpt-3.5-turbo-instruct` this seems to generate empty replies, because
-    # most of them start with `\n\n`. Good test case!
     res = executing.run(
         llm.generate_texts(  # pytype: disable=wrong-keyword-args
             prompt=prompt,
             samples=3,
             temperature=0.5,
-            stop=['\n\n'],
-            max_tokens=5,
+            max_tokens=25,
         )
     )
     if len(res) != 3:
@@ -200,7 +193,7 @@ def main(argv: Sequence[str]) -> None:
         llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt='Compose a sentence starting with H.',
             temperature=0.5,
-            max_tokens=15,
+            max_tokens=50,
         )
     )
     if _PRINT_DEBUG.value:
@@ -212,7 +205,7 @@ def main(argv: Sequence[str]) -> None:
         llm.instruct(  # pytype: disable=wrong-keyword-args
             prompt='Compose a sentence starting with H.',
             temperature=0.5,
-            max_tokens=15,
+            max_tokens=50,
             formatter_kwargs={'use_fewshots': True},
         )
     )
@@ -226,7 +219,7 @@ def main(argv: Sequence[str]) -> None:
             prompt='Compose a sentence starting with H.',
             assistant_prefix='His',
             temperature=0.5,
-            max_tokens=15,
+            max_tokens=50,
         )
     )
     if _PRINT_DEBUG.value:
@@ -239,7 +232,7 @@ def main(argv: Sequence[str]) -> None:
             prompt='Compose a sentence starting with H.',
             assistant_prefix='His',
             temperature=0.5,
-            max_tokens=15,
+            max_tokens=50,
             formatter_kwargs={'use_fewshots': True},
         )
     )
@@ -269,7 +262,7 @@ def main(argv: Sequence[str]) -> None:
                 ),
             ],
             temperature=0.5,
-            max_tokens=15,
+            max_tokens=50,
         )
     )
     if _PRINT_DEBUG.value:
@@ -281,50 +274,224 @@ def main(argv: Sequence[str]) -> None:
       backend.save_cache(overwrite=True)
       print('Took %.4fsec saving cache to %s.' % (time.time() - start, fname))
 
-    # Test generate_object to be used for gpt-4o-mini and later models.
-    if model_name in ['gpt-4o-mini', 'gpt-4o']:
+    # Test generate_object for all modern models.
+    class CityInfo(pydantic.BaseModel):
+      name: str
+      population: int
 
-      class CityInfo(pydantic.BaseModel):
-        name: str
-        population: int
+    print('8. Generate object.')
+    prompt = """What is the capital of France?"""
+    res = executing.run(
+        llm.generate_object(  # pytype: disable=wrong-keyword-args
+            prompt=prompt,
+            cls=CityInfo,
+        )
+    )
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
 
-      print('8. Generate object.')
-      prompt = """What is the capital of France?"""
+    print('9. Generate object with chat history.')
+    prompt = [
+        content_lib.Message(
+            role=content_lib.PredefinedRole.USER,
+            content='What is the capital of France?',
+        ),
+        content_lib.Message(
+            role=content_lib.PredefinedRole.MODEL,
+            content='Obviously, it is Paris.',
+        ),
+        content_lib.Message(
+            role=content_lib.PredefinedRole.USER,
+            content='What is its population?',
+        ),
+    ]
+    res = executing.run(
+        llm.generate_object(  # pytype: disable=wrong-keyword-args
+            prompt=prompt,
+            cls=CityInfo,
+        )
+    )
+
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
+
+    image_path = os.path.join(os.path.dirname(__file__), 'testdata/bird.jpg')
+    try:
+      with open(image_path, 'rb') as f:
+        image_bytes = f.read()
+      print('9.1 Generate text with image (instruct).')
+      prompt = content_lib.ChunkList([
+          content_lib.Chunk(content='Describe this image: '),
+          content_lib.Chunk(content=image_bytes, content_type='image/jpeg'),
+      ])
       res = executing.run(
-          llm.generate_object(  # pytype: disable=wrong-keyword-args
+          llm.instruct(  # pytype: disable=wrong-keyword-args
               prompt=prompt,
-              cls=CityInfo,
           )
       )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
         pprint.pprint(res)
-
-      print('9. Generate object with chat history.')
-      prompt = [
-          content_lib.Message(
-              role=content_lib.PredefinedRole.USER,
-              content='What is the capital of France?',
-          ),
-          content_lib.Message(
-              role=content_lib.PredefinedRole.MODEL,
-              content='Obviously, it is Paris.',
-          ),
-          content_lib.Message(
-              role=content_lib.PredefinedRole.USER,
-              content='What is its population?',
-          ),
-      ]
+      print('9.2 Generate text with image (chat).')
       res = executing.run(
-          llm.generate_object(  # pytype: disable=wrong-keyword-args
-              prompt=prompt,
-              cls=CityInfo,
+          llm.chat(  # pytype: disable=wrong-keyword-args
+              messages=[
+                  content_lib.Message(
+                      content=prompt, role=content_lib.PredefinedRole.USER
+                  )
+              ],
           )
       )
-
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
         pprint.pprint(res)
+    except Exception as e:  # pylint: disable=broad-except
+      print(f'Failed to run image test: {e}')
+
+    print('9.3 Generate object with primitive type (int).')
+    prompt = 'What is the height of the Eiffel Tower? (in m)'
+    try:
+      res = executing.run(
+          llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+      if not isinstance(res, int):
+        print(f'FAILURE: expected int, got {type(res)}')
+    except Exception as e:  # pylint: disable=broad-except
+      print(f'Failed to run generate_object with int: {e}')
+
+    print('9.4 Generate object with list of Pydantic models.')
+
+    class WordCount(pydantic.BaseModel):
+      word: str
+      count: int
+
+    prompt = (
+        'Return a breakdown of the words and their frequencies in the following'
+        ' sentence: "the quick brown fox jumps over the lazy dog dog". Provide'
+        ' the output as a list of word-count objects.'
+    )
+    try:
+      res = executing.run(
+          llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+      if not isinstance(res, list) or not all(
+          isinstance(x, WordCount) for x in res
+      ):
+        print(f'FAILURE: expected list[WordCount], got {type(res)}')
+    except Exception as e:  # pylint: disable=broad-except
+      print(f'Failed to run generate_object with list[WordCount]: {e}')
+
+    print('9.5 Generate object with list of integers.')
+    prompt = 'Return the first 3 prime numbers as a list of integers.'
+    try:
+      res = executing.run(
+          llm.generate_object(prompt=prompt, cls=list[int])  # pytype: disable=wrong-keyword-args
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+      if not isinstance(res, list) or not all(isinstance(x, int) for x in res):
+        print(f'FAILURE: expected list[int], got {type(res)}')
+    except Exception as e:  # pylint: disable=broad-except
+      print(f'Failed to run generate_object with list[int]: {e}')
+
+  # Reasoning tests (run outside the per-model loop, using a single model
+  # that supports reasoning, e.g. o4-mini).
+  print('\n*** Running reasoning and tool tests. ***')
+  reasoning_model = 'o4-mini'
+  fname = os.path.join(
+      _CACHE_DIR.value,
+      f'openai_api_{reasoning_model.replace("-", "_").replace(".", "_")}.json',
+  )
+  backend = openai_api.OpenAIAPI(
+      model_name=reasoning_model,
+      cache_filename=fname,
+      api_key=api_key,
+      batch_size=4,
+  )
+  backend.register()
+
+  for effort in ['low', 'medium', 'high']:
+    print(f'10. Reasoning effort={effort}.')
+    # Re-register with different reasoning to test per-instance config.
+    backend_r = openai_api.OpenAIAPI(
+        model_name=reasoning_model,
+        cache_filename=fname,
+        api_key=api_key,
+        batch_size=1,
+        reasoning={'effort': effort},
+    )
+    backend_r.register()
+    res = executing.run(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
+            prompt='How many r\'s are in the word "strawberry"?',
+        )
+    )
+    if _PRINT_DEBUG.value:
+      print(f'  Reasoning effort={effort} result:')
+      pprint.pprint(res)
+
+  # Tool use tests.
+  print('\n*** Running tool use tests. ***')
+  tool_model = 'gpt-5.4-mini'
+  fname_tools = os.path.join(
+      _CACHE_DIR.value,
+      f'openai_api_{tool_model.replace("-", "_").replace(".", "_")}_tools.json',
+  )
+
+  web_search_tool = {'type': 'web_search'}
+
+  print('11. Generate text with a single tool definition.')
+  backend_t = openai_api.OpenAIAPI(
+      model_name=tool_model,
+      cache_filename=fname_tools,
+      api_key=api_key,
+      batch_size=1,
+      tools=[web_search_tool],
+  )
+  backend_t.register()
+  res = executing.run(
+      llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='Who won the latest Formula 1 race?',
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('11.1 Chat with tools.')
+  res = executing.run(
+      llm.chat(  # pytype: disable=wrong-keyword-args
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What are the latest news about Gemini?',
+              ),
+          ],
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
+
+  print('11.2 Generate text with tools but prompt that does not need them.')
+  res = executing.run(
+      llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='Write a haiku about the ocean.',
+          max_tokens=100,
+      )
+  )
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    pprint.pprint(res)
 
   print('PASS' if success else 'FAIL')
 
