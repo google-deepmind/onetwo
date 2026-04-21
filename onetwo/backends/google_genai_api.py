@@ -57,6 +57,11 @@ _MessageMaybeDetails: TypeAlias = _Message | tuple[_Message, Mapping[str, Any]]
 _TokenHealingOption: TypeAlias = llm.TokenHealingOption
 
 
+# Metadata keys for Function Calling 2.0
+FUNCTION_CALL_METADATA_KEY: Final[str] = 'function_call'
+FUNCTION_RESPONSE_METADATA_KEY: Final[str] = 'function_response'
+
+
 @dataclasses.dataclass(frozen=True)
 class ModelName:
   vertex_ai: str
@@ -158,6 +163,13 @@ def _configure_http_limits(
 
 def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
   """Converts a single Chunk into a Part."""
+  if chunk.metadata and FUNCTION_CALL_METADATA_KEY in chunk.metadata:
+    fc = chunk.metadata[FUNCTION_CALL_METADATA_KEY]
+    return genai_types.Part(function_call=fc)
+  if chunk.metadata and FUNCTION_RESPONSE_METADATA_KEY in chunk.metadata:
+    fr = chunk.metadata[FUNCTION_RESPONSE_METADATA_KEY]
+    return genai_types.Part(function_response=fr)
+
   match chunk.content:
     case str() as text_content:
       return genai_types.Part(text=text_content)
@@ -198,7 +210,7 @@ def _contents_from_prompt(prompt: llm.Prompt) -> Sequence[genai_types.Content]:
       role = content_lib.PredefinedRole.USER
     part = _part_from_chunk(chunk)
     if content and content[-1].role == role:
-      content[-1].parts.append(part)
+      content[-1].parts.append(part)  # pytype: disable=attribute-error
     else:
       content.append(genai_types.Content(parts=[part], role=role))
 
@@ -235,6 +247,11 @@ def _chunks_with_details_from_candidate(
         data = part.inline_data.data
         mime = part.inline_data.mime_type
         chunk = _Chunk(content=data, content_type=mime)
+      elif part.function_call:
+        # We set a human-readable content for logging/debugging purposes,
+        # and to satisfy the required 'content' argument of Chunk.
+        chunk = _Chunk(content=f'[Function Call: {part.function_call.name}]')
+        chunk.metadata = {FUNCTION_CALL_METADATA_KEY: part.function_call}
       else:
         # Note: part.file_data and other payloads are not handled.
         continue

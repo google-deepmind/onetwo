@@ -299,7 +299,7 @@ def main(argv: Sequence[str]) -> None:
       )[0]
     has_image = False
     for ch in res:
-      if ch.content_type.startswith('image/'):
+      if ch.content_type.startswith('image/'):  # pytype: disable=attribute-error
         has_image = True
     print('- Has image: ', has_image)
     if not has_image:
@@ -794,6 +794,130 @@ def main(argv: Sequence[str]) -> None:
     if not isinstance(result, CityInfo):
       success = False
       print(f'FAIL: Result is not of type CityInfo: {type(result)}')
+
+  if _run_test(21, 'Function Calling 2.0: Single Turn'):
+    weather_tool_decl = genai_types.FunctionDeclaration(
+        name='get_weather',
+        description='Gets the weather for a specified location.',
+        parameters={
+            'type': 'OBJECT',
+            'properties': {
+                'location': {'type': 'STRING', 'description': 'City name'}
+            },
+            'required': ['location'],
+        },
+    )
+    api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
+
+    res = executing.run(
+        llm.generate_content(  # pytype: disable=wrong-keyword-args
+            prompt='What is the weather in London?',
+            tools=[api_tool],
+        )
+    )
+
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
+
+    has_fc = False
+    chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
+
+    for chunk in chunks:
+      if (
+          chunk.metadata
+          and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
+      ):
+        has_fc = True
+        fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
+        print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
+        if fc.name != 'get_weather' or fc.args.get('location') != 'London':
+          success = False
+          print('FAIL: FunctionCall name or args do not match.')
+
+    if not has_fc:
+      success = False
+      print('FAIL: No FunctionCall found in response.')
+
+  if _run_test(22, 'Function Calling 2.0: Multi-Turn'):
+
+    def get_weather(location: str) -> dict[str, str | int]:
+      if 'London' in location:
+        return {'temp': 15, 'unit': 'C'}
+      elif 'NYC' in location or 'New York' in location:
+        return {'temp': 10, 'unit': 'C'}
+      else:
+        return {'temp': 25, 'unit': 'C'}
+
+    weather_tool_decl = genai_types.FunctionDeclaration(
+        name='get_weather',
+        description='Gets the weather for a specified location.',
+        parameters={
+            'type': 'OBJECT',
+            'properties': {
+                'location': {'type': 'STRING', 'description': 'City name'}
+            },
+            'required': ['location'],
+        },
+    )
+    api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
+
+    fc_call = genai_types.FunctionCall(
+        name='get_weather', args={'location': 'London'}, id='1'
+    )
+    fc_chunk = content_lib.Chunk(content='[Function Call: get_weather]')
+    fc_chunk.metadata = {google_genai_api.FUNCTION_CALL_METADATA_KEY: fc_call}
+
+    fr_resp = genai_types.FunctionResponse(
+        name='get_weather', response=get_weather('London'), id='1'
+    )
+    fr_chunk = content_lib.Chunk(content='[Function Response: get_weather]')
+    fr_chunk.metadata = {
+        google_genai_api.FUNCTION_RESPONSE_METADATA_KEY: fr_resp
+    }
+
+    history = [
+        content_lib.Message(
+            role='user', content='What is the weather in London?'
+        ),
+        content_lib.Message(
+            role='model', content=content_lib.ChunkList([fc_chunk])
+        ),
+        content_lib.Message(
+            role='tool', content=content_lib.ChunkList([fr_chunk])
+        ),
+        content_lib.Message(role='user', content='What about New York?'),
+    ]
+
+    res = executing.run(
+        llm.generate_content(  # pytype: disable=wrong-keyword-args
+            prompt=history,
+            tools=[api_tool],
+        )
+    )
+
+    if _PRINT_DEBUG.value:
+      print('Returned value(s):')
+      pprint.pprint(res)
+
+    has_fc = False
+    chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
+
+    for chunk in chunks:
+      if (
+          chunk.metadata
+          and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
+      ):
+        has_fc = True
+        fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
+        print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
+        if fc.name != 'get_weather' or fc.args.get('location') != 'New York':
+          success = False
+          print('FAIL: FunctionCall name or args do not match.')
+
+    if not has_fc:
+      success = False
+      print('FAIL: No FunctionCall found in response.')
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)

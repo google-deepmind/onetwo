@@ -855,6 +855,57 @@ class GoogleGenaiApiTest(
         backend._counters, Counter(chat=1, generate_contents=1)
     )
 
+  def test_part_from_chunk_function_call(self):
+    fc_call = genai_types.FunctionCall(
+        name='get_weather', args={'location': 'London'}
+    )
+    chunk = content_lib.Chunk(content='[Function Call]')
+    chunk.metadata = {google_genai_api.FUNCTION_CALL_METADATA_KEY: fc_call}
+
+    part = google_genai_api._part_from_chunk(chunk)
+
+    self.assertIsNotNone(part.function_call)
+    self.assertEqual(part.function_call.name, 'get_weather')
+    self.assertEqual(part.function_call.args, {'location': 'London'})
+
+  def test_part_from_chunk_function_response(self):
+    fr_resp = genai_types.FunctionResponse(
+        name='get_weather', response={'output': '15C'}
+    )
+    chunk = content_lib.Chunk(content='[Function Response]')
+    chunk.metadata = {google_genai_api.FUNCTION_RESPONSE_METADATA_KEY: fr_resp}
+
+    part = google_genai_api._part_from_chunk(chunk)
+
+    self.assertIsNotNone(part.function_response)
+    self.assertEqual(part.function_response.name, 'get_weather')
+    self.assertEqual(part.function_response.response, {'output': '15C'})
+
+  def test_chunks_with_details_from_candidate_function_call(self):
+    fc_call = genai_types.FunctionCall(
+        name='get_weather', args={'location': 'London'}
+    )
+    part = genai_types.Part(function_call=fc_call)
+    content = genai_types.Content(parts=[part], role='model')
+    candidate = genai_types.Candidate(content=content)
+
+    chunk_list, _ = google_genai_api._chunks_with_details_from_candidate(
+        candidate
+    )
+
+    self.assertLen(chunk_list, 1)
+    chunk = chunk_list.chunks[0]
+    self.assertIsNotNone(chunk.metadata)
+    self.assertIn(google_genai_api.FUNCTION_CALL_METADATA_KEY, chunk.metadata)
+    self.assertEqual(
+        chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY].name,
+        'get_weather',
+    )
+    self.assertEqual(
+        chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY].args,
+        {'location': 'London'},
+    )
+
   @parameterized.named_parameters(
       (
           'network_errors',
@@ -1725,7 +1776,7 @@ class GoogleGenaiApiTest(
               role=content_lib.PredefinedRole.MODEL, content='Hello user'
           )
       ]
-      calls = [llm.chat(msgs) for x in range(10)]
+      calls = [llm.chat(msgs) for _ in range(10)]
       executing.run(executing.par_iter(iter(calls)))
       t1 = time.time()
       self.assertLess(t1 - t0, 5.0)
