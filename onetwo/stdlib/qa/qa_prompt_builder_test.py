@@ -31,10 +31,10 @@ class QAPromptBuilderTest(parameterized.TestCase):
           'question': 'my question',
           'expected_prompt': (
               """Use the following pieces of context to answer the question at
-    the end. If you don't know the answer, just say that you don't know,
-    don't try to make up an answer.
+the end. If you don't know the answer, just say that you don't know,
+don't try to make up an answer.
 
-    Context:
+Context:
 doc1
 
 ===========
@@ -62,10 +62,10 @@ Answer:"""
           'question': 'my question',
           'expected_prompt': (
               """Use the following pieces of context to answer the question at
-    the end. If you don't know the answer, just say that you don't know,
-    don't try to make up an answer.
+the end. If you don't know the answer, just say that you don't know,
+don't try to make up an answer.
 
-    Context:
+Context:
 doc1
 
 ===========
@@ -101,10 +101,10 @@ Answer:"""
     composable_prompt = ot.run(builder.compile_prompt(docs, question))  # pytype: disable=wrong-arg-count
 
     expected_prompt = """Use the following pieces of context to answer the question at
-    the end. If you don't know the answer, just say that you don't know,
-    don't try to make up an answer.
+the end. If you don't know the answer, just say that you don't know,
+don't try to make up an answer.
 
-    Context:
+Context:
 content1
 
 content2
@@ -125,10 +125,10 @@ Answer:"""
     composable_prompt = ot.run(builder(docs, question))  # pytype: disable=wrong-arg-count
 
     expected_prompt = """Use the following pieces of context to answer the question at
-    the end. If you don't know the answer, just say that you don't know,
-    don't try to make up an answer.
+the end. If you don't know the answer, just say that you don't know,
+don't try to make up an answer.
 
-    Context:
+Context:
 content1
 
 content2

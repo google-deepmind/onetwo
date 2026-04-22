@@ -39,6 +39,7 @@ OneTwo's standard `Document` data structure and integrates with OneTwo's
 
 import dataclasses
 import inspect
+import textwrap
 from typing import Awaitable, Callable, Generic, Iterable, TypeAlias, TypeVar
 
 from onetwo.builtins import composables
@@ -69,12 +70,15 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
   template: Callable[[Composable, Composable], Composable] = (
       lambda context, question: (
           composables.c(
-              """Use the following pieces of context to answer the question at
-    the end. If you don't know the answer, just say that you don't know,
-    don't try to make up an answer.
+              textwrap.dedent(
+                  """\
+                  Use the following pieces of context to answer the question at
+                  the end. If you don't know the answer, just say that you don't know,
+                  don't try to make up an answer.
 
-    Context:
-"""
+                  Context:
+                  """
+              )
           )
           + context
           + composables.c('\n\nQuestion: ')
