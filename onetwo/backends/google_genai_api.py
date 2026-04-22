@@ -71,6 +71,10 @@ class ModelName:
 # Available models are listed at
 # Vertex AI:
 # https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+# NOTE: The vertex_ai name must use the short form (without the
+# 'publishers/google/models/' prefix) because the GenAI SDK's embed routing
+# logic (t_is_vertex_embed_content_model) compares against short model names.
+# The SDK's t_model() will automatically expand it to the full publisher path.
 # Gemini API: https://ai.google.dev/gemini-api/docs/models
 
 # input_token_limit=1,048,576, output_token_limit=65,535.
@@ -79,15 +83,14 @@ DEFAULT_GENERATE_MODEL: Final[ModelName] = ModelName(
     gemini_api='models/gemini-2.5-flash',
 )
 DEFAULT_MULTIMODAL_MODEL: Final[ModelName] = DEFAULT_GENERATE_MODEL
+
 DEFAULT_IMAGE_GENERATE_MODEL: Final[ModelName] = ModelName(
-    vertex_ai=(
-        'publishers/google/models/gemini-2.0-flash-preview-image-generation'
-    ),
-    gemini_api='models/gemini-2.5-flash-image-preview',
+    vertex_ai='gemini-2.5-flash-image',
+    gemini_api='models/gemini-2.5-flash-image',
 )
 # input_token_limit=2048.
 DEFAULT_EMBED_MODEL: Final[ModelName] = ModelName(
-    vertex_ai='publishers/google/models/gemini-embedding-001',
+    vertex_ai='gemini-embedding-001',
     gemini_api='models/gemini-embedding-001',
 )
 
@@ -746,8 +749,10 @@ class GoogleGenAIAPI(
       c = response.candidates[ci].content
       off = len(c0.parts) - len(c.parts)
       for pi in range(len(c.parts) - 1, -1, -1):
-        if c.parts[pi] == c0.parts[off + pi]:
-          c0.parts.pop()
+        idx = off + pi
+        if 0 <= idx < len(c0.parts):
+          if c.parts[pi] == c0.parts[idx]:
+            c0.parts.pop()
 
     contents_with_details = [
         _chunks_with_details_from_candidate(c) for c in response.candidates

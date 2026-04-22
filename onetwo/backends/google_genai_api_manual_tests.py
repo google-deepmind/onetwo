@@ -109,6 +109,7 @@ def main(argv: Sequence[str]) -> None:
       location=location,
       threadpool_size=_THREADPOOL_SIZE.value,
       cache=cache,
+      max_retries=5,
   )
   backend.register()
 
@@ -120,6 +121,7 @@ def main(argv: Sequence[str]) -> None:
       location=location,
       threadpool_size=_THREADPOOL_SIZE.value,
       cache=cache,
+      max_retries=5,
   )
 
   # Disable (or limit) thinking by default to reduce cost and avoid subtle
@@ -245,9 +247,12 @@ def main(argv: Sequence[str]) -> None:
     except ValueError as err:
       err_repr = repr(err)
       if not (
-          'INVALID_ARGUMENT' in err_repr
-          and 'exceeds the maximum number of tokens allowed'
-          in err_repr
+          (
+              'INVALID_ARGUMENT' in err_repr
+              and 'exceeds the maximum number of tokens allowed' in err_repr
+          )
+          or 'RESOURCE_EXHAUSTED' in err_repr
+          or 'Quota exceeded' in err_repr
       ):
         success = False
         print(
@@ -503,6 +508,7 @@ def main(argv: Sequence[str]) -> None:
       backend = google_genai_api.GoogleGenAIAPI(
           generate_model_name=google_genai_api.DEFAULT_MULTIMODAL_MODEL,
           api_key=api_key,
+          max_retries=5,
       )
     elif _PROJECT.value is not None and _LOCATION.value is not None:
       backend = google_genai_api.GoogleGenAIAPI(
@@ -510,6 +516,7 @@ def main(argv: Sequence[str]) -> None:
           vertexai=True,
           project=_PROJECT.value,
           location=_LOCATION.value,
+          max_retries=5,
       )
     else:
       raise ValueError(
