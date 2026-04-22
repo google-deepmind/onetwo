@@ -484,20 +484,20 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
     self.assertEqual(expected_value, value)
 
   @parameterized.named_parameters(
-      ('insert_in_dict', 'x["a"] = 2', {'x': {}}, 'ast.Subscript'),
+      ('insert_in_dict', 'x["a"] = 2', {'x': {}}, 'Subscript'),
       (
           'for_loop',
           'result = 0\nfor x in range(2):\n  result += x\nresult',
           {},
-          'ast.For',
+          'For',
           {'range': range},
       ),
-      ('list_comprehension', '[str(x) for x in (1, 2)]', {}, 'ast.ListComp'),
+      ('list_comprehension', '[str(x) for x in (1, 2)]', {}, 'ListComp'),
       (
           'while_loop',
           'x = 1\nwhile x < 10:  x *= 2\nx',
           {},
-          'ast.While',
+          'While',
       ),
       (
           'star_arguments',
@@ -524,7 +524,7 @@ class SafeEvalAdditionalBehaviorTest(parameterized.TestCase):
   @parameterized.named_parameters(
       ('class_definition', 'class C:\n  pass', {}, 'type=ClassDef'),
       ('function_definition', 'def f(x):\n  return x', {}, 'type=FunctionDef'),
-      ('lambda', 'f = lambda x: x', {}, 'ast.Lambda'),
+      ('lambda', 'f = lambda x: x', {}, 'Lambda'),
   )
   def test_syntax_that_is_permanently_not_supported(
       self, code, context, error_regex, allowed_callables=None
