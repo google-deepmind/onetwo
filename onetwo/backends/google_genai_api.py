@@ -730,8 +730,9 @@ class GoogleGenAIAPI(
         top_p=top_p,
         **kwargs,
     )
+    model_name = self._generate_model_name()
     response = self._genai_client.models.generate_content(
-        model=self._generate_model_name(),
+        model=model_name,
         contents=contents,
         config=generation_config,
     )
@@ -743,6 +744,17 @@ class GoogleGenAIAPI(
       )
     _raise_if_empty_response(response)
 
+    if usage_metadata := getattr(response, 'usage_metadata', None):
+      tracing.update_info({
+          # Extract the model name from the full model name.
+          'llm.model': model_name.rsplit('/', 1)[-1],
+          'llm.tokens.prompt': usage_metadata.prompt_token_count,
+          'llm.tokens.cached_content': (
+              usage_metadata.cached_content_token_count
+          ),
+          'llm.tokens.candidates': usage_metadata.candidates_token_count,
+          'llm.tokens.thoughts': usage_metadata.thoughts_token_count,
+      })
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.
     c0 = response.candidates[0].content
     for ci in range(len(response.candidates) - 1, 0, -1):

@@ -926,6 +926,71 @@ def main(argv: Sequence[str]) -> None:
       success = False
       print('FAIL: No FunctionCall found in response.')
 
+  if _run_test(23, 'Check usage_metadata in trace'):
+    executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+        prompt='Explain photosynthesis.',
+        max_tokens=1000,
+    )
+    res, trace = executing.run(executable, enable_tracing=True)
+
+    if _PRINT_DEBUG.value:
+      print('Returned value:')
+      pprint.pprint(res)
+      print('Trace:')
+      pprint.pprint(trace)
+
+    # The trace structure is:
+    #   trace (root)
+    #   └── stages[0]: GoogleGenAIAPI.generate_text
+    #       └── stages[0]: GoogleGenAIAPI.generate_contents  <- info is here
+    generate_text_stage = trace.stages[0]
+    if generate_text_stage.stage_name != 'GoogleGenAIAPI.generate_text':
+      success = False
+      print(
+          'FAIL: Expected stage name GoogleGenAIAPI.generate_text, got:'
+          f' {generate_text_stage.stage_name}'
+      )
+    else:
+      generate_contents_stage = generate_text_stage.stages[0]
+      if generate_contents_stage.stage_name != (
+          'GoogleGenAIAPI.generate_contents'
+      ):
+        success = False
+        print(
+            'FAIL: Expected stage name GoogleGenAIAPI.generate_contents, got:'
+            f' {generate_contents_stage.stage_name}'
+        )
+      else:
+        info = generate_contents_stage.info
+        print('- Trace info:', info)
+
+        # Check that the model name is populated.
+        if 'llm.model' not in info:
+          success = False
+          print('FAIL: llm.model missing from trace info')
+        else:
+          print(f'- llm.model: {info["llm.model"]}')
+
+        # Check for expected token count keys populated from usage_metadata.
+        expected_keys = [
+            'llm.tokens.prompt',
+            'llm.tokens.candidates',
+            'llm.tokens.cached_content',
+            'llm.tokens.thoughts',
+        ]
+        for key in expected_keys:
+          if key not in info:
+            success = False
+            print(f'FAIL: {key} missing from trace info')
+          else:
+            val = info[key]
+            print(f'- {key}: {val}')
+            if val is not None and (not isinstance(val, int) or val < 0):
+              success = False
+              print(
+                  f'FAIL: {key} is not a valid non-negative integer: {val}'
+              )
+
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)
 

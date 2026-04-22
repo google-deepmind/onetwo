@@ -189,6 +189,51 @@ class GoogleGenaiApiTest(
           ),
       )
 
+  def test_generate_text_updates_tracing_with_usage_metadata(self):
+    _ = _get_and_register_backend(disable_caching=True)
+
+    mock_response = mock.Mock()
+    mock_response.candidates = [genai_candidate('text')]
+    mock_response.usage_metadata = mock.Mock(
+        prompt_token_count=10,
+        cached_content_token_count=5,
+        candidates_token_count=20,
+        thoughts_token_count=2,
+    )
+    mock_response.prompt_feedback = None
+
+    self._mock_genai_client.models.generate_content.return_value = mock_response
+
+    _, trace = executing.run(
+        llm.generate_text(prompt='Something'), enable_tracing=True
+    )
+
+    # update_info is called inside _generate_contents_inner, which runs within
+    # the tracing context established by the @tracing.trace-decorated
+    # _generate_contents. The trace structure is:
+    #   trace (root)
+    #   └── stages[0]: GoogleGenAIAPI.generate_text
+    #       └── stages[0]: GoogleGenAIAPI.generate_contents  <- info is here
+    generate_text_stage = trace.stages[0]
+    self.assertEqual(
+        generate_text_stage.stage_name,
+        'GoogleGenAIAPI.generate_text',
+    )
+    generate_contents_stage = generate_text_stage.stages[0]
+    self.assertEqual(
+        generate_contents_stage.stage_name,
+        'GoogleGenAIAPI.generate_contents',
+    )
+    info = generate_contents_stage.info
+    self.assertEqual(info['llm.tokens.prompt'], 10)
+    self.assertEqual(info['llm.tokens.cached_content'], 5)
+    self.assertEqual(info['llm.tokens.candidates'], 20)
+    self.assertEqual(info['llm.tokens.thoughts'], 2)
+    self.assertEqual(
+        info['llm.model'],
+        google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api.rsplit('/')[-1],
+    )
+
   def test_generate_text_with_unsafe_content(self):
     backend = _get_and_register_backend()
 
