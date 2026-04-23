@@ -80,7 +80,7 @@ class ModelName:
 
 # input_token_limit=1,048,576, output_token_limit=65,535.
 DEFAULT_GENERATE_MODEL: Final[ModelName] = ModelName(
-    vertex_ai='publishers/google/models/gemini-2.5-flash',
+    vertex_ai='gemini-2.5-flash',
     gemini_api='models/gemini-2.5-flash',
 )
 DEFAULT_MULTIMODAL_MODEL: Final[ModelName] = DEFAULT_GENERATE_MODEL
