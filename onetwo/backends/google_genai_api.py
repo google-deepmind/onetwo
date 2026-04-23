@@ -22,6 +22,7 @@ Based on https://github.com/googleapis/python-genai to access either
 import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
+import math
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, Union
 
@@ -362,6 +363,12 @@ class GoogleGenAIAPI(
       to `llm.generate_text`.
     chat_kwargs: Additional default parameter values to apply in calls to
       `llm.chat`.
+    generate_object_kwargs: Additional default parameter values to apply in
+      calls to `llm.generate_object`.
+    generate_content_kwargs: Additional default parameter values to apply in
+      calls to `llm.generate_content`.
+    embed_kwargs: Additional default parameter values to apply in calls
+      to `llm.embed`.
   """
 
   threadpool_size: int = 1
@@ -940,7 +947,18 @@ class GoogleGenAIAPI(
           'GoogleGenAIAPI.embed returned no embedding values for request:\n'
           f'{pprint.pformat(content)[:100]}'
       )
-    return response.embeddings[0].values
+    values = response.embeddings[0].values
+    # For gemini-embedding-001, the API returns truncated vectors when
+    # output_dimensionality is set, without re-normalizing them.
+    # Following
+    # https://ai.google.dev/gemini-api/docs/embeddings#quality-for-smaller-dimensions
+    # truncated embeddings for gemini-embedding-001 need to be re-normalized.
+    # For gemini-embedding-2, the api already returns unit-norm embeddings.
+    if 'normalize' in kwargs and kwargs['normalize']:
+      norm = math.sqrt(sum(v * v for v in values))
+      if norm > 0 and not math.isclose(norm, 1.0, rel_tol=1e-6):
+        values = [v / norm for v in values]
+    return values
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.count_tokens')

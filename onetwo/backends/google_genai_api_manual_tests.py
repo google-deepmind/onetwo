@@ -15,6 +15,7 @@
 from collections.abc import Sequence
 import dataclasses
 import json
+import math
 import os
 import pprint
 import time
@@ -313,6 +314,8 @@ def main(argv: Sequence[str]) -> None:
     if _PRINT_DEBUG.value:
       print('Returned value(s):')
       pprint.pprint(res)
+    # Switch back to default backend.
+    backend.register()
 
   if _run_test(6.2, 'Generate candidates'):
     res = executing.run(
@@ -990,6 +993,89 @@ def main(argv: Sequence[str]) -> None:
               print(
                   f'FAIL: {key} is not a valid non-negative integer: {val}'
               )
+
+  if _run_test(24, 'Check embed norm is 1.0 for various output_dimensionality'):
+    embed_content = content_lib.ChunkList(
+        chunks=[
+            content_lib.Chunk(
+                content='The quick brown fox jumps over the lazy dog.',
+            )
+        ]
+    )
+    dimensionalities = [
+        None,
+        32,
+        64,
+        128,
+        256,
+        512,
+        768,
+        1024,
+        1536,
+        2048,
+        3072,
+    ]
+    tolerance = 1e-3
+    for dim in dimensionalities:
+      label = str(dim) if dim is not None else 'default'
+      embed_kwargs = {'normalize': True}
+      if dim is not None:
+        embed_kwargs['output_dimensionality'] = dim
+
+      res = executing.run(
+          llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args
+      )
+      vec_norm = math.sqrt(sum(x * x for x in res))
+      norm_ok = abs(vec_norm - 1.0) < tolerance
+      print(
+          f'  dim={label:>7s}  |  vec_len={len(res):<5d}  |'
+          f'  norm={vec_norm:.6f}  |  {"PASS" if norm_ok else "FAIL"}'
+      )
+      if dim is not None and len(res) != dim:
+        success = False
+        print(f'  FAIL: expected length {dim}, got {len(res)}')
+      if not norm_ok:
+        success = False
+        print(f'  FAIL: norm {vec_norm} is not close to 1.0')
+
+  if _run_test(
+      25, 'Check embed_kwargs default output_dimensionality and normalize'
+  ):
+    target_dim = 256
+    embed_content_25 = content_lib.ChunkList(
+        chunks=[
+            content_lib.Chunk(
+                content='The quick brown fox jumps over the lazy dog.',
+            )
+        ]
+    )
+    # Re-register backend with a default output_dimensionality.
+    with routing.RegistryContext():
+      reduced_backend = google_genai_api.GoogleGenAIAPI(
+          api_key=api_key,
+          vertexai=vertexai,
+          project=project,
+          location=location,
+          embed_kwargs={'output_dimensionality': target_dim, 'normalize': True},
+      )
+      reduced_backend.register(register_generate=False, register_tokenize=False)
+      # Call embed without specifying output_dimensionality explicitly.
+      res = executing.run(
+          llm.embed(content=embed_content_25)  # pytype: disable=wrong-keyword-args
+      )
+    vec_norm = math.sqrt(sum(x * x for x in res))
+    norm_ok = abs(vec_norm - 1.0) < 1e-3
+    len_ok = len(res) == target_dim
+    print(
+        f'  vec_len={len(res)}  |  norm={vec_norm:.6f}  |'
+        f'  {"PASS" if norm_ok and len_ok else "FAIL"}'
+    )
+    if not len_ok:
+      success = False
+      print(f'  FAIL: expected length {target_dim}, got {len(res)}')
+    if not norm_ok:
+      success = False
+      print(f'  FAIL: norm {vec_norm} is not close to 1.0')
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)

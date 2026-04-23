@@ -54,6 +54,17 @@ _THREADPOOL_SIZE: Final[int] = 4
 
 _MOCK_COUNT_TOKENS_RETURN: Final[int] = 5
 
+# A mock vector with unit norm.
+_MOCK_EMBEDDING: Final[list[float]] = [
+    1.0 / 11.0,
+    2.0 / 11.0,
+    2.0 / 11.0,
+    4.0 / 11.0,
+    4.0 / 11.0,
+    4.0 / 11.0,
+    8.0 / 11.0,
+]
+
 
 # For testing llm.generate_object with a Pydantic model.
 class MyData(BaseModel):
@@ -1339,23 +1350,48 @@ class GoogleGenaiApiTest(
     with self.subTest('UpdatesCacheCounters'):
       self.assertCounterEqual(handler._cache_data.counters, Counter(get_miss=1))
 
-  def test_embed_string(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='non_normalized_backend_output_normalize_true',
+          backend_output=[v * 2.0 for v in _MOCK_EMBEDDING],
+          expected_output=_MOCK_EMBEDDING,
+          normalize=True,
+      ),
+      dict(
+          testcase_name='non_normalized_backend_output_normalize_false',
+          backend_output=[v * 2.0 for v in _MOCK_EMBEDDING],
+          expected_output=[v * 2.0 for v in _MOCK_EMBEDDING],
+          normalize=False,
+      ),
+      dict(
+          testcase_name='normalized_backend_output_normalize_true',
+          backend_output=_MOCK_EMBEDDING,
+          expected_output=_MOCK_EMBEDDING,
+          normalize=True,
+      ),
+      dict(
+          testcase_name='normalized_backend_output_normalize_false',
+          backend_output=_MOCK_EMBEDDING,
+          expected_output=_MOCK_EMBEDDING,
+          normalize=False,
+      ),
+  )
+  def test_embed_string(self, backend_output, expected_output, normalize):
     backend = _get_and_register_backend()
     handler = backend.cache
     assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of embed_content to return a constant value.
-    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
     self._mock_genai_client.models.embed_content.return_value = (
         genai_types.EmbedContentResponse(
-            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+            embeddings=[genai_types.ContentEmbedding(values=backend_output)]
         )
     )
     content = 'Something'
-    res = executing.run(llm.embed(content=content))
+    res = executing.run(llm.embed(content=content, normalize=normalize))
 
     with self.subTest('ReturnsCorrectResult'):
-      self.assertEqual(res, mock_embedding)
+      self.assertEqual(res, expected_output)
     with self.subTest('CallsApiAndUpdatesCounters'):
       self.assertEqual(
           self._mock_genai_client.models.embed_content.call_args[1]['contents'],
@@ -1378,10 +1414,9 @@ class GoogleGenaiApiTest(
     assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of embed_content to return a constant value.
-    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
     self._mock_genai_client.models.embed_content.return_value = (
         genai_types.EmbedContentResponse(
-            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
         )
     )
     content = content_lib.ChunkList(
@@ -1390,7 +1425,7 @@ class GoogleGenaiApiTest(
     res = executing.run(llm.embed(content=content))
 
     with self.subTest('ReturnsCorrectResult'):
-      self.assertEqual(res, mock_embedding)
+      self.assertEqual(res, _MOCK_EMBEDDING)
     with self.subTest('CallsApiAndUpdatesCounters'):
       self.assertEqual(
           self._mock_genai_client.models.embed_content.call_args[1]['contents'],
@@ -1408,14 +1443,13 @@ class GoogleGenaiApiTest(
       )
 
   def test_embed_with_retry(self):
-    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
     self._mock_genai_client.models.embed_content.side_effect = [
         genai_errors.ClientError(
             code=408, response_json={'error': {'message': 'test'}}
         ),
         httpx.TransportError('test'),
         genai_types.EmbedContentResponse(
-            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
         ),
     ]
     max_retries = 2
@@ -1425,7 +1459,7 @@ class GoogleGenaiApiTest(
     res = executing.run(llm.embed(content='Something'))
 
     with self.subTest('ReturnsCorrectResult'):
-      self.assertEqual(res, mock_embedding)
+      self.assertEqual(res, _MOCK_EMBEDDING)
     with self.subTest('RetriesExpectedNumberOfTimes'):
       self.assertEqual(
           self._mock_genai_client.models.embed_content.call_count,
@@ -1465,17 +1499,16 @@ class GoogleGenaiApiTest(
     backend = _get_and_register_backend()
     content = 'Some text to embed'
     # We mock the return value of embed_content to return a constant value.
-    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
     self._mock_genai_client.models.embed_content.return_value = (
         genai_types.EmbedContentResponse(
-            embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
         )
     )
 
     res = executing.run(llm.embed(content=content, **embed_kwargs))
 
     with self.subTest('ReturnsCorrectResult'):
-      self.assertEqual(res, mock_embedding)
+      self.assertEqual(res, _MOCK_EMBEDDING)
     with self.subTest('CallsApiWithCorrectConfig'):
       self._mock_genai_client.models.embed_content.assert_called_once()
       _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
@@ -1496,10 +1529,9 @@ class GoogleGenaiApiTest(
     assert isinstance(handler, caching.SimpleFunctionCache)
 
     # We mock the return value of embed_content to return a constant value.
-    mock_embedding = [1.0, 2.0, 3.0, 4.0, 5.0]
     embed_mock = self._mock_genai_client.models.embed_content
     embed_mock.return_value = genai_types.EmbedContentResponse(
-        embeddings=[genai_types.ContentEmbedding(values=mock_embedding)]
+        embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
     )
 
     content = 'Some text to embed'
