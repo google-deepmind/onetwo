@@ -659,7 +659,7 @@ class EmbeddingBasedIndex(
     return ranked_documents_and_scores
 
   @executing.make_executable(copy_self=False)
-  @tracing.trace('EmbeddingBasedIndex.retrieve')
+  @tracing.trace('EmbeddingBasedIndex.retrieve', skip=['output'])
   async def retrieve(
       self,
       query: QueryT,

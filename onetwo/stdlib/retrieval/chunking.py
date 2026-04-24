@@ -144,7 +144,7 @@ class TextChunker(Chunker):
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
-@tracing.trace(skip=['tokenizer_backend'])
+@tracing.trace(skip=['tokenizer_backend', 'text', 'output'])
 async def truncate_string_to_max_tokens(
     text: str,
     max_tokens: int,
@@ -166,7 +166,7 @@ async def truncate_string_to_max_tokens(
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
-@tracing.trace(skip=['tokenizer_backend'])
+@tracing.trace(skip=['tokenizer_backend', 'texts'])
 async def filter_by_max_tokens(
     texts: Iterable[str],
     max_tokens: int,

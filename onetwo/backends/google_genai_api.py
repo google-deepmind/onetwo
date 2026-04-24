@@ -886,7 +886,7 @@ class GoogleGenAIAPI(
       return await llm.default_chat(messages, formatter, **kwargs)
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  @tracing.trace(name='GoogleGenAIAPI.embed')
+  @tracing.trace(name='GoogleGenAIAPI.embed', skip=['output'])
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,

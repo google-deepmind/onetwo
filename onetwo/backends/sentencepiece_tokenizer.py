@@ -121,7 +121,9 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     self._model = self._load_model()
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  @tracing.trace(name='SentencePieceTokenizer.tokenize')
+  @tracing.trace(
+      name='SentencePieceTokenizer.tokenize', skip=['content', 'output']
+  )
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
   async def tokenize(
       self, content: str | content_lib.ChunkList
@@ -133,7 +135,9 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     return await self._batchable_tokenize(content)  # pytype: disable=bad-return-type
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  @tracing.trace(name='SentencePieceTokenizer.detokenize')
+  @tracing.trace(
+      name='SentencePieceTokenizer.detokenize', skip=['tokens', 'output']
+  )
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
   async def detokenize(self, tokens: Sequence[int]) -> Sequence[str]:
     """See builtins.llm.detokenize."""
