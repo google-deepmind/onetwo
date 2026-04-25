@@ -16,6 +16,9 @@
 
 This document explains how to use the responses method:
 https://platform.openai.com/docs/api-reference/responses/create
+
+This document explains how to use the embeddings method:
+https://developers.openai.com/api/reference/resources/embeddings/methods/create
 """
 
 from collections.abc import Mapping, Sequence
@@ -184,6 +187,54 @@ class ResponsesNamespace:
     return Response(output=[message], output_text=content_text)
 
 
+class EmbeddingData:
+  """Mock for a single embedding object in the Embeddings API response."""
+
+  def __init__(self, embedding: Sequence[float], index: int = 0):
+    self.object = 'embedding'
+    self.embedding = embedding
+    self.index = index
+
+
+class EmbeddingsResponse:
+  """Mock for the Embeddings API response object."""
+
+  def __init__(self, data: Sequence[EmbeddingData]):
+    self.object = 'list'
+    self.data = data
+
+
+class EmbeddingsNamespace:
+  """Mock for client.embeddings namespace."""
+
+  def __init__(self, embedding_dim: int = 10):
+    self._embedding_dim = embedding_dim
+
+  def create(
+      self,
+      *,
+      model: str,
+      input: str | Sequence[str],  # pylint: disable=redefined-builtin
+      dimensions: int | None = None,
+      **kwargs,
+  ) -> EmbeddingsResponse:
+    """Mocks client.embeddings.create for the Embeddings API."""
+    del model, kwargs
+    dim = dimensions if dimensions is not None else self._embedding_dim
+    # Generate a deterministic non-unit-norm mock embedding based on input.
+    if isinstance(input, str):
+      inputs = [input]
+    else:
+      inputs = list(input)
+    data = []
+    for i, text in enumerate(inputs):
+      seed = sum(ord(c) for c in text) if text else 0
+      raw = [(seed + j) * 0.1 for j in range(dim)]
+      # Do NOT normalize, so tests can verify the `normalize` kwarg.
+      data.append(EmbeddingData(embedding=raw, index=i))
+    return EmbeddingsResponse(data=data)
+
+
 class OpenAI:
   """A mock of the OpenAI class that provides responses.create/parse methods.
 
@@ -195,7 +246,12 @@ class OpenAI:
     del api_key
     self._reply = _DEFAULT_REPLY
     self._responses_namespace = ResponsesNamespace(reply=self._reply)
+    self._embeddings_namespace = EmbeddingsNamespace()
 
   @property
   def responses(self):
     return self._responses_namespace
+
+  @property
+  def embeddings(self):
+    return self._embeddings_namespace

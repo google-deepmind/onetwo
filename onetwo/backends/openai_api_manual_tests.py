@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Sequence
+import math
 import os
 import pprint
 import time
@@ -496,8 +497,154 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('PASS' if success else 'FAIL')
+  # ==================== Embedding tests ====================
+  print('\n*** Running embedding tests. ***')
+  embed_model = 'text-embedding-3-small'
+  fname_embed = os.path.join(
+      _CACHE_DIR.value,
+      f'openai_api_{embed_model.replace("-", "_").replace(".", "_")}.json',
+  )
+  backend_embed = openai_api.OpenAIAPI(
+      model_name='gpt-5.4-mini',
+      embed_model_name=embed_model,
+      cache=caching.SimpleFunctionCache(cache_filename=fname_embed),
+      api_key=api_key,
+      batch_size=4,
+  )
+  backend_embed.register()
 
+  print('12. Check that embed is working.')
+  content = content_lib.ChunkList(
+      chunks=[
+          content_lib.Chunk(
+              content='The quick brown fox jumps over the lazy dog.',
+          )
+      ]
+  )
+  res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+  if _PRINT_DEBUG.value:
+    print('Returned value(s):')
+    result_string = str(res)
+    if len(result_string) > 400:
+      result_string = (
+          result_string[:200]
+          + f'... (skipped {len(result_string) - 200} characters) ...'
+          + result_string[-200:]
+      )
+    pprint.pprint(result_string)
+  if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
+    success = False
+    print('FAIL: Returned value is not a list of floats:', res)
+  else:
+    print(f'  Returned {len(res)} floats. OK.')
+
+  print('12.1 Same query to see if it has been cached.')
+  counters_before = dict(backend_embed._counters)
+  res_cached = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+  counters_after = dict(backend_embed._counters)
+  if counters_before != counters_after:
+    success = False
+    print(
+        'FAILURE: counters changed, indicating a cache miss.',
+        counters_before,
+        counters_after,
+    )
+  elif _PRINT_DEBUG.value:
+    print('Counters did not change, indicating a cache hit.')
+  if res != res_cached:
+    success = False
+    print('FAILURE: cached result does not match original result.')
+
+  print('13. Check embed norm is 1.0 for various output_dimensionality.')
+  embed_content = content_lib.ChunkList(
+      chunks=[
+          content_lib.Chunk(
+              content='The quick brown fox jumps over the lazy dog.',
+          )
+      ]
+  )
+  # text-embedding-3-small supports up to 1536 dimensions.
+  dimensionalities = [
+      None,
+      32,
+      64,
+      128,
+      256,
+      512,
+      768,
+      1024,
+      1536,
+  ]
+  tolerance = 1e-3
+  for dim in dimensionalities:
+    label = str(dim) if dim is not None else 'default'
+    embed_kwargs = {'normalize': True}
+    if dim is not None:
+      embed_kwargs['output_dimensionality'] = dim
+
+    res = executing.run(
+        llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args
+    )
+    vec_norm = math.sqrt(sum(x * x for x in res))
+    norm_ok = abs(vec_norm - 1.0) < tolerance
+    print(
+        f'  dim={label:>7s}  |  vec_len={len(res):<5d}  |'
+        f'  norm={vec_norm:.6f}  |  {"PASS" if norm_ok else "FAIL"}'
+    )
+    if dim is not None and len(res) != dim:
+      success = False
+      print(f'  FAIL: expected length {dim}, got {len(res)}')
+    if not norm_ok:
+      success = False
+      print(f'  FAIL: norm {vec_norm} is not close to 1.0')
+
+  print('14. Check embed_kwargs default output_dimensionality and normalize.')
+  target_dim = 256
+  embed_content_14 = content_lib.ChunkList(
+      chunks=[
+          content_lib.Chunk(
+              content='The quick brown fox jumps over the lazy dog.',
+          )
+      ]
+  )
+  # Re-register backend with a default output_dimensionality.
+  backend_embed_kwargs = openai_api.OpenAIAPI(
+      model_name='gpt-5.4-mini',
+      embed_model_name=embed_model,
+      cache=caching.SimpleFunctionCache(cache_filename=fname_embed),
+      api_key=api_key,
+      batch_size=4,
+      embed_kwargs={'output_dimensionality': target_dim, 'normalize': True},
+  )
+  backend_embed_kwargs.register()
+  # Call embed without specifying output_dimensionality explicitly.
+  res = executing.run(
+      llm.embed(content=embed_content_14)  # pytype: disable=wrong-keyword-args
+  )
+  vec_norm = math.sqrt(sum(x * x for x in res))
+  norm_ok = abs(vec_norm - 1.0) < 1e-3
+  len_ok = len(res) == target_dim
+  print(
+      f'  vec_len={len(res)}  |  norm={vec_norm:.6f}  |'
+      f'  {"PASS" if norm_ok and len_ok else "FAIL"}'
+  )
+  if not len_ok:
+    success = False
+    print(f'  FAIL: expected length {target_dim}, got {len(res)}')
+  if not norm_ok:
+    success = False
+    print(f'  FAIL: norm {vec_norm} is not close to 1.0')
+
+  if not _LOAD_CACHE.value:
+    start = time.time()
+    assert isinstance(backend_embed.cache, caching.SimpleFunctionCache)
+    backend_embed.cache.save(overwrite=True)
+    print(
+        'Took %.4fsec saving embed cache to %s.'
+        % (time.time() - start, fname_embed)
+    )
+
+  print('PASS' if success else 'FAIL')
 
 if __name__ == '__main__':
   app.run(main)

@@ -16,6 +16,7 @@
 
 import base64
 import collections
+import math
 import os
 from typing import Counter, Final, TypeAlias
 from unittest import mock
@@ -464,6 +465,96 @@ class ConvertChunkToContentPartTest(parameterized.TestCase):
         ValueError, 'Unsupported binary content_type for OpenAI API'
     ):
       openai_api._convert_chunk_to_openai_part(chunk)
+
+
+class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
+
+  def test_embed_basic(self):
+    """Verifies that embed returns a list of floats."""
+    backend = _get_and_register_backend()
+    result = executing.run(
+        llm.embed(content='Hello, world!')  # pytype: disable=wrong-keyword-args
+    )
+    with self.subTest('returns_list_of_floats'):
+      self.assertIsInstance(result, (list, tuple))
+      self.assertNotEmpty(result)
+      for v in result:
+        self.assertIsInstance(v, float)
+    expected_backend_counters = collections.Counter({
+        'embed': 1,
+        'embed_batches': 1,
+    })
+    with self.subTest('sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+  def test_embed_with_output_dimensionality(self):
+    """Verifies that output_dimensionality controls the embedding size."""
+    _ = _get_and_register_backend()
+    dim = 5
+    result = executing.run(
+        llm.embed(content='Hello', output_dimensionality=dim)  # pytype: disable=wrong-keyword-args
+    )
+    self.assertLen(result, dim)
+
+  def test_embed_with_normalize(self):
+    """Verifies that normalize=True produces a unit-norm vector."""
+    _get_and_register_backend()
+    result = executing.run(
+        llm.embed(content='Something', normalize=True)  # pytype: disable=wrong-keyword-args
+    )
+    norm = math.sqrt(sum(v * v for v in result))
+    self.assertAlmostEqual(norm, 1.0, places=6)
+
+  def test_embed_without_normalize(self):
+    """Verifies that without normalize, the vector is NOT unit-norm."""
+    _get_and_register_backend()
+    result = executing.run(
+        llm.embed(content='Something')  # pytype: disable=wrong-keyword-args
+    )
+    norm = math.sqrt(sum(v * v for v in result))
+    # The mock returns non-unit-norm vectors by design.
+    self.assertNotAlmostEqual(norm, 1.0, places=2)
+
+  def test_embed_with_chunklist(self):
+    """Verifies that embed works with a ChunkList input."""
+    _get_and_register_backend()
+    chunks = content_lib.ChunkList([
+        content_lib.Chunk('Hello, '),
+        content_lib.Chunk('world!'),
+    ])
+    result = executing.run(
+        llm.embed(content=chunks)  # pytype: disable=wrong-keyword-args
+    )
+    self.assertIsInstance(result, (list, tuple))
+    self.assertNotEmpty(result)
+
+  def test_embed_chunklist_with_non_text_raises_error(self):
+    """Verifies that embed raises ValueError for non-text chunks."""
+    _get_and_register_backend()
+    chunks = content_lib.ChunkList([
+        content_lib.Chunk(b'binary_data', content_type='image/png'),
+    ])
+    with self.assertRaisesRegex(
+        ValueError, 'OpenAIAPI.embed only supports text content'
+    ):
+      executing.run(
+          llm.embed(content=chunks)  # pytype: disable=wrong-keyword-args
+      )
+
+  def test_embed_caching(self):
+    """Verifies that embed results are cached."""
+    backend = _get_and_register_backend()
+    content_text = 'Cache me!'
+    # First call.
+    result1 = executing.run(llm.embed(content=content_text))  # pytype: disable=wrong-keyword-args
+    with self.subTest('first_call_hits_api'):
+      self.assertEqual(backend._counters['embed'], 1)
+    # Second call with same content should be cached.
+    result2 = executing.run(llm.embed(content=content_text))  # pytype: disable=wrong-keyword-args
+    with self.subTest('second_call_is_cached'):
+      self.assertEqual(backend._counters['embed'], 1)
+    with self.subTest('results_are_equal'):
+      self.assertEqual(result1, result2)
 
 
 if __name__ == '__main__':

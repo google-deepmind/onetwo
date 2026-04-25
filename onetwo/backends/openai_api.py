@@ -24,6 +24,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import io
+import math
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, get_origin
 
@@ -49,6 +50,9 @@ OpenAIContent: TypeAlias = str | list[dict[str, Any]]
 
 # See https://platform.openai.com/docs/models/overview.
 DEFAULT_MODEL: Final[str] = 'gpt-5.4-mini'
+
+# See https://developers.openai.com/api/docs/guides/embeddings.
+DEFAULT_EMBED_MODEL: Final[str] = 'text-embedding-3-small'
 
 # Supported roles in the responses.create method are listed at
 # https://platform.openai.com/docs/api-reference/responses/create
@@ -167,9 +171,10 @@ class OpenAIAPI(
   """OpenAI API.
 
   Uses the Responses API (client.responses.create) for all models.
+  Uses the Embeddings API (client.embeddings.create) for embeddings.
 
   TODO: Implement streaming for generate_text and chat.
-  TODO: Implement embed and tokenize.
+  TODO: Implement tokenize.
 
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
@@ -204,6 +209,9 @@ class OpenAIAPI(
       should be a dict following the Responses API tool schema, e.g., [{"type":
       "function", "name": "get_weather", "parameters": {...}}]. See
       https://platform.openai.com/docs/api-reference/responses/create.
+    embed_model_name: Name of the model to use for embeddings. See
+      https://platform.openai.com/docs/models/overview.
+    embed_kwargs: Optional keyword arguments to pass to the embed method.
   """
 
   batch_size: int = 1
@@ -223,6 +231,12 @@ class OpenAIAPI(
   reasoning: dict[str, Any] | None = None
   tools: list[dict[str, Any]] | None = None
 
+  # Embed parameters
+  embed_model_name: str = DEFAULT_EMBED_MODEL
+
+  # Additional optional parameters for use during backend registration
+  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
   # Attributes not set by constructor.
   _client: openai.OpenAI | None = dataclasses.field(init=False, default=None)
 
@@ -232,40 +246,50 @@ class OpenAIAPI(
       init=False, default_factory=collections.Counter
   )
 
-  def register(self, name: str | None = None) -> None:
+  def register(
+      self,
+      name: str | None = None,
+      register_generate: bool = True,
+      register_embed: bool = True,
+  ) -> None:
     """See parent class."""
     del name
     # Reset all the defaults in case some other backend was already registered.
     # Indeed, we rely on certain builtins configured with OneTwo defaults.
-    llm.reset_defaults()
-    llm.generate_text.configure(
-        self.generate_text,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        stop=self.stop,
-        top_p=self.top_p,
+    llm.reset_defaults(
+        reset_generate=register_generate, reset_embed=register_embed
     )
+    if register_generate:
+      llm.generate_text.configure(
+          self.generate_text,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+      )
 
-    llm.generate_texts.configure(
-        self.generate_texts,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        stop=self.stop,
-        top_p=self.top_p,
-    )
+      llm.generate_texts.configure(
+          self.generate_texts,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+      )
 
-    llm.generate_object.configure(
-        self.generate_object,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        stop=self.stop,
-        top_p=self.top_p,
-    )
+      llm.generate_object.configure(
+          self.generate_object,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+      )
 
-    llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
-    llm.instruct.configure(
-        llm.default_instruct, formatter=formatting.FormatterName.API
-    )
+      llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
+      llm.instruct.configure(
+          llm.default_instruct, formatter=formatting.FormatterName.API
+      )
+    if register_embed:
+      llm.embed.configure(self.embed, **self.embed_kwargs)
 
   def __post_init__(self) -> None:
     if self.cache is None:
@@ -774,3 +798,94 @@ class OpenAIAPI(
     self._counters['chat'] += 1
     response = self._responses_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
     return response.output_text
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='OpenAIAPI.embed')
+  @caching.cache_method(  # Cache this deterministic method.
+      name='embed',
+      is_sampled=False,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def embed(
+      self,
+      content: str | content_lib.ChunkList,
+      **kwargs,
+  ) -> Sequence[float]:
+    """Generate an embedding vector for the given content.
+
+    Uses the OpenAI Embeddings API (client.embeddings.create).
+    See
+    https://developers.openai.com/api/reference/resources/embeddings/methods/create
+
+    Args:
+      content: The text content to embed (string or ChunkList).
+      **kwargs: Optional keyword arguments (see below).
+
+    Optional keyword arguments:
+      output_dimensionality: Maximum number of dimensions for the output
+        embedding vector. Mapped to the OpenAI ``dimensions`` parameter. Only
+        supported by text-embedding-3 and later models.
+      normalize: If True, re-normalize the embedding vector to unit norm. Useful
+        when using ``output_dimensionality`` with models that return truncated
+        non-unit-norm vectors.
+
+    Returns:
+      A sequence of floats representing the embedding vector.
+    """
+    self._counters['embed'] += 1
+
+    # Convert ChunkList to plain text. Only text-based embeddings are supported.
+    if isinstance(content, content_lib.ChunkList):
+      text_parts = []
+      for chunk in content.chunks:
+        if isinstance(chunk.content, str):
+          text_parts.append(chunk.content)
+        else:
+          raise ValueError(
+              'OpenAIAPI.embed only supports text content. '
+              f'Got chunk with type: {type(chunk.content)}'
+          )
+      text = ''.join(text_parts)
+    else:
+      text = content
+
+    # Build API kwargs.
+    api_kwargs = {
+        'model': self.embed_model_name,
+        'input': text,
+    }
+    if 'output_dimensionality' in kwargs:
+      api_kwargs['dimensions'] = kwargs['output_dimensionality']
+
+    try:
+      response = self._client.embeddings.create(**api_kwargs)
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'openai.client.embeddings.create raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(text)[:100]}'
+      ) from err
+
+    if not response.data:
+      raise ValueError(
+          'OpenAIAPI.embed returned no embeddings for request:\n'
+          f'{pprint.pformat(text)[:100]}'
+      )
+    values = response.data[0].embedding
+    if not values:
+      raise ValueError(
+          'OpenAIAPI.embed returned empty embedding vector for request:\n'
+          f'{pprint.pformat(text)[:100]}'
+      )
+
+    # Optionally re-normalize to unit norm (useful for truncated embeddings).
+    if kwargs.get('normalize', False):
+      norm = math.sqrt(sum(v * v for v in values))
+      if norm > 0 and not math.isclose(norm, 1.0, rel_tol=1e-6):
+        values = [v / norm for v in values]
+
+    return values
