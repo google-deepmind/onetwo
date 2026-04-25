@@ -21,6 +21,7 @@ from absl import app
 from absl import flags
 from onetwo.backends import openai_api
 from onetwo.builtins import llm
+from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
@@ -66,7 +67,7 @@ def main(argv: Sequence[str]) -> None:
     )
     backend = openai_api.OpenAIAPI(
         model_name=model_name,
-        cache_filename=fname,
+        cache=caching.SimpleFunctionCache(cache_filename=fname),
         api_key=api_key,
         batch_size=4,
     )
@@ -74,7 +75,8 @@ def main(argv: Sequence[str]) -> None:
     if _LOAD_CACHE.value:
       print('Loading cache from file %s', fname)
       load_start = time.time()
-      backend.load_cache()
+      assert isinstance(backend.cache, caching.SimpleFunctionCache)
+      backend.cache.load()
       load_end = time.time()
       print('Spent %.4fsec loading cache.', load_end - load_start)
 
@@ -271,7 +273,8 @@ def main(argv: Sequence[str]) -> None:
 
     if not _LOAD_CACHE.value:
       start = time.time()
-      backend.save_cache(overwrite=True)
+      assert isinstance(backend.cache, caching.SimpleFunctionCache)
+      backend.cache.save(overwrite=True)
       print('Took %.4fsec saving cache to %s.' % (time.time() - start, fname))
 
     # Test generate_object for all modern models.
@@ -413,7 +416,7 @@ def main(argv: Sequence[str]) -> None:
   )
   backend = openai_api.OpenAIAPI(
       model_name=reasoning_model,
-      cache_filename=fname,
+      cache=caching.SimpleFunctionCache(cache_filename=fname),
       api_key=api_key,
       batch_size=4,
   )
@@ -424,7 +427,7 @@ def main(argv: Sequence[str]) -> None:
     # Re-register with different reasoning to test per-instance config.
     backend_r = openai_api.OpenAIAPI(
         model_name=reasoning_model,
-        cache_filename=fname,
+        cache=caching.SimpleFunctionCache(cache_filename=fname),
         api_key=api_key,
         batch_size=1,
         reasoning={'effort': effort},
@@ -452,7 +455,7 @@ def main(argv: Sequence[str]) -> None:
   print('11. Generate text with a single tool definition.')
   backend_t = openai_api.OpenAIAPI(
       model_name=tool_model,
-      cache_filename=fname_tools,
+      cache=caching.SimpleFunctionCache(cache_filename=fname_tools),
       api_key=api_key,
       batch_size=1,
       tools=[web_search_tool],

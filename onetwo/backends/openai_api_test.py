@@ -310,7 +310,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend1 = openai_api.OpenAIAPI(
         model_name='gpt-5.4-mini',
         api_key='test_key',
-        cache_filename=cache_filename,
+        cache=caching.SimpleFunctionCache(cache_filename=cache_filename),
     )
     backend1.register()
 
@@ -343,16 +343,18 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         self.assertIsInstance(obj2, CityInfoTestData)
         self.assertEqual(backend1._counters['generate_object'], 1)
 
-      backend1.save_cache()
+      assert isinstance(backend1.cache, caching.SimpleFunctionCache)
+      backend1.cache.save()
       self.assertTrue(os.path.exists(cache_filename))
 
       backend2 = openai_api.OpenAIAPI(
           model_name='gpt-5.4-mini',
           api_key='test_key',
-          cache_filename=cache_filename,
+          cache=caching.SimpleFunctionCache(cache_filename=cache_filename),
       )
       backend2.register()
-      backend2.load_cache()
+      assert isinstance(backend2.cache, caching.SimpleFunctionCache)
+      backend2.cache.load()
       with self.subTest('CacheHitNewBackend'):
         with mock.patch.object(
             backend2,

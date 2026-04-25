@@ -161,7 +161,7 @@ def _convert_messages_to_input(
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class OpenAIAPI(
-    caching.FileCacheEnabled,  # Methods of this class are cached.
+    caching.CacheEnabled,  # Methods of this class are cached.
     backends_base.Backend,
 ):
   """OpenAI API.
@@ -174,8 +174,6 @@ class OpenAIAPI(
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
       CacheEnabled).
-    cache_filename: Name of the file (full path) where the cache is stored
-      (inherited from FileCacheEnabled)
     batch_size: Number of requests (generate_text or chat or generate_embedding)
       that is grouped together when sending them to GenAI API. GenAI API does
       not explicitly support batching (i.e. multiple requests can't be passed
@@ -270,10 +268,8 @@ class OpenAIAPI(
     )
 
   def __post_init__(self) -> None:
-    # Create cache.
-    self._cache_handler = caching.SimpleFunctionCache(
-        cache_filename=self.cache_filename,
-    )
+    if self.cache is None:
+      self.cache = caching.SimpleFunctionCache()
     if self.api_key:
       self._client = openai.OpenAI(api_key=self.api_key)
     else:
