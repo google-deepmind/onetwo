@@ -1442,6 +1442,30 @@ class GoogleGenaiApiTest(
           Counter(add_new=1, get_miss=1),
       )
 
+  def test_embed_updates_tracing_with_model_name(self):
+    _ = _get_and_register_backend(disable_caching=True)
+
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+
+    _, trace = executing.run(
+        llm.embed(content='Something'), enable_tracing=True
+    )
+
+    # The trace structure is:
+    #   trace (root)
+    #   └── stages[0]: GoogleGenAIAPI.embed  <- info is here
+    embed_stage = trace.stages[0]
+    self.assertEqual(embed_stage.stage_name, 'GoogleGenAIAPI.embed')
+    info = embed_stage.info
+    self.assertEqual(
+        info['llm.model'],
+        google_genai_api.DEFAULT_EMBED_MODEL.gemini_api.rsplit('/')[-1],
+    )
+
   def test_embed_with_retry(self):
     self._mock_genai_client.models.embed_content.side_effect = [
         genai_errors.ClientError(

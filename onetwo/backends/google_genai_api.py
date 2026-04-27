@@ -927,8 +927,9 @@ class GoogleGenAIAPI(
         if embed_config_kwargs
         else None
     )
+    model_name = self._embed_model_name()
     response = self._genai_client.models.embed_content(
-        model=self._embed_model_name(),
+        model=model_name,
         contents=content,
         config=embed_config,
     )
@@ -947,6 +948,9 @@ class GoogleGenAIAPI(
           'GoogleGenAIAPI.embed returned no embedding values for request:\n'
           f'{pprint.pformat(content)[:100]}'
       )
+    tracing.update_info({
+        'llm.model': model_name.rsplit('/', 1)[-1],
+    })
     values = response.embeddings[0].values
     # For gemini-embedding-001, the API returns truncated vectors when
     # output_dimensionality is set, without re-normalizing them.
