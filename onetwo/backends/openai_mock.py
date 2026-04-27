@@ -68,11 +68,74 @@ class Response:
     self.output_text = output_text
 
 
+class InputTokensCountResponse:
+  """Mock for the responses.input_tokens.count() response."""
+
+  def __init__(self, input_tokens: int):
+    self.input_tokens = input_tokens
+    self.object = 'response.input_tokens'
+
+
+class InputTokensNamespace:
+  """Mock for client.responses.input_tokens namespace."""
+
+  def count(
+      self,
+      *,
+      model: str,
+      input: str | Sequence[Mapping[str, str]],  # pylint: disable=redefined-builtin
+      instructions: str | None = None,
+      tools: Sequence[Mapping[str, Any]] | None = None,
+      **kwargs,
+  ) -> InputTokensCountResponse:
+    """Mocks client.responses.input_tokens.count for token counting.
+
+    Estimates tokens by splitting text on whitespace. Adds per-message
+    overhead (3 tokens per message + 3 tokens for the reply primer) to
+    approximate the real API's behavior.
+
+    Args:
+      model: The model name.
+      input: The input to the model.
+      instructions: The instructions for the model.
+      tools: The tools for the model.
+      **kwargs: Additional arguments.
+
+    Returns:
+      InputTokensCountResponse: The number of tokens.
+    """
+    del model, tools, kwargs
+    total = 0
+    if isinstance(input, str):
+      total += len(input.split())
+    else:
+      for msg in input:
+        total += 3  # Per-message overhead.
+        content = msg.get('content', '')
+        if isinstance(content, str):
+          total += len(content.split())
+        elif isinstance(content, list):
+          for part in content:
+            if isinstance(part, dict) and part.get('type') == 'input_text':
+              total += len(part.get('text', '').split())
+            elif isinstance(part, dict) and part.get('type') == 'input_image':
+              total += 85  # Approximate image token overhead.
+      total += 3  # Reply primer overhead.
+    if instructions:
+      total += len(instructions.split())
+    return InputTokensCountResponse(input_tokens=total)
+
+
 class ResponsesNamespace:
   """Mock for client.responses namespace."""
 
   def __init__(self, reply: str = _DEFAULT_REPLY):
     self._reply = reply
+    self._input_tokens_namespace = InputTokensNamespace()
+
+  @property
+  def input_tokens(self):
+    return self._input_tokens_namespace
 
   def create(
       self,

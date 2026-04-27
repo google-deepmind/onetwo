@@ -172,9 +172,12 @@ class OpenAIAPI(
 
   Uses the Responses API (client.responses.create) for all models.
   Uses the Embeddings API (client.embeddings.create) for embeddings.
-
+  Note: tokenize and detokenize are not available through the OpenAI API.
+  count_tokens is supported via the Responses API input token counting
+  endpoint (client.responses.input_tokens.count).
+  
   TODO: Implement streaming for generate_text and chat.
-  TODO: Implement tokenize.
+  TODO: Implement image generation and editing support.
 
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
@@ -250,14 +253,19 @@ class OpenAIAPI(
       self,
       name: str | None = None,
       register_generate: bool = True,
+      register_tokenize: bool = True,
       register_embed: bool = True,
   ) -> None:
     """See parent class."""
     del name
     # Reset all the defaults in case some other backend was already registered.
     # Indeed, we rely on certain builtins configured with OneTwo defaults.
+    # Note: OpenAI API only allows counting tokens and does not support
+    # tokenize and detokenize.
     llm.reset_defaults(
-        reset_generate=register_generate, reset_embed=register_embed
+        reset_generate=register_generate,
+        reset_tokenize=register_tokenize,
+        reset_embed=register_embed,
     )
     if register_generate:
       llm.generate_text.configure(
@@ -288,6 +296,10 @@ class OpenAIAPI(
       llm.instruct.configure(
           llm.default_instruct, formatter=formatting.FormatterName.API
       )
+    if register_tokenize:
+      # Note: OpenAI API only allows counting tokens and does not support
+      # tokenize and detokenize.
+      llm.count_tokens.configure(self.count_tokens)
     if register_embed:
       llm.embed.configure(self.embed, **self.embed_kwargs)
 
@@ -889,3 +901,83 @@ class OpenAIAPI(
         values = [v / norm for v in values]
 
     return values
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='OpenAIAPI.count_tokens')
+  @caching.cache_method(  # Cache this deterministic method.
+      name='count_tokens',
+      is_sampled=False,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
+  )
+  async def count_tokens(
+      self, content: str | content_lib.ChunkList | Sequence[content_lib.Message]
+  ) -> int:
+    """Count input tokens using the OpenAI Responses API.
+
+    Helps to calculate how many input tokens a request will use before you send
+    it to the model. Uses the input token counting endpoint
+    (client.responses.input_tokens.count) which provides accurate token counts
+    for text, images, tools, and other content types without relying on local
+    tokenizer estimation.
+
+    See https://developers.openai.com/api/docs/guides/token-counting
+
+    Args:
+      content: The content to count tokens for. Can be a plain string, a
+        ChunkList (text-only or multimodal), or a list of Message objects.
+
+    Returns:
+      The number of input tokens.
+    """
+    return await self._count_tokens(content)  # pytype: disable=wrong-arg-count
+
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def _count_tokens(
+      self, content: str | content_lib.ChunkList | Sequence[content_lib.Message]
+  ) -> int:
+    """Inner method for llm.count_tokens."""
+    self._counters['count_tokens'] += 1
+
+    # Convert content to the Responses API input format.
+    if isinstance(content, str):
+      api_input = content
+    elif isinstance(content, content_lib.ChunkList):
+      converted = _convert_content_to_openai_format(content)
+      if isinstance(converted, list):
+        # Multimodal content parts must be wrapped in a message for the
+        # responses.input_tokens.count endpoint.
+        api_input = [{'role': 'user', 'content': converted}]
+      else:
+        api_input = converted
+    elif isinstance(content, Sequence) and all(
+        isinstance(m, content_lib.Message) for m in content
+    ):
+      api_input = _convert_messages_to_input(content)
+    else:
+      raise TypeError(
+          'count_tokens expects str, ChunkList, or Sequence[Message], '
+          f'got {type(content)}'
+      )
+
+    try:
+      response = self._client.responses.input_tokens.count(
+          model=self.model_name,
+          input=api_input,
+      )
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'openai.client.responses.input_tokens.count raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(content)[:100]}'
+      ) from err
+
+    if not response.input_tokens:
+      raise ValueError(
+          'OpenAIAPI.count_tokens returned no token count for request:\n'
+          f'{pprint.pformat(content)[:100]}'
+      )
+    return response.input_tokens

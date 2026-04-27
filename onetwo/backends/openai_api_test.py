@@ -557,5 +557,90 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(result1, result2)
 
 
+class CountTokensTest(
+    parameterized.TestCase, core_test_utils.CounterAssertions
+):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='string',
+          content='Hello world',
+      ),
+      dict(
+          testcase_name='chunklist',
+          content=content_lib.ChunkList([
+              content_lib.Chunk('Hello, '),
+              content_lib.Chunk('world!'),
+          ]),
+      ),
+      dict(
+          testcase_name='messages',
+          content=[
+              _Message(content='What is 2 + 2?', role=_PredefinedRole.USER),
+              _Message(content='2 + 2 equals 4.', role=_PredefinedRole.MODEL),
+              _Message(content='What about 3 + 3?', role=_PredefinedRole.USER),
+          ],
+      ),
+      dict(
+          testcase_name='multimodal_chunklist',
+          content=content_lib.ChunkList([
+              content_lib.Chunk('Describe this image:'),
+              content_lib.Chunk(PIL.Image.new('RGB', (2, 2), color='red')),
+          ]),
+      ),
+  )
+  def test_count_tokens_returns_positive_int(self, content):
+    """Verifies that count_tokens returns a positive int for various inputs."""
+    backend = _get_and_register_backend()
+    result = executing.run(
+        llm.count_tokens(content=content)  # pytype: disable=wrong-keyword-args
+    )
+    with self.subTest('returns_int'):
+      self.assertIsInstance(result, int)
+    with self.subTest('returns_positive'):
+      self.assertGreater(result, 0)
+    expected_backend_counters = collections.Counter({
+        'count_tokens': 1,
+        '_count_tokens_batches': 1,
+    })
+    with self.subTest('sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+  def test_count_tokens_messages_more_than_string(self):
+    """Verifies that messages have more tokens than plain text (overhead)."""
+    _get_and_register_backend()
+    text = 'Hello world'
+    messages = [
+        _Message(content=text, role=_PredefinedRole.USER),
+    ]
+    count_text = executing.run(
+        llm.count_tokens(content=text)  # pytype: disable=wrong-keyword-args
+    )
+    count_messages = executing.run(
+        llm.count_tokens(content=messages)  # pytype: disable=wrong-keyword-args
+    )
+    # Messages should have overhead (per-message + reply primer tokens).
+    self.assertGreater(count_messages, count_text)
+
+  def test_count_tokens_caching(self):
+    """Verifies that count_tokens results are cached."""
+    backend = _get_and_register_backend()
+    content_text = 'Cache me!'
+    # First call.
+    result1 = executing.run(
+        llm.count_tokens(content=content_text)  # pytype: disable=wrong-keyword-args
+    )
+    with self.subTest('first_call_hits_api'):
+      self.assertEqual(backend._counters['count_tokens'], 1)
+    # Second call with same content should be cached.
+    result2 = executing.run(
+        llm.count_tokens(content=content_text)  # pytype: disable=wrong-keyword-args
+    )
+    with self.subTest('second_call_is_cached'):
+      self.assertEqual(backend._counters['count_tokens'], 1)
+    with self.subTest('results_are_equal'):
+      self.assertEqual(result1, result2)
+
+
 if __name__ == '__main__':
   absltest.main()

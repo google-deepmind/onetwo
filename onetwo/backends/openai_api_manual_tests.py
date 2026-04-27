@@ -407,6 +407,93 @@ def main(argv: Sequence[str]) -> None:
     except Exception as e:  # pylint: disable=broad-except
       print(f'Failed to run generate_object with list[int]: {e}')
 
+    print('10. Count tokens with string input.')
+    text = 'The quick brown fox jumps over the lazy dog.'
+    res = executing.run(
+        llm.count_tokens(content=text)  # pytype: disable=wrong-keyword-args
+    )
+    if not isinstance(res, int) or res <= 0:
+      success = False
+      print(f'FAILURE: expected positive int, got {res!r}')
+    elif _PRINT_DEBUG.value:
+      print(f'  Token count for string: {res}')
+
+    print('10.1 Count tokens with ChunkList input.')
+    chunks = content_lib.ChunkList([
+        content_lib.Chunk('Hello, '),
+        content_lib.Chunk('world!'),
+    ])
+    res_chunks = executing.run(
+        llm.count_tokens(content=chunks)  # pytype: disable=wrong-keyword-args
+    )
+    if not isinstance(res_chunks, int) or res_chunks <= 0:
+      success = False
+      print(f'FAILURE: expected positive int, got {res_chunks!r}')
+    elif _PRINT_DEBUG.value:
+      print(f'  Token count for ChunkList: {res_chunks}')
+
+    print('10.2 Count tokens with messages.')
+    messages = [
+        content_lib.Message(
+            role=content_lib.PredefinedRole.USER,
+            content='What is the capital of France?',
+        ),
+        content_lib.Message(
+            role=content_lib.PredefinedRole.MODEL,
+            content='Paris.',
+        ),
+        content_lib.Message(
+            role=content_lib.PredefinedRole.USER,
+            content='And of Germany?',
+        ),
+    ]
+    res_msgs = executing.run(
+        llm.count_tokens(content=messages)  # pytype: disable=wrong-keyword-args
+    )
+    if not isinstance(res_msgs, int) or res_msgs <= 0:
+      success = False
+      print(f'FAILURE: expected positive int, got {res_msgs!r}')
+    elif _PRINT_DEBUG.value:
+      print(f'  Token count for messages: {res_msgs}')
+
+    print('10.3 Count tokens caching check.')
+    counters_before = dict(backend._counters)
+    res_cached = executing.run(
+        llm.count_tokens(content=text)  # pytype: disable=wrong-keyword-args
+    )
+    counters_after = dict(backend._counters)
+    if counters_before != counters_after:
+      success = False
+      print(
+          'FAILURE: counters changed, indicating a cache miss.',
+          counters_before,
+          counters_after,
+      )
+    elif _PRINT_DEBUG.value:
+      print('  Counters did not change, indicating a cache hit.')
+    if res != res_cached:
+      success = False
+      print('FAILURE: cached result does not match original result.')
+
+    print('10.4 Count tokens with image in ChunkList.')
+    try:
+      with open(image_path, 'rb') as f:
+        image_bytes = f.read()
+      image_chunks = content_lib.ChunkList([
+          content_lib.Chunk(content='Describe this image:'),
+          content_lib.Chunk(content=image_bytes, content_type='image/jpeg'),
+      ])
+      res_img = executing.run(
+          llm.count_tokens(content=image_chunks)  # pytype: disable=wrong-keyword-args
+      )
+      if not isinstance(res_img, int) or res_img <= 0:
+        success = False
+        print(f'FAILURE: expected positive int, got {res_img!r}')
+      elif _PRINT_DEBUG.value:
+        print(f'  Token count for image ChunkList: {res_img}')
+    except Exception as e:  # pylint: disable=broad-except
+      print(f'Failed to count tokens with image: {e}')
+
   # Reasoning tests (run outside the per-model loop, using a single model
   # that supports reasoning, e.g. o4-mini).
   print('\n*** Running reasoning and tool tests. ***')
@@ -424,7 +511,7 @@ def main(argv: Sequence[str]) -> None:
   backend.register()
 
   for effort in ['low', 'medium', 'high']:
-    print(f'10. Reasoning effort={effort}.')
+    print(f'11. Reasoning effort={effort}.')
     # Re-register with different reasoning to test per-instance config.
     backend_r = openai_api.OpenAIAPI(
         model_name=reasoning_model,
@@ -453,7 +540,7 @@ def main(argv: Sequence[str]) -> None:
 
   web_search_tool = {'type': 'web_search'}
 
-  print('11. Generate text with a single tool definition.')
+  print('12. Generate text with a single tool definition.')
   backend_t = openai_api.OpenAIAPI(
       model_name=tool_model,
       cache=caching.SimpleFunctionCache(cache_filename=fname_tools),
@@ -471,7 +558,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('11.1 Chat with tools.')
+  print('12.1 Chat with tools.')
   res = executing.run(
       llm.chat(  # pytype: disable=wrong-keyword-args
           messages=[
@@ -486,7 +573,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  print('11.2 Generate text with tools but prompt that does not need them.')
+  print('12.2 Generate text with tools but prompt that does not need them.')
   res = executing.run(
       llm.generate_text(  # pytype: disable=wrong-keyword-args
           prompt='Write a haiku about the ocean.',
@@ -513,7 +600,7 @@ def main(argv: Sequence[str]) -> None:
   )
   backend_embed.register()
 
-  print('12. Check that embed is working.')
+  print('13. Check that embed is working.')
   content = content_lib.ChunkList(
       chunks=[
           content_lib.Chunk(
@@ -538,7 +625,7 @@ def main(argv: Sequence[str]) -> None:
   else:
     print(f'  Returned {len(res)} floats. OK.')
 
-  print('12.1 Same query to see if it has been cached.')
+  print('13.1 Same query to see if it has been cached.')
   counters_before = dict(backend_embed._counters)
   res_cached = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
   counters_after = dict(backend_embed._counters)
@@ -555,7 +642,7 @@ def main(argv: Sequence[str]) -> None:
     success = False
     print('FAILURE: cached result does not match original result.')
 
-  print('13. Check embed norm is 1.0 for various output_dimensionality.')
+  print('14. Check embed norm is 1.0 for various output_dimensionality.')
   embed_content = content_lib.ChunkList(
       chunks=[
           content_lib.Chunk(
@@ -598,7 +685,7 @@ def main(argv: Sequence[str]) -> None:
       success = False
       print(f'  FAIL: norm {vec_norm} is not close to 1.0')
 
-  print('14. Check embed_kwargs default output_dimensionality and normalize.')
+  print('15. Check embed_kwargs default output_dimensionality and normalize.')
   target_dim = 256
   embed_content_14 = content_lib.ChunkList(
       chunks=[
