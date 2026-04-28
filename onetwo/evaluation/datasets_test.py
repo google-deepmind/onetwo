@@ -81,6 +81,33 @@ def _make_hotpotqa_row(
   }
 
 
+def _make_narrativeqa_row(
+    question: str = 'What is the capital of France?',
+    answer: str = 'Paris',
+    doc_id: str = 'test_doc_id_1',
+    doc_text: str = 'France is a country in Europe. Its capital is Paris.',
+    url: str = 'http://example.com/france',
+    summary: str = 'Summary of France',
+    kind: str = 'story',
+) -> dict[str, Any]:
+  """Creates a fake NarrativeQA row mimicking TFDS numpy output."""
+  return {
+      'document': {
+          'id': doc_id.encode('utf-8'),
+          'text': doc_text.encode('utf-8'),
+          'url': url.encode('utf-8'),
+          'summary': summary.encode('utf-8'),
+          'kind': kind.encode('utf-8'),
+      },
+      'question': {
+          'text': question.encode('utf-8'),
+      },
+      'answers': {
+          'text': np.array([answer.encode('utf-8')]),
+      },
+  }
+
+
 class BuildDocumentsTest(parameterized.TestCase):
 
   def setUp(self):
@@ -427,6 +454,195 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     self.assertEqual(loader.split, 'train')
     self.assertEqual(loader.max_number_of_examples, 10)
 
+
+class NarrativeQADatasetLoaderTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='single_row',
+          rows_kwargs=[
+              dict(
+                  question='Q1',
+                  answer='A1',
+              ),
+          ],
+          expected_example_count=1,
+      ),
+      dict(
+          testcase_name='multiple_rows',
+          rows_kwargs=[
+              dict(
+                  question='Q1',
+                  answer='A1',
+              ),
+              dict(
+                  question='Q2',
+                  answer='A2',
+              ),
+          ],
+          expected_example_count=2,
+      ),
+      dict(
+          testcase_name='empty',
+          rows_kwargs=[],
+          expected_example_count=0,
+      ),
+  )
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_load_returns_correct_example_counts(
+      self, mock_tfds, rows_kwargs, expected_example_count
+  ):
+    rows = [_make_narrativeqa_row(**kw) for kw in rows_kwargs]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader(split='train')
+    examples = ot.run(loader.load_examples())
+
+    self.assertLen(examples, expected_example_count)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='single_row',
+          rows_kwargs=[
+              dict(doc_id='D1'),
+          ],
+          expected_doc_count=1,
+      ),
+      dict(
+          testcase_name='multiple_rows_same_doc',
+          rows_kwargs=[
+              dict(doc_id='D1'),
+              dict(doc_id='D1'),
+          ],
+          expected_doc_count=1,
+      ),
+      dict(
+          testcase_name='multiple_rows_different_docs',
+          rows_kwargs=[
+              dict(doc_id='D1'),
+              dict(doc_id='D2'),
+          ],
+          expected_doc_count=2,
+      ),
+  )
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_load_documents_returns_correct_counts(
+      self, mock_tfds, rows_kwargs, expected_doc_count
+  ):
+    rows = [_make_narrativeqa_row(**kw) for kw in rows_kwargs]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader(split='train')
+    documents = ot.run(loader.load_documents())
+
+    self.assertLen(documents, expected_doc_count)
+
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_examples_are_evaluation_compatible(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(question='What color is the sky?', answer='Blue'),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader()
+    examples = ot.run(loader.load_examples())
+
+    example = list(examples)[0]
+    self.assertEqual(example['question'], 'What color is the sky?')
+    self.assertEqual(example['answer'], ['Blue'])
+
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_documents_are_document_instances(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(doc_text='Hello.'),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader()
+    documents = ot.run(loader.load_documents())
+
+    doc = list(documents)[0]
+    self.assertIsInstance(doc, retrieval_data_structures.Document)
+
+  def test_clean_text(self):
+    text = '<html><body><pre>  Line 1  \n  Line 2  </pre></body></html>'
+    cleaned = datasets.NarrativeQADatasetLoader._clean_text(text)
+    self.assertEqual(cleaned, 'Line 1\nLine 2')
+
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_clean_html_flag(self, mock_tfds):
+    html_text = '<html><body>Hello</body></html>'
+    rows = [
+        _make_narrativeqa_row(doc_text=html_text),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader_clean = datasets.NarrativeQADatasetLoader(clean_html=True)
+    docs_clean = ot.run(loader_clean.load_documents())
+    self.assertEqual(list(docs_clean)[0].content, 'Hello')
+
+    mock_tfds.as_numpy.return_value = iter(rows)  # Reset iterator
+    loader_raw = datasets.NarrativeQADatasetLoader(clean_html=False)
+    docs_raw = ot.run(loader_raw.load_documents())
+    self.assertEqual(list(docs_raw)[0].content, html_text)
+
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_load_examples_with_doc_ids_filter(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(question='Q1', doc_id='D1'),
+        _make_narrativeqa_row(question='Q2', doc_id='D2'),
+        _make_narrativeqa_row(question='Q3', doc_id='D1'),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader(doc_ids=['D1'])
+    examples = ot.run(loader.load_examples())
+
+    self.assertLen(examples, 2)
+    self.assertEqual(examples[0]['question'], 'Q1')
+    self.assertEqual(examples[1]['question'], 'Q3')
+
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_load_documents_with_doc_ids_filter(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(doc_id='D1'),
+        _make_narrativeqa_row(doc_id='D2'),
+        _make_narrativeqa_row(doc_id='D1'),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader(doc_ids=['D1'])
+    documents = ot.run(loader.load_documents())
+
+    self.assertLen(documents, 1)
+    self.assertEqual(list(documents)[0].doc_id, 'D1')
+
+  @mock.patch('onetwo.evaluation.datasets.tfds')
+  def test_load_examples_with_doc_ids_and_max_examples(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(question='Q1', doc_id='D1'),
+        _make_narrativeqa_row(question='Q2', doc_id='D2'),
+        _make_narrativeqa_row(question='Q3', doc_id='D1'),
+        _make_narrativeqa_row(question='Q4', doc_id='D1'),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = datasets.NarrativeQADatasetLoader(
+        doc_ids=['D1'], max_number_of_examples=2
+    )
+    examples = ot.run(loader.load_examples())
+
+    self.assertLen(examples, 2)
+    self.assertEqual(examples[0]['question'], 'Q1')
+    self.assertEqual(examples[1]['question'], 'Q3')
 
 if __name__ == '__main__':
   absltest.main()

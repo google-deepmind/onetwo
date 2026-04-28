@@ -17,6 +17,7 @@ keywords = []
 dependencies = [
     "absl-py",
     "aenum",
+    "bs4",
     "dataclasses-json",
     "datasets",
     "tensorflow-datasets",
@@ -28,6 +29,7 @@ dependencies = [
     "google-generativeai",
     "html5lib",
     "immutabledict",
+    "importlib-resources",
     "jinja2",
     "numpy",
     "openai",
