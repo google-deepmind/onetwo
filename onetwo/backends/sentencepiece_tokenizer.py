@@ -120,6 +120,23 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
       raise ValueError('model_name must be specified.')
     self._model = self._load_model()
 
+  def count_tokens(self, text: str) -> int:
+    """Counts the number of tokens in the given text.
+
+    This is a lightweight, synchronous helper that calls the underlying
+    SentencePiece model directly, bypassing OneTwo's
+    executing/batching/tracing/retry stack.  Use this for bulk metrics
+    computation (IO summaries, document stats) where the full decorator
+    overhead is unnecessary.
+
+    Args:
+      text: The text to count tokens for.
+
+    Returns:
+      The number of tokens.
+    """
+    return len(self._model.EncodeAsIds(text))
+
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(
       name='SentencePieceTokenizer.tokenize', skip=['content', 'output']
