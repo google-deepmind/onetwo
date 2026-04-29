@@ -607,27 +607,38 @@ def write_evaluation_summary_as_json(
   # Make sure that the contents of each file that we will write are sorted in a
   # consistent order.
   sorted_keys = [summary.example_keys[i] for i in sorted(summary.example_keys)]
-  results_list = [
-      summary.results[key] for key in sorted_keys if key in summary.results
-  ]
-  results_debug_list = [
-      summary.results_debug[key]
-      for key in sorted_keys
-      if key in summary.results_debug
-  ]
 
-  # Write json files.
+  # Write simple json files.
   object_by_file = {
       'metrics.json': summary.metrics,
       'counters.json': summary.counters,
-      'results.json': [x.to_dict() if x else {} for x in results_list],
-      'results_debug.json': [x.to_dict() for x in results_debug_list],
       'final_states.json': summary.final_states,
   }
   for filename, data_object in object_by_file.items():
     logging.info('Writing json file: %s', filename)
     with open(os.path.join(output_dir, filename), 'w') as f:
       json.dump(data_object, f, indent=4, default=str, sort_keys=True)
+
+  # Write (potentially) large json files incrementally.
+  def _stream_results_to_json(f, results_dict):
+    f.write('[\n')
+    first = True
+    for key in sorted_keys:
+      if key not in results_dict:
+        continue
+      if not first:
+        f.write(',\n')
+      json.dump(
+          results_dict[key].to_dict(), f, indent=4, default=str, sort_keys=True
+      )
+      first = False
+    f.write('\n]')
+
+  with open(os.path.join(output_dir, 'results.json'), 'w') as f:
+    _stream_results_to_json(f, summary.results)
+
+  with open(os.path.join(output_dir, 'results_debug.json'), 'w') as f:
+    _stream_results_to_json(f, summary.results_debug)
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
