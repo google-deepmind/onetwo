@@ -27,20 +27,20 @@ class ConstrainedRetrievalTest(absltest.TestCase):
     # Mock 'inverted index' where: Field -> Value -> List of IDs.
     self.field_to_val_id_map = {
         'color': {
-            'red': [10, 20, 30],
-            'blue': [11, 21, 31],
+            'red': ['10', '20', '30'],
+            'blue': ['11', '21', '31'],
         },
         'status': {
-            'active': [10, 11, 20],
-            'archived': [21, 30, 31],
+            'active': ['10', '11', '20'],
+            'archived': ['21', '30', '31'],
         },
         'tags': {
-            'priority': [10, 31],
+            'priority': ['10', '31'],
         },
     }
 
   def test_get_indices_for_constraint_equals(self):
-    val_map = {'red': [10, 20], 'blue': [30]}
+    val_map = {'red': ['10', '20'], 'blue': ['30']}
     constraint = RetrievalConstraint(
         field_name='color',
         constraint_type=RetrievalConstraintType.EQUALS,
@@ -49,10 +49,10 @@ class ConstrainedRetrievalTest(absltest.TestCase):
     result = constrained_retrieval.get_indices_for_constraint(
         constraint, val_map
     )
-    self.assertEqual(result, {10, 20})
+    self.assertEqual(result, {'10', '20'})
 
   def test_get_indices_for_constraint_list_contains_any(self):
-    val_map = {'A': [1], 'B': [2], 'C': [3]}
+    val_map = {'A': ['1'], 'B': ['2'], 'C': ['3']}
     constraint = RetrievalConstraint(
         field_name='category',
         constraint_type=RetrievalConstraintType.LIST_CONTAINS_ANY,
@@ -61,10 +61,10 @@ class ConstrainedRetrievalTest(absltest.TestCase):
     result = constrained_retrieval.get_indices_for_constraint(
         constraint, val_map
     )
-    self.assertEqual(result, {1, 3})
+    self.assertEqual(result, {'1', '3'})
 
   def test_get_candidate_indices_and_intersection(self):
-    # red ([10, 20, 30]) AND active ([10, 11, 20]) -> [10, 20]
+    # red (['10', '20', '30']) AND active (['10', '11', '20']) -> ['10', '20']
     constraints = RetrievalConstraints(
         constraints=[
             RetrievalConstraint(
@@ -82,7 +82,7 @@ class ConstrainedRetrievalTest(absltest.TestCase):
     result = constrained_retrieval.get_candidate_indices(
         constraints, self.field_to_val_id_map
     )
-    self.assertEqual(result, [10, 20])
+    self.assertEqual(result, ['10', '20'])
 
   def test_get_candidate_indices_early_exit(self):
     # blue ([11, 21, 31]) AND priority ([10, 31]) -> [31].

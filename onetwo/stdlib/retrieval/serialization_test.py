@@ -51,8 +51,8 @@ class SerializationTest(absltest.TestCase):
             np.array([1.0, 2.0], dtype=np.float32),
             np.array([3.0, 4.0], dtype=np.float32),
         ],
-        doc_indices_by_discrete_value={
-            'external_keys': {'key1': [0], 'key2': [1]}
+        doc_ids_by_discrete_value={
+            'external_keys': {'key1': ['id1'], 'key2': ['id2']}
         },
     )
     serializer.save(state, self.test_dir)
@@ -80,8 +80,8 @@ class SerializationTest(absltest.TestCase):
     )
 
     self.assertEqual(
-        new_state.doc_indices_by_discrete_value,
-        state.doc_indices_by_discrete_value,
+        new_state.doc_ids_by_discrete_value,
+        state.doc_ids_by_discrete_value,
     )
 
   def test_simple_serializer_init_raises_error(self):

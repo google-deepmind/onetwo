@@ -796,15 +796,15 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
     with self.subTest('verify_correct_attributes'):
       self.assertEqual(new_index.inner_index._docs, docs)
       self.assertEqual(
-          new_index.inner_index._doc_indices_by_discrete_value,
-          {'external_keys': {'a': [0], 'b': [1]}},
+          new_index.inner_index._doc_ids_by_discrete_value,
+          {'external_keys': {'a': ['a'], 'b': ['b']}},
       )
 
     with self.subTest('individual_attributes_match'):
       self.assertEqual(
-          new_index.inner_index._doc_indices_by_discrete_value,
-          index.inner_index._doc_indices_by_discrete_value,
-          '_doc_indices_by_discrete_value mismatch',
+          new_index.inner_index._doc_ids_by_discrete_value,
+          index.inner_index._doc_ids_by_discrete_value,
+          '_doc_ids_by_discrete_value mismatch',
       )
 
       self.assertEqual(
@@ -857,17 +857,17 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
 
     with self.subTest('rename_with_defaultdict_works'):
       new_index.rename_discrete_field_key('external_keys', 'old', 'new')
-      index_for_field = new_index.inner_index._doc_indices_by_discrete_value[
+      index_for_field = new_index.inner_index._doc_ids_by_discrete_value[
           'external_keys'
       ]
       self.assertNotIn('old', index_for_field)
       self.assertIn('new', index_for_field)
-      self.assertEqual(index_for_field['new'], [0])
+      self.assertEqual(index_for_field['new'], ['a'])
 
       new_index.rename_discrete_field_key('external_keys', 'new', 'another')
       new_index.rename_discrete_field_key('external_keys', 'another', 'new')
       self.assertIn('new', index_for_field)
-      self.assertEqual(index_for_field['new'], [0])
+      self.assertEqual(index_for_field['new'], ['a'])
 
 
 class PickleabilityTest(absltest.TestCase):
@@ -909,7 +909,7 @@ class PickleabilityTest(absltest.TestCase):
     restored = pickle.loads(pickle.dumps(index))
     self.assertEqual(restored.num_docs, 0)
     self.assertIsInstance(
-        restored._doc_indices_by_discrete_value, collections.defaultdict
+        restored._doc_ids_by_discrete_value, collections.defaultdict
     )
 
   def test_populated_embedding_based_index_is_pickleable(self):
@@ -932,25 +932,25 @@ class PickleabilityTest(absltest.TestCase):
     self.assertEqual(restored_docs[1].doc_id, 'doc2')
 
   def test_doc_indices_by_discrete_value_is_pickleable(self):
-    """The _doc_indices_by_discrete_value defaultdict survives pickling."""
+    """The _doc_ids_by_discrete_value defaultdict survives pickling."""
     index = indexing.EmbeddingBasedIndex()
     # Manually populate the discrete value index to simulate what add_docs does,
     # without needing a pickleable extractor function.
-    index._doc_indices_by_discrete_value['title']['Geography'].append(0)
-    index._doc_indices_by_discrete_value['title']['History'].append(1)
+    index._doc_ids_by_discrete_value['title']['Geography'].append('doc1')
+    index._doc_ids_by_discrete_value['title']['History'].append('doc2')
 
     restored = pickle.loads(pickle.dumps(index))
     # The discrete value index should be preserved.
-    self.assertIn('title', restored._doc_indices_by_discrete_value)
+    self.assertIn('title', restored._doc_ids_by_discrete_value)
     self.assertEqual(
-        restored._doc_indices_by_discrete_value['title']['Geography'], [0]
+        restored._doc_ids_by_discrete_value['title']['Geography'], ['doc1']
     )
     self.assertEqual(
-        restored._doc_indices_by_discrete_value['title']['History'], [1]
+        restored._doc_ids_by_discrete_value['title']['History'], ['doc2']
     )
     # defaultdict behavior should be preserved after unpickling.
     self.assertEqual(
-        restored._doc_indices_by_discrete_value['new_field']['new_val'], []
+        restored._doc_ids_by_discrete_value['new_field']['new_val'], []
     )
 
   def test_embedding_based_document_index_is_pickleable(self):

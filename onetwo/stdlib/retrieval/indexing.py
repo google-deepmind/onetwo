@@ -504,12 +504,19 @@ class EmbeddingBasedIndex(
 
   # Internal reverse index for discrete field values, used for constrained
   # retrieval. This is a mapping from field name to a mapping of field value to
-  # a list of matching document indices. The name is qualified with 'discrete_'
+  # a list of matching document IDs. The name is qualified with 'discrete_'
   # to distinguish it from potential future fields whose values are not discrete
   # (e.g., continuous values for which constraints may be specified in terms of
   # a value range).
-  _doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]] = (
+  _doc_ids_by_discrete_value: dict[str, dict[Any, list[str]]] = (
       dataclasses.field(default_factory=_default_discrete_value_map)
+  )
+
+  # Mapping from `doc_id` to the document's position in the `_docs` list. This
+  # is used to map doc_ids back to their positions in the `_docs` list for
+  # constrained retrieval.
+  _doc_id_to_pos: dict[str, int] = dataclasses.field(
+      default_factory=dict
   )
 
   @executing.make_executable(copy_self=False)
@@ -540,34 +547,30 @@ class EmbeddingBasedIndex(
     """Overridden from base class (Index)."""
     return self._docs
 
-  def _update_doc_indices_by_discrete_value(
+  def _update_doc_ids_by_discrete_value(
       self,
       docs: Sequence[DocT],
-      doc_offset: int,
   ) -> None:
     """Updates the field value to doc indices mapping."""
-    for i, doc in enumerate(docs):
-      doc_index = doc_offset + i
+    for doc in docs:
+      doc_id = getattr(doc, 'doc_id', None)
+      if doc_id is None:
+        raise ValueError(f'Doc missing doc_id: {doc}')
       for field_name, extractor in self.discrete_field_extractors.items():
         value = extractor(doc)
         if isinstance(value, list):
           for val in value:
-            self._doc_indices_by_discrete_value[field_name][val].append(
-                doc_index
-            )
+            self._doc_ids_by_discrete_value[field_name][val].append(doc_id)
         else:
-          self._doc_indices_by_discrete_value[field_name][value].append(
-              doc_index
-          )
+          self._doc_ids_by_discrete_value[field_name][value].append(doc_id)
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.add_docs')
   async def add_docs(self, docs: Sequence[DocT]) -> None:
     """Overridden from base class (Index)."""
     _validate_docs(docs)
-    num_existing_docs = len(self._docs)
     self._docs.extend(docs)
-    self._update_doc_indices_by_discrete_value(docs, num_existing_docs)
+    self._update_doc_ids_by_discrete_value(docs)
     embedded_results = await self._calculate_doc_embeddings(docs)  # pytype: disable=wrong-arg-count
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])
     # Build the searcher index.
@@ -599,11 +602,22 @@ class EmbeddingBasedIndex(
     # For compatibility with search_batched, which expects a batch of queries.
     query_embeddings = np.array([query_embedding])
     if constraints is not None:
-      candidate_indices_list = constrained_retrieval.get_candidate_indices(
-          constraints, self._doc_indices_by_discrete_value
+      candidate_doc_ids = constrained_retrieval.get_candidate_indices(
+          constraints, self._doc_ids_by_discrete_value
       )
-      if not candidate_indices_list:
+      if not candidate_doc_ids:
         return []
+
+      # Build the doc_id_to_pos mapping if it doesn't exist.
+      if not self._doc_id_to_pos:
+        self._doc_id_to_pos = {
+            getattr(doc, 'doc_id', None): i for i, doc in enumerate(self._docs)
+        }
+      candidate_indices_list = [
+          self._doc_id_to_pos[doc_id]
+          for doc_id in candidate_doc_ids
+          if doc_id in self._doc_id_to_pos
+      ]
 
       # Pass the candidate_indices_list to search_batched.
       # The searcher will handle searching only within these indices.
@@ -699,12 +713,12 @@ class EmbeddingBasedIndex(
     Raises:
       ValueError: If `field_name` is not a known discrete field index.
     """
-    if field_name not in self._doc_indices_by_discrete_value:
+    if field_name not in self._doc_ids_by_discrete_value:
       raise ValueError(
           f"Field '{field_name}' not found in discrete field indices."
       )
 
-    index_for_field = self._doc_indices_by_discrete_value[field_name]
+    index_for_field = self._doc_ids_by_discrete_value[field_name]
     if old_key in index_for_field:
       doc_indices = index_for_field.pop(old_key)
       index_for_field[new_key].extend(doc_indices)
@@ -714,7 +728,7 @@ class EmbeddingBasedIndex(
     """Overridden from base class (Index)."""
     self._docs = []
     self._doc_embeddings = []
-    self._doc_indices_by_discrete_value = {}
+    self._doc_ids_by_discrete_value = {}
     self.searcher.destroy()
 
 
@@ -788,7 +802,7 @@ class EmbeddingBasedDocumentIndex(
     index_state_dto = index_state.EmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
-        doc_indices_by_discrete_value=self._doc_indices_by_discrete_value,
+        doc_ids_by_discrete_value=self._doc_ids_by_discrete_value,
     )
     serializer(Document).save(index_state_dto, base_path)
 
@@ -798,8 +812,8 @@ class EmbeddingBasedDocumentIndex(
     index_state_dto = await serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
-    self._doc_indices_by_discrete_value = (
-        index_state_dto.doc_indices_by_discrete_value
+    self._doc_ids_by_discrete_value = (
+        index_state_dto.doc_ids_by_discrete_value
     )
     # Build the searcher index.
     await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count

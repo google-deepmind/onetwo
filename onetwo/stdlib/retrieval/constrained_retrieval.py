@@ -102,8 +102,8 @@ class RetrievalConstraints:
 
 def get_indices_for_constraint(
     constraint: RetrievalConstraint,
-    value_to_id_map: dict[Any, list[int]],
-) -> set[int]:
+    value_to_id_map: dict[Any, list[str]],
+) -> set[str]:
   """Returns the set of IDs satisfying a single retrieval constraint.
 
   Args:
@@ -129,20 +129,21 @@ def get_indices_for_constraint(
 
 def get_candidate_indices(
     constraints: RetrievalConstraints | None,
-    field_to_val_id_map: dict[str, dict[Any, list[int]]],
-) -> list[int] | None:
+    field_to_val_id_map: dict[str, dict[Any, list[str]]],
+) -> list[str] | None:
   """Returns a sorted list of IDs satisfying all constraints (AND logic).
 
   Args:
     constraints: The collection of constraints to apply.
     field_to_val_id_map: A nested dictionary where the outer key is the field
       name and the inner dictionary is the mapping of values to IDs. Example:
-      {'color': {'red': [101, 102], 'blue': [103]}, 'size': {'S': [101, 103]}}
+      {'color': {'red': ['id1', 'id2'], 'blue': ['id3']}, 'size': {'S': ['id1',
+      'id3']}}
   """
   if not constraints or not constraints.constraints:
     return None
 
-  candidate_set: set[int] | None = None
+  candidate_set: set[str] | None = None
 
   for constraint in constraints.constraints:
     field_name = constraint.field_name
