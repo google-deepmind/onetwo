@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+import contextlib
 import dataclasses
 import json
 import math
@@ -77,15 +78,78 @@ _THREADPOOL_SIZE = flags.DEFINE_integer(
 )
 
 
-def _run_test(num: float, description: str):
-  if _RUN_ONLY.value and str(num) not in _RUN_ONLY.value:
-    return False
+def _should_run_test(num: float) -> bool:
+  """Returns whether the test should run based on --run_only filter."""
+  return not _RUN_ONLY.value or str(num) in _RUN_ONLY.value
+
+
+class _TestCase:
+  """Tracks pass/fail state for a single test."""
+
+  def __init__(self) -> None:
+    self.passed = True
+
+  def fail(self, message: str) -> None:
+    self.passed = False
+    print(f'FAIL: {message}')
+
+
+@contextlib.contextmanager
+def _run_test(
+    num: float,
+    description: str,
+    test_results: list[tuple[float, str, bool]],
+) -> Iterator[_TestCase]:
+  """Context manager that runs a test and catches any exceptions.
+
+  Usage:
+    if _should_run_test(1):
+      with _run_test(1, 'description', test_results) as tc:
+        ... test body ...
+        if something_wrong:
+          tc.fail('reason')
+
+  If the body raises an exception or tc.fail() is called, the test is recorded
+  as failed. This ensures the test suite always runs to completion.
+
+  Args:
+    num: Test number.
+    description: Test description.
+    test_results: List of (num, description, passed) tuples tracking per-test
+      results.
+
+  Yields:
+    A _TestCase object with a fail() method for inline assertion failures.
+  """
   print(f'{num}. {description}.')
-  return True
+  tc = _TestCase()
+  try:
+    yield tc
+    test_results.append((num, description, tc.passed))
+  except Exception as e:  # pylint: disable=broad-except
+    test_results.append((num, description, False))
+    print(f'FAIL: {type(e).__name__}: {e}')
+
+
+def _print_summary(test_results: list[tuple[float, str, bool]]) -> bool:
+  """Prints a per-test summary and returns True if all tests passed."""
+  print('\n' + '=' * 60)
+  print('TEST SUMMARY')
+  print('=' * 60)
+  all_passed = True
+  for num, description, passed in test_results:
+    status = 'PASS' if passed else 'FAIL'
+    print(f'  {num:5}. {description}: {status}')
+    if not passed:
+      all_passed = False
+  print('=' * 60)
+  print('OVERALL:', 'PASS' if all_passed else 'FAIL')
+  print('=' * 60)
+  return all_passed
 
 
 def main(argv: Sequence[str]) -> None:
-  success = True
+  test_results: list[tuple[float, str, bool]] = []
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
@@ -103,6 +167,19 @@ def main(argv: Sequence[str]) -> None:
     location = _LOCATION.value
   else:
     raise ValueError('Either --api_key or (--project, --location) must be set.')
+  generate_config = {
+      'safety_settings': google_genai_api.SAFETY_DISABLED,
+      # Use a small thinking budget to reduce cost while keeping the model
+      # functional. Gemini 2.5 models were trained with budgets >= 64, so
+      # values below that may be unreliable. Note: max_output_tokens in the
+      # GenAI API is a combined budget for thinking + response tokens, so
+      # per-call max_tokens must be larger than thinking_budget to leave room
+      # for the actual output.
+      'thinking_config': genai_types.ThinkingConfig(
+          include_thoughts=False,
+          thinking_budget=128,
+      ),
+  }
   backend = google_genai_api.GoogleGenAIAPI(
       api_key=api_key,
       vertexai=vertexai,
@@ -111,6 +188,10 @@ def main(argv: Sequence[str]) -> None:
       threadpool_size=_THREADPOOL_SIZE.value,
       cache=cache,
       max_retries=5,
+      generate_text_kwargs=generate_config,
+      generate_object_kwargs=generate_config,
+      generate_content_kwargs=generate_config,
+      chat_kwargs=generate_config,
   )
   backend.register()
 
@@ -123,18 +204,11 @@ def main(argv: Sequence[str]) -> None:
       threadpool_size=_THREADPOOL_SIZE.value,
       cache=cache,
       max_retries=5,
+      generate_text_kwargs=generate_config,
+      generate_object_kwargs=generate_config,
+      generate_content_kwargs=generate_config,
+      chat_kwargs=generate_config,
   )
-
-  # Disable (or limit) thinking by default to reduce cost and avoid subtle
-  # interactions with the `max_tokens` parameter (which gets applied to the sum
-  # of the thinking tokens and actual output tokens).
-  thinking_config = genai_types.ThinkingConfig(
-      include_thoughts=False,
-      thinking_budget=0,
-  )
-  llm.generate_text.update(thinking_config=thinking_config)
-  llm.generate_object.update(thinking_config=thinking_config)
-  llm.chat.update(thinking_config=thinking_config)
 
   if _LOAD_CACHE.value:
     print('Loading cache from file %s', fname)
@@ -176,207 +250,225 @@ def main(argv: Sequence[str]) -> None:
     Question: Differentiate $\\frac{1}{\\log(x)}$.
   """
 
-  if _run_test(1, 'A single generate query'):
-    res = executing.run(
-        check_and_complete(
-            prompt_text=prompt_text,
-            stop=['\n\n'],
-            max_tokens=5,
-        )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-    print('1.1 Same query to see if it has been cached.')
-    res = executing.run(
-        check_and_complete(
-            prompt_text=prompt_text,
-            stop=['\n\n'],
-            max_tokens=5,
-        )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-    print('1.2 Same query but different parameters, run requests again.')
-    res = executing.run(
-        check_and_complete(
-            prompt_text=prompt_text,
-            temperature=0.0,
-            stop=['\n\n'],
-            max_tokens=5,
-        )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-  if _run_test(2, 'Repeated generate request'):
-    exe = executing.par_iter(
-        sampling.repeat(
-            executable=check_and_complete(
-                'Today is', temperature=0.5, max_tokens=5, stop=['.']
-            ),
-            num_repeats=5,
-        )
-    )
-    res = executing.run(exe)
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-  if _run_test(3, 'Three batched generate queries'):
-    exe = executing.par_iter([
-        check_and_complete(prompt_text='In summer', max_tokens=5),
-        check_and_complete(prompt_text='In winter', max_tokens=7),
-        check_and_complete(prompt_text='In autumn', max_tokens=9),
-    ])
-    res = executing.run(exe)
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-  if _run_test(4, 'Prompt that does not fit into maximal token length'):
-    value_error_raised = False
-    try:
-      # This call should fail and raise ValueError in _batch_generate.
-      _ = executing.run(
+  if _should_run_test(1):
+    with _run_test(1, 'A single generate query', test_results) as tc:
+      res = executing.run(
           check_and_complete(
-              ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))
+              prompt_text=prompt_text,
+              stop=['\n\n'],
+              max_tokens=300,
           )
       )
-    except ValueError as err:
-      err_repr = repr(err)
-      if not (
-          (
-              'INVALID_ARGUMENT' in err_repr
-              and 'exceeds the maximum number of tokens allowed' in err_repr
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+      print('1.1 Same query to see if it has been cached.')
+      res = executing.run(
+          check_and_complete(
+              prompt_text=prompt_text,
+              stop=['\n\n'],
+              max_tokens=300,
           )
-          or 'RESOURCE_EXHAUSTED' in err_repr
-          or 'Quota exceeded' in err_repr
-      ):
-        success = False
-        print(
-            'FAIL: ValueError raised, but not with the expected message.', err
-        )
-      value_error_raised = True
+      )
       if _PRINT_DEBUG.value:
-        print('ValueError raised.')
-    if not value_error_raised:
-      success = False
-      print('FAIL: ValueError not raised.')
-
-  if _run_test(5, 'Three batched generate queries, one of which does not fit'):
-    exe = executing.par_iter([
-        check_and_complete(prompt_text='In summer', max_tokens=1),
-        check_and_complete(prompt_text='In winter', max_tokens=32),
-        check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),
-    ])
-    value_error_raised = False
-    try:
-      _ = executing.run(exe)
-    except ValueError as err:
-      err_repr = repr(err)
-      if not (
-          'INVALID_ARGUMENT' in err_repr
-          or 'RESOURCE_EXHAUSTED' in err_repr
-          or 'Quota exceeded' in err_repr
-      ):
-        success = False
-        print(
-            'FAIL: ValueError raised, but not with the expected message:', err
-        )
-      value_error_raised = True
+        print('Returned value(s):')
+        pprint.pprint(res)
+      print('1.2 Same query but different parameters, run requests again.')
+      res = executing.run(
+          check_and_complete(
+              prompt_text=prompt_text,
+              temperature=0.0,
+              stop=['\n\n'],
+              max_tokens=300,
+          )
+      )
       if _PRINT_DEBUG.value:
-        print('ValueError raised.')
-    if not value_error_raised:
-      success = False
-      print('FAIL: ValueError not raised.')
+        print('Returned value(s):')
+        pprint.pprint(res)
 
-  if _run_test(6.1, 'Generate an image'):
-    with routing.RegistryContext():
-      image_backend.register()
+  if _should_run_test(2):
+    with _run_test(2, 'Repeated generate request', test_results) as tc:
+      exe = executing.par_iter(
+          sampling.repeat(
+              executable=check_and_complete(
+                  'Today is', temperature=0.5, max_tokens=300, stop=['.']
+              ),
+              num_repeats=5,
+          )
+      )
+      res = executing.run(exe)
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+  if _should_run_test(3):
+    with _run_test(3, 'Three batched generate queries', test_results) as tc:
+      exe = executing.par_iter([
+          check_and_complete(prompt_text='In summer', max_tokens=300),
+          check_and_complete(prompt_text='In winter', max_tokens=300),
+          check_and_complete(prompt_text='In autumn', max_tokens=300),
+      ])
+      res = executing.run(exe)
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+  if _should_run_test(4):
+    with _run_test(4, 'Prompt that does not fit into maximal token length', test_results) as tc:
+      value_error_raised = False
+      try:
+        # This call should fail and raise ValueError in _batch_generate.
+        _ = executing.run(
+            check_and_complete(
+                ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))
+            )
+        )
+      except ValueError as err:
+        err_repr = repr(err)
+        if not (
+            (
+                'INVALID_ARGUMENT' in err_repr
+                and 'exceeds the maximum number of tokens allowed' in err_repr
+            )
+            or 'RESOURCE_EXHAUSTED' in err_repr
+            or 'Quota exceeded' in err_repr
+        ):
+          tc.fail(
+              'ValueError raised, but not with the expected message: '
+              + repr(err)
+          )
+        value_error_raised = True
+        if _PRINT_DEBUG.value:
+          print('ValueError raised.')
+      if not value_error_raised:
+        tc.fail('ValueError not raised.')
+
+  if _should_run_test(5):
+    with _run_test(5, 'Three batched generate queries, one of which does not fit', test_results) as tc:
+      exe = executing.par_iter([
+          check_and_complete(prompt_text='In summer', max_tokens=300),
+          check_and_complete(prompt_text='In winter', max_tokens=300),
+          check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),
+      ])
+      value_error_raised = False
+      try:
+        _ = executing.run(exe)
+      except ValueError as err:
+        err_repr = repr(err)
+        if not (
+            'INVALID_ARGUMENT' in err_repr
+            or 'RESOURCE_EXHAUSTED' in err_repr
+            or 'Quota exceeded' in err_repr
+        ):
+          tc.fail(
+              'ValueError raised, but not with the expected message: '
+              + repr(err)
+          )
+        value_error_raised = True
+        if _PRINT_DEBUG.value:
+          print('ValueError raised.')
+      if not value_error_raised:
+        tc.fail('ValueError not raised.')
+
+  if _should_run_test(6.1):
+    with _run_test(6.1, 'Generate an image', test_results) as tc:
+      with routing.RegistryContext():
+        image_backend.register()
+        res = executing.run(
+            generate_contents_direct(
+                image_backend,
+                prompt="""Create a picture of a banana disguised as superhero.""",
+                temperature=2,
+                safety_settings=google_genai_api.SAFETY_DISABLED,
+            )
+        )[0]
+      has_image = False
+      for ch in res:
+        if ch.content_type.startswith('image/'):  # pytype: disable=attribute-error
+          has_image = True
+      print('- Has image: ', has_image)
+      if not has_image:
+        tc.fail('No image returned.')
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+      # Switch back to default backend.
+      backend.register()
+
+  if _should_run_test(6.2):
+    with _run_test(6.2, 'Generate candidates', test_results) as tc:
       res = executing.run(
           generate_contents_direct(
-              image_backend,
-              prompt="""Create a picture of a banana disguised as superhero.""",
+              backend,
+              prompt="""How are you doing? In one word.""",
+              samples=3,
               temperature=2,
+              response_mime_type='application/json',
+              response_schema={
+                  'type': 'STRING',
+                  'pattern': '(terrible|excellent|well|average|meh|bad|awesome)',
+              },
+              safety_settings=google_genai_api.SAFETY_DISABLED,
           )
-      )[0]
-    has_image = False
-    for ch in res:
-      if ch.content_type.startswith('image/'):  # pytype: disable=attribute-error
-        has_image = True
-    print('- Has image: ', has_image)
-    if not has_image:
-      success = False
-      print('FAIL: No image returned.')
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-    # Switch back to default backend.
-    backend.register()
-
-  if _run_test(6.2, 'Generate candidates'):
-    res = executing.run(
-        generate_contents_direct(
-            backend,
-            prompt="""How are you doing? In one word.""",
-            samples=3,
-            temperature=2,
-            response_mime_type='application/json',
-            response_schema={
-                'type': 'STRING',
-                'pattern': '(terrible|excellent|well|average|meh|bad|awesome)',
-            },
-        )
-    )
-    uniq = len({str(r): False for r in res})
-    print('- Candidates:', len(res), ' distinct:', uniq)
-    if _PRINT_DEBUG.value:
-      for candidate in res:
-        print('Returned value(s):')
-        pprint.pprint(candidate)
-
-  if _run_test(7, 'Healing prompt'):
-    print('7.1 Generate text without healing.')
-    # Expect something weird to happen.
-    executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
-        prompt='When I sat on ',
-        temperature=0.0,
-        max_tokens=10,
-        healing_option=llm.TokenHealingOption.NONE,
-    )
-    res = executing.run(executable)
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-    print('7.2 Generate text with space healing.')
-    executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
-        prompt='When I sat on ',
-        temperature=0.0,
-        max_tokens=10,
-        healing_option=llm.TokenHealingOption.SPACE_HEALING,
-    )
-    res = executing.run(executable)
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-  if _run_test(8, 'Use ChunkList'):
-    executable = (
-        c.c('What is the answer to this question: ')
-        + c.c('What is the third planet from the sun? ')
-        + c.store('answer', c.generate_text())
-    )
-    _ = executing.run(executable)
-    if 'earth' not in executable['answer'].lower():
-      success = False
-      print(
-          'FAIL: Returned value does not contain "earth":', executable['answer']
       )
-    if _PRINT_DEBUG.value:
-      print('Returned value:', executable['answer'])
+      uniq = len({str(r): False for r in res})
+      print('- Candidates:', len(res), ' distinct:', uniq)
+      if _PRINT_DEBUG.value:
+        for candidate in res:
+          print('Returned value(s):')
+          pprint.pprint(candidate)
+
+  if _should_run_test(7):
+    with _run_test(7, 'Healing prompt', test_results) as tc:
+      print('7.1 Generate text without healing.')
+      # With no healing, the trailing space may cause unexpected behavior
+      # (e.g., empty response). We log the result but don't fail the test.
+      executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='The capital of France is ',
+          temperature=0.0,
+          max_tokens=300,
+          healing_option=llm.TokenHealingOption.NONE,
+      )
+      try:
+        res = executing.run(executable)
+        if _PRINT_DEBUG.value:
+          print('Returned value(s):')
+          pprint.pprint(res)
+      except ValueError as e:
+        # Empty responses are expected for prompts with trailing spaces.
+        print(f'NOTE: Raised ValueError (expected for trailing-space prompt): {e}')
+      print('7.2 Generate text with space healing.')
+      # Space healing strips the trailing space, so the model receives a normal
+      # prompt and should reliably produce a response containing "Paris".
+      executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='The capital of France is ',
+          temperature=0.0,
+          max_tokens=300,
+          healing_option=llm.TokenHealingOption.SPACE_HEALING,
+      )
+      res = executing.run(executable)
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+      if 'paris' not in res.lower():
+        tc.fail(
+            'Returned value does not contain \"paris\": ' + repr(res)
+        )
+
+  if _should_run_test(8):
+    with _run_test(8, 'Use ChunkList', test_results) as tc:
+      executable = (
+          c.c('What is the answer to this question: ')
+          + c.c('What is the third planet from the sun? ')
+          + c.store('answer', c.generate_text())
+      )
+      _ = executing.run(executable)
+      if 'earth' not in executable['answer'].lower():
+        tc.fail(
+            'Returned value does not contain "earth": ' + executable['answer']
+        )
+      if _PRINT_DEBUG.value:
+        print('Returned value:', executable['answer'])
 
   time2 = time.time()
   print('Took %.4fsec running requests.' % (time2 - time1))
@@ -385,223 +477,252 @@ def main(argv: Sequence[str]) -> None:
     time3 = time.time()
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
-  if _run_test(9, 'Check that generate_texts is working'):
-    res = executing.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
-            prompt=prompt_text,
-            samples=3,
-            stop=['\n\n'],
-            max_tokens=5,
-        )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-  if _run_test(10, 'Formatting'):
-    print('10.1 Check that chat is working (API formatting).')
-    res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
-            messages=[
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='What is the capital of France?',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.MODEL,
-                    content='Obviously, it is Paris.',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='What is the capital of Germany?',
-                ),
-            ],
-            temperature=0.5,
-            max_tokens=15,
-            stop=['.'],
-        )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-    print('10.2 Check that chat completes the model prefix.')
-    res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
-            messages=[
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='Tell me a real short story?',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.MODEL,
-                    content='Once upon a',
-                ),
-            ],
-            temperature=0.5,
-            max_tokens=1000,
-            stop=['.'],
-        )
-    )
-    if not res.startswith(' time'):
-      success = False
-      print(
-          'FAIL: Returned value does not seem to be a continuation of "Once'
-          ' upon a" -- expected to start with " time":',
-          res,
+  if _should_run_test(9):
+    with _run_test(9, 'Check that generate_texts is working', test_results) as tc:
+      res = executing.run(
+          llm.generate_texts(  # pytype: disable=wrong-keyword-args
+              prompt=prompt_text,
+              samples=3,
+              stop=['\n\n'],
+              max_tokens=300,
+          )
       )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
 
-    print('10.3 Check that chat is working (Default formatting).')
-    res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
-            messages=[
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.SYSTEM,
-                    content='You are a helpful and insightful chatbot.',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='What is the capital of France?',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.MODEL,
-                    content='Obviously, it is Paris.',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='What is the capital of Germany?',
-                ),
-            ],
-            temperature=0.5,
-            formatter=formatting.FormatterName.DEFAULT,
-            max_tokens=15,
+  if _should_run_test(10):
+    with _run_test(10, 'Formatting', test_results) as tc:
+      print('10.1 Check that chat is working (API formatting).')
+      res = executing.run(
+          llm.chat(  # pytype: disable=wrong-keyword-args
+              messages=[
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='What is the capital of France?',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.MODEL,
+                      content='Obviously, it is Paris.',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='What is the capital of Germany?',
+                  ),
+              ],
+              temperature=0.5,
+              max_tokens=300,
+              stop=['.'],
+          )
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+      print('10.2 Check that chat completes the model prefix.')
+      res = executing.run(
+          llm.chat(  # pytype: disable=wrong-keyword-args
+              messages=[
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='Tell me a real short story?',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.MODEL,
+                      content='Once upon a',
+                  ),
+              ],
+              temperature=0.5,
+              max_tokens=1000,
+              stop=['.'],
+          )
+      )
+      if not res.startswith(' time'):
+        tc.fail(
+            'Returned value does not seem to be a continuation of "Once'
+            ' upon a" -- expected to start with " time": ' + repr(res)
         )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
 
-    print('10.4 Check that chat is working (API formatting) with chunk list.')
-    res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
-            messages=[
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content=content_lib.ChunkList([
-                        content_lib.Chunk('Please answer the question:\n'),
-                        content_lib.Chunk('What is the capital of France?'),
-                    ]),
-                ),
-            ],
-            temperature=0.5,
-            max_tokens=15,
-            stop=['.'],
+      print('10.3 Check that chat is working (Default formatting).')
+      res = executing.run(
+          llm.chat(  # pytype: disable=wrong-keyword-args
+              messages=[
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.SYSTEM,
+                      content='You are a helpful and insightful chatbot.',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='What is the capital of France?',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.MODEL,
+                      content='Obviously, it is Paris.',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='What is the capital of Germany?',
+                  ),
+              ],
+              temperature=0.5,
+              formatter=formatting.FormatterName.DEFAULT,
+              max_tokens=300,
+          )
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+      print('10.4 Check that chat is working (API formatting) with chunk list.')
+      res = executing.run(
+          llm.chat(  # pytype: disable=wrong-keyword-args
+              messages=[
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content=content_lib.ChunkList([
+                          content_lib.Chunk('Please answer the question:\n'),
+                          content_lib.Chunk('What is the capital of France?'),
+                      ]),
+                  ),
+              ],
+              temperature=0.5,
+              max_tokens=300,
+              stop=['.'],
+          )
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+  if _should_run_test(11):
+    with _run_test(11, 'Check that multimodal is working', test_results) as tc:
+      fname_mm = os.path.join(_CACHE_DIR.value, 'google_gemini_api_mm.json')
+      if api_key is not None:
+        backend = google_genai_api.GoogleGenAIAPI(
+            generate_model_name=google_genai_api.DEFAULT_MULTIMODAL_MODEL,
+            api_key=api_key,
+            max_retries=5,
+            generate_text_kwargs=generate_config,
+            generate_object_kwargs=generate_config,
+            generate_content_kwargs=generate_config,
+            chat_kwargs=generate_config,
         )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
+      elif _PROJECT.value is not None and _LOCATION.value is not None:
+        backend = google_genai_api.GoogleGenAIAPI(
+            generate_model_name=google_genai_api.DEFAULT_MULTIMODAL_MODEL,
+            vertexai=True,
+            project=_PROJECT.value,
+            location=_LOCATION.value,
+            max_retries=5,
+            generate_text_kwargs=generate_config,
+            generate_object_kwargs=generate_config,
+            generate_content_kwargs=generate_config,
+            chat_kwargs=generate_config,
+        )
+      else:
+        raise ValueError(
+            'Either --api_key or (--project, --location) must be set.'
+        )
+      backend.register()
 
-  if _run_test(11, 'Check that multimodal is working'):
-    fname_mm = os.path.join(_CACHE_DIR.value, 'google_gemini_api_mm.json')
-    if api_key is not None:
-      backend = google_genai_api.GoogleGenAIAPI(
-          generate_model_name=google_genai_api.DEFAULT_MULTIMODAL_MODEL,
-          api_key=api_key,
-          max_retries=5,
-      )
-    elif _PROJECT.value is not None and _LOCATION.value is not None:
-      backend = google_genai_api.GoogleGenAIAPI(
-          generate_model_name=google_genai_api.DEFAULT_MULTIMODAL_MODEL,
-          vertexai=True,
-          project=_PROJECT.value,
-          location=_LOCATION.value,
-          max_retries=5,
-      )
-    else:
-      raise ValueError(
-          'Either --api_key or (--project, --location) must be set.'
-      )
-    backend.register()
+      if _LOAD_CACHE.value:
+        print('Loading cache from file %s', fname_mm)
+        load_start = time.time()
+        cache.load()
+        load_end = time.time()
+        print('Spent %.4fsec loading cache.', load_end - load_start)
 
-    if _LOAD_CACHE.value:
-      print('Loading cache from file %s', fname_mm)
-      load_start = time.time()
-      cache.load()
-      load_end = time.time()
-      print('Spent %.4fsec loading cache.', load_end - load_start)
+      time1 = time.time()
+      # Load image from testdata.
+      image_path = os.path.join(
+          os.path.dirname(__file__),
+          'testdata',
+          'bird.jpg',
+      )
+      with open(image_path, 'rb') as f:
+        image_bytes = f.read()
+        executable = (
+            c.c('What is the following image? ')
+            + c.c(content_lib.Chunk(image_bytes, 'image/jpeg'))
+            + c.store('answer', c.generate_text())
+        )
+        _ = executing.run(executable)
+      if 'chickadee' not in executable['answer'].lower():
+        tc.fail(
+            'Returned value does not contain "chickadee": '
+            + executable['answer']
+        )
+      if _PRINT_DEBUG.value:
+        print('Returned value:', executable['answer'])
 
-    time1 = time.time()
-    # Load image from testdata.
-    image_path = os.path.join(
-        os.path.dirname(__file__),
-        'testdata',
-        'bird.jpg',
-    )
-    with open(image_path, 'rb') as f:
-      image_bytes = f.read()
-      executable = (
-          c.c('What is the following image? ')
-          + c.c(content_lib.Chunk(image_bytes, 'image/jpeg'))
-          + c.store('answer', c.generate_text())
+      time2 = time.time()
+      print('Took %.4fsec running requests.' % (time2 - time1))
+      if _SAVE_CACHE.value:
+        cache.save(overwrite=True)
+        time3 = time.time()
+        print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
+
+  if _should_run_test(12):
+    with _run_test(12, 'Check response_schema and response_mime_type', test_results) as tc:
+      executable = c.c('What is the capital of France? ') + c.store(
+          'answer',
+          c.generate_text(
+              response_mime_type='application/json',
+              response_schema={
+                  'type': 'object',
+                  'properties': {'answer': {'type': 'string'}},
+              },
+          ),
       )
       _ = executing.run(executable)
-    if 'chickadee' not in executable['answer'].lower():
-      success = False
-      print(
-          'FAIL: Returned value does not contain "chickadee":',
-          executable['answer'],
-      )
-    if _PRINT_DEBUG.value:
-      print('Returned value:', executable['answer'])
-
-    time2 = time.time()
-    print('Took %.4fsec running requests.' % (time2 - time1))
-    if _SAVE_CACHE.value:
-      cache.save(overwrite=True)
-      time3 = time.time()
-      print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
-
-  if _run_test(12, 'Check response_schema and response_mime_type'):
-    executable = c.c('What is the capital of France? ') + c.store(
-        'answer',
-        c.generate_text(
-            response_mime_type='application/json',
-            response_schema={
-                'type': 'object',
-                'properties': {'answer': {'type': 'string'}},
-            },
-        ),
-    )
-    _ = executing.run(executable)
-    try:
-      answer = json.loads(executable['answer'])
-      if _PRINT_DEBUG.value:
-        print('Returned value:', answer)
-    except json.JSONDecodeError as e:
-      success = False
-      print(
-          'FAIL: Returned value is not a valid JSON:', executable['answer'], e
-      )
-
-  if _run_test(13, 'Check thinking config'):
-    res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
-            prompt='solve x^2 + 4x + 4 = 0',
-            thinking_config=genai_types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_budget=1024,
-            ),
+      try:
+        answer = json.loads(executable['answer'])
+        if _PRINT_DEBUG.value:
+          print('Returned value:', answer)
+      except json.JSONDecodeError as e:
+        tc.fail(
+            'Returned value is not a valid JSON: '
+            + repr(executable['answer']) + ' ' + repr(e)
         )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value:', res)
 
-  if _run_test(14, 'Check that tokenize is working.'):
-    if backend.vertexai:
+  if _should_run_test(13):
+    with _run_test(13, 'Check thinking config', test_results) as tc:
+      res = executing.run(
+          llm.generate_text(  # pytype: disable=wrong-keyword-args
+              prompt='solve x^2 + 4x + 4 = 0',
+              thinking_config=genai_types.ThinkingConfig(
+                  include_thoughts=True,
+                  thinking_budget=1024,
+              ),
+          )
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value:', res)
+
+  if _should_run_test(14):
+    with _run_test(14, 'Check that tokenize is working.', test_results) as tc:
+      if backend.vertexai:
+        content = content_lib.ChunkList(
+            chunks=[
+                content_lib.Chunk(
+                    content='The quick brown fox jumps over the lazy dog.',
+                )
+            ]
+        )
+        res = executing.run(llm.tokenize(content=content))  # pytype: disable=wrong-keyword-args
+        if _PRINT_DEBUG.value:
+          print('Returned value(s):')
+          pprint.pprint(res)
+        if not isinstance(res, list) or not all(isinstance(x, int) for x in res):
+          tc.fail('Returned value is not a list of ints: ' + repr(res))
+      else:
+        print('- Skipped because it is not supported by Gemini API.')
+
+  if _should_run_test(15):
+    with _run_test(15, 'Check that embed is working.', test_results) as tc:
       content = content_lib.ChunkList(
           chunks=[
               content_lib.Chunk(
@@ -609,49 +730,30 @@ def main(argv: Sequence[str]) -> None:
               )
           ]
       )
-      res = executing.run(llm.tokenize(content=content))  # pytype: disable=wrong-keyword-args
+      res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
-        pprint.pprint(res)
-      if not isinstance(res, list) or not all(isinstance(x, int) for x in res):
-        success = False
-        print('FAIL: Returned value is not a list of ints:', res)
-    else:
-      print('- Skipped because it is not supported by Gemini API.')
+        result_string = str(res)
+        if len(result_string) > 400:
+          result_string = (
+              result_string[:200]
+              + f'... (skipped {len(result_string) - 200} characters) ...'
+              + result_string[-200:]
+          )
+        pprint.pprint(result_string)
+      if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
+        tc.fail('Returned value is not a list of floats: ' + repr(res))
 
-  if _run_test(15, 'Check that embed is working.'):
-    content = content_lib.ChunkList(
-        chunks=[
-            content_lib.Chunk(
-                content='The quick brown fox jumps over the lazy dog.',
-            )
-        ]
-    )
-    res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      result_string = str(res)
-      if len(result_string) > 400:
-        result_string = (
-            result_string[:200]
-            + f'... (skipped {len(result_string) - 200} characters) ...'
-            + result_string[-200:]
-        )
-      pprint.pprint(result_string)
-    if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
-      success = False
-      print('FAIL: Returned value is not a list of floats:', res)
-
-  if _run_test(16, 'Check llm.generate_object with native types. (int)'):
-    prompt = 'What is the height of the Eiffel Tower? (in m)'
-    result = executing.run(
-        llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value:', result)
-    if not isinstance(result, int):
-      success = False
-      print('FAIL: Result is not of type int: {type(result)}')
+  if _should_run_test(16):
+    with _run_test(16, 'Check llm.generate_object with native types. (int)', test_results) as tc:
+      prompt = 'What is the height of the Eiffel Tower? (in m)'
+      result = executing.run(
+          llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value:', result)
+      if not isinstance(result, int):
+        tc.fail(f'Result is not of type int: {type(result)}')
 
   class CityInfo(pydantic.BaseModel):
     city_name: str
@@ -659,428 +761,411 @@ def main(argv: Sequence[str]) -> None:
     population: int
     landmark: str | None = None
 
-  if _run_test(17, 'Check llm.generate_object with Pydantic model'):
-    prompt = 'Provide information about the capital of France.'
-    result = executing.run(
-        llm.generate_object(prompt=prompt, cls=CityInfo)  # pytype: disable=wrong-keyword-args
-    )
-
-    if _PRINT_DEBUG.value:
-      print('Returned value:')
-      pprint.pprint(result)
-
-    if not isinstance(result, CityInfo):
-      success = False
-      print('FAIL: Result is not of type CityInfo: {type(result)}')
-    if not result.city_name:
-      success = False
-      print('FAIL: city_name is missing')
-    if not result.country:
-      success = False
-      print('FAIL: country is missing')
-    if result.population <= 0:
-      success = False
-      print('FAIL: population should be positive')
-
-  if _run_test(18, 'Check llm.generate_object for dict-like data'):
-
-    class WordCount(pydantic.BaseModel):
-      word: str
-      count: int
-
-    prompt = (
-        'Return a breakdown of the words and their frequencies in the following'
-        ' sentence: "the quick brown fox jumps over the lazy dog dog". '
-        'Provide the output as a list of word-count objects.'
-    )
-    result = executing.run(
-        llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
-    )
-
-    if _PRINT_DEBUG.value:
-      print('Returned value:')
-      pprint.pprint(result)
-
-    expected_dict = {
-        'the': 2,
-        'quick': 1,
-        'brown': 1,
-        'fox': 1,
-        'jumps': 1,
-        'over': 1,
-        'lazy': 1,
-        'dog': 2,
-    }
-
-    if not isinstance(result, list):
-      success = False
-      print('FAIL: Result is not of type list: {type(result)}')
-    elif not all(isinstance(item, WordCount) for item in result):
-      success = False
-      print('FAIL: Result items are not all WordCount objects: {result}')
-    else:
-      result_dict = {item.word: item.count for item in result}
-      if result_dict != expected_dict:
-        success = False
-        print(
-            f'FAIL: Result dict {result_dict} does not match expected'
-            f' {expected_dict}'
-        )
-
-  if _run_test(
-      19, 'Check llm.generate_object with a Pydantic-wrapped standard dataclass'
-  ):
-    @dataclasses.dataclass
-    class StandardRecipe:
-      recipe_name: str
-      description: str
-      prep_time_minutes: int
-      ingredients: list[str]
-
-    pydantic_recipe = pydantic_dataclass(StandardRecipe)
-
-    prompt = """Give me a simple recipe for a classic chocolate chip cookie,
-    including a short description, prep time in minutes, and a list of
-    ingredients."""
-    result = executing.run(
-        llm.generate_object(prompt=prompt, cls=pydantic_recipe)  # pytype: disable=wrong-keyword-args
-    )
-
-    if _PRINT_DEBUG.value:
-      print('Returned value:')
-      pprint.pprint(result)
-
-    if not isinstance(result, StandardRecipe):
-      success = False
-      print(
-          f'FAIL: Result is not an instance of StandardRecipe: {type(result)}'
+  if _should_run_test(17):
+    with _run_test(17, 'Check llm.generate_object with Pydantic model', test_results) as tc:
+      prompt = 'Provide information about the capital of France.'
+      result = executing.run(
+          llm.generate_object(prompt=prompt, cls=CityInfo)  # pytype: disable=wrong-keyword-args
       )
-    elif not isinstance(result, pydantic_recipe):
-      success = False
-      print(
-          f'FAIL: Result is not an instance of PydanticRecipe: {type(result)}'
+
+      if _PRINT_DEBUG.value:
+        print('Returned value:')
+        pprint.pprint(result)
+
+      if not isinstance(result, CityInfo):
+        tc.fail(f'Result is not of type CityInfo: {type(result)}')
+      if not result.city_name:
+        tc.fail('city_name is missing')
+      if not result.country:
+        tc.fail('country is missing')
+      if result.population <= 0:
+        tc.fail('population should be positive')
+
+  if _should_run_test(18):
+    with _run_test(18, 'Check llm.generate_object for dict-like data', test_results) as tc:
+
+      class WordCount(pydantic.BaseModel):
+        word: str
+        count: int
+
+      prompt = (
+          'Return a breakdown of the words and their frequencies in the following'
+          ' sentence: "the quick brown fox jumps over the lazy dog dog". '
+          'Provide the output as a list of word-count objects.'
       )
-    else:
-      if not result.recipe_name:
-        success = False
-        print('FAIL: recipe_name is missing')
-      if not result.description:
-        success = False
-        print('FAIL: description is missing')
-      if result.prep_time_minutes <= 0:
-        success = False
-        print('FAIL: prep_time_minutes should be positive')
-      if not isinstance(result.ingredients, list) or not result.ingredients:
-        success = False
-        print('FAIL: ingredients should be a non-empty list')
-      elif not all(isinstance(i, str) for i in result.ingredients):
-        success = False
-        print('FAIL: ingredients should be a list of strings')
+      result = executing.run(
+          llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
+      )
 
-  if _run_test(20, 'Check llm.generate_object in chat mode'):
-    result = executing.run(
-        llm.generate_object(  # pytype: disable=wrong-keyword-args
-            prompt=[
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='What is the capital of France?',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.MODEL,
-                    content='Obviously, it is Paris.',
-                ),
-                content_lib.Message(
-                    role=content_lib.PredefinedRole.USER,
-                    content='Tell me more about it.',
-                ),
-            ],
-            cls=CityInfo,
-        )
-    )
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(result)
+      if _PRINT_DEBUG.value:
+        print('Returned value:')
+        pprint.pprint(result)
 
-    if not isinstance(result, CityInfo):
-      success = False
-      print(f'FAIL: Result is not of type CityInfo: {type(result)}')
+      expected_dict = {
+          'the': 2,
+          'quick': 1,
+          'brown': 1,
+          'fox': 1,
+          'jumps': 1,
+          'over': 1,
+          'lazy': 1,
+          'dog': 2,
+      }
 
-  if _run_test(21, 'Function Calling 2.0: Single Turn'):
-    weather_tool_decl = genai_types.FunctionDeclaration(
-        name='get_weather',
-        description='Gets the weather for a specified location.',
-        parameters={
-            'type': 'OBJECT',
-            'properties': {
-                'location': {'type': 'STRING', 'description': 'City name'}
-            },
-            'required': ['location'],
-        },
-    )
-    api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
-
-    res = executing.run(
-        llm.generate_content(  # pytype: disable=wrong-keyword-args
-            prompt='What is the weather in London?',
-            tools=[api_tool],
-        )
-    )
-
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-    has_fc = False
-    chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
-
-    for chunk in chunks:
-      if (
-          chunk.metadata
-          and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
-      ):
-        has_fc = True
-        fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
-        print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
-        if fc.name != 'get_weather' or fc.args.get('location') != 'London':
-          success = False
-          print('FAIL: FunctionCall name or args do not match.')
-
-    if not has_fc:
-      success = False
-      print('FAIL: No FunctionCall found in response.')
-
-  if _run_test(22, 'Function Calling 2.0: Multi-Turn'):
-
-    def get_weather(location: str) -> dict[str, str | int]:
-      if 'London' in location:
-        return {'temp': 15, 'unit': 'C'}
-      elif 'NYC' in location or 'New York' in location:
-        return {'temp': 10, 'unit': 'C'}
+      if not isinstance(result, list):
+        tc.fail(f'Result is not of type list: {type(result)}')
+      elif not all(isinstance(item, WordCount) for item in result):
+        tc.fail(f'Result items are not all WordCount objects: {result}')
       else:
-        return {'temp': 25, 'unit': 'C'}
+        result_dict = {item.word: item.count for item in result}
+        if result_dict != expected_dict:
+          tc.fail(
+              f'Result dict {result_dict} does not match expected'
+              f' {expected_dict}'
+          )
 
-    weather_tool_decl = genai_types.FunctionDeclaration(
-        name='get_weather',
-        description='Gets the weather for a specified location.',
-        parameters={
-            'type': 'OBJECT',
-            'properties': {
-                'location': {'type': 'STRING', 'description': 'City name'}
-            },
-            'required': ['location'],
-        },
-    )
-    api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
+  if _should_run_test(19):
+    with _run_test(
+        19, 'Check llm.generate_object with a Pydantic-wrapped standard dataclass',
+        test_results,
+    ) as tc:
+      @dataclasses.dataclass
+      class StandardRecipe:
+        recipe_name: str
+        description: str
+        prep_time_minutes: int
+        ingredients: list[str]
 
-    fc_call = genai_types.FunctionCall(
-        name='get_weather', args={'location': 'London'}, id='1'
-    )
-    fc_chunk = content_lib.Chunk(content='[Function Call: get_weather]')
-    fc_chunk.metadata = {google_genai_api.FUNCTION_CALL_METADATA_KEY: fc_call}
+      pydantic_recipe = pydantic_dataclass(StandardRecipe)
 
-    fr_resp = genai_types.FunctionResponse(
-        name='get_weather', response=get_weather('London'), id='1'
-    )
-    fr_chunk = content_lib.Chunk(content='[Function Response: get_weather]')
-    fr_chunk.metadata = {
-        google_genai_api.FUNCTION_RESPONSE_METADATA_KEY: fr_resp
-    }
-
-    history = [
-        content_lib.Message(
-            role='user', content='What is the weather in London?'
-        ),
-        content_lib.Message(
-            role='model', content=content_lib.ChunkList([fc_chunk])
-        ),
-        content_lib.Message(
-            role='tool', content=content_lib.ChunkList([fr_chunk])
-        ),
-        content_lib.Message(role='user', content='What about New York?'),
-    ]
-
-    res = executing.run(
-        llm.generate_content(  # pytype: disable=wrong-keyword-args
-            prompt=history,
-            tools=[api_tool],
-        )
-    )
-
-    if _PRINT_DEBUG.value:
-      print('Returned value(s):')
-      pprint.pprint(res)
-
-    has_fc = False
-    chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
-
-    for chunk in chunks:
-      if (
-          chunk.metadata
-          and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
-      ):
-        has_fc = True
-        fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
-        print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
-        if fc.name != 'get_weather' or fc.args.get('location') != 'New York':
-          success = False
-          print('FAIL: FunctionCall name or args do not match.')
-
-    if not has_fc:
-      success = False
-      print('FAIL: No FunctionCall found in response.')
-
-  if _run_test(23, 'Check usage_metadata in trace'):
-    executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
-        prompt='Explain photosynthesis.',
-        max_tokens=1000,
-    )
-    res, trace = executing.run(executable, enable_tracing=True)
-
-    if _PRINT_DEBUG.value:
-      print('Returned value:')
-      pprint.pprint(res)
-      print('Trace:')
-      pprint.pprint(trace)
-
-    # The trace structure is:
-    #   trace (root)
-    #   └── stages[0]: GoogleGenAIAPI.generate_text
-    #       └── stages[0]: GoogleGenAIAPI.generate_contents  <- info is here
-    generate_text_stage = trace.stages[0]
-    if generate_text_stage.stage_name != 'GoogleGenAIAPI.generate_text':
-      success = False
-      print(
-          'FAIL: Expected stage name GoogleGenAIAPI.generate_text, got:'
-          f' {generate_text_stage.stage_name}'
+      prompt = """Give me a simple recipe for a classic chocolate chip cookie,
+      including a short description, prep time in minutes, and a list of
+      ingredients."""
+      result = executing.run(
+          llm.generate_object(prompt=prompt, cls=pydantic_recipe)  # pytype: disable=wrong-keyword-args
       )
-    else:
-      generate_contents_stage = generate_text_stage.stages[0]
-      if generate_contents_stage.stage_name != (
-          'GoogleGenAIAPI.generate_contents'
-      ):
-        success = False
-        print(
-            'FAIL: Expected stage name GoogleGenAIAPI.generate_contents, got:'
-            f' {generate_contents_stage.stage_name}'
+
+      if _PRINT_DEBUG.value:
+        print('Returned value:')
+        pprint.pprint(result)
+
+      if not isinstance(result, StandardRecipe):
+        tc.fail(
+            f'Result is not an instance of StandardRecipe: {type(result)}'
+        )
+      elif not isinstance(result, pydantic_recipe):
+        tc.fail(
+            f'Result is not an instance of PydanticRecipe: {type(result)}'
         )
       else:
-        info = generate_contents_stage.info
-        print('- Trace info:', info)
+        if not result.recipe_name:
+          tc.fail('recipe_name is missing')
+        if not result.description:
+          tc.fail('description is missing')
+        if result.prep_time_minutes <= 0:
+          tc.fail('prep_time_minutes should be positive')
+        if not isinstance(result.ingredients, list) or not result.ingredients:
+          tc.fail('ingredients should be a non-empty list')
+        elif not all(isinstance(i, str) for i in result.ingredients):
+          tc.fail('ingredients should be a list of strings')
 
-        # Check that the model name is populated.
-        if 'llm.model' not in info:
-          success = False
-          print('FAIL: llm.model missing from trace info')
+  if _should_run_test(20):
+    with _run_test(20, 'Check llm.generate_object in chat mode', test_results) as tc:
+      result = executing.run(
+          llm.generate_object(  # pytype: disable=wrong-keyword-args
+              prompt=[
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='What is the capital of France?',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.MODEL,
+                      content='Obviously, it is Paris.',
+                  ),
+                  content_lib.Message(
+                      role=content_lib.PredefinedRole.USER,
+                      content='Tell me more about it.',
+                  ),
+              ],
+              cls=CityInfo,
+          )
+      )
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(result)
+
+      if not isinstance(result, CityInfo):
+        tc.fail(f'Result is not of type CityInfo: {type(result)}')
+
+  if _should_run_test(21):
+    with _run_test(21, 'Function Calling 2.0: Single Turn', test_results) as tc:
+      weather_tool_decl = genai_types.FunctionDeclaration(
+          name='get_weather',
+          description='Gets the weather for a specified location.',
+          parameters={
+              'type': 'OBJECT',
+              'properties': {
+                  'location': {'type': 'STRING', 'description': 'City name'}
+              },
+              'required': ['location'],
+          },
+      )
+      api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
+
+      res = executing.run(
+          llm.generate_content(  # pytype: disable=wrong-keyword-args
+              prompt='What is the weather in London?',
+              tools=[api_tool],
+          )
+      )
+
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+      has_fc = False
+      chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
+
+      for chunk in chunks:
+        if (
+            chunk.metadata
+            and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
+        ):
+          has_fc = True
+          fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
+          print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
+          if fc.name != 'get_weather' or fc.args.get('location') != 'London':
+            tc.fail('FunctionCall name or args do not match.')
+
+      if not has_fc:
+        tc.fail('No FunctionCall found in response.')
+
+  if _should_run_test(22):
+    with _run_test(22, 'Function Calling 2.0: Multi-Turn', test_results) as tc:
+
+      def get_weather(location: str) -> dict[str, str | int]:
+        if 'London' in location:
+          return {'temp': 15, 'unit': 'C'}
+        elif 'NYC' in location or 'New York' in location:
+          return {'temp': 10, 'unit': 'C'}
         else:
-          print(f'- llm.model: {info["llm.model"]}')
+          return {'temp': 25, 'unit': 'C'}
 
-        # Check for expected token count keys populated from usage_metadata.
-        expected_keys = [
-            'llm.tokens.prompt',
-            'llm.tokens.candidates',
-            'llm.tokens.cached_content',
-            'llm.tokens.thoughts',
-        ]
-        for key in expected_keys:
-          if key not in info:
-            success = False
-            print(f'FAIL: {key} missing from trace info')
+      weather_tool_decl = genai_types.FunctionDeclaration(
+          name='get_weather',
+          description='Gets the weather for a specified location.',
+          parameters={
+              'type': 'OBJECT',
+              'properties': {
+                  'location': {'type': 'STRING', 'description': 'City name'}
+              },
+              'required': ['location'],
+          },
+      )
+      api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
+
+      fc_call = genai_types.FunctionCall(
+          name='get_weather', args={'location': 'London'}, id='1'
+      )
+      fc_chunk = content_lib.Chunk(content='[Function Call: get_weather]')
+      fc_chunk.metadata = {google_genai_api.FUNCTION_CALL_METADATA_KEY: fc_call}
+
+      fr_resp = genai_types.FunctionResponse(
+          name='get_weather', response=get_weather('London'), id='1'
+      )
+      fr_chunk = content_lib.Chunk(content='[Function Response: get_weather]')
+      fr_chunk.metadata = {
+          google_genai_api.FUNCTION_RESPONSE_METADATA_KEY: fr_resp
+      }
+
+      history = [
+          content_lib.Message(
+              role='user', content='What is the weather in London?'
+          ),
+          content_lib.Message(
+              role='model', content=content_lib.ChunkList([fc_chunk])
+          ),
+          content_lib.Message(
+              role='tool', content=content_lib.ChunkList([fr_chunk])
+          ),
+          content_lib.Message(role='user', content='What about New York?'),
+      ]
+
+      res = executing.run(
+          llm.generate_content(  # pytype: disable=wrong-keyword-args
+              prompt=history,
+              tools=[api_tool],
+          )
+      )
+
+      if _PRINT_DEBUG.value:
+        print('Returned value(s):')
+        pprint.pprint(res)
+
+      has_fc = False
+      chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
+
+      for chunk in chunks:
+        if (
+            chunk.metadata
+            and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
+        ):
+          has_fc = True
+          fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
+          print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
+          if fc.name != 'get_weather' or fc.args.get('location') != 'New York':
+            tc.fail('FunctionCall name or args do not match.')
+
+      if not has_fc:
+        tc.fail('No FunctionCall found in response.')
+
+  if _should_run_test(23):
+    with _run_test(23, 'Check usage_metadata in trace', test_results) as tc:
+      executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='Explain photosynthesis.',
+          max_tokens=1000,
+      )
+      res, trace = executing.run(executable, enable_tracing=True)
+
+      if _PRINT_DEBUG.value:
+        print('Returned value:')
+        pprint.pprint(res)
+        print('Trace:')
+        pprint.pprint(trace)
+
+      # The trace structure is:
+      #   trace (root)
+      #   └── stages[0]: GoogleGenAIAPI.generate_text
+      #       └── stages[0]: GoogleGenAIAPI.generate_contents  <- info is here
+      generate_text_stage = trace.stages[0]
+      if generate_text_stage.stage_name != 'GoogleGenAIAPI.generate_text':
+        tc.fail(
+            'Expected stage name GoogleGenAIAPI.generate_text, got:'
+            f' {generate_text_stage.stage_name}'
+        )
+      else:
+        generate_contents_stage = generate_text_stage.stages[0]
+        if generate_contents_stage.stage_name != (
+            'GoogleGenAIAPI.generate_contents'
+        ):
+          tc.fail(
+              'Expected stage name GoogleGenAIAPI.generate_contents, got:'
+              f' {generate_contents_stage.stage_name}'
+          )
+        else:
+          info = generate_contents_stage.info
+          print('- Trace info:', info)
+
+          # Check that the model name is populated.
+          if 'llm.model' not in info:
+            tc.fail('llm.model missing from trace info')
           else:
-            val = info[key]
-            print(f'- {key}: {val}')
-            if val is not None and (not isinstance(val, int) or val < 0):
-              success = False
-              print(
-                  f'FAIL: {key} is not a valid non-negative integer: {val}'
+            print(f'- llm.model: {info["llm.model"]}')
+
+          # Check for expected token count keys populated from usage_metadata.
+          expected_keys = [
+              'llm.tokens.prompt',
+              'llm.tokens.candidates',
+              'llm.tokens.cached_content',
+              'llm.tokens.thoughts',
+          ]
+          for key in expected_keys:
+            if key not in info:
+              tc.fail(f'{key} missing from trace info')
+            else:
+              val = info[key]
+              print(f'- {key}: {val}')
+              if val is not None and (not isinstance(val, int) or val < 0):
+                tc.fail(
+                    f'{key} is not a valid non-negative integer: {val}'
+                )
+
+  if _should_run_test(24):
+    with _run_test(24, 'Check embed norm is 1.0 for various output_dimensionality', test_results) as tc:
+      embed_content = content_lib.ChunkList(
+          chunks=[
+              content_lib.Chunk(
+                  content='The quick brown fox jumps over the lazy dog.',
               )
-
-  if _run_test(24, 'Check embed norm is 1.0 for various output_dimensionality'):
-    embed_content = content_lib.ChunkList(
-        chunks=[
-            content_lib.Chunk(
-                content='The quick brown fox jumps over the lazy dog.',
-            )
-        ]
-    )
-    dimensionalities = [
-        None,
-        32,
-        64,
-        128,
-        256,
-        512,
-        768,
-        1024,
-        1536,
-        2048,
-        3072,
-    ]
-    tolerance = 1e-3
-    for dim in dimensionalities:
-      label = str(dim) if dim is not None else 'default'
-      embed_kwargs = {'normalize': True}
-      if dim is not None:
-        embed_kwargs['output_dimensionality'] = dim
-
-      res = executing.run(
-          llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args
+          ]
       )
+      dimensionalities = [
+          None,
+          32,
+          64,
+          128,
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048,
+          3072,
+      ]
+      tolerance = 1e-3
+      for dim in dimensionalities:
+        label = str(dim) if dim is not None else 'default'
+        embed_kwargs = {'normalize': True}
+        if dim is not None:
+          embed_kwargs['output_dimensionality'] = dim
+
+        res = executing.run(
+            llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args
+        )
+        vec_norm = math.sqrt(sum(x * x for x in res))
+        norm_ok = abs(vec_norm - 1.0) < tolerance
+        print(
+            f'  dim={label:>7s}  |  vec_len={len(res):<5d}  |'
+            f'  norm={vec_norm:.6f}  |  {"PASS" if norm_ok else "FAIL"}'
+        )
+        if dim is not None and len(res) != dim:
+          tc.fail(f'expected length {dim}, got {len(res)}')
+        if not norm_ok:
+          tc.fail(f'norm {vec_norm} is not close to 1.0')
+
+  if _should_run_test(25):
+    with _run_test(
+        25, 'Check embed_kwargs default output_dimensionality and normalize',
+        test_results,
+    ) as tc:
+      target_dim = 256
+      embed_content_25 = content_lib.ChunkList(
+          chunks=[
+              content_lib.Chunk(
+                  content='The quick brown fox jumps over the lazy dog.',
+              )
+          ]
+      )
+      # Re-register backend with a default output_dimensionality.
+      with routing.RegistryContext():
+        reduced_backend = google_genai_api.GoogleGenAIAPI(
+            api_key=api_key,
+            vertexai=vertexai,
+            project=project,
+            location=location,
+            embed_kwargs={'output_dimensionality': target_dim, 'normalize': True},
+        )
+        reduced_backend.register(register_generate=False, register_tokenize=False)
+        # Call embed without specifying output_dimensionality explicitly.
+        res = executing.run(
+            llm.embed(content=embed_content_25)  # pytype: disable=wrong-keyword-args
+        )
       vec_norm = math.sqrt(sum(x * x for x in res))
-      norm_ok = abs(vec_norm - 1.0) < tolerance
+      norm_ok = abs(vec_norm - 1.0) < 1e-3
+      len_ok = len(res) == target_dim
       print(
-          f'  dim={label:>7s}  |  vec_len={len(res):<5d}  |'
-          f'  norm={vec_norm:.6f}  |  {"PASS" if norm_ok else "FAIL"}'
+          f'  vec_len={len(res)}  |  norm={vec_norm:.6f}  |'
+          f'  {"PASS" if norm_ok and len_ok else "FAIL"}'
       )
-      if dim is not None and len(res) != dim:
-        success = False
-        print(f'  FAIL: expected length {dim}, got {len(res)}')
+      if not len_ok:
+        tc.fail(f'expected length {target_dim}, got {len(res)}')
       if not norm_ok:
-        success = False
-        print(f'  FAIL: norm {vec_norm} is not close to 1.0')
-
-  if _run_test(
-      25, 'Check embed_kwargs default output_dimensionality and normalize'
-  ):
-    target_dim = 256
-    embed_content_25 = content_lib.ChunkList(
-        chunks=[
-            content_lib.Chunk(
-                content='The quick brown fox jumps over the lazy dog.',
-            )
-        ]
-    )
-    # Re-register backend with a default output_dimensionality.
-    with routing.RegistryContext():
-      reduced_backend = google_genai_api.GoogleGenAIAPI(
-          api_key=api_key,
-          vertexai=vertexai,
-          project=project,
-          location=location,
-          embed_kwargs={'output_dimensionality': target_dim, 'normalize': True},
-      )
-      reduced_backend.register(register_generate=False, register_tokenize=False)
-      # Call embed without specifying output_dimensionality explicitly.
-      res = executing.run(
-          llm.embed(content=embed_content_25)  # pytype: disable=wrong-keyword-args
-      )
-    vec_norm = math.sqrt(sum(x * x for x in res))
-    norm_ok = abs(vec_norm - 1.0) < 1e-3
-    len_ok = len(res) == target_dim
-    print(
-        f'  vec_len={len(res)}  |  norm={vec_norm:.6f}  |'
-        f'  {"PASS" if norm_ok and len_ok else "FAIL"}'
-    )
-    if not len_ok:
-      success = False
-      print(f'  FAIL: expected length {target_dim}, got {len(res)}')
-    if not norm_ok:
-      success = False
-      print(f'  FAIL: norm {vec_norm} is not close to 1.0')
+        tc.fail(f'norm {vec_norm} is not close to 1.0')
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)
 
-  print('PASS' if success else 'FAIL')
+  _print_summary(test_results)
 
 
 if __name__ == '__main__':
