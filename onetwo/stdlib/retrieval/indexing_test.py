@@ -871,7 +871,7 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
 
 
 class PickleabilityTest(absltest.TestCase):
-  """Tests that EmbeddingBasedIndex is pickle-able for Flume pipelines."""
+  """Tests that EmbeddingBasedIndex is pickle-able for distributed pipelines."""
 
   def setUp(self):
     super().setUp()
