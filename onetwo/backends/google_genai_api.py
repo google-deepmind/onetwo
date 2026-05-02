@@ -201,7 +201,7 @@ def _normalize_role(
   return role
 
 
-def _contents_from_prompt(prompt: llm.Prompt) -> Sequence[genai_types.Content]:
+def _contents_from_prompt(prompt: llm.Prompt) -> list[genai_types.Content]:
   """Converts a string, chunks or messages into a GenAI Content."""
   content: list[genai_types.Content] = []
 
@@ -672,6 +672,111 @@ class GoogleGenAIAPI(
         **kwargs,
     )
 
+  def _extract_system_instruction_from_contents(
+      self,
+      contents: list[genai_types.Content],
+      kwargs: dict[str, Any],
+  ) -> None:
+    """Extracts the system instruction from the contents.
+
+    Args:
+      contents: The contents to extract the system instruction from. This is
+        modified in-place.
+      kwargs: The keyword arguments where the system instruction is added.
+    """
+    if (
+        contents[0].role == content_lib.PredefinedRole.SYSTEM.value
+        and 'system_instruction' not in kwargs
+    ):
+      kwargs['system_instruction'] = contents[0]
+      contents.pop(0)
+    if self.replace_unsupported_roles:
+      for c in contents:
+        c.role = _normalize_role(c.role)
+
+  def _update_contents_cache(
+      self,
+      prompt: llm.CachedPrompt,
+      cache_contents: list[genai_types.Content],
+  ) -> str:
+    """Updates server-side cache for the given prompt and returns its name.
+
+    The caller is responsible for splitting the prompt at `cache_chunk_count`
+    *before* converting to `genai_types.Content` (via `_contents_from_prompt`),
+    and passing only the cached prefix here.
+
+    Args:
+      prompt: The prompt whose prefix is cached. The name of the cache is stored
+        in `prompt.cache_name`.
+      cache_contents: The contents to cache, already converted from the cached
+        prefix of the prompt.
+
+    Returns:
+      The name of the cache.
+    """
+    kwargs = {}
+    if prompt.cache_ttl:
+      kwargs['ttl'] = prompt.cache_ttl
+    if prompt.cache_name:
+      # Update the TTL and return the name of the cache.
+      try:
+        self._genai_client.caches.update(
+            name=prompt.cache_name,
+            config=genai_types.UpdateCachedContentConfig(
+                **kwargs,
+            ),
+        )
+        return prompt.cache_name
+      except genai_errors.ClientError as e:
+        cache_name_suffix = prompt.cache_name.split('/')[-1]
+        if not (e.code == 404 and cache_name_suffix in str(e)):
+          # Error other than "cache not found".
+          raise e
+
+    # The cache does not yet exist or has expired. Create a new one.
+    model_name = self._generate_model_name().removeprefix('publishers/google/')
+    self._extract_system_instruction_from_contents(cache_contents, kwargs)
+    new_cache = self._genai_client.caches.create(
+        model=model_name,
+        config=genai_types.CreateCachedContentConfig(
+            contents=cache_contents,
+            **kwargs,
+        ),
+    )
+    prompt.cache_name = new_cache.name
+    return new_cache.name
+
+  def _heal_prompt(
+      self, prompt: llm.Prompt, healing_option: _TokenHealingOption
+  ) -> tuple[llm.Prompt, llm.Prompt]:
+    """Applies token healing to the prompt.
+
+    Args:
+      prompt: The prompt to heal.
+      healing_option: The healing option to use.
+
+    Returns:
+      A tuple of (healed_prompt, original_prompt).
+    """
+    original_prompt = prompt
+    if isinstance(prompt, str) or isinstance(prompt, _ChunkList):
+      prompt = llm_utils.maybe_heal_prompt(
+          original_prompt=prompt, healing_option=healing_option
+      )
+    elif prompt:  # non-empty Sequence
+      if isinstance(prompt[0], _Chunk):
+        original_prompt = _ChunkList(chunks=prompt)
+        prompt = llm_utils.maybe_heal_prompt(
+            original_prompt=original_prompt,
+            healing_option=healing_option,
+        )
+      else:  # Sequence[Message]
+        original_prompt = prompt[-1].content
+        prompt[-1].content = llm_utils.maybe_heal_prompt(
+            original_prompt=original_prompt, healing_option=healing_option
+        )
+    return prompt, original_prompt
+
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
   )
@@ -697,37 +802,44 @@ class GoogleGenAIAPI(
   ) -> Sequence[llm.Content]:
     """This is builtins.llm.generate_content for multiple candidates."""
     self._counters['generate_contents'] += 1
+
     # Apply token healing to the prompt, if applicable.
-    original_prompt = prompt
-    if isinstance(prompt, str) or isinstance(prompt, _ChunkList):
-      original_prompt = prompt
-      prompt = llm_utils.maybe_heal_prompt(
-          original_prompt=prompt, healing_option=healing_option
+    if isinstance(prompt, llm.CachedPrompt):
+      prompt.prompt, original_prompt = self._heal_prompt(
+          prompt.prompt, healing_option
       )
-    elif prompt:  # non-empty Sequence
-      if isinstance(prompt[0], _Chunk):
-        original_prompt = _ChunkList(chunks=prompt)
-        prompt = llm_utils.maybe_heal_prompt(
-            original_prompt=_ChunkList(chunks=prompt),
-            healing_option=healing_option,
+    else:
+      prompt, original_prompt = self._heal_prompt(prompt, healing_option)
+
+    # Perform server-side prefix caching, if requested.
+    # We split the prompt *before* converting to genai contents, because
+    # _contents_from_prompt may merge adjacent same-role chunks, which would
+    # misalign cache_chunk_count with the resulting contents list.
+    if isinstance(prompt, llm.CachedPrompt):
+      n = prompt.cache_chunk_count
+      cache_contents = _contents_from_prompt(prompt.prompt[:n])
+      contents = _contents_from_prompt(prompt.prompt[n:])
+      if 'cached_content' in kwargs:
+        raise ValueError(
+            'cached_content cannot be set manually when using CachedPrompt.'
         )
-      else:  # Sequence[Message]
-        original_prompt = prompt[-1].content
-        prompt[-1].content = llm_utils.maybe_heal_prompt(
-            original_prompt=prompt[-1].content, healing_option=healing_option
+      try:
+        kwargs['cached_content'] = self._update_contents_cache(
+            prompt, cache_contents
         )
-    contents = _contents_from_prompt(prompt)
+      except genai_errors.APIError as e:
+        if e.code == 400 and 'minimum token count' in str(e):
+          logging.warning(
+              'Context too small for caching, falling back to full prompt.'
+          )
+          contents = _contents_from_prompt(prompt.prompt)
+        else:
+          raise e
+    else:
+      contents = _contents_from_prompt(prompt)
 
     # Make call to the underlying GenAI client.
-    if (
-        contents[0].role == content_lib.PredefinedRole.SYSTEM.value
-        and 'system_instruction' not in kwargs
-    ):
-      kwargs['system_instruction'] = contents[0]
-      contents = contents[1:]
-    if self.replace_unsupported_roles:
-      for c in contents:
-        c.role = _normalize_role(c.role)
+    self._extract_system_instruction_from_contents(contents, kwargs)
     generation_config = genai_types.GenerateContentConfig(
         candidate_count=samples,
         temperature=temperature,

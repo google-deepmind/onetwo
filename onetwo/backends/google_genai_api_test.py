@@ -1882,6 +1882,175 @@ class GoogleGenaiApiTest(
       t1 = time.time()
       self.assertLess(t1 - t0, 5.0)
 
+  def test_generate_content_with_cached_prompt_new_cache(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    caches_mock = self._mock_genai_client.caches
+
+    mock_cache = mock.MagicMock()
+    mock_cache.name = 'cachedContents/xyz'
+    caches_mock.create.return_value = mock_cache
+
+    prompt = llm_lib.CachedPrompt(
+        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+        cache_chunk_count=1,
+        cache_ttl='300s',
+    )
+
+    executing.run(llm.generate_content(prompt=prompt))
+
+    with self.subTest('CreatesCache'):
+      caches_mock.create.assert_called_once()
+      _, kwargs = caches_mock.create.call_args
+      self.assertEqual(
+          kwargs['config'].contents[0].parts[0].text, 'prefix'
+      )
+      self.assertEqual(kwargs['config'].ttl, '300s')
+
+    with self.subTest('UpdatesPromptCacheName'):
+      self.assertEqual(prompt.cache_name, 'cachedContents/xyz')
+
+    with self.subTest('CallsGenerateWithCache'):
+      gc_mock.assert_called_once()
+      _, kwargs = gc_mock.call_args
+      self.assertEqual(kwargs['contents'][0].parts[0].text, 'suffix')
+      self.assertEqual(kwargs['config'].cached_content, 'cachedContents/xyz')
+
+  def test_generate_content_with_cached_prompt_existing_cache(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    caches_mock = self._mock_genai_client.caches
+
+    prompt = llm_lib.CachedPrompt(
+        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+        cache_chunk_count=1,
+        cache_name='cachedContents/abc',
+        cache_ttl='300s',
+    )
+
+    executing.run(llm.generate_content(prompt=prompt))
+
+    with self.subTest('UpdatesCacheTTL'):
+      caches_mock.update.assert_called_once()
+      _, kwargs = caches_mock.update.call_args
+      self.assertEqual(kwargs['name'], 'cachedContents/abc')
+      self.assertEqual(kwargs['config'].ttl, '300s')
+
+    with self.subTest('DoesNotCreateCache'):
+      caches_mock.create.assert_not_called()
+
+    with self.subTest('CallsGenerateWithCache'):
+      gc_mock.assert_called_once()
+      _, kwargs = gc_mock.call_args
+      self.assertEqual(kwargs['config'].cached_content, 'cachedContents/abc')
+
+  def test_generate_content_with_cached_prompt_cache_expired(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    caches_mock = self._mock_genai_client.caches
+
+    caches_mock.update.side_effect = genai_errors.ClientError(
+        code=404, response_json={'error': {'message': 'cache abc not found'}}
+    )
+
+    mock_cache = mock.MagicMock()
+    mock_cache.name = 'cachedContents/new'
+    caches_mock.create.return_value = mock_cache
+
+    prompt = llm_lib.CachedPrompt(
+        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+        cache_chunk_count=1,
+        cache_name='cachedContents/abc',
+    )
+
+    executing.run(llm.generate_content(prompt=prompt))
+
+    with self.subTest('TriesToUpdate'):
+      caches_mock.update.assert_called_once()
+
+    with self.subTest('CreatesNewCache'):
+      caches_mock.create.assert_called_once()
+
+    with self.subTest('CallsGenerateWithNewCache'):
+      gc_mock.assert_called_once()
+      self.assertEqual(
+          gc_mock.call_args.kwargs['config'].cached_content,
+          'cachedContents/new',
+      )
+
+  def test_generate_content_with_cached_prompt_splitting(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    caches_mock = self._mock_genai_client.caches
+
+    mock_cache = mock.MagicMock()
+    mock_cache.name = 'cachedContents/split'
+    caches_mock.create.return_value = mock_cache
+
+    prompt = llm_lib.CachedPrompt(
+        prompt=[_Chunk('p1'), _Chunk('p2'), _Chunk('suffix')],
+        cache_chunk_count=2,
+    )
+
+    executing.run(llm.generate_content(prompt=prompt))
+
+    with self.subTest('PrefixContainsTwoParts'):
+      caches_mock.create.assert_called_once()
+      contents = caches_mock.create.call_args.kwargs['config'].contents
+      # They might be merged *within* the cache if _contents_from_prompt
+      # merges them, but they should NOT include 'suffix'.
+      self.assertIn(len(contents), (1, 2))
+      if len(contents) == 1:
+        self.assertLen(contents[0].parts, 2)
+        self.assertEqual(contents[0].parts[0].text, 'p1')
+        self.assertEqual(contents[0].parts[1].text, 'p2')
+      else:
+        self.assertEqual(contents[0].parts[0].text, 'p1')
+        self.assertEqual(contents[1].parts[0].text, 'p2')
+
+    with self.subTest('SuffixContainsSuffix'):
+      gc_mock.assert_called_once()
+      contents = gc_mock.call_args.kwargs['contents']
+      self.assertLen(contents, 1)
+      self.assertEqual(contents[0].parts[0].text, 'suffix')
+
+  def test_generate_content_with_cached_prompt_too_small_fallback(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    caches_mock = self._mock_genai_client.caches
+
+    caches_mock.create.side_effect = genai_errors.ClientError(
+        code=400,
+        response_json={
+            'error': {
+                'message': (
+                    'The cached content is of 60 tokens. The minimum token'
+                    ' count to start caching is 1024.'
+                )
+            }
+        },
+    )
+
+    gc_mock.return_value = genai_types.GenerateContentResponse(
+        candidates=[genai_candidate('fallback_text')]
+    )
+
+    prompt = llm_lib.CachedPrompt(
+        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+        cache_chunk_count=1,
+    )
+
+    res = executing.run(llm.generate_content(prompt=prompt))
+
+    with self.subTest('FallsBackToFullPrompt'):
+      gc_mock.assert_called_once()
+      _, kwargs = gc_mock.call_args
+      self.assertEqual(kwargs['contents'][0].parts[0].text, 'prefix')
+      self.assertEqual(kwargs['contents'][1].parts[0].text, 'suffix')
+      self.assertIsNone(kwargs['config'].cached_content)
+
+    self.assertEqual(str(res), 'fallback_text')
+
   @parameterized.named_parameters(
       dict(
           testcase_name='none_small_pool',

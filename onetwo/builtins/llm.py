@@ -26,6 +26,7 @@ was provided), and would fail otherwise.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import dataclasses
 import random
 from typing import Any, TypeAlias, TypeVar
 
@@ -37,6 +38,7 @@ from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import sampling
 from onetwo.core import tracing
+from onetwo.core import utils
 
 
 _T = TypeVar('_T')
@@ -109,7 +111,38 @@ async def generate_text(
   raise _UNIMPLEMENTED_ERROR
 
 
-Prompt = str | Sequence[_Chunk] | _ChunkList | Sequence[_Message]
+@dataclasses.dataclass(kw_only=True)
+class CachedPrompt:
+  """Represents a prompt with server-side prefix caching.
+
+  Attributes:
+    prompt: The prompt, a prefix of which will be cached.
+    cache_chunk_count: The number of chunks to be cached.
+    cache_name: The name of the cache that identifies it on the server or None
+      if the cache has not been created yet.
+    cache_ttl: The TTL of the cache or None if the default TTL should be used.
+    update_ttl: Whether to update the TTL of the cache every time it is used.
+  """
+  prompt: Prompt
+  cache_chunk_count: int
+  cache_name: str | None = None
+  cache_ttl: str | None = None
+
+  def __post_init__(self):
+    if isinstance(self.prompt, str):
+      raise ValueError('Prompt must be a list.')
+    if self.cache_chunk_count < 1 or self.cache_chunk_count > len(self.prompt):
+      raise ValueError(
+          f'Invalid chunk count: {self.cache_chunk_count} vs {len(self.prompt)}'
+      )
+
+  def tobytes(self) -> bytes:
+    """Returns the byte representation used for OneTwo caching."""
+    # Only the prompt is relevant for the cache.
+    return utils.get_bytes_for_hashing(self.prompt)
+
+
+Prompt = str | Sequence[_Chunk] | _ChunkList | Sequence[_Message] | CachedPrompt
 Content = _ChunkList | tuple[_ChunkList, Mapping[str, Any]]
 
 
