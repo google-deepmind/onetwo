@@ -84,7 +84,7 @@ async def j(
 
 
 @composing.make_composable  # pytype: disable=wrong-arg-types
-def generate_text(context: composing.Context, **kwargs) -> ...:
+def generate_text(context: composing.Context, **kwargs):
   """Composable version of the llm.generate_text function."""
   return llm.generate_text(context.prefix, **kwargs)  # pytype: disable=wrong-arg-count
 
@@ -127,9 +127,7 @@ async def select(
 
 
 @composing.make_composable  # pytype: disable=wrong-arg-types
-def generate_object(
-    context: composing.Context, cls: type[Any], **kwargs
-) -> ...:
+def generate_object(context: composing.Context, cls: type[Any], **kwargs):
   """Composable version of the llm.generate_object function."""
   return llm.generate_object(context.prefix, cls, **kwargs)  # pytype: disable=wrong-arg-count
 
@@ -137,7 +135,7 @@ def generate_object(
 @composing.make_composable  # pytype: disable=wrong-arg-types
 async def instruct(
     context: composing.Context, assistant_prefix: str | None = None, **kwargs
-) -> ...:
+):
   """Composable version of the llm.instruct function."""
   # TODO: We are awaiting llm.instruct which means we cannot
   # iterate through the result if we are doing streaming. We should instead
