@@ -88,7 +88,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     # Save discrete indices to JSON.
     indices_path = os.path.join(path, self.discrete_indices_json_name)
     with open(indices_path, 'w') as f:
-      json.dump(state.doc_ids_by_discrete_value, f)
+      json.dump(state.doc_indices_by_discrete_value, f)
 
   @executing.make_executable(copy_self=False)
   async def load(
@@ -128,16 +128,16 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     with open(indices_path, 'r') as f:
       loaded_indices = json.load(f)
 
-    doc_ids_by_discrete_value = collections.defaultdict(
+    doc_indices_by_discrete_value = collections.defaultdict(
         lambda: collections.defaultdict(list)
     )
     for field_name, field_dict in loaded_indices.items():
-      doc_ids_by_discrete_value[field_name] = collections.defaultdict(
+      doc_indices_by_discrete_value[field_name] = collections.defaultdict(
           list, field_dict
       )
 
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
         doc_embeddings=doc_embeddings,
-        doc_ids_by_discrete_value=doc_ids_by_discrete_value,
+        doc_indices_by_discrete_value=doc_indices_by_discrete_value,
     )
