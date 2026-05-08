@@ -31,8 +31,7 @@ DocT = TypeVar('DocT')
 class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   """Simple serializer for EmbeddingBasedIndex.
 
-  Saves the list of documents to a JSONL file, the embeddings to a NPY file,
-  and the discrete field indices to a JSON file.
+  Saves the list of documents to a JSONL file and the embeddings to a NPY file.
 
   Attributes:
     doc_class: The class to use for serializing and deserializing documents. It
@@ -40,14 +39,12 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     base_path: The default base path for saving and loading the index state.
     docs_jsonl_name: Name of the file for storing documents (JSON lines).
     embeds_npy_name: Name of the file for storing embeddings (NumPy).
-    discrete_indices_json_name: Name of the file for storing discrete indices.
   """
 
   doc_class: type[DocT]
   base_path: str | None = None
   docs_jsonl_name: str = 'docs.jsonl'
   embeds_npy_name: str = 'embeddings.npy'
-  discrete_indices_json_name: str = 'discrete_indices.json'
 
   def __post_init__(self):
     """Validates interface at initialization."""
@@ -85,11 +82,6 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeddings_path = os.path.join(path, self.embeds_npy_name)
     np.save(embeddings_path, np.stack(state.doc_embeddings, axis=0))
 
-    # Save discrete indices to JSON.
-    indices_path = os.path.join(path, self.discrete_indices_json_name)
-    with open(indices_path, 'w') as f:
-      json.dump(state.doc_indices_by_discrete_value, f)
-
   @executing.make_executable(copy_self=False)
   async def load(
       self,
@@ -123,7 +115,50 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeddings_path = os.path.join(path, self.embeds_npy_name)
     doc_embeddings = list(np.load(embeddings_path))
 
-    # Load discrete indices from JSON.
+    return index_state.EmbeddingBasedIndexState(
+        docs=docs,
+        doc_embeddings=doc_embeddings,
+    )
+
+
+@dataclasses.dataclass
+class SimpleConstrainedEmbeddingBasedIndexSerializer(
+    SimpleEmbeddingBasedIndexSerializer[DocT]
+):
+  """Serializer for ConstrainedEmbeddingBasedIndex.
+
+  Inherits doc and embed saving/loading from SimpleEmbeddingBasedIndexSerializer
+  and adds saving/loading of discrete field indices to a JSON file.
+
+  Attributes:
+    discrete_indices_json_name: Name of the file for storing discrete indices.
+  """
+
+  discrete_indices_json_name: str = 'discrete_indices.json'
+
+  def save(
+      self,
+      state: index_state.EmbeddingBasedIndexState[DocT],
+      base_path: str | None = None,
+  ) -> None:
+    """Saves the index state to the given base path."""
+    super().save(state, base_path)
+
+    if isinstance(state, index_state.ConstrainedEmbeddingBasedIndexState):
+      path = base_path or self.base_path
+      indices_path = os.path.join(path, self.discrete_indices_json_name)
+      with open(indices_path, 'w') as f:
+        json.dump(state.doc_indices_by_discrete_value, f)
+
+  @executing.make_executable(copy_self=False)
+  async def load(
+      self,
+      base_path: str | None = None,
+  ) -> index_state.ConstrainedEmbeddingBasedIndexState[DocT]:
+    """Loads the index state from the given base path."""
+    base_state = await super().load(base_path)  # pytype: disable=wrong-arg-count
+
+    path = base_path or self.base_path
     indices_path = os.path.join(path, self.discrete_indices_json_name)
     with open(indices_path, 'r') as f:
       loaded_indices = json.load(f)
@@ -136,8 +171,8 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
           list, field_dict
       )
 
-    return index_state.EmbeddingBasedIndexState(
-        docs=docs,
-        doc_embeddings=doc_embeddings,
+    return index_state.ConstrainedEmbeddingBasedIndexState(
+        docs=base_state.docs,
+        doc_embeddings=base_state.doc_embeddings,
         doc_indices_by_discrete_value=doc_indices_by_discrete_value,
     )

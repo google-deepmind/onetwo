@@ -33,11 +33,22 @@ class EmbeddingBasedIndexState(Generic[DocT]):
   Attributes:
     docs: The raw documents to be serialized.
     doc_embeddings: A list of numpy arrays representing the document embeddings.
-    doc_indices_by_discrete_value: Internal reverse index for discrete field
-      values, used for constrained retrieval. See the `EmbeddingBasedIndex`
-      class for more details.
   """
 
   docs: List[DocT]
   doc_embeddings: List[np.ndarray]
+
+
+@dataclasses.dataclass(frozen=True)
+class ConstrainedEmbeddingBasedIndexState(
+    EmbeddingBasedIndexState[DocT], Generic[DocT]
+):
+  """A point-in-time snapshot of a ConstrainedEmbeddingBasedIndex state.
+
+  Attributes:
+    doc_indices_by_discrete_value: Internal reverse index for discrete field
+      values, used for constrained retrieval. See the
+      `ConstrainedEmbeddingBasedIndex` class for more details.
+  """
+
   doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]]

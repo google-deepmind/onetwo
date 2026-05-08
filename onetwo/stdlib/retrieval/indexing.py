@@ -54,7 +54,7 @@ import numpy as np
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import tracing
-from onetwo.stdlib.retrieval import constrained_retrieval
+
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
@@ -402,7 +402,6 @@ def default_prepare_document(doc: Any) -> str:
 @dataclasses.dataclass(kw_only=True)
 class AbstractEmbeddingBasedIndex(
     Index[QueryT, RetrievalResultT, DocT],
-    constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
 ):
   r"""Abstract base class for embedding-based retrieval indices.
 
@@ -416,37 +415,11 @@ class AbstractEmbeddingBasedIndex(
     prepare_query: Callable that prepares the query for embedding.
     prepare_document: Callable that prepares the document for embedding.
     task_type: Task type to use when calling `llm.embed` (optional).
-    discrete_field_extractors: A dictionary where keys are string field names
-      and values are functions. Each function accepts a document (DocT) and
-      returns a discrete value (e.g., str, int) or a list of such values
-      for that field. These extractors populate internal reverse indices,
-      mapping field values to document indices. This allows for efficient
-      application of `RetrievalConstraints` during the retrieval process, using
-      the keys in this dictionary as `field_name` in the constraints.
-      The 'discrete_' qualifier distinguishes these from potential future
-      non-discrete fields (e.g., continuous values).
-      Example:
-      ```python
-        discrete_field_extractors = {
-          'author': lambda doc: doc.author,
-          'tags': lambda doc: doc.tags
-        }
-        # This would allow for constraints like
-        `RetrievalConstraint(field_name='author', value='Jane Doe')`
-        `RetrievalConstraint(
-            field_name='tags',
-            constraint_type=LIST_CONTAINS_ANY,
-            value=['python', 'java'])`.
-      ```
   """
-  # fmt: on
   prepare_query: Callable[[QueryT], str] = default_prepare_query
   prepare_document: Callable[[DocT], str] = default_prepare_document
 
   task_type: str | None = None
-  discrete_field_extractors: dict[str, Callable[[DocT], Any]] = (
-      dataclasses.field(default_factory=dict)
-  )
 
 
 def _default_list_map():
@@ -502,16 +475,6 @@ class EmbeddingBasedIndex(
   # List of the embeddings of the documents that are added to the index.
   _doc_embeddings: list[np.ndarray] = dataclasses.field(default_factory=list)
 
-  # Internal reverse index for discrete field values, used for constrained
-  # retrieval. This is a mapping from field name to a mapping of field value to
-  # a list of matching document indices. The name is qualified with 'discrete_'
-  # to distinguish it from potential future fields whose values are not discrete
-  # (e.g., continuous values for which constraints may be specified in terms of
-  # a value range).
-  _doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]] = (
-      dataclasses.field(default_factory=_default_discrete_value_map)
-  )
-
   @executing.make_executable(copy_self=False)
   async def _calculate_query_embedding(self, query: QueryT) -> Sequence[float]:
     """Returns a newly-calculated embedding of the query."""
@@ -540,34 +503,12 @@ class EmbeddingBasedIndex(
     """Overridden from base class (Index)."""
     return self._docs
 
-  def _update_doc_indices_by_discrete_value(
-      self,
-      docs: Sequence[DocT],
-      doc_offset: int,
-  ) -> None:
-    """Updates the field value to doc indices mapping."""
-    for i, doc in enumerate(docs):
-      doc_index = doc_offset + i
-      for field_name, extractor in self.discrete_field_extractors.items():
-        value = extractor(doc)
-        if isinstance(value, list):
-          for val in value:
-            self._doc_indices_by_discrete_value[field_name][val].append(
-                doc_index
-            )
-        else:
-          self._doc_indices_by_discrete_value[field_name][value].append(
-              doc_index
-          )
-
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.add_docs')
   async def add_docs(self, docs: Sequence[DocT]) -> None:
     """Overridden from base class (Index)."""
     _validate_docs(docs)
-    num_existing_docs = len(self._docs)
     self._docs.extend(docs)
-    self._update_doc_indices_by_discrete_value(docs, num_existing_docs)
     embedded_results = await self._calculate_doc_embeddings(docs)  # pytype: disable=wrong-arg-count
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])
     # Build the searcher index.
@@ -581,7 +522,7 @@ class EmbeddingBasedIndex(
       *,
       max_results: int | None = None,
       min_score: float | None = None,
-      constraints: constrained_retrieval.RetrievalConstraints | None = None,
+      **kwargs,
   ) -> Sequence[tuple[int, float]]:
     """Returns indices and scores of the most relevant documents.
 
@@ -592,32 +533,19 @@ class EmbeddingBasedIndex(
       query: The query used for retrieval.
       max_results: The maximum number of results to return.
       min_score: The minimum similarity score for a result to be included.
-      constraints: Optional retrieval constraints to filter the documents.
+      **kwargs: Additional keyword arguments.
     """
+    del kwargs  # Unused.
     query_embedding = await self._calculate_query_embedding(query)  # pytype: disable=wrong-arg-count
+
+    if max_results is None:
+      max_results = self.num_docs
 
     # For compatibility with search_batched, which expects a batch of queries.
     query_embeddings = np.array([query_embedding])
-    if constraints is not None:
-      candidate_indices_list = constrained_retrieval.get_candidate_indices(
-          constraints, self._doc_indices_by_discrete_value
-      )
-      if not candidate_indices_list:
-        return []
-
-      # Pass the candidate_indices_list to search_batched.
-      # The searcher will handle searching only within these indices.
-      ranked_doc_indices, ranked_doc_scores = (
-          await self.searcher.search_batched(  # pytype: disable=wrong-keyword-args
-              query_embeds=query_embeddings,
-              final_num_neighbors=max_results,
-              doc_indices=candidate_indices_list,
-          )
-      )
-    else:
-      ranked_doc_indices, ranked_doc_scores = await self.searcher.search_batched(  # pytype: disable=wrong-keyword-args
-          query_embeds=query_embeddings, final_num_neighbors=max_results
-      )
+    ranked_doc_indices, ranked_doc_scores = await self.searcher.search_batched(  # pytype: disable=wrong-keyword-args
+        query_embeds=query_embeddings, final_num_neighbors=max_results
+    )
     if min_score is None:
       return list(zip(ranked_doc_indices[0], ranked_doc_scores[0]))
     else:
@@ -644,14 +572,13 @@ class EmbeddingBasedIndex(
       *,
       max_results: int | None = None,
       min_score: float | None = None,
-      constraints: constrained_retrieval.RetrievalConstraints | None = None,
+      **kwargs,
   ) -> Iterable[tuple[DocT, float]]:
-    """Overridden from base class (ConstrainedRetriever)."""
+    """Overridden from base class (Retriever)."""
     doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(  # pytype: disable=wrong-keyword-args
         query,
         max_results=max_results,
         min_score=min_score,
-        constraints=constraints,
     )
     ranked_documents_and_scores = [
         (self._docs[i], score) for i, score in doc_indices_and_scores
@@ -666,55 +593,22 @@ class EmbeddingBasedIndex(
       *,
       max_results: int | None = None,
       min_score: float | None = None,
-      constraints: constrained_retrieval.RetrievalConstraints | None = None,
       **kwargs,
   ) -> Iterable[DocT]:
-    """Overridden from base class (ConstrainedRetriever)."""
+    """Overridden from base class (Retriever)."""
     doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(  # pytype: disable=wrong-keyword-args
         query,
         max_results=max_results,
         min_score=min_score,
-        constraints=constraints,
     )
     ranked_documents = [self._docs[i] for i, _ in doc_indices_and_scores]
     return ranked_documents
-
-  def rename_discrete_field_key(
-      self, field_name: str, old_key: str, new_key: str
-  ):
-    """Renames or merges a key in the index for a discrete field.
-
-    This operation finds all document indices associated with `old_key`
-    for the given `field_name` and re-associates them with `new_key`.
-    If `new_key` already exists in the index for this field, the indices
-    from `old_key` are added to `new_key`'s existing list of indices (merge).
-    If `old_key` does not exist for `field_name`, this method does nothing.
-
-    Args:
-      field_name: The name of the discrete field to update (e.g.,
-        'external_keys').
-      old_key: The existing key whose document associations will be moved.
-      new_key: The target key to associate the documents with.
-
-    Raises:
-      ValueError: If `field_name` is not a known discrete field index.
-    """
-    if field_name not in self._doc_indices_by_discrete_value:
-      raise ValueError(
-          f"Field '{field_name}' not found in discrete field indices."
-      )
-
-    index_for_field = self._doc_indices_by_discrete_value[field_name]
-    if old_key in index_for_field:
-      doc_indices = index_for_field.pop(old_key)
-      index_for_field[new_key].extend(doc_indices)
 
   @tracing.trace('EmbeddingBasedIndex.destroy_index')
   def destroy_index(self) -> None:
     """Overridden from base class (Index)."""
     self._docs = []
     self._doc_embeddings = []
-    self._doc_indices_by_discrete_value = {}
     self.searcher.destroy()
 
 
@@ -740,40 +634,31 @@ class RewritingEmbeddingBasedIndex(
   inner_index: EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT]
 
   @executing.make_executable(copy_self=False)
-  async def retrieve_doc_indices_and_scores(
-      self,
-      query: QueryT,
-      *,
-      max_results: int | None = None,
-      min_score: float | None = None,
-      constraints: constrained_retrieval.RetrievalConstraints | None = None,
-  ) -> Sequence[tuple[int, float]]:
-    """Delegates to the inner index."""
-    return await self.inner_index.retrieve_doc_indices_and_scores(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
-        query,
-        max_results=max_results,
-        min_score=min_score,
-        constraints=constraints,
-    )
-
-  def rename_discrete_field_key(
-      self, field_name: str, old_key: str, new_key: str
-  ) -> None:
-    """Delegates to the inner index."""
-    self.inner_index.rename_discrete_field_key(  # pytype: disable=attribute-error
-        field_name, old_key, new_key
-    )
-
-  @executing.make_executable(copy_self=False)
   async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
     """Delegates to the inner index."""
     return await self.inner_index.retrieve_doc_score(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
         query, doc_index
     )
 
+  @executing.make_executable(copy_self=False)
+  async def retrieve_doc_indices_and_scores(
+      self,
+      query: QueryT,
+      *,
+      max_results: int | None = None,
+      min_score: float | None = None,
+      **kwargs,
+  ) -> Sequence[tuple[int, float]]:
+    """Delegates to the inner index."""
+    return await self.inner_index.retrieve_doc_indices_and_scores(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
+        query,
+        max_results=max_results,
+        min_score=min_score,
+        **kwargs,
+    )
 
 from onetwo.stdlib.retrieval import serialization
-serializer = serialization.SimpleEmbeddingBasedIndexSerializer
+base_serializer = serialization.SimpleEmbeddingBasedIndexSerializer
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -788,19 +673,15 @@ class EmbeddingBasedDocumentIndex(
     index_state_dto = index_state.EmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
-        doc_indices_by_discrete_value=self._doc_indices_by_discrete_value,
     )
-    serializer(Document).save(index_state_dto, base_path)
+    base_serializer(Document).save(index_state_dto, base_path)
 
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
-    index_state_dto = await serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
+    index_state_dto = await base_serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
-    self._doc_indices_by_discrete_value = (
-        index_state_dto.doc_indices_by_discrete_value
-    )
     # Build the searcher index.
     await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
 

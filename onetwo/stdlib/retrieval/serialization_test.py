@@ -37,7 +37,9 @@ class SerializationTest(absltest.TestCase):
     super().tearDown()
 
   def test_simple_serialization_roundtrip(self):
-    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
+    serializer = serialization.SimpleConstrainedEmbeddingBasedIndexSerializer(
+        _Document
+    )
 
     doc1 = _Document(
         doc_id='id1', content='content1', metadata={'key1': 'val1'}
@@ -45,7 +47,7 @@ class SerializationTest(absltest.TestCase):
     doc2 = _Document(
         doc_id='id2', content='content2', metadata={'key2': 'val2'}
     )
-    state = index_state.EmbeddingBasedIndexState(
+    state = index_state.ConstrainedEmbeddingBasedIndexState(
         docs=[doc1, doc2],
         doc_embeddings=[
             np.array([1.0, 2.0], dtype=np.float32),
