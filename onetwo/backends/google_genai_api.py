@@ -36,7 +36,6 @@ import httpx
 from onetwo.backends import backends_base
 from onetwo.builtins import formatting
 from onetwo.builtins import llm
-from onetwo.builtins import llm_utils
 from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
@@ -746,37 +745,6 @@ class GoogleGenAIAPI(
     prompt.cache_name = new_cache.name
     return new_cache.name
 
-  def _heal_prompt(
-      self, prompt: llm.Prompt, healing_option: _TokenHealingOption
-  ) -> tuple[llm.Prompt, llm.Prompt]:
-    """Applies token healing to the prompt.
-
-    Args:
-      prompt: The prompt to heal.
-      healing_option: The healing option to use.
-
-    Returns:
-      A tuple of (healed_prompt, original_prompt).
-    """
-    original_prompt = prompt
-    if isinstance(prompt, str) or isinstance(prompt, _ChunkList):
-      prompt = llm_utils.maybe_heal_prompt(
-          original_prompt=prompt, healing_option=healing_option
-      )
-    elif prompt:  # non-empty Sequence
-      if isinstance(prompt[0], _Chunk):
-        original_prompt = _ChunkList(chunks=prompt)
-        prompt = llm_utils.maybe_heal_prompt(
-            original_prompt=original_prompt,
-            healing_option=healing_option,
-        )
-      else:  # Sequence[Message]
-        original_prompt = prompt[-1].content
-        prompt[-1].content = llm_utils.maybe_heal_prompt(
-            original_prompt=original_prompt, healing_option=healing_option
-        )
-    return prompt, original_prompt
-
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
   )
@@ -803,13 +771,12 @@ class GoogleGenAIAPI(
     """This is builtins.llm.generate_content for multiple candidates."""
     self._counters['generate_contents'] += 1
 
-    # Apply token healing to the prompt, if applicable.
-    if isinstance(prompt, llm.CachedPrompt):
-      prompt.prompt, original_prompt = self._heal_prompt(
-          prompt.prompt, healing_option
+    if healing_option != _TokenHealingOption.NONE:
+      logging.warning(
+          'Token healing is no longer supported in '
+          'GoogleGenAIAPI.generate_contents.'
       )
-    else:
-      prompt, original_prompt = self._heal_prompt(prompt, healing_option)
+    del healing_option  # No longer used.
 
     # Perform server-side prefix caching, if requested.
     # We split the prompt *before* converting to genai contents, because
@@ -888,15 +855,6 @@ class GoogleGenAIAPI(
     contents_with_details = [
         _chunks_with_details_from_candidate(c) for c in response.candidates
     ]
-
-    # Apply token healing to the response, if applicable.
-    for content, _ in contents_with_details:
-      if content.chunks and isinstance(content.chunks[-1].content, str):
-        content.chunks[-1].content = llm_utils.maybe_heal_reply(
-            reply_text=content.chunks[-1].content,
-            original_prompt=original_prompt,
-            healing_option=healing_option,
-        )
 
     results = (
         contents_with_details

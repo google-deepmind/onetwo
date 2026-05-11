@@ -1769,24 +1769,6 @@ class GoogleGenaiApiTest(
         ],
     )
 
-  def test_generate_content_heal_spaces(self):
-    _ = _get_and_register_backend()
-    gc_mock = self._mock_genai_client.models.generate_content
-    # Text is "broken spaces"; " " should come from the model, not the prompt.
-    gc_mock.return_value = genai_types.GenerateContentResponse(
-        candidates=[genai_candidate(' spaces')]
-    )
-    res = executing.run(
-        llm.generate_content(
-            prompt='broken ',
-            healing_option=llm_lib.TokenHealingOption.SPACE_HEALING,
-        )
-    )
-    self.assertEqual(  # Model sees the fixed prompt
-        gc_mock.call_args.kwargs['contents'][0].parts[0].text, 'broken'
-    )
-    self.assertEqual(str(res), 'spaces')  # Return has no double space
-
   def test_generate_content_samples(self):
     backend = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content

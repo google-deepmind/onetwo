@@ -418,43 +418,6 @@ def main(argv: Sequence[str]) -> None:
           print('Returned value(s):')
           pprint.pprint(candidate)
 
-  if _should_run_test(7):
-    with _run_test(7, 'Healing prompt', test_results) as tc:
-      print('7.1 Generate text without healing.')
-      # With no healing, the trailing space may cause unexpected behavior
-      # (e.g., empty response). We log the result but don't fail the test.
-      executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
-          prompt='The capital of France is ',
-          temperature=0.0,
-          max_tokens=300,
-          healing_option=llm.TokenHealingOption.NONE,
-      )
-      try:
-        res = executing.run(executable)
-        if _PRINT_DEBUG.value:
-          print('Returned value(s):')
-          pprint.pprint(res)
-      except ValueError as e:
-        # Empty responses are expected for prompts with trailing spaces.
-        print(f'NOTE: Raised ValueError (expected for trailing-space prompt): {e}')
-      print('7.2 Generate text with space healing.')
-      # Space healing strips the trailing space, so the model receives a normal
-      # prompt and should reliably produce a response containing "Paris".
-      executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
-          prompt='The capital of France is ',
-          temperature=0.0,
-          max_tokens=300,
-          healing_option=llm.TokenHealingOption.SPACE_HEALING,
-      )
-      res = executing.run(executable)
-      if _PRINT_DEBUG.value:
-        print('Returned value(s):')
-        pprint.pprint(res)
-      if 'paris' not in res.lower():
-        tc.fail(
-            'Returned value does not contain \"paris\": ' + repr(res)
-        )
-
   if _should_run_test(8):
     with _run_test(8, 'Use ChunkList', test_results) as tc:
       executable = (
