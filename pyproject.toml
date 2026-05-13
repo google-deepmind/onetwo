@@ -18,6 +18,7 @@ dependencies = [
     "absl-py",
     "aenum",
     "bs4",
+    "anthropic",
     "dataclasses-json",
     "datasets",
     "tensorflow-datasets",
