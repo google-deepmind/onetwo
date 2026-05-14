@@ -169,9 +169,7 @@ def _convert_messages_to_claude_format(
   system_parts = []
   api_messages = []
   for message in messages:
-    role = _CLAUDE_ROLE_BY_PREDEFINED_ROLE.get(
-        message.role, str(message.role)
-    )
+    role = _CLAUDE_ROLE_BY_PREDEFINED_ROLE.get(message.role, str(message.role))
     if role == 'system':
       # Claude handles system messages as a separate top-level parameter.
       content = _convert_content_to_claude_format(message.content)
@@ -211,9 +209,8 @@ class ClaudeAPI(
   Note: Anthropic does not provide an embeddings API. Tokenize and detokenize
   are not available through the Anthropic API either.
 
-  # TODO and reasoning
-  # control (thinking) for the Messages API. See
-  # https://docs.anthropic.com/en/api/messages.
+  # TODO for the
+  # Messages API. See https://docs.anthropic.com/en/api/messages.
 
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
@@ -236,9 +233,65 @@ class ClaudeAPI(
     stop: Stop sequences (as a list of strings) for LLM text generation (can be
       set as a default and can be overridden per request).
     generate_text_kwargs: Additional default parameter values to apply in calls
-      to `llm.generate_text`.
-    generate_texts_kwargs: Additional default parameter values to apply in calls
-      to `llm.generate_texts`.
+      to `llm.generate_text`, `llm.generate_texts`, and `llm.chat`. Any kwargs
+      set here are passed directly to the Anthropic Messages API. This is the
+      place to set parameters like `thinking` for extended reasoning or `effort`
+      for simpler reasoning control.
+
+  Key `generate_text_kwargs` parameters:
+    thinking: Thinking configuration for the model. This is a dictionary
+      containing the field "type" (one of "enabled", "disabled", "adaptive")
+      and other configuration values depending on the specified type. See
+      https://platform.claude.com/docs/en/api/messages/create#create.thinking
+    output_config: Output configuration for the model. This is a dictionary
+      containing the optional fields "effort" (one of "low", "medium", "high",
+      "xhigh", "max") and "format". "effort" controls how long the model
+      spends thinking, while "format" controls the format of the output. See
+      https://platform.claude.com/docs/en/api/messages/create#create.output_config
+
+    Note: `thinking` and `output_config` cannot be passed per-call through the
+    `llm.generate_text` and `llm.generate_texts` builtins (they reject unknown
+    kwargs). Instead, set them at registration time via
+    `generate_text_kwargs`. For per-call control, use `llm.chat()` which
+    accepts `**kwargs`.
+
+  Example usage:
+
+    Basic backend (default thinking):
+
+    ```python
+      backend = ClaudeAPI(
+          api_key='sk-ant-...',
+          model_name='claude-opus-4-7',
+      )
+      backend.register()
+    ```
+
+    Claude Sonnet 4.6 — thinking with explicit budget:
+
+    ```python
+      backend = ClaudeAPI(
+          api_key='sk-ant-...',
+          model_name='claude-sonnet-4-6',
+          generate_text_kwargs={
+              'thinking': {'type': 'enabled', 'budget_tokens': 4096},
+          },
+      )
+      backend.register()
+    ```
+
+    Claude Opus 4.7 — effort-based reasoning control:
+
+    ```python
+      backend = ClaudeAPI(
+          api_key='sk-ant-...',
+          model_name='claude-opus-4-7',
+          generate_text_kwargs={
+              'output_config': {'effort': 'high'},
+          },
+      )
+      backend.register()
+    ```
   """
 
   batch_size: int = 1
@@ -253,9 +306,6 @@ class ClaudeAPI(
 
   # Additional optional parameters for use during backend registration.
   generate_text_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
-  generate_texts_kwargs: dict[str, Any] = dataclasses.field(
-      default_factory=dict
-  )
 
   # Attributes not set by constructor.
   _client: anthropic.Anthropic | None = dataclasses.field(
@@ -294,10 +344,14 @@ class ClaudeAPI(
           self.generate_texts,
           max_tokens=self.max_tokens,
           stop=self.stop,
-          **self.generate_texts_kwargs,
+          **self.generate_text_kwargs,
       )
 
-      llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
+      llm.chat.configure(
+          self.chat,
+          formatter=formatting.FormatterName.API,
+          **self.generate_text_kwargs,
+      )
       llm.instruct.configure(
           llm.default_instruct, formatter=formatting.FormatterName.API
       )
@@ -393,20 +447,29 @@ class ClaudeAPI(
         **kwargs,
     )
 
-  def _extract_text_from_response(self, response: Any) -> str:
-    """Extracts text from a Claude Messages API response.
+  def _extract_text_from_response(
+      self, response: Any
+  ) -> tuple[str, str | None]:
+    """Extracts text and thinking from a Claude Messages API response.
 
     Args:
       response: The response object from the Messages API.
 
     Returns:
-      The concatenated text from all text content blocks in the response.
+      A tuple of (text, thinking_output) where text is the concatenated text
+      from all text content blocks and thinking_output is the concatenated
+      thinking content (or None if no thinking blocks are present).
     """
     text_parts = []
+    thinking_parts = []
     for block in response.content:
-      if hasattr(block, 'text'):
+      if hasattr(block, 'thinking'):
+        thinking_parts.append(block.thinking)
+      elif hasattr(block, 'text'):
         text_parts.append(block.text)
-    return ''.join(text_parts)
+    text = ''.join(text_parts)
+    thinking_output = ''.join(thinking_parts) if thinking_parts else None
+    return text, thinking_output
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='ClaudeAPI.generate_text')
@@ -435,6 +498,8 @@ class ClaudeAPI(
       decoding_constraint: str | None = None,
       include_details: bool = False,
       top_logprobs: int | None = None,
+      thinking: Mapping[str, Any] | None = None,
+      output_config: Mapping[str, Any] | None = None,
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_text'] += 1
@@ -453,13 +518,23 @@ class ClaudeAPI(
     if top_p is not None:
       kwargs['top_p'] = top_p
 
+    if thinking is not None:
+      kwargs['thinking'] = thinking
+    if output_config is not None:
+      kwargs['output_config'] = output_config
+
     response = self._complete_prompt(
         prompt=prompt,
         **kwargs,
     )
-    text = self._extract_text_from_response(response)
+    text, thinking_output = self._extract_text_from_response(response)
     score = 0.0
-    return (text, {'text': text, 'score': score}) if include_details else text
+    if include_details:
+      details: dict[str, Any] = {'text': text, 'score': score}
+      if thinking_output is not None:
+        details['thinking_output'] = thinking_output
+      return (text, details)
+    return text
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='ClaudeAPI.generate_texts')
@@ -489,6 +564,8 @@ class ClaudeAPI(
       decoding_constraint: str | None = None,
       include_details: bool = False,
       top_logprobs: int | None = None,
+      thinking: Mapping[str, Any] | None = None,
+      output_config: Mapping[str, Any] | None = None,
   ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_texts'] += 1
@@ -506,6 +583,10 @@ class ClaudeAPI(
       kwargs['top_k'] = top_k
     if top_p is not None:
       kwargs['top_p'] = top_p
+    if thinking is not None:
+      kwargs['thinking'] = thinking
+    if output_config is not None:
+      kwargs['output_config'] = output_config
     # Claude Messages API does not support `n` parameter. Make separate calls.
     results = []
     for _ in range(samples):
@@ -513,11 +594,15 @@ class ClaudeAPI(
           prompt=prompt,
           **kwargs,
       )
-      text = self._extract_text_from_response(response)
+      text, thinking_output = self._extract_text_from_response(response)
       score = 0.0
-      results.append(
-          (text, {'text': text, 'score': score}) if include_details else text
-      )
+      if include_details:
+        details: dict[str, Any] = {'text': text, 'score': score}
+        if thinking_output is not None:
+          details['thinking_output'] = thinking_output
+        results.append((text, details))
+      else:
+        results.append(text)
 
     return results
 
@@ -561,10 +646,7 @@ class ClaudeAPI(
     # must end with a user message). If the last message is an assistant
     # message, strip it and log a warning.
     messages = list(messages)
-    if (
-        messages
-        and messages[-1].role == content_lib.PredefinedRole.MODEL
-    ):
+    if messages and messages[-1].role == content_lib.PredefinedRole.MODEL:
       logging.warning(
           'Claude does not support assistant message prefill. Dropping'
           ' trailing assistant message: %s',
@@ -572,7 +654,8 @@ class ClaudeAPI(
       )
       messages.pop()
     response = self._messages_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
-    return self._extract_text_from_response(response)
+    text, _ = self._extract_text_from_response(response)
+    return text
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='ClaudeAPI.count_tokens')

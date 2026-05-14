@@ -359,6 +359,105 @@ def main(argv: Sequence[str]) -> None:
   except Exception as e:  # pylint: disable=broad-except
     print(f'Failed to count tokens with image: {e}')
 
+  # ==================== Thinking tests ====================
+  # Claude Sonnet 4 (4.6) supports thinking.type='enabled' with budget_tokens.
+  thinking_model = 'claude-sonnet-4-6'
+  print(f'10. Generate text with thinking (type=enabled) on {thinking_model}.')
+  backend_thinking = claude_api.ClaudeAPI(
+      model_name=thinking_model,
+      api_key=api_key,
+      batch_size=4,
+      generate_text_kwargs={
+          'thinking': {'type': 'enabled', 'budget_tokens': 4096},
+      },
+  )
+  backend_thinking.register()
+  res = executing.run(
+      llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='Solve x^2 + 4x + 4 = 0. Show your work.',
+          max_tokens=8192,
+          include_details=True,
+      )
+  )
+  if not isinstance(res, tuple) or 'text' not in res[1]:
+    success = False
+    print('FAILURE: include_details did not return expected format.')
+  elif 'thinking' not in res[1]:
+    success = False
+    print('FAILURE: thinking not found in details.')
+  elif _PRINT_DEBUG.value:
+    print('  Thinking content:', res[1]['thinking'][:200], '...')
+    print('  Answer:', res[0][:200])
+
+  print(f'10.1 Chat with thinking enabled on {thinking_model}.')
+  res = executing.run(
+      llm.chat(  # pytype: disable=wrong-keyword-args
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content='What is 127 * 83? Think step by step.',
+              ),
+          ],
+          max_tokens=8192,
+      )
+  )
+  if not res:
+    success = False
+    print('FAILURE: chat with thinking returned empty response.')
+  elif _PRINT_DEBUG.value:
+    print('  Chat response:', res[:200])
+
+  # ==================== Effort tests ====================
+  # Claude Opus 4.7 uses output_config.effort for reasoning control
+  # (thinking.type='enabled' is not supported, use 'adaptive' without
+  # budget_tokens or output_config.effort instead).
+  print(f'11. Generate text with effort=high on {model_name}.')
+  backend_effort = claude_api.ClaudeAPI(
+      model_name=model_name,
+      api_key=api_key,
+      batch_size=4,
+      generate_text_kwargs={
+          'output_config': {'effort': 'high'},
+      },
+  )
+  backend_effort.register()
+  res = executing.run(
+      llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='Explain the Riemann hypothesis in simple terms.',
+          max_tokens=512,
+      )
+  )
+  if not res:
+    success = False
+    print('FAILURE: generate_text with effort=high returned empty response.')
+  elif _PRINT_DEBUG.value:
+    print('  Response:', res[:200])
+
+  print(f'11.1 Generate text with effort=low on {model_name}.')
+  backend_effort_low = claude_api.ClaudeAPI(
+      model_name=model_name,
+      api_key=api_key,
+      batch_size=4,
+      generate_text_kwargs={
+          'output_config': {'effort': 'low'},
+      },
+  )
+  backend_effort_low.register()
+  res = executing.run(
+      llm.generate_text(  # pytype: disable=wrong-keyword-args
+          prompt='What is the capital of France?',
+          max_tokens=100,
+      )
+  )
+  if not res:
+    success = False
+    print('FAILURE: generate_text with effort=low returned empty response.')
+  elif _PRINT_DEBUG.value:
+    print('  Response:', res[:200])
+
+  # Restore the original backend for cache saving.
+  backend.register()
+
   if not _LOAD_CACHE.value:
     start = time.time()
     assert isinstance(backend.cache, caching.SimpleFunctionCache)

@@ -283,6 +283,89 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     for sample in res:
       self.assertEqual(sample, claude_mock._DEFAULT_REPLY)
 
+  def test_generate_with_thinking_enabled(self):
+    """Verifies that thinking content is returned in details when enabled."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key',
+        batch_size=_BATCH_SIZE,
+        generate_text_kwargs={
+            'thinking': {'type': 'adaptive', 'budget_tokens': 1024},
+        },
+    )
+    backend.register()
+    res = executing.run(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
+            prompt='Solve x^2 + 4x + 4 = 0',
+            max_tokens=512,
+            include_details=True,
+        )
+    )
+    with self.subTest('returns_correct_text'):
+      self.assertEqual(res[0], claude_mock._DEFAULT_REPLY)
+    with self.subTest('returns_thinking'):
+      self.assertIn('thinking_output', res[1])
+      self.assertEqual(res[1]['thinking_output'], claude_mock._DEFAULT_THINKING)
+
+  def test_generate_without_thinking(self):
+    """Verifies that thinking is absent from details when not enabled."""
+    _get_and_register_backend()
+    res = executing.run(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
+            prompt='Hello',
+            max_tokens=512,
+            include_details=True,
+        )
+    )
+    with self.subTest('returns_correct_text'):
+      self.assertEqual(res[0], claude_mock._DEFAULT_REPLY)
+    with self.subTest('no_thinking_in_details'):
+      self.assertNotIn('thinking_output', res[1])
+
+  def test_generate_texts_with_thinking(self):
+    """Verifies that thinking is returned in generate_texts with details."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key',
+        batch_size=_BATCH_SIZE,
+        generate_text_kwargs={
+            'thinking': {'type': 'adaptive', 'budget_tokens': 1024},
+        },
+    )
+    backend.register()
+    res = executing.run(
+        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+            prompt='Hello',
+            samples=2,
+            max_tokens=512,
+            include_details=True,
+        )
+    )
+    self.assertLen(res, 2)
+    for sample in res:
+      with self.subTest('returns_correct_text'):
+        self.assertEqual(sample[0], claude_mock._DEFAULT_REPLY)
+      with self.subTest('returns_thinking'):
+        self.assertIn('thinking_output', sample[1])
+
+  def test_generate_text_kwargs_applied_to_chat(self):
+    """Verifies that generate_text_kwargs propagates thinking to chat."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key',
+        batch_size=_BATCH_SIZE,
+        generate_text_kwargs={
+            'thinking': {'type': 'adaptive', 'budget_tokens': 1024},
+        },
+    )
+    backend.register()
+    res = executing.run(
+        llm.chat(  # pytype: disable=wrong-keyword-args
+            messages=[
+                _Message(content='Hello', role=_PredefinedRole.USER),
+            ],
+            max_tokens=512,
+        )
+    )
+    self.assertEqual(res, claude_mock._DEFAULT_REPLY)
+
 
 class ConvertChunkToContentBlockTest(parameterized.TestCase):
   """Tests for _convert_chunk_to_claude_part."""

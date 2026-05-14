@@ -25,6 +25,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 _DEFAULT_REPLY: Final[str] = 'Hello'
+_DEFAULT_THINKING: Final[str] = 'Let me think about this.'
 
 
 class TextBlock:
@@ -33,6 +34,14 @@ class TextBlock:
   def __init__(self, text: str):
     self.type = 'text'
     self.text = text
+
+
+class ThinkingBlock:
+  """Mock for an Anthropic thinking content block."""
+
+  def __init__(self, thinking: str):
+    self.type = 'thinking'
+    self.thinking = thinking
 
 
 class Usage:
@@ -87,6 +96,8 @@ class MessagesNamespace:
       top_p: float | None = None,
       top_k: int | None = None,
       stop_sequences: Sequence[str] | None = None,
+      thinking: Mapping[str, Any] | None = None,
+      output_config: Mapping[str, Any] | None = None,
       **kwargs,
   ) -> Message:
     """Mocks client.messages.create for the Messages API."""
@@ -105,10 +116,15 @@ class MessagesNamespace:
         top_p,
         top_k,
         stop_sequences,
+        output_config,
         kwargs,
     )
-    content = TextBlock(text=self._reply)
-    return Message(content=[content])
+    content: list[TextBlock | ThinkingBlock] = []
+    # When thinking is enabled, prepend a thinking block.
+    if thinking and thinking.get('type') in ('enabled', 'adaptive'):
+      content.append(ThinkingBlock(thinking=_DEFAULT_THINKING))
+    content.append(TextBlock(text=self._reply))
+    return Message(content=content)
 
   def count_tokens(
       self,
