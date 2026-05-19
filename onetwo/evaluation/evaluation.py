@@ -42,6 +42,12 @@ import tqdm
 
 
 _QUESTION_KEY: Final[str] = 'question'
+_NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX: Final[str] = (
+    'Does prediction agree with target? (yes/no):'
+)
+_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX: Final[str] = (
+    'Score prediction against target in [0.0, 1.0]:'
+)
 _Args = ParamSpec('_Args')
 _I = TypeVar('_I')
 _O = TypeVar('_O')
@@ -688,7 +694,7 @@ async def naive_evaluation_critic(
           'Question: Circumference of a circle with radius 1cm?\n'
           'Target: 2pi cm\n'
           'Prediction: 6.28 centimenter\n'
-          'Does prediction agree with target? (yes/no): ',
+          f'{_NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX} ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -697,11 +703,11 @@ async def naive_evaluation_critic(
       ),
       content_lib.Message(
           content_lib.PredefinedRole.USER,
-          """
+          f"""
 Question: Spell first 5 digits of pi.
 Target: 3.1415
 Prediction: 3.14
-Does prediction agree with target? (yes/no): """,
+{_NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -713,7 +719,7 @@ Does prediction agree with target? (yes/no): """,
 Question: {question}
 Target: {target}
 Prediction: {prediction}
-Does prediction agree with target? (yes/no): """,
+{_NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
   ]
   res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
@@ -730,6 +736,12 @@ Does prediction agree with target? (yes/no): """,
   # Normalize the rating and reason.
   rating = rating.lower().strip()
   reason = reason.split('\n\n')[0].strip()
+
+  # Strip prompt prefix if repeated by the model.
+  prefix = _NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX.lower()
+  if rating.startswith(prefix):
+    rating = rating[len(prefix):].strip()
+
   # Some models are stubborn about returning the answer in a certain format
   # such as boldface (e.g. **yes**), regardless of how they are prompted.
   # We try to cover such cases on a best effort basis.
@@ -817,8 +829,8 @@ async def naive_fuzzy_evaluation_critic(
           ' minor inaccuracies.\n0.1-0.4: Weak alignment, only vaguely related'
           ' or contains significant inaccuracies.\n0.0: No meaningful semantic'
           ' overlap.\n\nQuestion: Circumference of a circle with radius'
-          ' 1cm?\nTarget: 2pi cm\nPrediction: 6.28 centimenter\nScore'
-          ' prediction against target in [0.0, 1.0]: ',
+          ' 1cm?\nTarget: 2pi cm\nPrediction: 6.28 centimenter\n'
+          f'{_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -827,12 +839,12 @@ async def naive_fuzzy_evaluation_critic(
       ),
       content_lib.Message(
           content_lib.PredefinedRole.USER,
-          """
+          f"""
 
 Question: Which U.S. President authorized the use of atomic bombs during World War II?
 Target: Harry S. Truman
 Prediction: Harry Truman
-Score prediction against target in [0.0, 1.0]: """,
+{_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -841,12 +853,12 @@ Score prediction against target in [0.0, 1.0]: """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.USER,
-          """
+          f"""
 
 Question: What is a "black hole"?
 Target: A region of spacetime where gravity is so strong that nothing, not even light, can escape.
 Prediction: A black hole is like a vacuum cleaner in space that sucks everything up.
-Score prediction against target in [0.0, 1.0]: """,
+{_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -855,12 +867,12 @@ Score prediction against target in [0.0, 1.0]: """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.USER,
-          """
+          f"""
 
 Question: How many green shapes are there in the picture?
 Target: 12
 Prediction: There are 3 green squares and 9 green circles.
-Score prediction against target in [0.0, 1.0]: """,
+{_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -869,12 +881,12 @@ Score prediction against target in [0.0, 1.0]: """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.USER,
-          """
+          f"""
 
 Question: Which Beatles are shown in the picture?
 Target: Paul and George
 Prediction: [Paul McCartney, George Harrison, Ringo Starr]
-Score prediction against target in [0.0, 1.0]: """,
+{_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
@@ -888,7 +900,7 @@ Score prediction against target in [0.0, 1.0]: """,
 Question: {question}
 Target: {target}
 Prediction: {prediction}
-Score prediction against target in [0.0, 1.0]: """,
+{_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
   ]
   res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
@@ -907,6 +919,11 @@ Score prediction against target in [0.0, 1.0]: """,
 
   # Normalize the reason.
   reason = reason.split('\n\n')[0].strip()
+
+  # Strip prompt prefix if repeated by the model.
+  prefix = _NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX.lower()
+  if rating.lower().startswith(prefix):
+    rating = rating[len(prefix):].strip()
 
   # Attempt to parse the score from the response, only allow simple floats.
   simple_float_pattern = r'\d+(\.\d+)?'

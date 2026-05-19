@@ -1223,6 +1223,18 @@ class NaiveEvaluationCriticTest(parameterized.TestCase):
           0.0,
           'because yes',
       ),
+      (
+          'yes_with_repeated_prompt',
+          'Does prediction agree with target? (yes/no): yes\nReason: because',
+          1.0,
+          'because',
+      ),
+      (
+          'no_with_repeated_prompt',
+          'Does prediction agree with target? (yes/no): no\nReason: because',
+          0.0,
+          'because',
+      ),
   )
   def test_naive_evaluation_critic_produces_correct_output(
       self, critic_llm_reply, expected_value, expected_reason
@@ -1307,6 +1319,15 @@ Does prediction agree with target? (yes/no): """
           'float:0.6\nReason: It is because...',
           0.6,
           'It is because...',
+      ),
+      (
+          'score_with_repeated_prompt',
+          (
+              'Score prediction against target in [0.0, 1.0]: 0.8\nReason:'
+              ' Close enough'
+          ),
+          0.8,
+          'Close enough',
       ),
   )
   def test_naive_fuzzy_evaluation_critic_produces_correct_output(
