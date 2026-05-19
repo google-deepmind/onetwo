@@ -177,7 +177,14 @@ def main(argv: Sequence[str]) -> None:
       # for the actual output.
       'thinking_config': genai_types.ThinkingConfig(
           include_thoughts=False,
-          thinking_budget=128,
+          thinking_budget=32,
+      ),
+  }
+  candidates_generate_config = {
+      'safety_settings': google_genai_api.SAFETY_DISABLED,
+      'thinking_config': genai_types.ThinkingConfig(
+          include_thoughts=False,
+          thinking_budget=512,
       ),
   }
   backend = google_genai_api.GoogleGenAIAPI(
@@ -208,6 +215,24 @@ def main(argv: Sequence[str]) -> None:
       generate_object_kwargs=generate_config,
       generate_content_kwargs=generate_config,
       chat_kwargs=generate_config,
+  )
+
+  candidates_backend = google_genai_api.GoogleGenAIAPI(
+      generate_model_name=google_genai_api.ModelName(
+          vertex_ai='gemini-2.5-flash-lite',
+          gemini_api='models/gemini-2.5-flash-lite',
+      ),
+      api_key=api_key,
+      vertexai=vertexai,
+      project=project,
+      location=location,
+      threadpool_size=_THREADPOOL_SIZE.value,
+      cache=cache,
+      max_retries=5,
+      generate_text_kwargs=candidates_generate_config,
+      generate_object_kwargs=candidates_generate_config,
+      generate_content_kwargs=candidates_generate_config,
+      chat_kwargs=candidates_generate_config,
   )
 
   if _LOAD_CACHE.value:
@@ -397,26 +422,30 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(6.2):
     with _run_test(6.2, 'Generate candidates', test_results) as tc:
-      res = executing.run(
-          generate_contents_direct(
-              backend,
-              prompt="""How are you doing? In one word.""",
-              samples=3,
-              temperature=2,
-              response_mime_type='application/json',
-              response_schema={
-                  'type': 'STRING',
-                  'pattern': '(terrible|excellent|well|average|meh|bad|awesome)',
-              },
-              safety_settings=google_genai_api.SAFETY_DISABLED,
-          )
-      )
+      with routing.RegistryContext():
+        candidates_backend.register()
+        res = executing.run(
+            generate_contents_direct(
+                candidates_backend,
+                prompt="""How are you doing? In one word.""",
+                samples=3,
+                temperature=2,
+                response_mime_type='application/json',
+                response_schema={
+                    'type': 'STRING',
+                    'pattern': '(terrible|excellent|well|average|meh|bad|awesome)',
+                },
+                safety_settings=google_genai_api.SAFETY_DISABLED,
+            )
+        )
       uniq = len({str(r): False for r in res})
       print('- Candidates:', len(res), ' distinct:', uniq)
       if _PRINT_DEBUG.value:
         for candidate in res:
           print('Returned value(s):')
           pprint.pprint(candidate)
+      # Switch back to default backend.
+      backend.register()
 
   if _should_run_test(8):
     with _run_test(8, 'Use ChunkList', test_results) as tc:
