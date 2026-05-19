@@ -22,6 +22,7 @@ Based on https://github.com/googleapis/python-genai to access either
 import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
+import http
 import math
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, Union
@@ -40,6 +41,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import prefix_caching
 from onetwo.core import tracing
 from onetwo.core import utils
 import pydantic
@@ -366,8 +368,8 @@ class GoogleGenAIAPI(
       calls to `llm.generate_object`.
     generate_content_kwargs: Additional default parameter values to apply in
       calls to `llm.generate_content`.
-    embed_kwargs: Additional default parameter values to apply in calls
-      to `llm.embed`.
+    embed_kwargs: Additional default parameter values to apply in calls to
+      `llm.embed`.
   """
 
   threadpool_size: int = 1
@@ -695,24 +697,25 @@ class GoogleGenAIAPI(
 
   def _update_contents_cache(
       self,
-      prompt: llm.CachedPrompt,
-      cache_contents: list[genai_types.Content],
+      prompt: prefix_caching.CachedChunkList,
   ) -> str:
     """Updates server-side cache for the given prompt and returns its name.
-
-    The caller is responsible for splitting the prompt at `cache_chunk_count`
-    *before* converting to `genai_types.Content` (via `_contents_from_prompt`),
-    and passing only the cached prefix here.
 
     Args:
       prompt: The prompt whose prefix is cached. The name of the cache is stored
         in `prompt.cache_name`.
-      cache_contents: The contents to cache, already converted from the cached
-        prefix of the prompt.
 
     Returns:
       The name of the cache.
     """
+    if isinstance(prompt, prefix_caching.CachedChunkList):
+      n = prompt.cache_chunk_count
+      cache_prompt = prompt[:n]
+    else:
+      raise ValueError(f'Unsupported prompt type for caching: {type(prompt)}')
+
+    cache_contents = _contents_from_prompt(cache_prompt)
+
     kwargs = {}
     if prompt.cache_ttl:
       kwargs['ttl'] = prompt.cache_ttl
@@ -728,15 +731,16 @@ class GoogleGenAIAPI(
         return prompt.cache_name
       except genai_errors.ClientError as e:
         cache_name_suffix = prompt.cache_name.split('/')[-1]
-        if not (e.code == 404 and cache_name_suffix in str(e)):
+        if not (
+            e.code == http.HTTPStatus.NOT_FOUND and cache_name_suffix in str(e)
+        ):
           # Error other than "cache not found".
           raise e
 
     # The cache does not yet exist or has expired. Create a new one.
-    model_name = self._generate_model_name().removeprefix('publishers/google/')
     self._extract_system_instruction_from_contents(cache_contents, kwargs)
     new_cache = self._genai_client.caches.create(
-        model=model_name,
+        model=self._generate_model_name(),
         config=genai_types.CreateCachedContentConfig(
             contents=cache_contents,
             **kwargs,
@@ -771,6 +775,9 @@ class GoogleGenAIAPI(
     """This is builtins.llm.generate_content for multiple candidates."""
     self._counters['generate_contents'] += 1
 
+    # Validate prompt first.
+    prefix_caching.validate_cached_prompt(prompt)
+
     if healing_option != _TokenHealingOption.NONE:
       logging.warning(
           'Token healing is no longer supported in '
@@ -782,24 +789,25 @@ class GoogleGenAIAPI(
     # We split the prompt *before* converting to genai contents, because
     # _contents_from_prompt may merge adjacent same-role chunks, which would
     # misalign cache_chunk_count with the resulting contents list.
-    if isinstance(prompt, llm.CachedPrompt):
-      n = prompt.cache_chunk_count
-      cache_contents = _contents_from_prompt(prompt.prompt[:n])
-      contents = _contents_from_prompt(prompt.prompt[n:])
+    if isinstance(prompt, prefix_caching.CachedChunkList):
       if 'cached_content' in kwargs:
         raise ValueError(
-            'cached_content cannot be set manually when using CachedPrompt.'
+            'cached_content cannot be set manually when using caching classes.'
         )
       try:
-        kwargs['cached_content'] = self._update_contents_cache(
-            prompt, cache_contents
-        )
+        kwargs['cached_content'] = self._update_contents_cache(prompt)
+        n = prompt.cache_chunk_count
+        contents = _contents_from_prompt(prompt[n:])
       except genai_errors.APIError as e:
-        if e.code == 400 and 'minimum token count' in str(e):
+        if (
+            e.code == http.HTTPStatus.BAD_REQUEST
+            and 'minimum token count' in str(e)
+        ):
           logging.warning(
               'Context too small for caching, falling back to full prompt.'
           )
-          contents = _contents_from_prompt(prompt.prompt)
+          # Fallback: convert the full prompt.
+          contents = _contents_from_prompt(prompt)
         else:
           raise e
     else:

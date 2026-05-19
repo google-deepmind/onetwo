@@ -34,6 +34,7 @@ from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
+from onetwo.core import prefix_caching
 from onetwo.core import sampling
 from PIL import Image
 import pydantic
@@ -1864,7 +1865,7 @@ class GoogleGenaiApiTest(
       t1 = time.time()
       self.assertLess(t1 - t0, 5.0)
 
-  def test_generate_content_with_cached_prompt_new_cache(self):
+  def test_generate_content_with_cached_chunk_list_new_cache(self):
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     caches_mock = self._mock_genai_client.caches
@@ -1873,8 +1874,8 @@ class GoogleGenaiApiTest(
     mock_cache.name = 'cachedContents/xyz'
     caches_mock.create.return_value = mock_cache
 
-    prompt = llm_lib.CachedPrompt(
-        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+    prompt = prefix_caching.CachedChunkList(
+        chunks=[_Chunk('prefix'), _Chunk('suffix')],
         cache_chunk_count=1,
         cache_ttl='300s',
     )
@@ -1898,13 +1899,13 @@ class GoogleGenaiApiTest(
       self.assertEqual(kwargs['contents'][0].parts[0].text, 'suffix')
       self.assertEqual(kwargs['config'].cached_content, 'cachedContents/xyz')
 
-  def test_generate_content_with_cached_prompt_existing_cache(self):
+  def test_generate_content_with_cached_chunk_list_existing_cache(self):
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     caches_mock = self._mock_genai_client.caches
 
-    prompt = llm_lib.CachedPrompt(
-        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+    prompt = prefix_caching.CachedChunkList(
+        chunks=[_Chunk('prefix'), _Chunk('suffix')],
         cache_chunk_count=1,
         cache_name='cachedContents/abc',
         cache_ttl='300s',
@@ -1926,7 +1927,7 @@ class GoogleGenaiApiTest(
       _, kwargs = gc_mock.call_args
       self.assertEqual(kwargs['config'].cached_content, 'cachedContents/abc')
 
-  def test_generate_content_with_cached_prompt_cache_expired(self):
+  def test_generate_content_with_cached_chunk_list_cache_expired(self):
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     caches_mock = self._mock_genai_client.caches
@@ -1939,8 +1940,8 @@ class GoogleGenaiApiTest(
     mock_cache.name = 'cachedContents/new'
     caches_mock.create.return_value = mock_cache
 
-    prompt = llm_lib.CachedPrompt(
-        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+    prompt = prefix_caching.CachedChunkList(
+        chunks=[_Chunk('prefix'), _Chunk('suffix')],
         cache_chunk_count=1,
         cache_name='cachedContents/abc',
     )
@@ -1960,7 +1961,7 @@ class GoogleGenaiApiTest(
           'cachedContents/new',
       )
 
-  def test_generate_content_with_cached_prompt_splitting(self):
+  def test_generate_content_with_cached_chunk_list_splitting(self):
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     caches_mock = self._mock_genai_client.caches
@@ -1969,8 +1970,8 @@ class GoogleGenaiApiTest(
     mock_cache.name = 'cachedContents/split'
     caches_mock.create.return_value = mock_cache
 
-    prompt = llm_lib.CachedPrompt(
-        prompt=[_Chunk('p1'), _Chunk('p2'), _Chunk('suffix')],
+    prompt = prefix_caching.CachedChunkList(
+        chunks=[_Chunk('p1'), _Chunk('p2'), _Chunk('suffix')],
         cache_chunk_count=2,
     )
 
@@ -1979,8 +1980,6 @@ class GoogleGenaiApiTest(
     with self.subTest('PrefixContainsTwoParts'):
       caches_mock.create.assert_called_once()
       contents = caches_mock.create.call_args.kwargs['config'].contents
-      # They might be merged *within* the cache if _contents_from_prompt
-      # merges them, but they should NOT include 'suffix'.
       self.assertIn(len(contents), (1, 2))
       if len(contents) == 1:
         self.assertLen(contents[0].parts, 2)
@@ -1996,7 +1995,7 @@ class GoogleGenaiApiTest(
       self.assertLen(contents, 1)
       self.assertEqual(contents[0].parts[0].text, 'suffix')
 
-  def test_generate_content_with_cached_prompt_too_small_fallback(self):
+  def test_generate_content_with_cached_chunk_list_too_small_fallback(self):
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
     caches_mock = self._mock_genai_client.caches
@@ -2017,8 +2016,8 @@ class GoogleGenaiApiTest(
         candidates=[genai_candidate('fallback_text')]
     )
 
-    prompt = llm_lib.CachedPrompt(
-        prompt=[_Chunk('prefix'), _Chunk('suffix')],
+    prompt = prefix_caching.CachedChunkList(
+        chunks=[_Chunk('prefix'), _Chunk('suffix')],
         cache_chunk_count=1,
     )
 
@@ -2032,6 +2031,16 @@ class GoogleGenaiApiTest(
       self.assertIsNone(kwargs['config'].cached_content)
 
     self.assertEqual(str(res), 'fallback_text')
+
+  def test_generate_content_validation_nested_caching_in_sequences(self):
+    _ = _get_and_register_backend()
+    cached_chunks = prefix_caching.CachedChunkList(
+        chunks=['a'], cache_chunk_count=1
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'CachedChunkList can only be used as the outermost prompt'
+    ):
+      executing.run(llm.generate_content(prompt=[cached_chunks]))  # type: ignore[wrong-arg-types]
 
   @parameterized.named_parameters(
       dict(

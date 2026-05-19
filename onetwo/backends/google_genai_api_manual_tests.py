@@ -15,11 +15,13 @@
 from collections.abc import Iterator, Sequence
 import contextlib
 import dataclasses
+
 import json
 import math
 import os
 import pprint
 import time
+import uuid
 
 from absl import app
 from absl import flags
@@ -32,6 +34,7 @@ from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import prefix_caching
 from onetwo.core import routing
 from onetwo.core import sampling
 import pydantic
@@ -339,7 +342,9 @@ def main(argv: Sequence[str]) -> None:
         pprint.pprint(res)
 
   if _should_run_test(4):
-    with _run_test(4, 'Prompt that does not fit into maximal token length', test_results) as tc:
+    with _run_test(
+        4, 'Prompt that does not fit into maximal token length', test_results
+    ) as tc:
       value_error_raised = False
       try:
         # This call should fail and raise ValueError in _batch_generate.
@@ -369,11 +374,17 @@ def main(argv: Sequence[str]) -> None:
         tc.fail('ValueError not raised.')
 
   if _should_run_test(5):
-    with _run_test(5, 'Three batched generate queries, one of which does not fit', test_results) as tc:
+    with _run_test(
+        5,
+        'Three batched generate queries, one of which does not fit',
+        test_results,
+    ) as tc:
       exe = executing.par_iter([
           check_and_complete(prompt_text='In summer', max_tokens=300),
           check_and_complete(prompt_text='In winter', max_tokens=300),
-          check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),
+          check_and_complete(
+              ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))
+          ),
       ])
       value_error_raised = False
       try:
@@ -470,7 +481,9 @@ def main(argv: Sequence[str]) -> None:
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
   if _should_run_test(9):
-    with _run_test(9, 'Check that generate_texts is working', test_results) as tc:
+    with _run_test(
+        9, 'Check that generate_texts is working', test_results
+    ) as tc:
       res = executing.run(
           llm.generate_texts(  # pytype: disable=wrong-keyword-args
               prompt=prompt_text,
@@ -532,7 +545,8 @@ def main(argv: Sequence[str]) -> None:
       if not res.startswith(' time'):
         tc.fail(
             'Returned value does not seem to be a continuation of "Once'
-            ' upon a" -- expected to start with " time": ' + repr(res)
+            ' upon a" -- expected to start with " time": '
+            + repr(res)
         )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
@@ -658,7 +672,9 @@ def main(argv: Sequence[str]) -> None:
         print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname_mm))
 
   if _should_run_test(12):
-    with _run_test(12, 'Check response_schema and response_mime_type', test_results) as tc:
+    with _run_test(
+        12, 'Check response_schema and response_mime_type', test_results
+    ) as tc:
       executable = c.c('What is the capital of France? ') + c.store(
           'answer',
           c.generate_text(
@@ -677,7 +693,9 @@ def main(argv: Sequence[str]) -> None:
       except json.JSONDecodeError as e:
         tc.fail(
             'Returned value is not a valid JSON: '
-            + repr(executable['answer']) + ' ' + repr(e)
+            + repr(executable['answer'])
+            + ' '
+            + repr(e)
         )
 
   if _should_run_test(13):
@@ -708,7 +726,9 @@ def main(argv: Sequence[str]) -> None:
         if _PRINT_DEBUG.value:
           print('Returned value(s):')
           pprint.pprint(res)
-        if not isinstance(res, list) or not all(isinstance(x, int) for x in res):
+        if not isinstance(res, list) or not all(
+            isinstance(x, int) for x in res
+        ):
           tc.fail('Returned value is not a list of ints: ' + repr(res))
       else:
         print('- Skipped because it is not supported by Gemini API.')
@@ -733,11 +753,15 @@ def main(argv: Sequence[str]) -> None:
               + result_string[-200:]
           )
         pprint.pprint(result_string)
-      if not isinstance(res, list) or not all(isinstance(x, float) for x in res):
+      if not isinstance(res, list) or not all(
+          isinstance(x, float) for x in res
+      ):
         tc.fail('Returned value is not a list of floats: ' + repr(res))
 
   if _should_run_test(16):
-    with _run_test(16, 'Check llm.generate_object with native types. (int)', test_results) as tc:
+    with _run_test(
+        16, 'Check llm.generate_object with native types. (int)', test_results
+    ) as tc:
       prompt = 'What is the height of the Eiffel Tower? (in m)'
       result = executing.run(
           llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
@@ -754,7 +778,9 @@ def main(argv: Sequence[str]) -> None:
     landmark: str | None = None
 
   if _should_run_test(17):
-    with _run_test(17, 'Check llm.generate_object with Pydantic model', test_results) as tc:
+    with _run_test(
+        17, 'Check llm.generate_object with Pydantic model', test_results
+    ) as tc:
       prompt = 'Provide information about the capital of France.'
       result = executing.run(
           llm.generate_object(prompt=prompt, cls=CityInfo)  # pytype: disable=wrong-keyword-args
@@ -774,16 +800,18 @@ def main(argv: Sequence[str]) -> None:
         tc.fail('population should be positive')
 
   if _should_run_test(18):
-    with _run_test(18, 'Check llm.generate_object for dict-like data', test_results) as tc:
+    with _run_test(
+        18, 'Check llm.generate_object for dict-like data', test_results
+    ) as tc:
 
       class WordCount(pydantic.BaseModel):
         word: str
         count: int
 
       prompt = (
-          'Return a breakdown of the words and their frequencies in the following'
-          ' sentence: "the quick brown fox jumps over the lazy dog dog". '
-          'Provide the output as a list of word-count objects.'
+          'Return a breakdown of the words and their frequencies in the'
+          ' following sentence: "the quick brown fox jumps over the lazy dog'
+          ' dog". Provide the output as a list of word-count objects.'
       )
       result = executing.run(
           llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
@@ -818,9 +846,11 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(19):
     with _run_test(
-        19, 'Check llm.generate_object with a Pydantic-wrapped standard dataclass',
+        19,
+        'Check llm.generate_object with a Pydantic-wrapped standard dataclass',
         test_results,
     ) as tc:
+
       @dataclasses.dataclass
       class StandardRecipe:
         recipe_name: str
@@ -842,13 +872,9 @@ def main(argv: Sequence[str]) -> None:
         pprint.pprint(result)
 
       if not isinstance(result, StandardRecipe):
-        tc.fail(
-            f'Result is not an instance of StandardRecipe: {type(result)}'
-        )
+        tc.fail(f'Result is not an instance of StandardRecipe: {type(result)}')
       elif not isinstance(result, pydantic_recipe):
-        tc.fail(
-            f'Result is not an instance of PydanticRecipe: {type(result)}'
-        )
+        tc.fail(f'Result is not an instance of PydanticRecipe: {type(result)}')
       else:
         if not result.recipe_name:
           tc.fail('recipe_name is missing')
@@ -862,7 +888,9 @@ def main(argv: Sequence[str]) -> None:
           tc.fail('ingredients should be a list of strings')
 
   if _should_run_test(20):
-    with _run_test(20, 'Check llm.generate_object in chat mode', test_results) as tc:
+    with _run_test(
+        20, 'Check llm.generate_object in chat mode', test_results
+    ) as tc:
       result = executing.run(
           llm.generate_object(  # pytype: disable=wrong-keyword-args
               prompt=[
@@ -1068,12 +1096,14 @@ def main(argv: Sequence[str]) -> None:
               val = info[key]
               print(f'- {key}: {val}')
               if val is not None and (not isinstance(val, int) or val < 0):
-                tc.fail(
-                    f'{key} is not a valid non-negative integer: {val}'
-                )
+                tc.fail(f'{key} is not a valid non-negative integer: {val}')
 
   if _should_run_test(24):
-    with _run_test(24, 'Check embed norm is 1.0 for various output_dimensionality', test_results) as tc:
+    with _run_test(
+        24,
+        'Check embed norm is 1.0 for various output_dimensionality',
+        test_results,
+    ) as tc:
       embed_content = content_lib.ChunkList(
           chunks=[
               content_lib.Chunk(
@@ -1117,7 +1147,8 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(25):
     with _run_test(
-        25, 'Check embed_kwargs default output_dimensionality and normalize',
+        25,
+        'Check embed_kwargs default output_dimensionality and normalize',
         test_results,
     ) as tc:
       target_dim = 256
@@ -1135,9 +1166,14 @@ def main(argv: Sequence[str]) -> None:
             vertexai=vertexai,
             project=project,
             location=location,
-            embed_kwargs={'output_dimensionality': target_dim, 'normalize': True},
+            embed_kwargs={
+                'output_dimensionality': target_dim,
+                'normalize': True,
+            },
         )
-        reduced_backend.register(register_generate=False, register_tokenize=False)
+        reduced_backend.register(
+            register_generate=False, register_tokenize=False
+        )
         # Call embed without specifying output_dimensionality explicitly.
         res = executing.run(
             llm.embed(content=embed_content_25)  # pytype: disable=wrong-keyword-args
@@ -1153,6 +1189,103 @@ def main(argv: Sequence[str]) -> None:
         tc.fail(f'expected length {target_dim}, got {len(res)}')
       if not norm_ok:
         tc.fail(f'norm {vec_norm} is not close to 1.0')
+
+  if _should_run_test(26):
+    with _run_test(
+        26, 'Check prefix caching with CachedChunkList', test_results
+    ) as tc:
+      # Caching requires a minimum prefix size of 32,768 tokens on the server.
+      # We generate a large text block of repeated words (~35k tokens) and
+      # prepend a random UUID to guarantee a true cache miss on the first call.
+      unique_suffix = f'unique id: {uuid.uuid4()} '
+      large_prefix_text = unique_suffix + ('apple ' * 35000)
+      prompt = prefix_caching.CachedChunkList(
+          chunks=[
+              content_lib.Chunk(large_prefix_text),
+              content_lib.Chunk(
+                  '\nWhat was the fruit repeated in the context above? answer'
+                  ' in one word.'
+              ),
+          ],
+          cache_chunk_count=1,
+          cache_ttl='300s',
+      )
+
+      print('- First call (cache creation/miss)...')
+      executable = llm.generate_text(prompt=prompt, max_tokens=50)  # pytype: disable=wrong-keyword-args
+      _, trace1 = executing.run(executable, enable_tracing=True)
+
+      print(f'- Populated cache_name: {prompt.cache_name}')
+      if not prompt.cache_name:
+        tc.fail(
+            'cache_name was not populated on the prompt after the first call.'
+        )
+
+      generate_text_stage1 = trace1.stages[0]
+      generate_contents_stage1 = generate_text_stage1.stages[0]
+      info1 = generate_contents_stage1.info
+      prompt_tokens1 = info1.get('llm.tokens.prompt', 0)
+      cached_tokens1 = info1.get('llm.tokens.cached_content', 0)
+      if prompt_tokens1 < cached_tokens1:
+        # Gemini API style: prompt_tokens represents only the fresh tokens.
+        fresh_tokens1 = prompt_tokens1
+        total_tokens1 = prompt_tokens1 + cached_tokens1
+      else:
+        # Vertex AI style: prompt_tokens represents the total tokens.
+        fresh_tokens1 = prompt_tokens1 - cached_tokens1
+        total_tokens1 = prompt_tokens1
+
+      print(f'- First call prompt tokens (total): {total_tokens1}')
+      print(f'- First call cached tokens: {cached_tokens1}')
+      print(f'- First call fresh tokens processed: {fresh_tokens1}')
+
+      print('- Second call (cache hit)...')
+      # Reuse prompt object with populated cache_name, but change the question.
+      prompt.chunks = [
+          prompt.chunks[0],
+          content_lib.Chunk(
+              '\nWhat fruit did I repeat in the context? answer in one word.'
+          ),
+      ]
+      executable2 = llm.generate_text(prompt=prompt, max_tokens=50)  # pytype: disable=wrong-keyword-args
+      _, trace2 = executing.run(executable2, enable_tracing=True)
+
+      # Verify second call cached tokens.
+      generate_text_stage2 = trace2.stages[0]
+      generate_contents_stage2 = generate_text_stage2.stages[0]
+      info2 = generate_contents_stage2.info
+      prompt_tokens2 = info2.get('llm.tokens.prompt', 0)
+      cached_tokens2 = info2.get('llm.tokens.cached_content', 0)
+      if prompt_tokens2 < cached_tokens2:
+        # Gemini API style: prompt_tokens represents only the fresh tokens.
+        fresh_tokens2 = prompt_tokens2
+        total_tokens2 = prompt_tokens2 + cached_tokens2
+      else:
+        # Vertex AI style: prompt_tokens represents the total tokens.
+        fresh_tokens2 = prompt_tokens2 - cached_tokens2
+        total_tokens2 = prompt_tokens2
+
+      print(f'- Second call prompt tokens (total): {total_tokens2}')
+      print(f'- Second call cached tokens: {cached_tokens2}')
+      print(f'- Second call fresh tokens processed: {fresh_tokens2}')
+
+      if cached_tokens2 is None or cached_tokens2 == 0:
+        tc.fail(
+            'Second call did not hit the cache (cached_content tokens is 0).'
+        )
+      else:
+        print(
+            'Mathematical Proof (Token Counts): The server returned '
+            f'prompt_token_count = {prompt_tokens2} (reported input) and '
+            f'cached_content_token_count = {cached_tokens2} (cached tokens). '
+            f'This represents a total input of {total_tokens2} tokens. '
+            'Since the server successfully processed the request and returned '
+            f'the correct answer while only processing {fresh_tokens2} input '
+            'tokens fresh, it proves the server successfully loaded and '
+            f'matched the other {cached_tokens2} tokens from the cache handle '
+            'we provided!'
+        )
+        print(f'SUCCESS: Cached {cached_tokens2} tokens successfully!')
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)

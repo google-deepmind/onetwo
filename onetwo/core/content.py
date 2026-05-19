@@ -359,11 +359,10 @@ class ChunkList:
       else:
         self.chunks.append(Chunk(chunk))
 
-  def __eq__(self, other):
-    if isinstance(other, ChunkList):
-      return self.chunks == other.chunks
-    else:
+  def __eq__(self, other: object) -> bool:
+    if type(self) is not type(other):
       return False
+    return self.chunks == other.chunks
 
   def __bool__(self):
     return self.__nonzero__()
