@@ -87,23 +87,23 @@ def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
   except RuntimeError:
     is_running = False
   if is_running:
-    loop = asyncio.new_event_loop()
-    context = contextvars.copy_context()
-    thr = _ThreadWithAsyncioLoop[T](
-        'Thread running an asyncio loop', coroutine, loop, context
-    )
-    thr.start()
-    try:
-      thr.join()
-    except BaseException as e:  # pylint: disable=broad-exception-caught
-      # The loop may still be running, so we need to explicitly stop it.
-      loop.stop()
-      thr.join()
-      raise e
-    if isinstance(thr.result, Exception):
-      raise thr.result
-    else:
-      return thr.result
+    with contextlib.closing(asyncio.new_event_loop()) as loop:
+      context = contextvars.copy_context()
+      thr = _ThreadWithAsyncioLoop[T](
+          'Thread running an asyncio loop', coroutine, loop, context
+      )
+      thr.start()
+      try:
+        thr.join()
+      except BaseException as e:  # pylint: disable=broad-exception-caught
+        # The loop may still be running, so we need to explicitly stop it.
+        loop.stop()
+        thr.join()
+        raise e
+      if isinstance(thr.result, Exception):
+        raise thr.result
+      else:
+        return thr.result
   else:
     return asyncio.run(coroutine)
 
