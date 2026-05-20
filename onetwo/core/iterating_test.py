@@ -17,6 +17,7 @@ import contextvars
 import itertools
 import threading
 import time
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -58,6 +59,27 @@ class IteratingTest(parameterized.TestCase):
       with self.subTest('direct_asyncio_fails'):
         with self.assertRaises(RuntimeError):
           asyncio.run(f(1))
+
+    asyncio.run(outer_wrapper())
+
+  def test_asyncio_run_wrapper_inside_loop_closes_loop(self):
+    async def outer_wrapper():
+      async def f():
+        return 42
+
+      original_new_event_loop = asyncio.new_event_loop
+      created_loops = []
+
+      def mock_new_event_loop():
+        loop = original_new_event_loop()
+        created_loops.append(loop)
+        return loop
+
+      with mock.patch('asyncio.new_event_loop', side_effect=mock_new_event_loop):
+        self.assertEqual(iterating.asyncio_run_wrapper(f()), 42)
+
+      self.assertEqual(len(created_loops), 1)
+      self.assertTrue(created_loops[0].is_closed())
 
     asyncio.run(outer_wrapper())
 
