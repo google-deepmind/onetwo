@@ -62,6 +62,8 @@ _CLAUDE_ROLE_BY_PREDEFINED_ROLE = {
     content_lib.PredefinedRole.SYSTEM: 'system',
 }
 
+_TOOL_RESULT_ROLE: Final[str] = 'user'
+
 _COMPLETION_SYSTEM_PROMPT_PREFIX: Final[str] = 'Continue the sentence: '
 
 _DEPRECATED_PARAMS: Final[tuple[str, ...]] = ('temperature', 'top_k', 'top_p')
@@ -209,9 +211,6 @@ class ClaudeAPI(
   Note: Anthropic does not provide an embeddings API. Tokenize and detokenize
   are not available through the Anthropic API either.
 
-  # TODO for the
-  # Messages API. See https://docs.anthropic.com/en/api/messages.
-
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
       CacheEnabled).
@@ -235,8 +234,8 @@ class ClaudeAPI(
     generate_text_kwargs: Additional default parameter values to apply in calls
       to `llm.generate_text`, `llm.generate_texts`, and `llm.chat`. Any kwargs
       set here are passed directly to the Anthropic Messages API. This is the
-      place to set parameters like `thinking` for extended reasoning or `effort`
-      for simpler reasoning control.
+      place to set parameters like `thinking` for extended reasoning, `effort`
+      for simpler reasoning control, or `tools`/`tool_choice` for tool use.
 
   Key `generate_text_kwargs` parameters:
     thinking: Thinking configuration for the model. This is a dictionary
@@ -248,12 +247,19 @@ class ClaudeAPI(
       "xhigh", "max") and "format". "effort" controls how long the model
       spends thinking, while "format" controls the format of the output. See
       https://platform.claude.com/docs/en/api/messages/create#create.output_config
+    tools: List of tool definitions for the Messages API. Each tool should
+      follow the Anthropic tool schema. Supports both custom function tools and
+      built-in tools (e.g. web_search). See
+      https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
+    tool_choice: Tool choice configuration. Controls how the model selects
+      tools. E.g., {"type": "auto"}, {"type": "any"}, {"type": "tool",
+      "name": "tool_name"}.
 
-    Note: `thinking` and `output_config` cannot be passed per-call through the
-    `llm.generate_text` and `llm.generate_texts` builtins (they reject unknown
-    kwargs). Instead, set them at registration time via
-    `generate_text_kwargs`. For per-call control, use `llm.chat()` which
-    accepts `**kwargs`.
+    Note: `thinking`, `output_config`, `tools`, and `tool_choice` cannot be
+    passed per-call through the `llm.generate_text` and `llm.generate_texts`
+    builtins (they reject unknown kwargs). Instead, set them at registration
+    time via `generate_text_kwargs`. For per-call control, use `llm.chat()`
+    which accepts `**kwargs`.
 
   Example usage:
 
@@ -288,6 +294,19 @@ class ClaudeAPI(
           model_name='claude-opus-4-7',
           generate_text_kwargs={
               'output_config': {'effort': 'high'},
+          },
+      )
+      backend.register()
+    ```
+
+    Claude Opus 4.7 with web search tool:
+
+    ```python
+      backend = ClaudeAPI(
+          api_key='sk-ant-...',
+          model_name='claude-opus-4-7',
+          generate_text_kwargs={
+              'tools': [{'type': 'web_search_20260209', 'name': 'web_search'}],
           },
       )
       backend.register()
@@ -447,29 +466,38 @@ class ClaudeAPI(
         **kwargs,
     )
 
-  def _extract_text_from_response(
+  def _extract_response(
       self, response: Any
-  ) -> tuple[str, str | None]:
-    """Extracts text and thinking from a Claude Messages API response.
+  ) -> tuple[str, str | None, list[dict[str, Any]]]:
+    """Extracts text, thinking_output, and tool_use blocks from a response.
 
     Args:
       response: The response object from the Messages API.
 
     Returns:
-      A tuple of (text, thinking_output) where text is the concatenated text
-      from all text content blocks and thinking_output is the concatenated
-      thinking content (or None if no thinking blocks are present).
+      A tuple of (text, thinking_output, tool_calls) where:
+        - text is the concatenated text from all text content blocks.
+        - thinking_output is the concatenated thinking content (or None).
+        - tool_calls is a list of dicts for any tool_use blocks, each with
+          keys 'id', 'name', and 'input'.
     """
     text_parts = []
     thinking_parts = []
+    tool_calls = []
     for block in response.content:
       if hasattr(block, 'thinking'):
         thinking_parts.append(block.thinking)
+      elif block.type == 'tool_use':
+        tool_calls.append({
+            'id': block.id,
+            'name': block.name,
+            'input': block.input,
+        })
       elif hasattr(block, 'text'):
         text_parts.append(block.text)
     text = ''.join(text_parts)
     thinking_output = ''.join(thinking_parts) if thinking_parts else None
-    return text, thinking_output
+    return text, thinking_output, tool_calls
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='ClaudeAPI.generate_text')
@@ -500,6 +528,8 @@ class ClaudeAPI(
       top_logprobs: int | None = None,
       thinking: Mapping[str, Any] | None = None,
       output_config: Mapping[str, Any] | None = None,
+      tools: Sequence[Mapping[str, Any]] | None = None,
+      tool_choice: Mapping[str, Any] | None = None,
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_text'] += 1
@@ -522,12 +552,18 @@ class ClaudeAPI(
       kwargs['thinking'] = thinking
     if output_config is not None:
       kwargs['output_config'] = output_config
+    if tools is not None:
+      kwargs['tools'] = tools
+    if tool_choice is not None:
+      kwargs['tool_choice'] = tool_choice
 
     response = self._complete_prompt(
         prompt=prompt,
         **kwargs,
     )
-    text, thinking_output = self._extract_text_from_response(response)
+    # TODO: Allow including tool calls in the output if
+    # `include_details` is `True`.
+    text, thinking_output, _ = self._extract_response(response)
     score = 0.0
     if include_details:
       details: dict[str, Any] = {'text': text, 'score': score}
@@ -566,6 +602,8 @@ class ClaudeAPI(
       top_logprobs: int | None = None,
       thinking: Mapping[str, Any] | None = None,
       output_config: Mapping[str, Any] | None = None,
+      tools: Sequence[Mapping[str, Any]] | None = None,
+      tool_choice: Mapping[str, Any] | None = None,
   ) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
     """See builtins.llm.generate_text."""
     self._counters['generate_texts'] += 1
@@ -587,6 +625,10 @@ class ClaudeAPI(
       kwargs['thinking'] = thinking
     if output_config is not None:
       kwargs['output_config'] = output_config
+    if tools is not None:
+      kwargs['tools'] = tools
+    if tool_choice is not None:
+      kwargs['tool_choice'] = tool_choice
     # Claude Messages API does not support `n` parameter. Make separate calls.
     results = []
     for _ in range(samples):
@@ -594,7 +636,7 @@ class ClaudeAPI(
           prompt=prompt,
           **kwargs,
       )
-      text, thinking_output = self._extract_text_from_response(response)
+      text, thinking_output, _ = self._extract_response(response)
       score = 0.0
       if include_details:
         details: dict[str, Any] = {'text': text, 'score': score}
@@ -654,7 +696,7 @@ class ClaudeAPI(
       )
       messages.pop()
     response = self._messages_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
-    text, _ = self._extract_text_from_response(response)
+    text, _, _ = self._extract_response(response)
     return text
 
   @executing.make_executable  # pytype: disable=wrong-arg-types

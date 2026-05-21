@@ -19,6 +19,9 @@ https://docs.anthropic.com/en/api/messages
 
 This document explains how to use the count tokens method:
 https://docs.anthropic.com/en/api/messages-count-tokens
+
+This document explains how to use tools:
+https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
 """
 
 from collections.abc import Mapping, Sequence
@@ -26,6 +29,8 @@ from typing import Any, Final
 
 _DEFAULT_REPLY: Final[str] = 'Hello'
 _DEFAULT_THINKING: Final[str] = 'Let me think about this.'
+_DEFAULT_TOOL_USE_ID: Final[str] = 'toolu_mock_456'
+_DEFAULT_TOOL_INPUT: Final[dict[str, Any]] = {'query': 'mock search query'}
 
 
 class TextBlock:
@@ -42,6 +47,19 @@ class ThinkingBlock:
   def __init__(self, thinking: str):
     self.type = 'thinking'
     self.thinking = thinking
+
+
+class ToolUseBlock:
+  """Mock for an Anthropic tool_use content block.
+
+  See https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
+  """
+
+  def __init__(self, id: str, name: str, input: dict[str, Any]):  # pylint: disable=redefined-builtin
+    self.type = 'tool_use'
+    self.id = id
+    self.name = name
+    self.input = input
 
 
 class Usage:
@@ -98,6 +116,8 @@ class MessagesNamespace:
       stop_sequences: Sequence[str] | None = None,
       thinking: Mapping[str, Any] | None = None,
       output_config: Mapping[str, Any] | None = None,
+      tools: Sequence[Mapping[str, Any]] | None = None,
+      tool_choice: Mapping[str, Any] | None = None,
       **kwargs,
   ) -> Message:
     """Mocks client.messages.create for the Messages API."""
@@ -110,19 +130,54 @@ class MessagesNamespace:
     del (
         model,
         max_tokens,
-        messages,
         system,
         temperature,
         top_p,
         top_k,
         stop_sequences,
         output_config,
+        tool_choice,
         kwargs,
     )
-    content: list[TextBlock | ThinkingBlock] = []
+
+    # Check if the last user message contains tool_result blocks (i.e. the
+    # caller is returning tool results). In that case we respond with text.
+    last_user_msg = None
+    for msg in reversed(messages):
+      if msg.get('role') == 'user':
+        last_user_msg = msg
+        break
+    has_tool_results = False
+    if last_user_msg:
+      msg_content = last_user_msg.get('content', '')
+      if isinstance(msg_content, list):
+        has_tool_results = any(
+            isinstance(part, dict) and part.get('type') == 'tool_result'
+            for part in msg_content
+        )
+
+    content: list[TextBlock | ThinkingBlock | ToolUseBlock] = []
     # When thinking is enabled, prepend a thinking block.
     if thinking and thinking.get('type') in ('enabled', 'adaptive'):
       content.append(ThinkingBlock(thinking=_DEFAULT_THINKING))
+
+    # When tools are provided and we haven't received tool results yet,
+    # return a tool_use response to simulate the model requesting a tool.
+    if tools and not has_tool_results:
+      tool_def = tools[0]
+      tool_name = tool_def.get('name', 'unknown_tool')
+      content.append(
+          ToolUseBlock(
+              id=_DEFAULT_TOOL_USE_ID,
+              name=tool_name,
+              input=dict(_DEFAULT_TOOL_INPUT),
+          )
+      )
+      return Message(
+          content=content,
+          stop_reason='tool_use',
+      )
+
     content.append(TextBlock(text=self._reply))
     return Message(content=content)
 

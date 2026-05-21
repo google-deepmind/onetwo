@@ -454,6 +454,35 @@ def main(argv: Sequence[str]) -> None:
     print('FAILURE: generate_text with effort=low returned empty response.')
   elif _PRINT_DEBUG.value:
     print('  Response:', res[:200])
+  # ==================== Tool use tests ====================
+  # Claude supports tool use (function calling) via the Messages API.
+  # See https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
+  print(f'12. Chat with web search tool on {model_name}.')
+  backend_tools = claude_api.ClaudeAPI(
+      model_name=model_name,
+      api_key=api_key,
+      batch_size=4,
+      generate_text_kwargs={
+          'tools': [{'type': 'web_search_20260209', 'name': 'web_search'}],
+      },
+  )
+  backend_tools.register()
+  res = executing.run(
+      llm.chat(  # pytype: disable=wrong-keyword-args
+          messages=[
+              content_lib.Message(
+                  role=content_lib.PredefinedRole.USER,
+                  content="Who won the latest Giro d'Italia stage?",
+              ),
+          ],
+          max_tokens=4096,
+      )
+  )
+  if not res:
+    success = False
+    print('FAILURE: chat with web_search tool returned empty response.')
+  elif _PRINT_DEBUG.value:
+    print('  Response (raw):', res[:500])
 
   # Restore the original backend for cache saving.
   backend.register()

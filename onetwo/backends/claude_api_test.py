@@ -367,6 +367,153 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     self.assertEqual(res, claude_mock._DEFAULT_REPLY)
 
 
+class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
+  """Tests for Claude API tool use support."""
+
+  def test_chat_with_tools_returns_text(self):
+    """Verifies that chat with tools returns text (tool_use blocks dropped)."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key',
+        batch_size=_BATCH_SIZE,
+        generate_text_kwargs={
+            'tools': [{
+                'name': 'web_search',
+                'type': 'web_search_20260209',
+            }],
+        },
+    )
+    backend.register()
+    res = executing.run(
+        llm.chat(  # pytype: disable=wrong-keyword-args
+            messages=[
+                _Message(
+                    content='Search for AAPL stock price',
+                    role=_PredefinedRole.USER,
+                ),
+            ],
+            max_tokens=512,
+        )
+    )
+    # chat returns only the text portion; tool_use blocks are silently
+    # dropped since tool orchestration is not yet supported.
+    self.assertIsInstance(res, str)
+    expected_backend_counters = collections.Counter({
+        'chat': 1,
+        '_messages_create': 1,
+        'chat_via_api_batches': 1,
+    })
+    with self.subTest('sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+  def test_chat_with_per_call_tools(self):
+    """Verifies that tools can be passed per-call via kwargs."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key',
+        batch_size=_BATCH_SIZE,
+    )
+    backend.register()
+    res = executing.run(
+        llm.chat(  # pytype: disable=wrong-keyword-args
+            messages=[
+                _Message(
+                    content='What is the weather?',
+                    role=_PredefinedRole.USER,
+                ),
+            ],
+            max_tokens=512,
+            tools=[{
+                'name': 'get_weather',
+                'description': 'Get weather for a location',
+                'input_schema': {
+                    'type': 'object',
+                    'properties': {
+                        'location': {'type': 'string'},
+                    },
+                    'required': ['location'],
+                },
+            }],
+        )
+    )
+    # Tool use blocks are silently dropped; only text is returned.
+    self.assertIsInstance(res, str)
+
+  def test_chat_without_tools_returns_text(self):
+    """Verifies that chat without tools returns plain text as before."""
+    _get_and_register_backend()
+    res = executing.run(
+        llm.chat(  # pytype: disable=wrong-keyword-args
+            messages=[
+                _Message(content='Hello', role=_PredefinedRole.USER),
+            ],
+            max_tokens=512,
+        )
+    )
+    self.assertEqual(res, claude_mock._DEFAULT_REPLY)
+
+  def test_extract_response_with_tool_use_blocks(self):
+    """Verifies _extract_response correctly extracts tool_use blocks."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key', batch_size=_BATCH_SIZE
+    )
+
+    # Build a mock response with both text and tool_use blocks.
+    class MockResponse:
+      pass
+
+    response = MockResponse()
+    response.content = [
+        claude_mock.TextBlock(text='Let me search for that.'),
+        claude_mock.ToolUseBlock(
+            id='toolu_123',
+            name='web_search',
+            input={'query': 'AAPL stock price'},
+        ),
+    ]
+    response.stop_reason = 'tool_use'
+
+    text, thinking, tool_calls = backend._extract_response(response)
+    with self.subTest('extracts_text'):
+      self.assertEqual(text, 'Let me search for that.')
+    with self.subTest('no_thinking'):
+      self.assertIsNone(thinking)
+    with self.subTest('extracts_tool_calls'):
+      self.assertLen(tool_calls, 1)
+      self.assertEqual(tool_calls[0]['id'], 'toolu_123')
+      self.assertEqual(tool_calls[0]['name'], 'web_search')
+      self.assertEqual(
+          tool_calls[0]['input'], {'query': 'AAPL stock price'}
+      )
+
+  def test_extract_response_with_thinking_and_tool_use(self):
+    """Verifies _extract_response with thinking + tool_use."""
+    backend = claude_api.ClaudeAPI(
+        api_key='some_key', batch_size=_BATCH_SIZE
+    )
+
+    class MockResponse:
+      pass
+
+    response = MockResponse()
+    response.content = [
+        claude_mock.ThinkingBlock(thinking='I need to search.'),
+        claude_mock.ToolUseBlock(
+            id='toolu_789',
+            name='get_weather',
+            input={'location': 'Paris'},
+        ),
+    ]
+    response.stop_reason = 'tool_use'
+
+    text, thinking, tool_calls = backend._extract_response(response)
+    with self.subTest('no_text'):
+      self.assertEqual(text, '')
+    with self.subTest('extracts_thinking'):
+      self.assertEqual(thinking, 'I need to search.')
+    with self.subTest('extracts_tool_calls'):
+      self.assertLen(tool_calls, 1)
+      self.assertEqual(tool_calls[0]['name'], 'get_weather')
+
+
 class ConvertChunkToContentBlockTest(parameterized.TestCase):
   """Tests for _convert_chunk_to_claude_part."""
 
