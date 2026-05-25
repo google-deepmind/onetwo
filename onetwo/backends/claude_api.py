@@ -422,7 +422,23 @@ class ClaudeAPI(
     if system_prompt is not None:
       api_kwargs['system'] = system_prompt
     if stop is not None:
-      api_kwargs['stop_sequences'] = list(stop)
+      # Claude API requires each stop sequence to contain non-whitespace.
+      # Filter out whitespace-only sequences (e.g. '\n') with a warning.
+      stop_list = list(stop)
+      filtered = [
+          stop_sequence
+          for stop_sequence in stop_list
+          if stop_sequence.strip()
+      ]
+      if len(filtered) < len(stop_list):
+        logging.warning(
+            'Dropping %d whitespace-only stop sequence(s) unsupported by the'
+            ' Claude API (e.g. "\\n"). Remaining: %s',
+            len(stop_list) - len(filtered),
+            filtered,
+        )
+      if filtered:
+        api_kwargs['stop_sequences'] = filtered
 
     api_kwargs.update(kwargs)
 

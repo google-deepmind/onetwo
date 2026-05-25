@@ -452,9 +452,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
   def test_extract_response_with_tool_use_blocks(self):
     """Verifies _extract_response correctly extracts tool_use blocks."""
-    backend = claude_api.ClaudeAPI(
-        api_key='some_key', batch_size=_BATCH_SIZE
-    )
+    backend = claude_api.ClaudeAPI(api_key='some_key', batch_size=_BATCH_SIZE)
 
     # Build a mock response with both text and tool_use blocks.
     class MockResponse:
@@ -480,15 +478,11 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertLen(tool_calls, 1)
       self.assertEqual(tool_calls[0]['id'], 'toolu_123')
       self.assertEqual(tool_calls[0]['name'], 'web_search')
-      self.assertEqual(
-          tool_calls[0]['input'], {'query': 'AAPL stock price'}
-      )
+      self.assertEqual(tool_calls[0]['input'], {'query': 'AAPL stock price'})
 
   def test_extract_response_with_thinking_and_tool_use(self):
     """Verifies _extract_response with thinking + tool_use."""
-    backend = claude_api.ClaudeAPI(
-        api_key='some_key', batch_size=_BATCH_SIZE
-    )
+    backend = claude_api.ClaudeAPI(api_key='some_key', batch_size=_BATCH_SIZE)
 
     class MockResponse:
       pass
@@ -606,8 +600,8 @@ class ConvertMessagesToClaude(parameterized.TestCase):
     messages = [
         _Message(content='Hello', role=_PredefinedRole.USER),
     ]
-    api_messages, system_prompt = (
-        claude_api._convert_messages_to_claude_format(messages)
+    api_messages, system_prompt = claude_api._convert_messages_to_claude_format(
+        messages
     )
     self.assertLen(api_messages, 1)
     self.assertEqual(api_messages[0]['role'], 'user')
@@ -619,8 +613,8 @@ class ConvertMessagesToClaude(parameterized.TestCase):
         _Message(content='You are helpful.', role=_PredefinedRole.SYSTEM),
         _Message(content='Hello', role=_PredefinedRole.USER),
     ]
-    api_messages, system_prompt = (
-        claude_api._convert_messages_to_claude_format(messages)
+    api_messages, system_prompt = claude_api._convert_messages_to_claude_format(
+        messages
     )
     self.assertLen(api_messages, 1)
     self.assertEqual(api_messages[0]['role'], 'user')
@@ -632,8 +626,8 @@ class ConvertMessagesToClaude(parameterized.TestCase):
         _Message(content='Be concise.', role=_PredefinedRole.SYSTEM),
         _Message(content='Hello', role=_PredefinedRole.USER),
     ]
-    api_messages, system_prompt = (
-        claude_api._convert_messages_to_claude_format(messages)
+    api_messages, system_prompt = claude_api._convert_messages_to_claude_format(
+        messages
     )
     self.assertLen(api_messages, 1)
     self.assertEqual(system_prompt, 'Be helpful.\nBe concise.')
@@ -644,8 +638,8 @@ class ConvertMessagesToClaude(parameterized.TestCase):
         _Message(content='Hi there!', role=_PredefinedRole.MODEL),
         _Message(content='How are you?', role=_PredefinedRole.USER),
     ]
-    api_messages, system_prompt = (
-        claude_api._convert_messages_to_claude_format(messages)
+    api_messages, system_prompt = claude_api._convert_messages_to_claude_format(
+        messages
     )
     self.assertLen(api_messages, 3)
     self.assertEqual(api_messages[0]['role'], 'user')
@@ -808,6 +802,142 @@ class CountTokensTest(
       self.assertEqual(backend._counters['count_tokens'], 1)
     with self.subTest('results_are_equal'):
       self.assertEqual(result1, result2)
+
+
+class StopSequenceFilteringTest(parameterized.TestCase):
+  """Tests for whitespace-only stop sequence filtering in _messages_create."""
+
+  def _make_backend(self) -> claude_api.ClaudeAPI:
+    return claude_api.ClaudeAPI(api_key='some_key', batch_size=_BATCH_SIZE)
+
+  def _make_messages(self) -> list[content_lib.Message]:
+    return [
+        _Message(content='Hello', role=_PredefinedRole.USER),
+    ]
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='newline_only',
+          stop=['\n'],
+          expected_stop_sequences=None,  # All dropped → key absent.
+      ),
+      dict(
+          testcase_name='whitespace_variants',
+          stop=['\n', '\t', '  ', '\r\n'],
+          expected_stop_sequences=None,
+      ),
+      dict(
+          testcase_name='valid_sequences_pass_through',
+          stop=['.', '!', 'END'],
+          expected_stop_sequences=['.', '!', 'END'],
+      ),
+      dict(
+          testcase_name='mixed_valid_and_whitespace',
+          stop=['\n', '.', '\t', '!'],
+          expected_stop_sequences=['.', '!'],
+      ),
+      dict(
+          testcase_name='single_valid_sequence',
+          stop=['STOP'],
+          expected_stop_sequences=['STOP'],
+      ),
+      dict(
+          testcase_name='empty_list',
+          stop=[],
+          expected_stop_sequences=None,  # Empty filtered list → key absent.
+      ),
+  )
+  def test_stop_sequences_filtering(self, stop, expected_stop_sequences):
+    backend = self._make_backend()
+    messages = self._make_messages()
+
+    from unittest import mock  # pylint: disable=g-import-not-at-top
+
+    assert backend._client is not None
+    with mock.patch.object(
+        backend._client.messages,
+        'create',
+        wraps=backend._client.messages.create,
+    ) as mock_create:
+      backend._messages_create(messages=messages, stop=stop)  # pytype: disable=wrong-keyword-args
+      mock_create.assert_called_once()
+      call_kwargs = mock_create.call_args[1]
+      if expected_stop_sequences is None:
+        self.assertNotIn('stop_sequences', call_kwargs)
+      else:
+        self.assertEqual(call_kwargs['stop_sequences'], expected_stop_sequences)
+
+  def test_stop_none_omits_stop_sequences(self):
+    backend = self._make_backend()
+    messages = self._make_messages()
+
+    from unittest import mock  # pylint: disable=g-import-not-at-top
+
+    assert backend._client is not None
+    with mock.patch.object(
+        backend._client.messages,
+        'create',
+        wraps=backend._client.messages.create,
+    ) as mock_create:
+      backend._messages_create(messages=messages, stop=None)  # pytype: disable=wrong-keyword-args
+      mock_create.assert_called_once()
+      call_kwargs = mock_create.call_args[1]
+      self.assertNotIn('stop_sequences', call_kwargs)
+
+  def test_whitespace_stop_logs_warning(self):
+    backend = self._make_backend()
+    messages = self._make_messages()
+
+    with self.assertLogs(level='WARNING') as log_ctx:
+      backend._messages_create(messages=messages, stop=['\n', '.'])  # pytype: disable=wrong-keyword-args
+
+    self.assertTrue(
+        any('whitespace-only stop sequence' in msg for msg in log_ctx.output),
+        'Expected warning about whitespace stop sequences, got:'
+        f' {log_ctx.output}',
+    )
+
+  def test_valid_stop_does_not_log_warning(self):
+    backend = self._make_backend()
+    messages = self._make_messages()
+    # No warning should be raised — verify the call succeeds without error.
+    backend._messages_create(messages=messages, stop=['.', '!'])  # pytype: disable=wrong-keyword-args
+
+  def test_generate_text_with_whitespace_stop(self):
+    _get_and_register_backend()
+    # This was the original user error scenario.
+    res = executing.run(
+        llm.generate_text(  # pytype: disable=wrong-keyword-args
+            prompt='What is the capital of France?',
+            max_tokens=50,
+            stop=['\n'],
+        )
+    )
+    self.assertEqual(res, claude_mock._DEFAULT_REPLY)
+
+  def test_instruct_with_newline_stop(self):
+    _get_and_register_backend()
+    res = executing.run(
+        llm.instruct(  # pytype: disable=wrong-arg-count
+            'Question: What is 2+2?\nAnswer:',
+            stop=['\n'],
+        )
+    )
+    self.assertEqual(res, claude_mock._DEFAULT_REPLY)
+
+  def test_generate_texts_with_whitespace_stop(self):
+    _get_and_register_backend()
+    res = executing.run(
+        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+            prompt='Hello',
+            samples=2,
+            max_tokens=25,
+            stop=['\n'],
+        )
+    )
+    self.assertLen(res, 2)
+    for sample in res:
+      self.assertEqual(sample, claude_mock._DEFAULT_REPLY)
 
 
 if __name__ == '__main__':
