@@ -469,6 +469,22 @@ class ConvertChunkToContentPartTest(parameterized.TestCase):
 
 class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
+  def setUp(self):
+    super().setUp()
+    # The `self.create_tempdir` method uses command line flag and such flags
+    # are not marked as parsed by default when running with pytest. Marking as
+    # parsed directly here to make the pytest run pass.
+    flags.FLAGS.mark_as_parsed()
+    # We use a mock to avoid making actual calls to the API.
+    self.enter_context(
+        mock.patch.object(
+            openai,
+            'OpenAI',
+            autospec=True,
+            side_effect=openai_mock.OpenAI,
+        )
+    )
+
   def test_embed_basic(self):
     """Verifies that embed returns a list of floats."""
     backend = _get_and_register_backend()
@@ -560,6 +576,22 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
 class CountTokensTest(
     parameterized.TestCase, core_test_utils.CounterAssertions
 ):
+
+  def setUp(self):
+    super().setUp()
+    # The `self.create_tempdir` method uses command line flag and such flags
+    # are not marked as parsed by default when running with pytest. Marking as
+    # parsed directly here to make the pytest run pass.
+    flags.FLAGS.mark_as_parsed()
+    # We use a mock to avoid making actual calls to the API.
+    self.enter_context(
+        mock.patch.object(
+            openai,
+            'OpenAI',
+            autospec=True,
+            side_effect=openai_mock.OpenAI,
+        )
+    )
 
   @parameterized.named_parameters(
       dict(
