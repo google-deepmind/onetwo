@@ -370,6 +370,18 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
   """Tests for Claude API tool use support."""
 
+  def setUp(self):
+    super().setUp()
+    flags.FLAGS.mark_as_parsed()
+    self.enter_context(
+        mock.patch.object(
+            anthropic,
+            'Anthropic',
+            autospec=True,
+            side_effect=claude_mock.Anthropic,
+        )
+    )
+
   def test_chat_with_tools_returns_text(self):
     """Verifies that chat with tools returns text (tool_use blocks dropped)."""
     backend = claude_api.ClaudeAPI(
@@ -718,6 +730,18 @@ class CountTokensTest(
     parameterized.TestCase, core_test_utils.CounterAssertions
 ):
 
+  def setUp(self):
+    super().setUp()
+    flags.FLAGS.mark_as_parsed()
+    self.enter_context(
+        mock.patch.object(
+            anthropic,
+            'Anthropic',
+            autospec=True,
+            side_effect=claude_mock.Anthropic,
+        )
+    )
+
   @parameterized.named_parameters(
       dict(
           testcase_name='string',
@@ -806,6 +830,18 @@ class CountTokensTest(
 
 class StopSequenceFilteringTest(parameterized.TestCase):
   """Tests for whitespace-only stop sequence filtering in _messages_create."""
+
+  def setUp(self):
+    super().setUp()
+    flags.FLAGS.mark_as_parsed()
+    self.enter_context(
+        mock.patch.object(
+            anthropic,
+            'Anthropic',
+            autospec=True,
+            side_effect=claude_mock.Anthropic,
+        )
+    )
 
   def _make_backend(self) -> claude_api.ClaudeAPI:
     return claude_api.ClaudeAPI(api_key='some_key', batch_size=_BATCH_SIZE)
