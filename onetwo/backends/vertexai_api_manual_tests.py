@@ -29,10 +29,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
 
-
-
-
-
 _VETEXT_AI_PARAMS_DOC = 'https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference#generationconfig'  # pylint: disable=line-too-long
 # gemini-2.0-flash.
 # See https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-0-flash  # pylint: disable=line-too-long

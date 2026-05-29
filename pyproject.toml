@@ -22,6 +22,7 @@ dependencies = [
     "dataclasses-json",
     "datasets",
     "tensorflow-datasets",
+    "etils[epath]",
     "fastapi",
     "freezegun",
     # Note: there is a PYPI `gemma` library, which is not what we want.

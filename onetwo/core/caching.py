@@ -28,20 +28,16 @@ import functools
 import inspect
 import json
 import logging
-import os
 import threading
 import traceback
 from typing import Any, Final, Generic, ParamSpec, TypeVar
 
 import dataclasses_json
+from etils import epath
 from onetwo.core import constants
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import utils
-
-
-
-
 
 _DEFAULT_SAMPLING_KEY: Final[str] = ''
 
@@ -1055,7 +1051,7 @@ class _CacheData(
     if cached_value_decoder is None:
       cached_value_decoder = lambda x: x
 
-    with open(cache_file_path) as f:
+    with epath.Path(cache_file_path).open('r') as f:
       file_contents = f.read()
 
     if not file_contents.strip():
@@ -1502,11 +1498,11 @@ class SimpleFunctionCache(
       cache_filename = self.cache_filename
     if not cache_filename:
       raise ValueError('Cache filename must be provided when storing on disk.')
-    if os.path.exists(cache_filename) and not overwrite:
+    if epath.Path(cache_filename).exists() and not overwrite:
       raise FileExistsError(f'File {cache_filename} already exists.')
     # Create the directory if it doesn't exist yet
-    os.makedirs(os.path.dirname(cache_filename), exist_ok=True)
-    with open(cache_filename, 'w') as f:
+    epath.Path(cache_filename).parent.mkdir(parents=True, exist_ok=True)
+    with epath.Path(cache_filename).open('w') as f:
       logging.info('Writing cache to file: %s', cache_filename)
       # The following call corresponds to `to_json` method of
       # `DataClassJsonMixin` in `third_party/py/dataclasses_json/api.py`. This

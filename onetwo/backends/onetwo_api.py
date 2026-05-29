@@ -33,10 +33,6 @@ from onetwo.core import utils
 import requests
 
 
-
-
-
-
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class OneTwoAPI(

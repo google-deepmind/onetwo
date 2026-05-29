@@ -29,10 +29,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import sampling
 
-
-
-
-
 # gemini-2.0-flash.
 # See https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-0-flash  # pylint: disable=line-too-long
 _MAX_INPUT_TOKENS = 1048576

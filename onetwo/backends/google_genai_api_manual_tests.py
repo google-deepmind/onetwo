@@ -40,10 +40,7 @@ from onetwo.core import sampling
 import pydantic
 import pydantic.dataclasses as pydantic_dataclasses
 
-
 pydantic_dataclass = pydantic_dataclasses.dataclass
-
-
 
 # gemini-2.5-flash.
 # See https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash  # pylint: disable=line-too-long

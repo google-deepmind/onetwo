@@ -24,6 +24,7 @@ import inspect
 from typing import Any, Final, TypeVar
 
 import dataclasses_json
+from etils import epath
 import immutabledict
 import jinja2
 from jinja2 import ext as j2_ext
@@ -35,7 +36,6 @@ from onetwo.core import routing
 from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
-
 
 
 # Special fields for storing information in the Jinja context.
@@ -828,7 +828,7 @@ class JinjaTemplate:
   def __post_init__(self):
     """See parent class."""
     if self.filename is not None:
-      with open(self.filename, 'r') as f:
+      with epath.Path(self.filename).open('r') as f:
         self.text = f.read().strip()
     if self.text is None:
       raise ValueError('No prompt template or file provided')

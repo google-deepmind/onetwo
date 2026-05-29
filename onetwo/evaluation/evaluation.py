@@ -22,12 +22,12 @@ import datetime
 import functools
 import json
 import logging
-import os
 import pprint
 import re
 import traceback
 from typing import Any, Final, ParamSpec, Protocol, TypeAlias, TypeVar, cast
 
+from etils import epath
 from onetwo.agents import agents_base
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
@@ -36,10 +36,7 @@ from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
-
 import tqdm
-
-
 
 _QUESTION_KEY: Final[str] = 'question'
 _NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX: Final[str] = (
@@ -608,7 +605,7 @@ def write_evaluation_summary_as_json(
     output_dir: The directory to write the results to.
   """
   logging.info('Writing evaluation summary to: %s', output_dir)
-  os.makedirs(output_dir, exist_ok=True)
+  epath.Path(output_dir).mkdir(parents=True, exist_ok=True)
 
   # Make sure that the contents of each file that we will write are sorted in a
   # consistent order.
@@ -622,7 +619,7 @@ def write_evaluation_summary_as_json(
   }
   for filename, data_object in object_by_file.items():
     logging.info('Writing json file: %s', filename)
-    with open(os.path.join(output_dir, filename), 'w') as f:
+    with (epath.Path(output_dir) / filename).open('w') as f:
       json.dump(data_object, f, indent=4, default=str, sort_keys=True)
 
   # Write (potentially) large json files incrementally.
@@ -640,10 +637,10 @@ def write_evaluation_summary_as_json(
       first = False
     f.write('\n]')
 
-  with open(os.path.join(output_dir, 'results.json'), 'w') as f:
+  with (epath.Path(output_dir) / 'results.json').open('w') as f:
     _stream_results_to_json(f, summary.results)
 
-  with open(os.path.join(output_dir, 'results_debug.json'), 'w') as f:
+  with (epath.Path(output_dir) / 'results_debug.json').open('w') as f:
     _stream_results_to_json(f, summary.results_debug)
 
 

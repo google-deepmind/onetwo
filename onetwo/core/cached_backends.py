@@ -20,11 +20,9 @@ import dataclasses
 import os
 from typing import Any
 
+from etils import epath
 from onetwo.backends import backends_base
 from onetwo.core import caching
-
-
-
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -263,7 +261,7 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         print(f'No cache files specified for {backend_name}.')
 
     for cache_filename in cache_filenames:
-      if os.path.exists(cache_filename):
+      if epath.Path(cache_filename).exists():
         cache_size_before = cache.get_key_count()
         if self.enable_print_statements:
           print(f'Loading cache from {cache_filename} ({overwrite=}).')

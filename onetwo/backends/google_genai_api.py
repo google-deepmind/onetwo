@@ -28,6 +28,7 @@ import pprint
 from typing import Any, Final, TypeAlias, TypeVar, Union
 
 from absl import logging
+from etils import epath
 from google import genai
 import google.auth.credentials
 from google.genai import client
@@ -46,9 +47,7 @@ from onetwo.core import tracing
 from onetwo.core import utils
 import pydantic
 
-
 TypeAdapter = pydantic.TypeAdapter
-
 
 _T = TypeVar('_T')
 
@@ -510,9 +509,9 @@ class GoogleGenAIAPI(
     if self.api_key:
       return self.api_key
     if self.api_key_file is not None:
-      if not os.path.exists(self.api_key_file):
+      if not epath.Path(self.api_key_file).exists():
         raise ValueError(f'File {self.api_key_file} does not exist.')
-      with open(self.api_key_file, 'r') as f:
+      with epath.Path(self.api_key_file).open('r') as f:
         return f.readline().strip()
     return None
 

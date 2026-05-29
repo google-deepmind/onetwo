@@ -20,6 +20,7 @@ import os
 from typing import Final, Mapping, Sequence
 import urllib.request
 
+from etils import epath
 import immutabledict
 from onetwo.backends import backends_base
 from onetwo.builtins import llm
@@ -29,7 +30,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
-
 from typing_extensions import override
 
 import sentencepiece as sp
@@ -98,7 +98,7 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     sp_processor = sp.SentencePieceProcessor()
 
     try:
-      with open(checkpoint_path, 'rb') as f:
+      with epath.Path(checkpoint_path).open('rb') as f:
         model_content = f.read()
       sp_processor.LoadFromSerializedProto(model_content)
     except Exception as e:  # pylint: disable=broad-except

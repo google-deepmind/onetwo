@@ -26,6 +26,7 @@ from typing import Any, Final, Mapping, TypeAlias, cast
 from absl.testing import absltest
 from absl.testing import parameterized
 import dataclasses_json
+from etils import epath
 import freezegun
 import immutabledict
 from onetwo.agents import agents_base
@@ -39,9 +40,6 @@ from onetwo.core import iterating
 from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.evaluation import evaluation
-
-
-
 
 
 _Example: TypeAlias = Mapping[str, Any]
@@ -380,7 +378,7 @@ class EvaluationTest(parameterized.TestCase):
 
   def assertFileExists(self, filename: str):
     self.assertTrue(
-        os.path.exists(filename),
+        epath.Path(filename).exists(),
         f'File expected to exist but does not: {filename}',
     )
 
@@ -1034,7 +1032,7 @@ class EvaluationTest(parameterized.TestCase):
   def test_write_evaluation_summary_as_json(self):
     tmp_dir = self.create_tempdir().full_path
     output_dir = os.path.join(tmp_dir, 'test_write_evaluation_summary_as_json')
-    os.makedirs(output_dir, exist_ok=True)
+    epath.Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     strategy = agents_test_utils.StringAgent(
         max_length=3, sequence=list(string.ascii_lowercase)

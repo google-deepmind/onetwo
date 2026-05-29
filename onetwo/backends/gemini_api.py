@@ -25,6 +25,7 @@ import pprint
 from typing import Any, Final, TypeAlias, cast
 
 from absl import logging
+from etils import epath
 import google.generativeai as genai
 from google.generativeai.types import content_types
 from google.generativeai.types import generation_types
@@ -40,9 +41,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
-
-
-
 
 
 _ChunkList: TypeAlias = content_lib.ChunkList
@@ -245,10 +243,11 @@ class GeminiAPI(
     if self.api_key:
       return self.api_key
     if self.api_key_file is not None:
-      if not os.path.exists(self.api_key_file):
-        raise ValueError(f'File {self.api_key_file} does not exist.')
-      with open(self.api_key_file, 'r') as f:
-        return f.readline().strip()
+      try:
+        with epath.Path(self.api_key_file).open('r') as f:
+          return f.readline().strip()
+      except OSError as err:
+        raise ValueError(f'Could not read file {self.api_key_file}') from err
     return None
 
   def _verify_available_models(self):
