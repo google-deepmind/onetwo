@@ -488,10 +488,9 @@ def trace(
 
     tracer = execution_tracer.get(None)
     if tracer is not None:
-      if skip is None or results.MAIN_OUTPUT not in skip:
-        tracer.update_outputs(
-            execution_result.stage_name, execution_result.outputs
-        )
+      tracer.update_outputs(
+          execution_result.stage_name, execution_result.outputs
+      )
 
   def _wrap_executable_to_trace_outputs(
       executable: executing_impl.Executable,
