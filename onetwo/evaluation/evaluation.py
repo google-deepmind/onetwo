@@ -36,6 +36,7 @@ from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
+import pydantic
 import tqdm
 
 _QUESTION_KEY: Final[str] = 'question'
@@ -653,6 +654,10 @@ async def naive_evaluation_critic(
 ) -> tuple[float, dict[str, Any]]:
   """Naive implementation of an evaluation critic strategy.
 
+  Deprecated: Use structured_evaluation_critic instead, which is much
+  more robust because it uses structured generation (llm.generate_object)
+  rather than brittle text parsing of chat outputs.
+
   Given a question, a target answer, and a prediction, this critic should decide
   whether the answers are equivalent. E.g., "2pi cm" and "6.28 centimeters"
   could be both considered correct for the question "What is circumference of a
@@ -942,4 +947,164 @@ Prediction: {prediction}
   }
 
   return score, extra_evaluation_info
+
+
+def build_structured_evaluation_critic_prompt(
+    question: str,
+    target: str,
+    prediction: str | content_lib.ChunkList,
+) -> list[content_lib.Message]:
+  """Returns the few-shot prompt messages for structured_evaluation_critic."""
+  return [
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Please judge whether the first answer means the same thing as'
+          ' the second answer, in the context of the given question. Give your'
+          ' rating (is_correct: true/false), and the reason for your rating.'
+          ' Note that maybe neither of both answers is correct, your task is to'
+          ' decide whether or not they are equivalent, not to judge their'
+          ' correctness.'
+          '\n\n'
+          'Question: Circumference of a circle with radius 1cm?\n'
+          'Answer A: 2pi cm\n'
+          'Answer B: 6.28 centimenter\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '{"is_correct": true, "reason": "pi is ~3.141 and 2pi is ~6.282.'
+          ' 6.28 is an accurate approximation."}',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Question: Spell first 5 digits of pi.\n'
+          'Answer A: 3.1415\n'
+          'Answer B: 3.14\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '{"is_correct": false, "reason": "Answer B provides only 3 digits,'
+          ' while 5 were required."}',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Question: Which famous cyclist won 34 Tour de France individual'
+          ' stages between 1969 and 1975?\n'
+          'Answer A: Eddie Merckx\n'
+          'Answer B: The Cannibal\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '{"is_correct": true, "reason": "Eddie Merckx is also known as The'
+          ' Cannibal or, in french, Le Cannibale."}',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Question: Who is the best football player of all times?\n'
+          'Answer A: Lionel Messi\n'
+          'Answer B: It\'s hard to decide objectively\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '{"is_correct": false, "reason": "Answer A gives an specific player'
+          ' while answer B says the answer to the question is not clear."}',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Question: How many tennis balls could fit inside the Sun if it'
+          ' was hollow?\n'
+          'Answer A: 5\n'
+          'Answer B: five\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '{"is_correct": true, "reason": "5 is written in english as'
+          ' \\"five\\"."}',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          'Question: Who is younger, Alice or Bob?\n'
+          'Answer A: Bob\n'
+          'Answer B: The youngest of the two is Bob (born 1910), who is 3'
+          ' years younger than Alice (born 1907).\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.MODEL,
+          '{"is_correct": true, "reason": "Answer B gives more details, but'
+          ' based on the question, the name is enough and both answers say Bob'
+          ' is the youngest."}',
+      ),
+      content_lib.Message(
+          content_lib.PredefinedRole.USER,
+          f'Question: {question}\n'
+          f'Answer A: {target}\n'
+          f'Answer B: {prediction}\n'
+          'Does answer A agree with Answer B? (yes/no): ',
+      ),
+  ]
+
+
+class NaiveCriticDecision(pydantic.BaseModel):
+  is_correct: bool
+  reason: str
+
+
+@executing.make_executable  # pytype: disable=wrong-arg-types
+async def structured_evaluation_critic(
+    target: str,
+    prediction: str | content_lib.ChunkList,
+    example: Mapping[str, Any] | None = None,
+    question_key: str = _QUESTION_KEY,
+) -> tuple[float, dict[str, Any]]:
+  """Structured evaluation critic strategy using structured generation.
+
+  Like the naive_evaluation_critic, but much more robust because it uses
+  structured generation (llm.generate_object) and Pydantic schemas rather than
+  brittle text parsing of chat outputs.
+
+  Args:
+    target: The expected golden answer.
+    prediction: Candidate answer that the critic needs to evaluate.
+    example: Example dict that contains the question.
+    question_key: Key of the element in the example dictionary that contains the
+      question.
+
+  Returns:
+    A tuple containing the metric floating point value (1.0 or 0.0), and
+    a dictionary of extra info (such as the critic's rationale).
+  Raises:
+    ValueError:
+      If example does not contain the question key.
+  """
+  if not example or question_key not in example:
+    raise ValueError(
+        'Example must be provided and contain the question key'
+        f' {question_key}:\n{pprint.pformat(example)}'
+    )
+
+  question = example[question_key]
+  messages = build_structured_evaluation_critic_prompt(
+      question, target, prediction
+  )
+
+  decision = await llm.generate_object(prompt=messages, cls=NaiveCriticDecision)  # pytype: disable=wrong-keyword-args
+
+  is_correct = 1.0 if decision.is_correct else 0.0
+  reason = decision.reason
+
+  extra_evaluation_info = {
+      'critic_golden_answer': target,
+      'critic_candidate_answer': prediction,
+      'critic_answer_is_correct': is_correct,
+      'critic_reason': reason,
+      'critic_prompt': messages,
+  }
+
+  return is_correct, extra_evaluation_info
+
 

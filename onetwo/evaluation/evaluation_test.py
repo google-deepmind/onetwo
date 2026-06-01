@@ -21,7 +21,7 @@ import pprint
 import random
 import string
 import time
-from typing import Any, Final, Mapping, TypeAlias, cast
+from typing import Any, Final, Mapping, TypeAlias, TypeVar, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -1421,6 +1421,49 @@ Score prediction against target in [0.0, 1.0]: """
               example={'question': 'bla'},
           )
       )
+
+  def test_structured_evaluation_critic_produces_correct_output(self):
+    question = 'some question'
+    prediction_containing_newline = 'Answer first line\nAnswer second line'
+
+    _T = TypeVar('_T')
+
+    @executing.make_executable  # pytype: disable=wrong-arg-types
+    def fake_generate_object(
+        prompt: str | content_lib.ChunkList,
+        cls: type[_T],
+        **kwargs,
+    ) -> _T:
+      del prompt, cls, kwargs
+      return evaluation.NaiveCriticDecision(is_correct=True, reason='because')  # pytype: disable=bad-return-type
+
+    llm.generate_object.configure(fake_generate_object)
+
+    rating, extra_info = executing.run(
+        evaluation.structured_evaluation_critic(
+            target='bla',
+            prediction=prediction_containing_newline,
+            example={'question': question},
+        )
+    )
+
+    self.assertEqual(1.0, rating)
+    self.assertEqual('because', extra_info['critic_reason'])
+
+  def test_build_structured_evaluation_critic_prompt(self):
+    question = 'some question'
+    target = 'bla'
+    prediction = 'some prediction'
+
+    prompt = evaluation.build_structured_evaluation_critic_prompt(
+        question=question, target=target, prediction=prediction
+    )
+
+    self.assertEqual(list, type(prompt))
+    self.assertLen(prompt, 13)
+    self.assertIn(f'Question: {question}', prompt[-1].content)
+    self.assertIn(f'Answer A: {target}', prompt[-1].content)
+    self.assertIn(f'Answer B: {prediction}', prompt[-1].content)
 
 
 if __name__ == '__main__':
