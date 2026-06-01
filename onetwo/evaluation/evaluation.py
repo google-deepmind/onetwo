@@ -960,7 +960,7 @@ def build_structured_evaluation_critic_prompt(
           content_lib.PredefinedRole.USER,
           'Please judge whether the first answer means the same thing as'
           ' the second answer, in the context of the given question. Give your'
-          ' rating (is_correct: true/false), and the reason for your rating.'
+          ' rating (true/false), and then give the reason for your rating.'
           ' Note that maybe neither of both answers is correct, your task is to'
           ' decide whether or not they are equivalent, not to judge their'
           ' correctness.'
@@ -968,11 +968,11 @@ def build_structured_evaluation_critic_prompt(
           'Question: Circumference of a circle with radius 1cm?\n'
           'Answer A: 2pi cm\n'
           'Answer B: 6.28 centimenter\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"is_correct": true, "reason": "pi is ~3.141 and 2pi is ~6.282.'
+          '{"agree": true, "reason": "pi is ~3.141 and 2pi is ~6.282.'
           ' 6.28 is an accurate approximation."}',
       ),
       content_lib.Message(
@@ -980,11 +980,11 @@ def build_structured_evaluation_critic_prompt(
           'Question: Spell first 5 digits of pi.\n'
           'Answer A: 3.1415\n'
           'Answer B: 3.14\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"is_correct": false, "reason": "Answer B provides only 3 digits,'
+          '{"agree": false, "reason": "Answer B provides only 3 digits,'
           ' while 5 were required."}',
       ),
       content_lib.Message(
@@ -993,11 +993,11 @@ def build_structured_evaluation_critic_prompt(
           ' stages between 1969 and 1975?\n'
           'Answer A: Eddie Merckx\n'
           'Answer B: The Cannibal\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"is_correct": true, "reason": "Eddie Merckx is also known as The'
+          '{"agree": true, "reason": "Eddie Merckx is also known as The'
           ' Cannibal or, in french, Le Cannibale."}',
       ),
       content_lib.Message(
@@ -1005,11 +1005,11 @@ def build_structured_evaluation_critic_prompt(
           'Question: Who is the best football player of all times?\n'
           'Answer A: Lionel Messi\n'
           'Answer B: It\'s hard to decide objectively\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"is_correct": false, "reason": "Answer A gives an specific player'
+          '{"agree": false, "reason": "Answer A gives an specific player'
           ' while answer B says the answer to the question is not clear."}',
       ),
       content_lib.Message(
@@ -1018,11 +1018,11 @@ def build_structured_evaluation_critic_prompt(
           ' was hollow?\n'
           'Answer A: 5\n'
           'Answer B: five\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"is_correct": true, "reason": "5 is written in english as'
+          '{"agree": true, "reason": "5 is written in english as'
           ' \\"five\\"."}',
       ),
       content_lib.Message(
@@ -1031,11 +1031,11 @@ def build_structured_evaluation_critic_prompt(
           'Answer A: Bob\n'
           'Answer B: The youngest of the two is Bob (born 1910), who is 3'
           ' years younger than Alice (born 1907).\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"is_correct": true, "reason": "Answer B gives more details, but'
+          '{"agree": true, "reason": "Answer B gives more details, but'
           ' based on the question, the name is enough and both answers say Bob'
           ' is the youngest."}',
       ),
@@ -1044,14 +1044,24 @@ def build_structured_evaluation_critic_prompt(
           f'Question: {question}\n'
           f'Answer A: {target}\n'
           f'Answer B: {prediction}\n'
-          'Does answer A agree with Answer B? (yes/no): ',
+          'Does answer A agree with Answer B? (true/false): ',
       ),
   ]
 
 
 class NaiveCriticDecision(pydantic.BaseModel):
-  is_correct: bool
-  reason: str
+  agree: bool = pydantic.Field(
+      description=(
+          'True if Answer B semantically agrees with (means the same thing as)'
+          ' Answer A, False otherwise.'
+      )
+  )
+  reason: str = pydantic.Field(
+      description=(
+          'A concise step-by-step explanation of why the answers agree or'
+          ' disagree.'
+      )
+  )
 
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -1094,7 +1104,7 @@ async def structured_evaluation_critic(
 
   decision = await llm.generate_object(prompt=messages, cls=NaiveCriticDecision)  # pytype: disable=wrong-keyword-args
 
-  is_correct = 1.0 if decision.is_correct else 0.0
+  is_correct = 1.0 if decision.agree else 0.0
   reason = decision.reason
 
   extra_evaluation_info = {

@@ -1435,7 +1435,7 @@ Score prediction against target in [0.0, 1.0]: """
         **kwargs,
     ) -> _T:
       del prompt, cls, kwargs
-      return evaluation.NaiveCriticDecision(is_correct=True, reason='because')  # pytype: disable=bad-return-type
+      return evaluation.NaiveCriticDecision(agree=True, reason='because')  # pytype: disable=bad-return-type
 
     llm.generate_object.configure(fake_generate_object)
 
