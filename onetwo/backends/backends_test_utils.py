@@ -297,7 +297,7 @@ class LLMForTest(backends_base.Backend):
   async def generate_object(
       self, prompt: str | content_lib.ChunkList, cls: Type[_T]
   ) -> _T:
-    reply = await self.generate_text(prompt, include_details=False)
+    reply = await llm.generate_text(prompt, include_details=False)  # pytype: disable=wrong-arg-count
     result = ast.literal_eval(reply)
     if isinstance(result, dict):
       return cls(**result)

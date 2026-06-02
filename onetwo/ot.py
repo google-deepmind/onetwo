@@ -39,6 +39,7 @@ make_composable = composing.make_composable
 make_executable = executing.make_executable
 naive_evaluation_critic = evaluation.naive_evaluation_critic
 naive_fuzzy_evaluation_critic = evaluation.naive_fuzzy_evaluation_critic
+structured_evaluation_critic = evaluation.structured_evaluation_critic
 par_iter = executing.par_iter
 parallel = executing.parallel
 RegistryContext = routing.RegistryContext
