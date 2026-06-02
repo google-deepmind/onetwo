@@ -147,14 +147,14 @@ To cite this repository:
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
   url = {https://github.com/google-deepmind/onetwo},
   version = {0.5.0},
-  date = {2026-04-15},
+  date = {2026-06-02},
   year = {2026}
 }
 ```
 
 In the above BibTeX entry, names are in alphabetical order, the version number
 is intended to be the one returned by `ot.__version__` (i.e., the latest version
-mentioned in [version.py](version.py) and in the [CHANGELOG](CHANGELOG.md), and
+mentioned in [version.py](version.py)) and in the [CHANGELOG](CHANGELOG.md), and
 the year and date correspond to the release of this specific version.
 
 ## License
