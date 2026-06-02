@@ -1,5 +1,48 @@
 # OneTwo Change Log
 
+## v0.5.0
+
+*   **Backends**
+    *   **ClaudeAPI:** Added new backend for Anthropic Claude models, including
+        support for tool use and thinking control.
+    *   **OpenAI API:** Migrated to the latest Responses API, adding support for
+        reasoning, tools, `.embed`, and `.count_tokens`.
+    *   **GoogleGenAIAPI:**
+        *   Updated default Gemini API model to `gemini-3.1-flash-lite`.
+        *   Enabled server-side prefix caching.
+        *   Added `CachedChunkList` for robust prefix cache handling.
+        *   Removed token healing functionality.
+        *   Added `normalize` kwarg to `.embed`.
+        *   Improved token usage reporting in tracers.
+        *   Added support for Gemini Function Calling (FC2.0) metadata.
+        *   Bug fixes and model updates.
+    *   **SentencePieceTokenizer:** Added a new tokenizer backend using the
+        standard sentencepiece library.
+*   **Core**
+    *   **Execution & Parallelism:** Fixed event loop leak in
+        `asyncio_run_wrapper`.
+    *   **Tracing:**
+        *   Improved exception handling and reporting within the tracing system.
+        *   Reduced tracing overhead by skipping large inputs/outputs in traces
+            for several backends and modules.
+*   **Standard library**
+    *   **Retrieval & QA:**
+        *   Architectural split for constrained retrieval, introducing
+            `ConstrainedEmbeddingBasedIndex`.
+        *   Removed use of lambdas in `EmbeddingBasedIndex` for better pickle
+            support.
+        *   Refined chunking logic in `ChunkByMaxTokens`.
+        *   Added `QAPromptBuilder` for flexible QA prompt generation.
+        *   Added implementation of RAG-Fusion.
+    *   **code_execution:** Fixed test for Python 3.14.
+*   **Evaluation**
+    *   **ot.evaluate:** Optimized to write large results and `results_debug`
+        JSON files incrementally to avoid OOM errors.
+*   **Colabs & Docs**
+    *   **RAG Tutorial:** Significantly revamped with improved explanations and
+        diagrams.
+    *   **Tutorial:** Updated with `ClaudeAPI` examples.
+
 ## v0.4.0
 
 *   **Backends**
