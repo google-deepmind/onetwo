@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 import copy
+import dataclasses
 import datetime
 import functools
 import json
@@ -25,7 +26,7 @@ import logging
 import pprint
 import re
 import traceback
-from typing import Any, Final, ParamSpec, Protocol, TypeAlias, TypeVar, cast
+from typing import Any, Final, Generic, ParamSpec, Protocol, TypeAlias, TypeVar, cast
 
 from etils import epath
 from onetwo.agents import agents_base
@@ -594,6 +595,90 @@ def evaluate(
   # evaluation summary too.
 
   return evaluation_summary
+
+
+@dataclasses.dataclass(kw_only=True)
+class EvaluationConfig(Generic[_Example, _I, _O]):
+  """Configuration for an evaluation of a single dataset/strategy.
+
+  For a detailed description of the meaning and usage of these fields,
+  please refer to the docstring of the `evaluate` function.
+
+  Attributes:
+    strategy: Prompting strategy to evaluate. See `evaluate` for details.
+    examples: Dataset examples on which to evaluate the strategy. See `evaluate`
+      for details.
+    inputs_extractor: Function that given an example returns a tuple of args and
+      kwargs to pass as inputs to the strategy. See `evaluate` for details.
+    target_extractor: Function that given an example returns the target value.
+      See `evaluate` for details.
+    metric_functions: Mapping of metric name to a metric function. See
+      `evaluate` for details.
+    aggregation_functions: Functions for performing custom aggregation. See
+      `evaluate` for details.
+    callback: Function to call after each example is evaluated. See `evaluate`
+      for details.
+    example_key_function: Function to determine the key for a given example. See
+      `evaluate` for details.
+    enable_tracing: Whether to enable tracing. See `evaluate` for details.
+  """
+
+  strategy: Callable[[_I], _O] | Callable[[_I], executing.Executable[_O]]
+  examples: Iterable[_Example]
+  inputs_extractor: Callable[
+      [_Example], tuple[Sequence[Any], Mapping[str, Any]]
+  ] = lambda x: ([x[_QUESTION_KEY]], {})
+  target_extractor: Callable[[_Example], _O] = lambda x: x['answer']
+  metric_functions: Mapping[str, MetricFunction] | None = None
+  aggregation_functions: Sequence[AggregationFunction] | None = None
+  callback: (
+      Callable[[int, _Example, results.EvaluationSummary], None] | None
+  ) = None
+  example_key_function: Callable[[int, _Example], str | int] | None = None
+  enable_tracing: bool = True
+
+
+def evaluate_with_config(
+    config: EvaluationConfig[_Example, Any, Any],
+    *,
+    output_results: bool = True,
+    output_results_debug: bool = True,
+    output_final_states: bool = True,
+    output_filter: (
+        Callable[[_Example, results.EvaluationResult], bool] | None
+    ) = None,
+    chunk_size: int = 100,
+) -> results.EvaluationSummary:
+  """Evaluates a strategy on a dataset using the provided configuration.
+
+  Args:
+    config: Configuration defining the evaluation task. See `EvaluationConfig`
+      for details on individual fields.
+    output_results: See `evaluate` for details.
+    output_results_debug: See `evaluate` for details.
+    output_final_states: See `evaluate` for details.
+    output_filter: See `evaluate` for details.
+    chunk_size: See `evaluate` for details.
+
+  Returns:
+    EvaluationSummary containing the evaluation results.
+  """
+  return evaluate(
+      strategy=config.strategy,
+      examples=config.examples,
+      inputs_extractor=config.inputs_extractor,
+      target_extractor=config.target_extractor,
+      metric_functions=config.metric_functions,
+      aggregation_functions=config.aggregation_functions,
+      callback=config.callback,
+      example_key_function=config.example_key_function,
+      output_results=output_results,
+      output_results_debug=output_results_debug,
+      output_final_states=output_final_states,
+      output_filter=output_filter,
+      chunk_size=chunk_size,
+      enable_tracing=config.enable_tracing,
+  )
 
 
 def write_evaluation_summary_as_json(

@@ -543,6 +543,61 @@ class EvaluationTest(parameterized.TestCase):
           f'Incorrect EvaluationSummary contents:\n{summary}\n----\nDiff',
       )
 
+  def test_evaluate_with_config(self):
+    examples = [
+        {'question': 'a', 'answer': 'b'},
+        {'question': 'c', 'answer': 'c'},
+    ]
+    config = evaluation.EvaluationConfig(
+        strategy=ordinary_identity_function,
+        examples=examples,
+        metric_functions={'accuracy': ordinary_accuracy_function},
+    )
+
+    now = datetime.datetime(2024, 5, 9, 12, 0, 0)
+    with freezegun.freeze_time(now):
+      summary = evaluation.evaluate_with_config(config)
+      _reset_times(summary)
+
+    expected_results = {
+        0: _EvaluationResult(
+            stage_name='ordinary_identity_function',
+            inputs={'x': 'a'},
+            outputs={'output': 'a'},
+            targets={'target': 'b'},
+            metrics={
+                'total_count': 1,
+                'error_count': 0,
+                'accuracy': 0.0,
+                'accuracy_count': 1,
+            },
+        ),
+        1: _EvaluationResult(
+            stage_name='ordinary_identity_function',
+            inputs={'x': 'c'},
+            outputs={'output': 'c'},
+            targets={'target': 'c'},
+            metrics={
+                'total_count': 1,
+                'error_count': 0,
+                'accuracy': 1.0,
+                'accuracy_count': 1,
+            },
+        ),
+    }
+    expected_summary = _EvaluationSummary(
+        metrics={'accuracy': 0.5},
+        counters=collections.Counter(
+            {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
+        ),
+        example_keys={0: 0, 1: 1},
+        results=expected_results,
+        results_debug=expected_results,
+    )
+
+    summary.timing = expected_summary.timing = None
+    self.assertEqual(expected_summary, summary)
+
   @parameterized.named_parameters(
       {
           'testcase_name': 'with_tracing',
