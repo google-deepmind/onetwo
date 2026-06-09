@@ -84,8 +84,7 @@ Answer:"""
       return doc.text
 
     builder = qa_prompt_builder.QAPromptBuilder[_Document, str](
-        doc_to_content=mock_formatter,
-        delimiter='\n\n===========\n\n'
+        doc_to_content=mock_formatter, delimiter='\n\n===========\n\n'
     )
     composable_prompt = ot.run(builder.compile_prompt(docs, question))  # pytype: disable=wrong-arg-count
     self.assertEqual(str(composable_prompt), expected_prompt)
@@ -115,6 +114,7 @@ Answer:"""
     self.assertEqual(str(composable_prompt), expected_prompt)
 
   def test_qa_document_prompt_builder_callable(self):
+    """Tests that __call__ returns a Context with the prompt in its prefix."""
     docs = [
         _Document(content='content1', title='Title 1'),
         _Document(content='content2', title='Title 2'),
@@ -122,7 +122,7 @@ Answer:"""
     question = 'my question'
 
     builder = qa_prompt_builder.QADocumentPromptBuilder()
-    composable_prompt = ot.run(builder(docs, question))  # pytype: disable=wrong-arg-count
+    context = ot.run(builder(docs, question))  # pytype: disable=wrong-arg-count
 
     expected_prompt = """Use the following pieces of context to answer the question at
 the end. If you don't know the answer, just say that you don't know,
@@ -136,7 +136,11 @@ content2
 Question: my question
 Answer:"""
 
-    self.assertEqual(str(composable_prompt), expected_prompt)
+    self.assertEqual(str(context.prefix), expected_prompt)
+    # Verify to_messages produces a single USER message.
+    messages = context.to_messages()
+    self.assertLen(messages, 1)
+    self.assertEqual(messages[0].role, content_lib.PredefinedRole.USER)
 
 
 if __name__ == '__main__':

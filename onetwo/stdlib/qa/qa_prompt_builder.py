@@ -69,17 +69,13 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
 
   template: Callable[[Composable, Composable], Composable] = (
       lambda context, question: (
-          composables.c(
-              textwrap.dedent(
-                  """\
+          composables.c(textwrap.dedent("""\
                   Use the following pieces of context to answer the question at
                   the end. If you don't know the answer, just say that you don't know,
                   don't try to make up an answer.
 
                   Context:
-                  """
-              )
-          )
+                  """))
           + context
           + composables.c('\n\nQuestion: ')
           + question
@@ -87,7 +83,6 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
       )
   )
 
-  @executing.make_executable(copy_self=False)
   async def _concatenate_documents(self, docs: Iterable[DocT]) -> Composable:
     """Formats each Document and concatenates them using the delimiter."""
     e = composables.c(content_lib.ChunkList())
@@ -100,12 +95,22 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
       e += composables.c(content)
     return e
 
-  @executing.make_executable(copy_self=False)
-  async def compile_prompt(
+  async def _compile_prompt(
       self, docs: Iterable[DocT], question: QueryT
   ) -> Composable:
-    """Renders prompt by injecting the context and query into the template."""
-    context_block = await self._concatenate_documents(docs)  # pytype: disable=wrong-arg-count
+    """Helper that returns the unexecuted Composable prompt.
+
+    This is needed internally by `__call__` so that it can manually execute
+    the Composable into a `composing.Context` object to preserve state.
+
+    Args:
+      docs: The documents to use as context.
+      question: The question to answer.
+
+    Returns:
+      A Composable containing the prompt template, docs and question combined.
+    """
+    context_block = await self._concatenate_documents(docs)
     formatted_question = self.query_to_content(question)
     if inspect.isawaitable(formatted_question):
       formatted_question = await formatted_question
@@ -114,17 +119,54 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
     return self.template(context_block, formatted_question)
 
   @executing.make_executable(copy_self=False)
-  async def __call__(
+  async def compile_prompt(
       self, docs: Iterable[DocT], question: QueryT
   ) -> Composable:
-    """Alias for compile_prompt."""
-    return await self.compile_prompt(docs, question)  # pytype: disable=wrong-arg-count
+    """Renders prompt by injecting the context and query into the template.
+
+    Note: `__call__` is the primary API used by the Strategy library, which
+    returns a populated `composing.Context` object. `compile_prompt` is
+    provided for users who simply want to execute the prompt builder and get
+    the final rendered text/chunks directly (a `ChunkList`), without the
+    surrounding `Context` object wrapper. This route is useful for cases where
+    the model is wanted to be prompted through `instruct` or `generate_text`.
+
+    Args:
+      docs: The documents to use as context.
+      question: The question to answer.
+
+    Returns:
+      A Composable containing the prompt template, docs and question combined.
+    """
+    return await self._compile_prompt(docs, question)
+
+  @executing.make_executable(copy_self=False)
+  async def __call__(
+      self, docs: Iterable[DocT], question: QueryT
+  ) -> composing.Context:
+    """Compiles the prompt and returns the executed Context.
+
+    The returned Context has a populated `prefix` (ChunkList) which can be
+    converted to messages via `context.to_messages()`.
+
+    Args:
+      docs: The documents to use as context.
+      question: The question to answer.
+
+    Returns:
+      A Context containing the prompt template, docs and question combined.
+    """
+    composable_prompt: Composable = await self._compile_prompt(docs, question)
+    context = composing.Context()
+    await composable_prompt.execute(context)
+    return context
 
 
 @dataclasses.dataclass
-class QADocumentPromptBuilder(QAPromptBuilder[_Document, str]):
-  """QAPromptBuilder specialized for OneTwo Document and string query."""
+class QADocumentPromptBuilder(QAPromptBuilder[_Document, PromptContent]):
+  """QAPromptBuilder specialized for OneTwo Document and multimodal query."""
 
+  query_to_content: Callable[[PromptContent], PromptContentSource] = lambda x: x
   document_formatter: document_formatting.DocumentFormatter = dataclasses.field(
       default_factory=document_formatting.NoFormatting
   )
