@@ -35,6 +35,7 @@ dependencies = [
     "jinja2",
     "numpy",
     "openai",
+    "ollama",
     "pillow",
     "pytest",
     "portpicker",  # For `backends/onetwo_api_test_script.sh`.
