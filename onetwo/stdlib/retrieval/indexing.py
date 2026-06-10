@@ -507,6 +507,9 @@ class EmbeddingBasedIndex(
   @tracing.trace('EmbeddingBasedIndex.add_docs')
   async def add_docs(self, docs: Sequence[DocT]) -> None:
     """Overridden from base class (Index)."""
+    docs = list(docs)
+    if not docs:
+      return
     _validate_docs(docs)
     self._docs.extend(docs)
     embedded_results = await self._calculate_doc_embeddings(docs)  # pytype: disable=wrong-arg-count
@@ -536,6 +539,8 @@ class EmbeddingBasedIndex(
       **kwargs: Additional keyword arguments.
     """
     del kwargs  # Unused.
+    if not self._docs:
+      return []
     query_embedding = await self._calculate_query_embedding(query)  # pytype: disable=wrong-arg-count
 
     if max_results is None:
@@ -559,6 +564,8 @@ class EmbeddingBasedIndex(
   @executing.make_executable(copy_self=False)
   async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
     """Returns similarity score of the document at `doc_index` for a query."""
+    if doc_index < 0 or doc_index >= len(self._doc_embeddings):
+      return 0.0
     query_embedding = await self._calculate_query_embedding(query)  # pytype: disable=wrong-arg-count
     query_embedding = np.array([query_embedding])
     doc_embedding = self._doc_embeddings[doc_index]

@@ -134,6 +134,8 @@ class ConstrainedEmbeddingBasedIndex(
   ) -> Sequence[tuple[int, float]]:
     """Returns indices and scores of the most relevant documents."""
     del kwargs  # Unused.
+    if not self._docs:
+      return []
     if constraints is None:
       return await super().retrieve_doc_indices_and_scores(  # pytype: disable=wrong-arg-count
           query, max_results=max_results, min_score=min_score
