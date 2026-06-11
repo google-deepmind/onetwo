@@ -38,10 +38,14 @@ Usage example:
 
 from collections.abc import Iterable
 import dataclasses
+import json
+import logging
 import re
 from typing import Any, Protocol, TypeVar
+import uuid
 
 import bs4
+from etils import epath
 import numpy as np
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -92,6 +96,173 @@ class DatasetLoader(Protocol[_Example]):
     Returns:
       An iterable of evaluation example dictionaries.
     """
+
+
+@dataclasses.dataclass(kw_only=True)
+class JsonlDatasetLoader(DatasetLoader[_ExampleDict]):
+  """Loader for datasets where documents and examples are stored in JSONL.
+
+  Expected file formats:
+  * Corpus: One document per line, e.g.:
+    `{"doc_id": "doc1", "title": "Title 1", "content": "Content"}`
+  * Examples: One QA pair per line, e.g.:
+    `{"question": "Q?", "answer": "A", "answer_doc_ids": ["doc1"]}`
+    (Any non-standard fields like 'answer_doc_ids' are stored in 'metadata'.
+     It is highly recommended to provide 'answer_doc_ids' containing the
+     ground truth document IDs for evaluation purposes.)
+
+  Attributes:
+    corpus_path: Path to the corpus JSONL file.
+    examples_path: Path to the examples JSONL file.
+    max_examples: If set, only loads the first `max_examples` examples.
+  """
+
+  # TODO and
+  # multi-threaded reading for documents for faster loading.
+  corpus_path: str | epath.Path | None = None
+  examples_path: str | epath.Path | None = None
+  max_examples: int | None = None
+
+  def __post_init__(self):
+    if self.corpus_path is not None:
+      corpus_path = epath.Path(self.corpus_path)
+      if corpus_path.suffix != '.jsonl':
+        raise ValueError(
+            f'corpus_path must end with .jsonl, got: {self.corpus_path}'
+        )
+    if self.examples_path is not None:
+      examples_path = epath.Path(self.examples_path)
+      if examples_path.suffix != '.jsonl':
+        raise ValueError(
+            f'examples_path must end with .jsonl, got: {self.examples_path}'
+        )
+
+  @classmethod
+  def from_directory(
+      cls,
+      directory_path: str | epath.Path,
+      corpus_filename: str = 'corpus.jsonl',
+      examples_filename: str = 'examples.jsonl',
+      **kwargs,
+  ) -> 'JsonlDatasetLoader':
+    """Creates a loader from a directory path and filenames."""
+    dir_path = epath.Path(directory_path)
+    return cls(
+        corpus_path=dir_path / corpus_filename,
+        examples_path=dir_path / examples_filename,
+        **kwargs,
+    )
+
+  @executing.make_executable()
+  async def load_documents(self) -> Iterable[_Document]:
+    """Loads the documents from the corpus file.
+
+    Returns:
+      An iterable of `Document`s.
+
+    Raises:
+      ValueError: If `corpus_path` is not configured.
+      FileNotFoundError: If `corpus_path` does not exist.
+    """
+    if self.corpus_path is None:
+      raise ValueError('corpus_path is not configured.')
+
+    corpus_path = epath.Path(self.corpus_path)
+    if not corpus_path.exists():
+      raise FileNotFoundError(f'Corpus file does not exist: {corpus_path}')
+
+    documents = []
+    missing_doc_id_count = 0
+    try:
+      with corpus_path.open('r') as f:
+        for line in f:
+          line = line.strip()
+          if not line:
+            continue
+          try:
+            doc = _Document.from_json(line)
+            if not doc.doc_id:
+              missing_doc_id_count += 1
+              # Generate a deterministic ID if missing.
+              doc.doc_id = str(uuid.uuid5(uuid.NAMESPACE_OID, doc.content))
+            documents.append(doc)
+          except Exception as e:  # pylint: disable=broad-exception-caught
+            logging.warning(
+                'Could not parse document line: %s. Error: %s', line, e
+            )
+    except IOError as e:
+      logging.warning('Could not open corpus file %s: %s', corpus_path, e)
+
+    if missing_doc_id_count > 0:
+      logging.warning(
+          'Generated deterministic IDs for %d documents missing doc_id.',
+          missing_doc_id_count,
+      )
+
+    return documents
+
+  @executing.make_executable()
+  async def load_examples(self) -> Iterable[_ExampleDict]:
+    """Loads the examples from the examples file (JSONL format).
+
+    Returns:
+      An iterable of evaluation example dictionaries.
+
+    Raises:
+      ValueError: If `examples_path` is not configured.
+      FileNotFoundError: If `examples_path` does not exist.
+    """
+    if self.examples_path is None:
+      raise ValueError('examples_path is not configured.')
+
+    examples_path = epath.Path(self.examples_path)
+    if not examples_path.exists():
+      raise FileNotFoundError(f'Examples file does not exist: {examples_path}')
+
+    examples = []
+    try:
+      with examples_path.open('r') as f:
+        for line in f:
+          line = line.strip()
+          if not line:
+            continue
+          try:
+            example = json.loads(line)
+            examples.append(self._parse_example(example))
+          except Exception as e:  # pylint: disable=broad-exception-caught
+            logging.warning(
+                'Could not parse example line: %s. Error: %s', line, e
+            )
+          if (
+              self.max_examples is not None
+              and len(examples) >= self.max_examples
+          ):
+            break
+    except IOError as e:
+      logging.warning(
+          'Could not load examples from file %s: %s', examples_path, e
+      )
+
+    return examples
+
+  def _parse_example(self, raw_example: dict[str, Any]) -> _ExampleDict:
+    """Parses a raw example dictionary into the standard format."""
+    question = ''
+    answer = ''
+    metadata = {}
+    for k, v in raw_example.items():
+      if k == EXAMPLE_FIELD_QUESTION:
+        question = v
+      elif k == EXAMPLE_FIELD_ANSWER:
+        answer = v
+      else:
+        metadata[k] = v
+
+    return {
+        EXAMPLE_FIELD_QUESTION: question,
+        EXAMPLE_FIELD_ANSWER: answer,
+        EXAMPLE_FIELD_METADATA: metadata,
+    }
 
 
 def _decode(value) -> str:

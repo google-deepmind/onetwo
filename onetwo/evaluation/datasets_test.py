@@ -14,6 +14,7 @@
 
 """Tests for datasets module."""
 
+import os
 from typing import Any
 from unittest import mock
 
@@ -643,6 +644,170 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     self.assertLen(examples, 2)
     self.assertEqual(examples[0]['question'], 'Q1')
     self.assertEqual(examples[1]['question'], 'Q3')
+
+
+class JsonlDatasetLoaderTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.temp_dir = self.create_tempdir().full_path
+
+  def test_invalid_paths(self):
+    with self.assertRaises(ValueError):
+      datasets.JsonlDatasetLoader(corpus_path='corpus.txt')
+    with self.assertRaises(ValueError):
+      datasets.JsonlDatasetLoader(examples_path='examples.json')
+
+  def test_load_documents_success(self):
+    corpus_content = (
+        '{"doc_id": "doc1", "title": "Title 1", "content": "Content 1"}\n'
+        '{"doc_id": "doc2", "title": "Title 2", "content": "Content 2"}\n'
+    )
+    corpus_file = os.path.join(self.temp_dir, 'corpus.jsonl')
+    with open(corpus_file, 'w') as f:
+      f.write(corpus_content)
+
+    loader = datasets.JsonlDatasetLoader(corpus_path=corpus_file)
+    documents = list(ot.run(loader.load_documents()))
+
+    self.assertLen(documents, 2)
+    self.assertEqual(documents[0].doc_id, 'doc1')
+    self.assertEqual(documents[0].title, 'Title 1')
+    self.assertEqual(documents[0].content, 'Content 1')
+    self.assertEqual(documents[1].doc_id, 'doc2')
+
+  def test_load_documents_missing_doc_id(self):
+    # Create a fake corpus.jsonl with missing doc_id.
+    corpus_content = (
+        '{"title": "Title 1", "content": "Content 1"}\n'
+    )
+    corpus_file = os.path.join(self.temp_dir, 'corpus.jsonl')
+    with open(corpus_file, 'w') as f:
+      f.write(corpus_content)
+
+    loader = datasets.JsonlDatasetLoader(corpus_path=corpus_file)
+    documents = list(ot.run(loader.load_documents()))
+
+    self.assertLen(documents, 1)
+    self.assertTrue(documents[0].doc_id)  # Should be auto-generated.
+    self.assertEqual(documents[0].title, 'Title 1')
+    self.assertEqual(documents[0].content, 'Content 1')
+
+  def test_load_documents_missing_doc_id_logs_warning(self):
+    # Create corpus with missing doc_id.
+    corpus_content = (
+        '{"title": "Title 1", "content": "Content 1"}\n'
+        '{"title": "Title 2", "content": "Content 2"}\n'
+    )
+    corpus_file = os.path.join(self.temp_dir, 'corpus.jsonl')
+    with open(corpus_file, 'w') as f:
+      f.write(corpus_content)
+
+    loader = datasets.JsonlDatasetLoader(corpus_path=corpus_file)
+
+    with self.assertLogs(level='WARNING') as log_watcher:
+      documents = list(ot.run(loader.load_documents()))
+
+    self.assertLen(documents, 2)
+    # Check that warning was logged.
+    self.assertIn(
+        'Generated deterministic IDs for 2 documents missing doc_id.',
+        ''.join(log_watcher.output),
+    )
+
+  def test_load_examples_jsonl_success_from_directory(self):
+    # Create a fake examples.jsonl
+    examples_content = (
+        '{"question": "Q1", "answer": "A1", "extra": "E1"}\n'
+        '{"question": "Q2", "answer": "A2"}\n'
+    )
+    examples_file = os.path.join(self.temp_dir, 'examples.jsonl')
+    with open(examples_file, 'w') as f:
+      f.write(examples_content)
+
+    loader = datasets.JsonlDatasetLoader.from_directory(self.temp_dir)
+    examples = list(ot.run(loader.load_examples()))
+
+    self.assertLen(examples, 2)
+    self.assertEqual(examples[0]['question'], 'Q1')
+    self.assertEqual(examples[0]['answer'], 'A1')
+    self.assertEqual(examples[0]['metadata'], {'extra': 'E1'})
+    self.assertEqual(examples[1]['question'], 'Q2')
+    self.assertEqual(examples[1]['answer'], 'A2')
+    self.assertEqual(examples[1]['metadata'], {})
+
+  def test_load_examples_max_examples(self):
+    examples_content = (
+        '{"question": "Q1", "answer": "A1"}\n'
+        '{"question": "Q2", "answer": "A2"}\n'
+        '{"question": "Q3", "answer": "A3"}\n'
+    )
+    examples_file = os.path.join(self.temp_dir, 'examples.jsonl')
+    with open(examples_file, 'w') as f:
+      f.write(examples_content)
+
+    loader = datasets.JsonlDatasetLoader(
+        examples_path=examples_file, max_examples=2
+    )
+    examples = list(ot.run(loader.load_examples()))
+
+    self.assertLen(examples, 2)
+    self.assertEqual(examples[0]['question'], 'Q1')
+    self.assertEqual(examples[1]['question'], 'Q2')
+
+  def test_document_serialization_roundtrip(self):
+    original_doc1 = retrieval_data_structures.Document(
+        doc_id='doc_id_1',
+        title='Document Title 1',
+        content='This is the first document content.',
+        metadata={'source': 'wikipedia', 'author': 'John Doe'},
+    )
+    original_doc2 = retrieval_data_structures.Document(
+        doc_id='doc_id_2',
+        title='Document Title 2',
+        content='This is the second document content.',
+        metadata={'source': 'youtube'},
+    )
+
+    corpus_file = os.path.join(self.temp_dir, 'corpus.jsonl')
+    with open(corpus_file, 'w') as f:
+      f.write(original_doc1.to_json() + '\n')
+      f.write(original_doc2.to_json() + '\n')
+
+    loader = datasets.JsonlDatasetLoader(corpus_path=corpus_file)
+    documents = list(ot.run(loader.load_documents()))
+
+    self.assertLen(documents, 2)
+
+    loaded_doc1 = documents[0]
+    self.assertEqual(loaded_doc1.doc_id, original_doc1.doc_id)
+    self.assertEqual(loaded_doc1.title, original_doc1.title)
+    self.assertEqual(loaded_doc1.content, original_doc1.content)
+    self.assertEqual(loaded_doc1.metadata, original_doc1.metadata)
+
+    loaded_doc2 = documents[1]
+    self.assertEqual(loaded_doc2.doc_id, original_doc2.doc_id)
+    self.assertEqual(loaded_doc2.title, original_doc2.title)
+    self.assertEqual(loaded_doc2.content, original_doc2.content)
+    self.assertEqual(loaded_doc2.metadata, original_doc2.metadata)
+
+  def test_missing_files(self):
+    corpus_file = os.path.join(self.temp_dir, 'non_existent_corpus.jsonl')
+    examples_file = os.path.join(self.temp_dir, 'non_existent_examples.jsonl')
+    loader = datasets.JsonlDatasetLoader(
+        corpus_path=corpus_file, examples_path=examples_file
+    )
+    with self.assertRaises(FileNotFoundError):
+      ot.run(loader.load_documents())
+    with self.assertRaises(FileNotFoundError):
+      ot.run(loader.load_examples())
+
+  def test_not_configured_paths(self):
+    loader = datasets.JsonlDatasetLoader()
+    with self.assertRaises(ValueError):
+      ot.run(loader.load_documents())
+    with self.assertRaises(ValueError):
+      ot.run(loader.load_examples())
 
 if __name__ == '__main__':
   absltest.main()
