@@ -307,7 +307,7 @@ async def _evaluate_example(
   summary.counters[results.COUNTER_ERRORS] = 1 if error else 0
 
   # Metrics (and extra info)
-  extra_info = {}
+  combined_extra_info = {}
   metrics_trace = None
   if enable_tracing and metric_functions:
     metrics_trace = results.ExecutionResult(stage_name='metrics')
@@ -329,7 +329,9 @@ async def _evaluate_example(
             metric_function, target=target, prediction=prediction
         )
       if isinstance(metric_value, tuple):
-        metric_value, extra_info = metric_value
+        metric_value, metric_extra_info = metric_value
+        if metric_extra_info:
+          combined_extra_info.update(metric_extra_info)
       if metric_value is not None:
         summary.metrics[metric_name] = metric_value
         metric_counter_name = results.get_metric_counter_name(metric_name)
@@ -406,8 +408,8 @@ async def _evaluate_example(
   evaluation_debug.metrics = {}
   evaluation_debug.metrics.update(summary.counters)
   evaluation_debug.metrics.update(summary.metrics)
-  if extra_info:
-    evaluation_debug.info.update(extra_info)
+  if combined_extra_info:
+    evaluation_debug.info.update(combined_extra_info)
   # Attach metric traces to the evaluation debug result.
   if metrics_trace is not None and metrics_trace.stages:
     evaluation_debug.stages.extend(metrics_trace.stages)
@@ -1201,5 +1203,3 @@ async def structured_evaluation_critic(
   }
 
   return is_correct, extra_evaluation_info
-
-

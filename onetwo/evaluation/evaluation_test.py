@@ -100,6 +100,20 @@ def _accuracy_function_that_returns_example_option(
   return correct_val, extra_info
 
 
+def _metric_returning_extra_info_a(
+    target: str, prediction: str
+) -> tuple[float, dict[str, Any]]:
+  del target, prediction
+  return 1.0, {'info_a': 'a'}
+
+
+def _metric_returning_extra_info_b(
+    target: str, prediction: str
+) -> tuple[float, dict[str, Any]]:
+  del target, prediction
+  return 0.5, {'info_b': 'b'}
+
+
 def _aggregate_via_dict_update(
     aggregate_summary: _EvaluationSummary, example_summary: _EvaluationSummary
 ) -> None:
@@ -684,6 +698,27 @@ class EvaluationTest(parameterized.TestCase):
 
     with self.subTest('target_extractor'):
       self.assertEqual('b', summary.results[0].targets.get('target'))
+
+  def test_evaluate_multiple_metrics_accumulates_extra_info(self):
+    examples = [{'question': 'a', 'answer': 'b'}]
+    summary = evaluation.evaluate(
+        strategy=ordinary_identity_function,
+        examples=examples,
+        metric_functions={
+            'metric_a': _metric_returning_extra_info_a,
+            'metric_b': _metric_returning_extra_info_b,
+        },
+        output_results=True,
+        output_results_debug=True,
+    )
+    _reset_times(summary)
+
+    expected_info = {'info_a': 'a', 'info_b': 'b'}
+
+    with self.subTest('results_info'):
+      self.assertEqual(expected_info, summary.results[0].info)
+    with self.subTest('results_debug_info'):
+      self.assertEqual(expected_info, summary.results_debug[0].info)
 
   @parameterized.named_parameters(
       ('output_results', True, False, False),
