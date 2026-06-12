@@ -52,7 +52,9 @@ _I = TypeVar('_I')
 _O = TypeVar('_O')
 _Example = TypeVar('_Example')
 
-
+# Type alias for a generic evaluation example represented as a mapping of
+# field names (e.g., 'question', 'answer') to their values.
+ExampleDict: TypeAlias = Mapping[str, Any]
 MetricValue: TypeAlias = float | None
 MetricValueWithExtraInfo: TypeAlias = tuple[MetricValue, Mapping[str, Any]]
 
