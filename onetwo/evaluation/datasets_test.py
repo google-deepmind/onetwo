@@ -656,7 +656,38 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       datasets.JsonlDatasetLoader(corpus_path='corpus.txt')
     with self.assertRaises(ValueError):
-      datasets.JsonlDatasetLoader(examples_path='examples.json')
+      datasets.JsonlDatasetLoader(examples_path='examples.txt')
+
+  def test_load_examples_json_success(self):
+    # Create a fake examples.json
+    examples_content = (
+        '[{"question": "Q1", "answer": "A1", "extra": "E1"},'
+        ' {"question": "Q2", "answer": "A2"}]'
+    )
+    examples_file = os.path.join(self.temp_dir, 'examples.json')
+    with open(examples_file, 'w') as f:
+      f.write(examples_content)
+
+    loader = datasets.JsonlDatasetLoader(examples_path=examples_file)
+    examples = list(ot.run(loader.load_examples()))
+
+    self.assertLen(examples, 2)
+    self.assertEqual(examples[0]['question'], 'Q1')
+    self.assertEqual(examples[0]['answer'], 'A1')
+    self.assertEqual(examples[0]['metadata'], {'extra': 'E1'})
+    self.assertEqual(examples[1]['question'], 'Q2')
+    self.assertEqual(examples[1]['answer'], 'A2')
+    self.assertEqual(examples[1]['metadata'], {})
+
+  def test_load_examples_corrupted_json(self):
+    examples_content = 'invalid json'
+    examples_file = os.path.join(self.temp_dir, 'examples.json')
+    with open(examples_file, 'w') as f:
+      f.write(examples_content)
+
+    loader = datasets.JsonlDatasetLoader(examples_path=examples_file)
+    with self.assertRaises(RuntimeError):
+      ot.run(loader.load_examples())
 
   def test_load_documents_success(self):
     corpus_content = (

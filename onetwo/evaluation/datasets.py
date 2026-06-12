@@ -65,7 +65,7 @@ _Example = TypeVar('_Example')
 # Built-in example field names
 # ============================================================================
 
-# These constants define standard keys for the the example fields expected
+# These constants define standard keys for the example fields expected
 # to be populated by a QADatasetLoader.
 
 # **question**: The question to be answered.
@@ -84,6 +84,110 @@ EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS = 'golden_doc_ids'
 # 'answer' and 'metadata' keys), compatible with `evaluation.evaluate` default
 # extractors.
 _ExampleDict = dict[str, Any]
+
+
+def parse_standard_qa_example(example: dict[str, Any]) -> _ExampleDict:
+  """Parses a standard QA example dictionary.
+
+  Extracts question, answer and wraps other fields into metadata.
+
+  Args:
+    example: A dictionary containing the raw example fields.
+
+  Returns:
+    A parsed example dictionary with standard fields.
+  """
+  question = ''
+  answer = ''
+  metadata = {}
+  for k, v in example.items():
+    if k == EXAMPLE_FIELD_QUESTION:
+      question = v
+    elif k == EXAMPLE_FIELD_ANSWER:
+      answer = v
+    else:
+      metadata[k] = v
+  return {
+      EXAMPLE_FIELD_QUESTION: question,
+      EXAMPLE_FIELD_ANSWER: answer,
+      EXAMPLE_FIELD_METADATA: metadata,
+  }
+
+
+def generate_document_id(doc: _Document) -> str:
+  """Generates a deterministic document ID based on the document content."""
+  return str(uuid.uuid5(uuid.NAMESPACE_OID, doc.content))
+
+
+def load_examples_from_jsonl(
+    examples_path: str | epath.Path,
+    max_examples: int | None = None,
+) -> list[_ExampleDict]:
+  """Loads examples from a JSONL file.
+
+  Args:
+    examples_path: Path to the JSONL file.
+    max_examples: Maximum number of examples to load.
+
+  Returns:
+    A list of parsed example dictionaries.
+
+  Raises:
+    RuntimeError: If the file cannot be read.
+  """
+  examples_path = epath.Path(examples_path)
+  examples = []
+  try:
+    with examples_path.open('r') as f:
+      for line in f:
+        line = line.strip()
+        if not line:
+          continue
+        try:
+          example = json.loads(line)
+          examples.append(parse_standard_qa_example(example))
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          logging.warning(
+              'Could not parse example line: %s. Error: %s', line, e
+          )
+        if max_examples is not None and len(examples) >= max_examples:
+          break
+  except IOError as e:
+    raise RuntimeError(
+        f'Could not load examples from file {examples_path}: {e}'
+    ) from e
+  return examples
+
+
+def load_examples_from_json(
+    examples_path: str | epath.Path,
+    max_examples: int | None = None,
+) -> list[_ExampleDict]:
+  """Loads examples from a standard JSON file (array of examples).
+
+  Args:
+    examples_path: Path to the JSON file.
+    max_examples: Maximum number of examples to load.
+
+  Returns:
+    A list of parsed example dictionaries.
+
+  Raises:
+    RuntimeError: If the file cannot be parsed.
+  """
+  examples_path = epath.Path(examples_path)
+  examples = []
+  try:
+    with examples_path.open('r') as f:
+      for example in json.load(f):
+        examples.append(parse_standard_qa_example(example))
+  except (json.decoder.JSONDecodeError, IOError) as e:
+    raise RuntimeError(
+        f'Could not load examples from json file {examples_path}: {e}'
+    ) from e
+  if max_examples is not None:
+    examples = examples[:max_examples]
+  return examples
 
 
 class DatasetLoader(Protocol[_Example]):
@@ -132,9 +236,10 @@ class JsonlDatasetLoader(DatasetLoader[_ExampleDict]):
         )
     if self.examples_path is not None:
       examples_path = epath.Path(self.examples_path)
-      if examples_path.suffix != '.jsonl':
+      if examples_path.suffix not in ('.json', '.jsonl'):
         raise ValueError(
-            f'examples_path must end with .jsonl, got: {self.examples_path}'
+            'examples_path must end with .json or .jsonl, got: '
+            f'{self.examples_path}'
         )
 
   @classmethod
@@ -184,7 +289,7 @@ class JsonlDatasetLoader(DatasetLoader[_ExampleDict]):
             if not doc.doc_id:
               missing_doc_id_count += 1
               # Generate a deterministic ID if missing.
-              doc.doc_id = str(uuid.uuid5(uuid.NAMESPACE_OID, doc.content))
+              doc.doc_id = generate_document_id(doc)
             documents.append(doc)
           except Exception as e:  # pylint: disable=broad-exception-caught
             logging.warning(
@@ -219,50 +324,10 @@ class JsonlDatasetLoader(DatasetLoader[_ExampleDict]):
     if not examples_path.exists():
       raise FileNotFoundError(f'Examples file does not exist: {examples_path}')
 
-    examples = []
-    try:
-      with examples_path.open('r') as f:
-        for line in f:
-          line = line.strip()
-          if not line:
-            continue
-          try:
-            example = json.loads(line)
-            examples.append(self._parse_example(example))
-          except Exception as e:  # pylint: disable=broad-exception-caught
-            logging.warning(
-                'Could not parse example line: %s. Error: %s', line, e
-            )
-          if (
-              self.max_examples is not None
-              and len(examples) >= self.max_examples
-          ):
-            break
-    except IOError as e:
-      logging.warning(
-          'Could not load examples from file %s: %s', examples_path, e
-      )
-
-    return examples
-
-  def _parse_example(self, raw_example: dict[str, Any]) -> _ExampleDict:
-    """Parses a raw example dictionary into the standard format."""
-    question = ''
-    answer = ''
-    metadata = {}
-    for k, v in raw_example.items():
-      if k == EXAMPLE_FIELD_QUESTION:
-        question = v
-      elif k == EXAMPLE_FIELD_ANSWER:
-        answer = v
-      else:
-        metadata[k] = v
-
-    return {
-        EXAMPLE_FIELD_QUESTION: question,
-        EXAMPLE_FIELD_ANSWER: answer,
-        EXAMPLE_FIELD_METADATA: metadata,
-    }
+    if examples_path.suffix == '.jsonl':
+      return load_examples_from_jsonl(examples_path, self.max_examples)
+    else:
+      return load_examples_from_json(examples_path, self.max_examples)
 
 
 def _decode(value) -> str:
