@@ -95,6 +95,7 @@ class RegistryTest(absltest.TestCase):
     self.assertIn('closed_book', names)
     self.assertIn('long_context', names)
     self.assertIn('rag', names)
+    self.assertIn('retrieval_only', names)
 
   def test_get_strategy_returns_correct_type(self):
     self.assertIsInstance(
@@ -108,6 +109,12 @@ class RegistryTest(absltest.TestCase):
     self.assertIsInstance(
         strategies_lib.get_strategy('rag', retriever=MockRetriever([])),
         strategies_lib.RAGStrategy,
+    )
+    self.assertIsInstance(
+        strategies_lib.get_strategy(
+            'retrieval_only', retriever=MockRetriever([])
+        ),
+        strategies_lib.RetrievalOnlyStrategy,
     )
 
   def test_get_unknown_strategy_raises(self):
@@ -355,6 +362,73 @@ class RAGStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question='What?', max_results=1))  # pytype: disable=wrong-keyword-args
     self.assertLen(result.doc_ids, 1)
     self.assertEqual(result.doc_ids[0], 'd1')
+
+
+# =============================================================================
+# Retrieval-only strategy tests
+# =============================================================================
+
+
+class RetrievalOnlyStrategyTest(parameterized.TestCase):
+  """Tests for RetrievalOnlyStrategy."""
+
+  def setUp(self):
+    super().setUp()
+    self.llm_backend = backends_test_utils.LLMForTest(
+        default_reply='should not be called',
+    )
+    self.llm_backend.register()
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='text_docs_text_question',
+          documents=_TEXT_DOCS,
+          question=_TEXT_QUESTION,
+          max_results=2,
+          expected_doc_ids=['d1', 'd2'],
+      ),
+      dict(
+          testcase_name='text_docs_multimodal_question',
+          documents=_TEXT_DOCS,
+          question=_TEXT_QUESTION,
+          max_results=None,
+          expected_doc_ids=['d1', 'd2', 'd3'],
+      ),
+      dict(
+          testcase_name='multimodal_docs_text_question',
+          documents=_MULTIMODAL_DOCS,
+          question=_TEXT_QUESTION,
+          max_results=1,
+          expected_doc_ids=['img1'],
+      ),
+  )
+  def test_returns_empty_answer_with_retrieved_docs(
+      self, documents, question, max_results, expected_doc_ids
+  ):
+    retriever = MockRetriever(documents)
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
+    kwargs = {}
+    if max_results is not None:
+      kwargs['max_results'] = max_results
+    result = ot.run(strategy(question=question, **kwargs))  # pytype: disable=wrong-keyword-args
+    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertEqual(result.answer, '')
+    self.assertEqual(result.doc_ids, expected_doc_ids)
+    # Verify LLM was not called.
+    self.assertEmpty(self.llm_backend.prompts)
+
+  def test_no_retriever_raises(self):
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=None)
+    with self.assertRaises(ValueError):
+      ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+
+  def test_empty_retrieval_returns_empty_doc_ids(self):
+    retriever = MockRetriever([])
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
+    result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    self.assertEmpty(result.doc_ids)
+    self.assertEqual(result.answer, '')
+    self.assertEmpty(self.llm_backend.prompts)
 
 
 # =============================================================================

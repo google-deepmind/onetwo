@@ -242,6 +242,39 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     return StrategyResult(answer=str(answer), doc_ids=doc_ids)
 
 
+@dataclasses.dataclass
+class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
+  """A strategy that only retrieves relevant documents without answering.
+
+  Attributes:
+    retriever: The retriever to use for fetching relevant documents.
+  """
+
+  retriever: retrieval.Retriever[_PromptContent, _Document] | None = None
+
+  @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
+  async def __call__(
+      self,
+      question: _PromptContent,
+      **retrieval_kwargs,
+  ) -> StrategyResult:
+    """Returns empty answer and retrieved document IDs."""
+    if self.retriever is None:
+      raise ValueError(
+          'RetrievalOnlyStrategy requires a retriever. Pass one at construction'
+          ' time.'
+      )
+
+    # Retrieve relevant documents.
+    retrieved_docs = await self.retriever.retrieve(  # pytype: disable=wrong-keyword-args
+        query=question,
+        **retrieval_kwargs,
+    )
+    retrieved_docs = list(retrieved_docs)
+    doc_ids = [doc.doc_id for doc in retrieved_docs]
+    return StrategyResult(answer='', doc_ids=doc_ids)
+
+
 # =============================================================================
 # Strategy registry
 # =============================================================================
@@ -318,3 +351,4 @@ def list_strategies() -> list[str]:
 register_strategy('closed_book', ClosedBookStrategy)
 register_strategy('long_context', LongContextStrategy)
 register_strategy('rag', RAGStrategy)
+register_strategy('retrieval_only', RetrievalOnlyStrategy)
