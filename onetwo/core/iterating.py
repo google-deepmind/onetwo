@@ -460,12 +460,8 @@ def _process_queue(result_queue: TQueue[T], job_done: object) -> Iterator[T]:
     Items from the queue.
   """
   while True:
-    try:
-      # Check whether we have something in the queue.
-      result = result_queue.get_nowait()
-      result_queue.task_done()
-    except queue.Empty:
-      continue
+    result = result_queue.get()
+    result_queue.task_done()
     if isinstance(result, Exception):
       raise result
     if result is job_done:
@@ -486,12 +482,8 @@ def _process_queue_with_result(
     Items from the queue.
   """
   while True:
-    try:
-      # Check whether we have something in the queue.
-      result = result_queue.get_nowait()
-      result_queue.task_done()
-    except queue.Empty:
-      continue
+    result = result_queue.get()
+    result_queue.task_done()
     if isinstance(result, Exception):
       raise result
     if result is job_done:
