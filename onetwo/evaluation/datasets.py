@@ -105,6 +105,11 @@ def parse_standard_qa_example(example: dict[str, Any]) -> _ExampleDict:
       question = v
     elif k == EXAMPLE_FIELD_ANSWER:
       answer = v
+    elif k == EXAMPLE_FIELD_METADATA:
+      if isinstance(v, dict):
+        metadata.update(v)
+      else:
+        metadata[k] = v
     else:
       metadata[k] = v
   return {
