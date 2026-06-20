@@ -26,6 +26,7 @@ was provided), and would fail otherwise.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import enum
 import random
 from typing import Any, TypeAlias, TypeVar
 
@@ -45,6 +46,18 @@ _ChunkList: TypeAlias = content_lib.ChunkList
 _Message: TypeAlias = content_lib.Message
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
 TokenHealingOption: TypeAlias = llm_utils.TokenHealingOption
+
+
+class EmbedTaskType(enum.StrEnum):
+  RETRIEVAL_QUERY = 'RETRIEVAL_QUERY'
+  RETRIEVAL_DOCUMENT = 'RETRIEVAL_DOCUMENT'
+  SEMANTIC_SIMILARITY = 'SEMANTIC_SIMILARITY'
+  CLASSIFICATION = 'CLASSIFICATION'
+  CLUSTERING = 'CLUSTERING'
+  CODE_RETRIEVAL_QUERY = 'CODE_RETRIEVAL_QUERY'
+  QUESTION_ANSWERING = 'QUESTION_ANSWERING'
+  FACT_VERIFICATION = 'FACT_VERIFICATION'
+
 
 _UNIMPLEMENTED_ERROR = NotImplementedError(
     'The implementation should be provided at runtime by calling `configure`'
@@ -315,17 +328,28 @@ async def _default_count_tokens(
 
 
 @builtins_base.Builtin
-def embed(content: str | _ChunkList, **kwargs) -> Sequence[float]:
+def embed(
+    content: str | _ChunkList,
+    task_type: EmbedTaskType | str | None = None,
+    title: str | None = None,
+    **kwargs,
+) -> Sequence[float]:
   """Interface of the embed built-in function.
 
   Args:
     content: The content (string or ChunkList) to be embedded.
+    task_type: The standard task type for the embedding.
+    title: Optional title of the content. Titles are useful for certain task
+      types. For example the gemini-embedding-2 model formats the title and
+      content jointly into "title: {title} | text: {content}" if the task type
+      RETRIEVAL_DOCUMENT is passed, see
+      https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2.
     **kwargs: Optional arguments to be passed to the embed function.
 
   Returns:
     A Sequence of floats.
   """
-  del content, kwargs
+  del content, task_type, title, kwargs
   raise _UNIMPLEMENTED_ERROR
 
 

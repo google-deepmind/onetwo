@@ -175,7 +175,7 @@ class OpenAIAPI(
   Note: tokenize and detokenize are not available through the OpenAI API.
   count_tokens is supported via the Responses API input token counting
   endpoint (client.responses.input_tokens.count).
-  
+
   TODO: Implement streaming for generate_text and chat.
   TODO: Implement image generation and editing support.
 
@@ -826,6 +826,8 @@ class OpenAIAPI(
   def embed(
       self,
       content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
       **kwargs,
   ) -> Sequence[float]:
     """Generate an embedding vector for the given content.
@@ -836,6 +838,8 @@ class OpenAIAPI(
 
     Args:
       content: The text content to embed (string or ChunkList).
+      task_type: (Unused for now.)
+      title: (Unused for now.)
       **kwargs: Optional keyword arguments (see below).
 
     Optional keyword arguments:
@@ -850,6 +854,7 @@ class OpenAIAPI(
       A sequence of floats representing the embedding vector.
     """
     self._counters['embed'] += 1
+    del title, task_type
 
     # Convert ChunkList to plain text. Only text-based embeddings are supported.
     if isinstance(content, content_lib.ChunkList):

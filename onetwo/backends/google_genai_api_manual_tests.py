@@ -276,7 +276,7 @@ def main(argv: Sequence[str]) -> None:
   """
 
   if _should_run_test(1):
-    with _run_test(1, 'A single generate query', test_results) as tc:
+    with _run_test(1, 'A single generate query', test_results):
       res = executing.run(
           check_and_complete(
               prompt_text=prompt_text,
@@ -312,7 +312,7 @@ def main(argv: Sequence[str]) -> None:
         pprint.pprint(res)
 
   if _should_run_test(2):
-    with _run_test(2, 'Repeated generate request', test_results) as tc:
+    with _run_test(2, 'Repeated generate request', test_results):
       exe = executing.par_iter(
           sampling.repeat(
               executable=check_and_complete(
@@ -327,7 +327,7 @@ def main(argv: Sequence[str]) -> None:
         pprint.pprint(res)
 
   if _should_run_test(3):
-    with _run_test(3, 'Three batched generate queries', test_results) as tc:
+    with _run_test(3, 'Three batched generate queries', test_results):
       exe = executing.par_iter([
           check_and_complete(prompt_text='In summer', max_tokens=300),
           check_and_complete(prompt_text='In winter', max_tokens=300),
@@ -429,7 +429,7 @@ def main(argv: Sequence[str]) -> None:
       backend.register()
 
   if _should_run_test(6.2):
-    with _run_test(6.2, 'Generate candidates', test_results) as tc:
+    with _run_test(6.2, 'Generate candidates', test_results):
       with routing.RegistryContext():
         candidates_backend.register()
         res = executing.run(
@@ -441,7 +441,9 @@ def main(argv: Sequence[str]) -> None:
                 response_mime_type='application/json',
                 response_schema={
                     'type': 'STRING',
-                    'pattern': '(terrible|excellent|well|average|meh|bad|awesome)',
+                    'pattern': (
+                        '(terrible|excellent|well|average|meh|bad|awesome)'
+                    ),
                 },
                 safety_settings=google_genai_api.SAFETY_DISABLED,
             )
@@ -478,9 +480,7 @@ def main(argv: Sequence[str]) -> None:
     print('Took %.4fsec saving cache to %s.' % (time3 - time2, fname))
 
   if _should_run_test(9):
-    with _run_test(
-        9, 'Check that generate_texts is working', test_results
-    ) as tc:
+    with _run_test(9, 'Check that generate_texts is working', test_results):
       res = executing.run(
           llm.generate_texts(  # pytype: disable=wrong-keyword-args
               prompt=prompt_text,
@@ -696,7 +696,7 @@ def main(argv: Sequence[str]) -> None:
         )
 
   if _should_run_test(13):
-    with _run_test(13, 'Check thinking config', test_results) as tc:
+    with _run_test(13, 'Check thinking config', test_results):
       res = executing.run(
           llm.generate_text(  # pytype: disable=wrong-keyword-args
               prompt='solve x^2 + 4x + 4 = 0',
@@ -1283,6 +1283,190 @@ def main(argv: Sequence[str]) -> None:
             'we provided!'
         )
         print(f'SUCCESS: Cached {cached_tokens2} tokens successfully!')
+
+  if _should_run_test(30):
+    with _run_test(
+        30,
+        'Check caching compatibility for gemini-embedding-001 (v1)',
+        test_results,
+    ) as tc:
+      # Create a backend specifically with gemini-embedding-001 and a clean
+      # in-memory cache.
+      v1_cache = caching.SimpleFunctionCache()
+      v1_backend = google_genai_api.GoogleGenAIAPI(
+          embed_model_name='gemini-embedding-001',
+          api_key=api_key,
+          vertexai=vertexai,
+          project=project,
+          location=location,
+          credentials=credentials,
+          threadpool_size=_THREADPOOL_SIZE.value,
+          cache=v1_cache,
+      )
+      v1_backend.register()
+
+      doc_content = 'This is a document about caching.'
+
+      # Test Document Retrieval caching compatibility.
+      # 1. Old way: manually formatted content, RETRIEVAL_DOCUMENT task type
+      # passed in kwargs (for v1).
+      _ = executing.run(
+          llm.embed(content=doc_content, task_type='RETRIEVAL_DOCUMENT')  # pytype: disable=wrong-keyword-args
+      )  # pytype: disable=wrong-keyword-args
+
+      # 2. New way: pass title and task_type to llm.embed.
+      # For v1, if title is None, it should not format the content, and pass
+      # task_type in kwargs.
+      # So the inputs to _cached_embed should be identical.
+      _ = executing.run(
+          llm.embed(
+              content=doc_content,  # pytype: disable=wrong-keyword-args
+              title=None,
+              task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          )
+      )  # pytype: disable=wrong-keyword-args
+
+      if v1_cache._cache_data.counters.get('get_hit', 0) != 1:
+        tc.fail(
+            'Expected 1 cache hit for v1 RETRIEVAL_DOCUMENT (no title), got:'
+            f' {v1_cache._cache_data.counters}'
+        )
+
+      # Test with title (v1 formats title only if provided)
+      # Old way: manually prepended title
+      title = 'Caching Guide'
+      formatted_content = f'title: {title} | text: {doc_content}'
+
+      # Clear cache by re-instantiating
+      v1_cache = caching.SimpleFunctionCache()
+      v1_backend.cache = v1_cache
+
+      _ = executing.run(
+          llm.embed(content=formatted_content, task_type='RETRIEVAL_DOCUMENT')  # pytype: disable=wrong-keyword-args
+      )  # pytype: disable=wrong-keyword-args
+
+      # New way: pass title and task_type
+      _ = executing.run(
+          llm.embed(
+              content=doc_content,  # pytype: disable=wrong-keyword-args
+              title=title,
+              task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          )
+      )  # pytype: disable=wrong-keyword-args
+
+      if v1_cache._cache_data.counters.get('get_hit', 0) != 1:
+        tc.fail(
+            'Expected 1 cache hit for v1 RETRIEVAL_DOCUMENT (with title), got:'
+            f' {v1_cache._cache_data.counters}'
+        )
+
+      # Test Semantic Similarity
+      v1_cache = caching.SimpleFunctionCache()
+      v1_backend.cache = v1_cache
+      # Old way: content raw, task_type in kwargs
+      _ = executing.run(
+          llm.embed(content=doc_content, task_type='SEMANTIC_SIMILARITY')  # pytype: disable=wrong-keyword-args
+      )  # pytype: disable=wrong-keyword-args
+      # New way: content raw, task_type as enum
+      _ = executing.run(
+          llm.embed(
+              content=doc_content,  # pytype: disable=wrong-keyword-args
+              task_type=llm.EmbedTaskType.SEMANTIC_SIMILARITY,
+          )
+      )  # pytype: disable=wrong-keyword-args
+
+      if v1_cache._cache_data.counters.get('get_hit', 0) != 1:
+        tc.fail(
+            'Expected 1 cache hit for v1 SEMANTIC_SIMILARITY, got:'
+            f' {v1_cache._cache_data.counters}'
+        )
+
+  if _should_run_test(31):
+    try:
+      with _run_test(
+          31,
+          'Check caching compatibility for gemini-embedding-2 (v2)',
+          test_results,
+      ) as tc:
+        v2_cache = caching.SimpleFunctionCache()
+        v2_backend = google_genai_api.GoogleGenAIAPI(
+            embed_model_name='gemini-embedding-2-preview',
+            api_key=api_key,
+            vertexai=vertexai,
+            project=project,
+            location=location,
+            credentials=credentials,
+            threadpool_size=_THREADPOOL_SIZE.value,
+            cache=v2_cache,
+        )
+        v2_backend.register()
+
+        doc_content = 'This is a document about caching.'
+
+        # Test Document Retrieval (with title)
+        # Old way: manual formatting for v2
+        title = 'Caching Guide'
+        formatted_content = f'title: {title} | text: {doc_content}'
+        _ = executing.run(llm.embed(content=formatted_content))  # pytype: disable=wrong-keyword-args
+
+        # New way: pass title and task_type
+        _ = executing.run(
+            llm.embed(
+                content=doc_content,  # pytype: disable=wrong-keyword-args
+                title=title,
+                task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+            )
+        )  # pytype: disable=wrong-keyword-args
+
+        if v2_cache._cache_data.counters.get('get_hit', 0) != 1:
+          tc.fail(
+              'Expected 1 cache hit for v2 RETRIEVAL_DOCUMENT (with title),'
+              f' got: {v2_cache._cache_data.counters}'
+          )
+
+        # Test Document Retrieval (no title)
+        v2_cache = caching.SimpleFunctionCache()
+        v2_backend.cache = v2_cache
+        formatted_content_no_title = f'title: none | text: {doc_content}'
+        _ = executing.run(llm.embed(content=formatted_content_no_title))  # pytype: disable=wrong-keyword-args
+        _ = executing.run(
+            llm.embed(
+                content=doc_content,  # pytype: disable=wrong-keyword-args
+                title=None,
+                task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+            )
+        )  # pytype: disable=wrong-keyword-args
+
+        if v2_cache._cache_data.counters.get('get_hit', 0) != 1:
+          tc.fail(
+              'Expected 1 cache hit for v2 RETRIEVAL_DOCUMENT (no title), got:'
+              f' {v2_cache._cache_data.counters}'
+          )
+
+        # Test Semantic Similarity
+        v2_cache = caching.SimpleFunctionCache()
+        v2_backend.cache = v2_cache
+        # Old way: manual formatting
+        formatted_similarity = (
+            f'task: sentence similarity | query: {doc_content}'
+        )
+        _ = executing.run(llm.embed(content=formatted_similarity))  # pytype: disable=wrong-keyword-args
+
+        # New way: pass task_type
+        _ = executing.run(
+            llm.embed(
+                content=doc_content,  # pytype: disable=wrong-keyword-args
+                task_type=llm.EmbedTaskType.SEMANTIC_SIMILARITY,
+            )
+        )  # pytype: disable=wrong-keyword-args
+
+        if v2_cache._cache_data.counters.get('get_hit', 0) != 1:
+          tc.fail(
+              'Expected 1 cache hit for v2 SEMANTIC_SIMILARITY, got:'
+              f' {v2_cache._cache_data.counters}'
+          )
+    finally:
+      backend.register()
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)

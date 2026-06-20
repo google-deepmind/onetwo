@@ -387,9 +387,13 @@ class EmbedderForTest(backends_base.Backend):
       batch_size=utils.FromInstance('batch_size'),
   )
   def embed(
-      self, content: str | content_lib.ChunkList, **kwargs
+      self,
+      content: str | content_lib.ChunkList,
+      title: str | None = None,
+      task_type: llm.EmbedTaskType | str | None = None,
+      **kwargs,
   ) -> Sequence[float]:
-    del kwargs
+    del title, task_type, kwargs
     reply = self._get_embed_reply(content)
     time.sleep(self.wait_time_before_reply.total_seconds())
     return reply

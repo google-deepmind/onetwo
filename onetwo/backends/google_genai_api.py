@@ -128,6 +128,20 @@ _RETRIABLE_STATUS_CODES = {
     504,  # Gateway Timeout
 }
 
+# Static prefix strings for embed task types. RETRIEVAL_DOCUMENT is excluded
+# because its prefix depends on the runtime `title` value.
+_PREFIX_FROM_TASK_TYPE: Final[dict[llm.EmbedTaskType, str]] = {
+    llm.EmbedTaskType.RETRIEVAL_QUERY: 'task: search result | query: ',
+    llm.EmbedTaskType.SEMANTIC_SIMILARITY: (
+        'task: sentence similarity | query: '
+    ),
+    llm.EmbedTaskType.CLASSIFICATION: 'task: classification | query: ',
+    llm.EmbedTaskType.CLUSTERING: 'task: clustering | query: ',
+    llm.EmbedTaskType.CODE_RETRIEVAL_QUERY: 'task: code retrieval | query: ',
+    llm.EmbedTaskType.QUESTION_ANSWERING: 'task: question answering | query: ',
+    llm.EmbedTaskType.FACT_VERIFICATION: 'task: fact checking | query: ',
+}
+
 
 def _configure_http_limits(
     threadpool_size: int,
@@ -276,6 +290,52 @@ def _convert_chunk_list_to_part_list(
   if isinstance(prompt, str):
     return [genai_types.Part(text=prompt)]
   return [_part_from_chunk(c) for c in prompt]
+
+
+def _prepend_prefix_to_content(
+    prefix: str,
+    content: str | _ChunkList,
+) -> str | _ChunkList:
+  """Prepends a text prefix to content (str or ChunkList)."""
+  if isinstance(content, str):
+    return prefix + content
+  elif isinstance(content, content_lib.ChunkList):
+    new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
+    return content_lib.ChunkList(chunks=new_chunks)
+  return content
+
+
+def _apply_embed_formatting_v2(
+    prefix: str,
+    content: str | _ChunkList,
+    kwargs: dict[str, Any],
+) -> tuple[str | _ChunkList, dict[str, Any]]:
+  """Applies embed formatting for v2 models (prefix-based, no task_type)."""
+  content = _prepend_prefix_to_content(prefix, content)
+  # For v2, we do NOT pass task_type to the API.
+  kwargs.pop('task_type', None)
+  return content, kwargs
+
+
+def _apply_embed_formatting_v1(
+    prefix: str,
+    content: str | _ChunkList,
+    task_type: llm.EmbedTaskType | str | None,
+    title: str | None,
+    kwargs: dict[str, Any],
+) -> tuple[str | _ChunkList, dict[str, Any]]:
+  """Applies embed formatting for v1 models (parameter-based task_type)."""
+  if task_type is None and title is not None:
+    task_type = llm.EmbedTaskType.RETRIEVAL_DOCUMENT
+
+  if task_type:
+    kwargs['task_type'] = str(task_type)
+
+  # Prepend title formatted consistently with v2 only if title is provided.
+  if task_type == llm.EmbedTaskType.RETRIEVAL_DOCUMENT and title is not None:
+    content = _prepend_prefix_to_content(prefix, content)
+
+  return content, kwargs
 
 
 def _is_retriable_error(e: Exception) -> bool:
@@ -964,17 +1024,52 @@ class GoogleGenAIAPI(
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.embed', skip=['output'])
+  async def embed(
+      self,
+      content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
+      **kwargs,
+  ) -> Sequence[float]:
+    """See builtins.llm.embed."""
+    model_name = self._embed_model_name()
+    is_v2 = 'embedding-2' in model_name
+
+    # Determine formatting prefix.
+    prefix = _PREFIX_FROM_TASK_TYPE.get(task_type)
+    if task_type == llm.EmbedTaskType.RETRIEVAL_DOCUMENT or (
+        task_type is None and title is not None
+    ):
+      prefix = f'title: {title or "none"} | text: '
+
+    # Apply formatting prefix.
+    if prefix:
+      if is_v2:
+        content, kwargs = _apply_embed_formatting_v2(prefix, content, kwargs)
+      else:
+        content, kwargs = _apply_embed_formatting_v1(
+            prefix, content, task_type, title, kwargs
+        )
+
+    # To maintain caching compatibility with old cache keys that had
+    # "task_type" in kwargs.
+    if task_type is not None:
+      if not is_v2:
+        kwargs['task_type'] = str(task_type)
+    else:
+      kwargs['task_type'] = None
+
+    return await self._cached_embed(content, **kwargs)  # pytype: disable=bad-return-type
+
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
-  async def embed(
-      self,
-      content: str | content_lib.ChunkList,
-      **kwargs,  # Optional genai specific arguments.
+  async def _cached_embed(
+      self, content: str | content_lib.ChunkList, **kwargs
   ) -> Sequence[float]:
-    """See builtins.llm.embed."""
+    """Inner cached method for llm.embed."""
     return await self._embed(content, **kwargs)
 
   @batching.to_thread_pool_method(
@@ -993,7 +1088,7 @@ class GoogleGenAIAPI(
     self._counters['embed'] += 1
     content = _convert_chunk_list_to_part_list(content)
     embed_config_kwargs = {}
-    if 'task_type' in kwargs:
+    if 'task_type' in kwargs and kwargs['task_type'] is not None:
       embed_config_kwargs['task_type'] = kwargs['task_type']
     if 'output_dimensionality' in kwargs:
       embed_config_kwargs['output_dimensionality'] = kwargs[

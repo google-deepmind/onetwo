@@ -531,11 +531,15 @@ class VertexAIAPI(
       wrapper=batching.add_logging,
   )
   def embed(
-      self, content: str | content_lib.ChunkList, **kwargs
+      self,
+      content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
+      **kwargs,
   ) -> Sequence[float]:
     """See builtins.llm.embed."""
     self._counters['embed'] += 1
-    del kwargs
+    del title, task_type, kwargs
 
     input_content = ''
     if isinstance(content, str):
