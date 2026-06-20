@@ -65,6 +65,13 @@ class DummyResponse:
     return self._data
 
 
+class EmbedResponse(pydantic.BaseModel):
+  """Mock for the Ollama EmbedResponse object."""
+
+  model: str = 'embeddinggemma'
+  embeddings: list[list[float]] = pydantic.Field(default_factory=list)
+
+
 class Client:
   """A mock of the Ollama Client class that provides chat functionality."""
 
@@ -72,6 +79,8 @@ class Client:
     del host
     self._reply = _DEFAULT_REPLY
     self._thinking: str | None = None
+    self._embedding_dim: int = 8
+    self._embedding: list[float] | None = None
 
   def _request_raw(self, *args, **kwargs) -> DummyResponse:
     """Return a DummyResponse simulating an Ollama HTTP response."""
@@ -121,3 +130,13 @@ class Client:
   def chat(self, *args, **kwargs) -> ChatResponse:
     del args
     return self._request(ChatResponse, json=kwargs)
+
+  def embed(self, **kwargs) -> EmbedResponse:
+    """Mock for the Ollama embed endpoint."""
+    model = kwargs.get('model', 'embeddinggemma')
+    if self._embedding is not None:
+      embeddings = [self._embedding]
+    else:
+      dim = kwargs.get('dimensions', self._embedding_dim)
+      embeddings = [[0.1 * (i + 1) for i in range(dim)]]
+    return EmbedResponse(model=model, embeddings=embeddings)

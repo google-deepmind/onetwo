@@ -24,6 +24,7 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import io
 import logging
+import math
 import pprint
 from typing import Any, Final, Type, TypeVar, Union
 
@@ -41,6 +42,10 @@ import PIL.Image
 
 # See https://ollama.com/library.
 DEFAULT_MODEL: Final[str] = 'gemma4:e2b'
+
+# See
+# https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings.
+DEFAULT_EMBED_MODEL: Final[str] = 'embeddinggemma'
 
 # Supported roles in the chat method.
 # Ollama uses 'user', 'assistant', and 'system' roles for messages.
@@ -160,21 +165,23 @@ class OllamaAPI(
   """Ollama API.
 
   Uses the Chat API (client.chat) for all models.
+  Uses the Embed API (client.embed) for embeddings.
 
   Note: Ollama does not provide tokenization or token counting
   APIs. These builtins are not registered by this backend.
 
-  TODO: Implement `.embed` method.
-
   Attributes:
     disable_caching: Whether caching is enabled for this object (inherited from
       CacheEnabled).
-    batch_size: Number of requests (generate_text or chat) that is grouped
-      together when sending them to the API. Ollama API does not explicitly
-      support batching so we send multiple requests from separate threads.
+    batch_size: Number of requests (generate_text or chat or embed) that is
+      grouped together when sending them to the API. Ollama API does not
+      explicitly support batching so we send multiple requests from separate
+      threads.
     host: Ollama server host URL (default: http://localhost:11434).
     model_name: Model to use for completion and chat requests. See
       https://ollama.com/library.
+    embed_model_name: Name of the model to use for embeddings. See
+      https://ollama.com/search?c=embedding.
     max_qps: Maximum queries per second for the backend (if None, no rate
       limiting is applied).
     max_retries: Maximum number of times to retry a request in case of an
@@ -186,6 +193,7 @@ class OllamaAPI(
       set as a default and can be overridden per request).
     generate_text_kwargs: Additional default parameter values to apply in calls
       to `llm.generate_text`.
+    embed_kwargs: Optional keyword arguments to pass to the embed method.
   """
 
   batch_size: int = 1
@@ -198,8 +206,12 @@ class OllamaAPI(
   max_tokens: int | None = None
   stop: Sequence[str] | None = None
 
+  # Embed parameters.
+  embed_model_name: str = DEFAULT_EMBED_MODEL
+
   # Additional optional parameters for use during backend registration.
   generate_text_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
   # Attributes not set by constructor.
   _client: ollama.Client | None = dataclasses.field(init=False, default=None)
@@ -214,6 +226,7 @@ class OllamaAPI(
       self,
       name: str | None = None,
       register_generate: bool = True,
+      register_embed: bool = True,
   ) -> None:
     """See parent class."""
     del name
@@ -221,7 +234,7 @@ class OllamaAPI(
     llm.reset_defaults(
         reset_generate=register_generate,
         reset_tokenize=False,  # Ollama does not provide a tokenization API.
-        reset_embed=False,  # Ollama does not provide an embeddings API.
+        reset_embed=register_embed,
     )
     if register_generate:
       llm.generate_text.configure(
@@ -235,6 +248,8 @@ class OllamaAPI(
       llm.instruct.configure(
           llm.default_instruct, formatter=formatting.FormatterName.API
       )
+    if register_embed:
+      llm.embed.configure(self.embed, **self.embed_kwargs)
 
   def __post_init__(self) -> None:
     if self.cache is None:
@@ -448,3 +463,101 @@ class OllamaAPI(
     self._counters['chat'] += 1
     response = self._chat_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
     return self._extract_text_from_response(response)
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @tracing.trace(name='OllamaAPI.embed')
+  @caching.cache_method(  # Cache this deterministic method.
+      name='embed',
+      is_sampled=False,
+      cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
+  )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def embed(
+      self,
+      content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
+      **kwargs,
+  ) -> Sequence[float]:
+    """Generate an embedding vector for the given content.
+
+    Uses the Ollama Embed API (client.embed).
+    See
+    https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings
+
+    Args:
+      content: The text content to embed (string or ChunkList).
+      task_type: (Unused by Ollama.)
+      title: (Unused by Ollama.)
+      **kwargs: Optional keyword arguments (see below).
+
+    Optional keyword arguments:
+      output_dimensionality: Maximum number of dimensions for the output
+        embedding vector. Mapped to the Ollama ``dimensions`` parameter. Only
+        supported by models that support dimensionality truncation.
+      truncate: If True, truncate the input to the model's maximum token length.
+      normalize: If True, re-normalize the embedding vector to unit norm. Useful
+        when using ``output_dimensionality`` with models that return truncated
+        non-unit-norm vectors.
+
+    Returns:
+      A sequence of floats representing the embedding vector.
+    """
+    self._counters['embed'] += 1
+    del title, task_type
+
+    # Convert ChunkList to plain text. Only text-based embeddings are supported.
+    if isinstance(content, content_lib.ChunkList):
+      text_parts = []
+      for chunk in content.chunks:
+        if isinstance(chunk.content, str):
+          text_parts.append(chunk.content)
+        else:
+          logging.warning(
+              'OllamaAPI.embed only supports text content. '
+              'Skipping chunk with type: %s',
+              type(chunk.content),
+          )
+      text = ''.join(text_parts)
+    else:
+      text = content
+
+    # Build API kwargs.
+    api_kwargs: dict[str, Any] = {
+        'model': self.embed_model_name,
+        'input': text,
+    }
+    if 'output_dimensionality' in kwargs:
+      api_kwargs['dimensions'] = kwargs['output_dimensionality']
+    if 'truncate' in kwargs:
+      api_kwargs['truncate'] = kwargs['truncate']
+
+    assert self._client is not None
+    try:
+      response = self._client.embed(**api_kwargs)
+      logging.info('Ollama embed request: %s', api_kwargs)
+      logging.info('Ollama embed response: %s', response)
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'ollama.client.embed raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(text)[:100]}'
+      ) from err
+
+    if not response.embeddings:
+      raise ValueError(
+          'OllamaAPI.embed returned no embeddings for request:\n'
+          f'{pprint.pformat(text)[:100]}'
+      )
+    values = response.embeddings[0]
+
+    # Optionally re-normalize to unit norm (useful for truncated embeddings).
+    if kwargs.get('normalize', False):
+      norm = math.sqrt(sum(v * v for v in values))
+      if norm > 0 and not math.isclose(norm, 1.0, rel_tol=1e-6):
+        values = [v / norm for v in values]
+
+    return values

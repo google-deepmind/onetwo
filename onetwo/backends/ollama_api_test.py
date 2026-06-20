@@ -16,6 +16,7 @@
 
 import collections
 import io
+import math
 from typing import Counter, Final, TypeAlias
 
 from absl.testing import absltest
@@ -328,6 +329,107 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_convert_messages_to_ollama_format(self, messages, expected):
     res = ollama_api._convert_messages_to_ollama_format(messages)
     self.assertEqual(res, expected)
+
+  def test_embed(self):
+    backend = _get_and_register_backend()
+    res = executing.run(
+        llm.embed(  # pytype: disable=wrong-keyword-args
+            content='Some text',
+        )
+    )
+    with self.subTest('returns_correct_result'):
+      # ollama_mock.Client defaults to _embedding_dim=8, and returns
+      # [0.1, 0.2, ...]
+      self.assertSequenceAlmostEqual(
+          res, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+      )
+    expected_backend_counters = collections.Counter({
+        'embed': 1,
+        'embed_batches': 1,
+    })
+    with self.subTest('sends_correct_number_of_api_calls'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+
+  def test_embed_with_chunklist(self):
+    _ = _get_and_register_backend()
+    # Content has text and non-text (which should trigger warning and be
+    # skipped).
+    content = content_lib.ChunkList(
+        chunks=[
+            content_lib.Chunk('Hello '),
+            content_lib.Chunk(b'some bytes', content_type='image/png'),
+            content_lib.Chunk('world'),
+        ]
+    )
+    res = executing.run(
+        llm.embed(  # pytype: disable=wrong-keyword-args
+            content=content,
+        )
+    )
+    # The non-text chunk is skipped, text chunks concatenated to "Hello world".
+    # Since mock returns deterministic values based on dimensionality, it still
+    # returns same vector length.
+    self.assertLen(res, 8)
+
+  def test_embed_caching(self):
+    backend = _get_and_register_backend()
+    prompt_text = 'Some text'
+    _ = executing.run(
+        llm.embed(  # pytype: disable=wrong-keyword-args
+            content=prompt_text,
+        )
+    )
+    handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
+    expected_backend_counters = collections.Counter({
+        'embed': 1,
+        'embed_batches': 1,
+    })
+    with self.subTest('sends_correct_number_of_api_calls_1'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+    expected_cache_counters = Counter(add_new=1, get_miss=1)
+    with self.subTest('cache_behaves_as_expected_1'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          expected_cache_counters,
+      )
+
+    # Same query to see if it has been cached.
+    _ = executing.run(
+        llm.embed(  # pytype: disable=wrong-keyword-args
+            content=prompt_text,
+        )
+    )
+    with self.subTest('sends_correct_number_of_api_calls_2'):
+      self.assertCounterEqual(backend._counters, expected_backend_counters)
+    expected_cache_counters['get_hit'] += 1
+    with self.subTest('cache_behaves_as_expected_2'):
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          expected_cache_counters,
+      )
+
+  def test_embed_with_dimensions(self):
+    _ = _get_and_register_backend()
+    res = executing.run(
+        llm.embed(  # pytype: disable=wrong-keyword-args
+            content='Some text',
+            output_dimensionality=5,
+        )
+    )
+    self.assertLen(res, 5)
+    self.assertSequenceAlmostEqual(res, [0.1, 0.2, 0.3, 0.4, 0.5])
+
+  def test_embed_normalize(self):
+    _ = _get_and_register_backend()
+    res = executing.run(
+        llm.embed(  # pytype: disable=wrong-keyword-args
+            content='Some text',
+            normalize=True,
+        )
+    )
+    # L2 norm should be 1.0.
+    norm = math.sqrt(sum(x * x for x in res))
+    self.assertAlmostEqual(norm, 1.0, places=6)
 
 
 if __name__ == '__main__':
