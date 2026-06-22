@@ -27,6 +27,7 @@ from onetwo.stdlib.retrieval import constrained_retrieval
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import searchers
 
 QueryT = indexing.QueryT
 RetrievalResultT = indexing.RetrievalResultT
@@ -75,10 +76,16 @@ class ConstrainedEmbeddingBasedIndex(
             constraint_type=LIST_CONTAINS_ANY,
             value=['python', 'java'])`.
       ```
+    searcher: Searcher used for nearest neighbor search between query and
+      document embeddings, restricted to candidate documents matching the
+      retrieval constraints.
   """
 
   discrete_field_extractors: dict[str, Callable[[DocT], Any]] = (
       dataclasses.field(default_factory=dict)
+  )
+  searcher: searchers.ConstrainedSearcher = dataclasses.field(
+      default_factory=searchers.ConstrainedBruteForceSearcher
   )
 
   # Internal reverse index for discrete field values, used for constrained

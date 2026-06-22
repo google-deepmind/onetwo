@@ -468,7 +468,7 @@ class EmbeddingBasedIndex(
   """
 
   searcher: searchers.Searcher = dataclasses.field(
-      default_factory=searchers.ConstrainedBruteForceSearcher
+      default_factory=searchers.BruteForceSearcher
   )
   # List of the documents that are added to the index.
   _docs: list[DocT] = dataclasses.field(default_factory=list)
