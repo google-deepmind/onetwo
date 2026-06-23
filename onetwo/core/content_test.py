@@ -658,6 +658,28 @@ class MessageTest(parameterized.TestCase):
     chunk_list = message.get_chunk_list()
     self.assertEqual(expected_chunk_list, chunk_list, chunk_list)
 
+  def test_to_and_from_json_compatible_roundtrip(self):
+    chunk = _Chunk(
+        content='Text content', role='USER', metadata={'score': 0.95}
+    )
+    chunk_bytes = _Chunk(content=b'BinaryData', role='MODEL')
+    chunk_list = _ChunkList(chunks=[chunk, chunk_bytes])
+    container = {'data': [chunk_list], 'normal': 'string'}
+
+    encoded = content_lib.to_json_compatible(container)
+    self.assertIsInstance(encoded, dict)
+    self.assertEqual(encoded['data'][0]['__type__'], 'ChunkList')
+
+    decoded = content_lib.from_json_compatible(encoded)
+    self.assertEqual(decoded, container)
+
+  def test_to_json_compatible_error_on_invalid_content(self):
+    chunk = _Chunk(content='valid')
+    chunk.content = 12345  # Invalid content type for Chunk
+    with self.assertRaisesRegex(
+        ValueError, 'Chunk.content is not serializable'):
+      content_lib.to_json_compatible(chunk)
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -21,6 +21,7 @@ named tuple to represent a message in a chat conversation.
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Iterator, Mapping, Sequence
 import dataclasses
 import enum
@@ -616,3 +617,73 @@ class Message:
       return ChunkList([self.content])
     else:
       return self.content
+
+
+def _b64enc(arg: bytes) -> str:
+  return str(base64.b64encode(arg), 'utf-8')
+
+
+def _b64dec(arg: str) -> bytes:
+  return base64.b64decode(bytes(arg, 'utf-8'))
+
+
+def to_json_compatible(arg: Any) -> Any:
+  """Converts OneTwo Chunk and ChunkList into JSON-compatible format.
+
+  Args:
+    arg: Any Python object (Chunk, ChunkList, dict, list, etc.) that needs to be
+      converted to a JSON-compatible format.
+
+  Returns:
+    Encoded object where Chunk and ChunkList are converted to JSON-compatible
+    dicts with '__type__' hints.
+  """
+  if isinstance(arg, list):
+    return [to_json_compatible(value) for value in arg]
+  if isinstance(arg, dict):
+    return {key: to_json_compatible(value) for key, value in arg.items()}
+  if isinstance(arg, Chunk):
+    obj = {'__type__': 'Chunk'}
+    if arg.metadata:
+      obj['metadata'] = to_json_compatible(arg.metadata)
+    if arg.content_type:
+      obj['content_type'] = arg.content_type
+    if arg.role:
+      obj['role'] = arg.role
+    match arg.content:
+      case str():
+        obj['text'] = arg.content
+      case bytes():
+        obj['data'] = _b64enc(arg.content)
+      case _:
+        raise ValueError('Chunk.content is not serializable:', arg)
+    return obj
+  if isinstance(arg, ChunkList):
+    return {'__type__': 'ChunkList', 'chunks': to_json_compatible(arg.chunks)}
+  return arg
+
+
+def from_json_compatible(arg: Any) -> Any:
+  """Restores OneTwo Chunk and ChunkList from JSON-compatible format."""
+  if isinstance(arg, list):
+    return [from_json_compatible(value) for value in arg]
+  if isinstance(arg, dict):
+    res = {key: from_json_compatible(value) for key, value in arg.items()}
+    match res.get('__type__'):
+      case 'Chunk':
+        content = res.get('text')
+        data = res.get('data')
+        # Note: 'text' (str) and 'data' (base64 bytes) are mutually exclusive
+        # representations produced by to_json_compatible.
+        if data is not None:
+          content = _b64dec(data) if data else b''
+        return Chunk(
+            content=content,
+            content_type=res.get('content_type'),
+            role=res.get('role'),
+            metadata=res.get('metadata'),
+        )
+      case 'ChunkList':
+        return ChunkList(chunks=res.get('chunks'))
+    return res
+  return arg
