@@ -33,6 +33,7 @@ import dataclasses
 from typing import Any
 
 import dataclasses_json
+from onetwo.core import caching
 from onetwo.core import content as content_lib
 
 # ============================================================================
@@ -58,6 +59,22 @@ METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS = 'total_number_of_chunks'
 # this chunk was extracted. Essential for cross-referencing and de-duplication
 # during retrieval.
 METADATA_FIELD_ORIGINAL_DOC_ID = 'original_doc_id'
+
+
+def encode_content(value: str | content_lib.ChunkList) -> Any:
+  """Encodes ChunkList to a serializable dict, leaves strings alone."""
+  if isinstance(value, content_lib.ChunkList):
+    return caching._hint_tuple_encoder(  # pylint: disable=protected-access
+        {'__type__': 'ChunkList', 'chunks': value.chunks}
+    )
+  return value
+
+
+def decode_content(value: Any) -> str | content_lib.ChunkList:
+  """Decodes dicts back to ChunkList, leaves strings alone."""
+  if isinstance(value, dict) and value.get('__type__') == 'ChunkList':
+    return caching._hint_tuple_decoder(value)  # pylint: disable=protected-access
+  return value
 
 
 @dataclasses_json.dataclass_json
@@ -92,7 +109,13 @@ class Document:
 
   doc_id: str = ''
   title: str = ''
-  content: str | content_lib.ChunkList = ''
+  content: str | content_lib.ChunkList = dataclasses.field(
+      default='',
+      metadata=dataclasses_json.config(
+          encoder=encode_content,
+          decoder=decode_content,
+      ),
+  )
   url: str = ''
   # TODO: Add a field to track the timestamp at which the content was
   # fetched from the given URL?

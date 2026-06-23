@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import content as content_lib
@@ -67,6 +69,54 @@ class RetrievalDataStructuresTest(parameterized.TestCase):
 
     with self.subTest('implicit_str_conversion'):
       self.assertEqual(expected_text, f'{document.content}')
+
+  def test_document_to_json_str_content(self):
+    doc = retrieval_data_structures.Document(
+        doc_id='id1',
+        title='Title',
+        content='Pure text content',
+        url='https://example.com',
+        metadata={'key': 'val'},
+    )
+    json_str = doc.to_json()
+    self.assertEqual(
+        json.loads(json_str),
+        {
+            'doc_id': 'id1',
+            'title': 'Title',
+            'content': 'Pure text content',
+            'url': 'https://example.com',
+            'metadata': {'key': 'val'},
+        },
+    )
+    self.assertEqual(
+        retrieval_data_structures.Document.from_json(json_str), doc
+    )
+
+  def test_document_to_json_multimodal_succeeds(self):
+    multimodal_doc = retrieval_data_structures.Document(
+        doc_id='m2',
+        title='Multimodal ChunkList',
+        content=content_lib.ChunkList([
+            content_lib.Chunk(content=b'img_bytes', role='USER'),
+            content_lib.Chunk(content='Text prompt', role='USER'),
+        ]),
+        metadata={'keys': ['a', 'b']},
+    )
+    json_str = multimodal_doc.to_json()
+    self.assertIsInstance(json_str, str)
+
+    restored = retrieval_data_structures.Document.from_json(json_str)
+    self.assertEqual(restored.doc_id, multimodal_doc.doc_id)
+    self.assertEqual(restored.title, multimodal_doc.title)
+    self.assertIsInstance(restored.content, content_lib.ChunkList)
+    assert isinstance(restored.content, content_lib.ChunkList)
+    self.assertLen(restored.content.chunks, 2)
+    assert isinstance(restored.content.chunks[0], content_lib.Chunk)
+    assert isinstance(restored.content.chunks[1], content_lib.Chunk)
+    self.assertEqual(restored.content.chunks[0].content, b'img_bytes')
+    self.assertEqual(restored.content.chunks[1].content, 'Text prompt')
+    self.assertEqual(restored.metadata['keys'], ['a', 'b'])
 
 
 if __name__ == '__main__':
