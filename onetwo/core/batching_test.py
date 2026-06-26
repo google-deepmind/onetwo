@@ -1625,6 +1625,106 @@ class BatchingTest(parameterized.TestCase):
     results = batching.run(run_plan())
     self.assertListEqual(['set_value', 'set_value'], list(results))
 
+  def test_to_thread_pool_method_async(self):
+    class C:
+      def __init__(self):
+        self.processed = []
+        self.worker_threads = set()
+
+      @batching.to_thread_pool_method(num_workers=2)
+      async def process(self, request: int, sleep_time: float = 0.0) -> int:
+        self.worker_threads.add(threading.get_ident())
+        await asyncio.sleep(sleep_time)
+        self.processed.append(request)
+        return request
+
+    async def process_all(
+        inputs: Sequence[tuple[int, float]],
+    ) -> tuple[Sequence[int], Sequence[int], set[int]]:
+      c = C()
+      main_thread = threading.get_ident()
+      coroutines = [c.process(*x) for x in inputs]
+      results = await asyncio.gather(*coroutines)
+      return results, c.processed, c.worker_threads - {main_thread}
+
+    results, processed, worker_threads = asyncio.run(
+        process_all([(1, 0.1), (2, 0.0), (3, 0.0), (4, 0.1)])
+    )
+    with self.subTest('results_are_correct'):
+      self.assertEqual([1, 2, 3, 4], results)
+
+    with self.subTest('processing_order_is_correct'):
+      # Order owing to sleep times and thread pool size of 2.
+      self.assertEqual([2, 3, 1, 4], processed)
+
+    with self.subTest('ran_on_worker_threads'):
+      self.assertNotEmpty(worker_threads)
+
+  def test_to_thread_pool_method_async_generator_raises(self):
+    class C:
+      async def generate(self):
+        yield 1
+
+    with self.assertRaisesRegex(
+        ValueError,
+        '@to_thread_pool_method cannot be used with async generators',
+    ):
+      batching.to_thread_pool_method(num_workers=2)(C.generate)
+
+  @parameterized.named_parameters(
+      ('return_exceptions', True),
+      ('no_return_exceptions', False),
+  )
+  def test_to_thread_pool_method_async_with_exceptions(self, return_exceptions):
+    class C:
+
+      @executing.make_executable  # pytype: disable=wrong-arg-types
+      @batching.to_thread_pool_method(num_workers=2)
+      async def process(self, request: int) -> int:
+        if request == 2:
+          raise ValueError('error')
+        else:
+          return request
+
+    c = C()
+    executables = [c.process(x) for x in [1, 2, 3]]
+    if return_exceptions:
+      results = batching.run(
+          executing.parallel(*executables, return_exceptions=return_exceptions)
+      )
+      self.assertLen(results, 3)
+      self.assertIsInstance(results[1], ValueError)
+      self.assertSequenceEqual(
+          [1, 3], [r for r in results if not isinstance(r, ValueError)]
+      )
+    else:
+      with self.assertRaisesRegex(ValueError, 'error'):
+        batching.run(
+            executing.parallel(
+                *executables, return_exceptions=return_exceptions
+            )
+        )
+
+  def test_to_thread_pool_method_async_context_propagation(self):
+    my_var = contextvars.ContextVar('my_var', default='default')
+    my_var.set('set_value')
+
+    class C:
+
+      @batching.to_thread_pool_method(num_workers=2)
+      async def process(self, request):
+        del request
+        await asyncio.sleep(0.0)
+        return my_var.get()
+
+    async def run_plan():
+      c = C()
+      coroutines = [c.process(i) for i in range(2)]
+      return await asyncio.gather(*coroutines)
+
+    results = batching.run(run_plan())
+    self.assertListEqual(['set_value', 'set_value'], list(results))
+
   def test_tracer_context_propagation(self):
     """Verifies that batching.run propagates the tracer context.
 

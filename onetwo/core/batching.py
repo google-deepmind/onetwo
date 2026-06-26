@@ -1482,7 +1482,8 @@ def batch_method_with_threadpool(
         Callable[
             [_BatchedMethod[_RequestT, _ReplyT | Exception]],
             _BatchedMethod[_RequestT, _ReplyT | Exception],
-        ] | None
+        ]
+        | None
     ) = None,
     debug: bool = False,
 ) -> Callable[
@@ -1557,9 +1558,10 @@ def batch_method_with_threadpool(
 
 
 def to_thread_pool_method(
-    num_workers: int | utils.FromInstance[int | None]
-)-> Callable[
-    [Callable[..., _ReplyT]],  # TODO: Replace with _Args.
+    num_workers: int | utils.FromInstance[int | None],
+) -> Callable[
+    [Callable[..., _ReplyT] | Callable[..., Awaitable[_ReplyT]]],
+    # TODO: Replace with _Args.
     Callable[..., Awaitable[_ReplyT]],  # TODO: Replace with _Args.
 ]:
   """Decorator to run a method in a thread pool.
@@ -1581,9 +1583,16 @@ def to_thread_pool_method(
     A decorator that can be used to run a method in a thread pool.
   """
   def inner(
-      method: Callable[..., _ReplyT]
+      method: Callable[..., _ReplyT] | Callable[..., Awaitable[_ReplyT]]
   ) -> Callable[..., Awaitable[_ReplyT]]:
     # Set the name of the thread pool to the name of the method.
+    if inspect.isasyncgenfunction(method):
+      raise ValueError(
+          '@to_thread_pool_method cannot be used with async generators '
+          '(functions defined with async def and yield).'
+      )
+
+    is_coroutine_fn = inspect.iscoroutinefunction(method)
     thread_pool_name = getattr(method, '__name__', 'default')
 
     @functools.wraps(method)
@@ -1603,8 +1612,16 @@ def to_thread_pool_method(
         )
 
       ctx = contextvars.copy_context()
+      if is_coroutine_fn:
+        # A worker thread does not have an active event loop. We use asyncio.run
+        # to run the coroutine directly on the worker thread.
+        def target_fn(self, *args, **kwargs):
+          coro = method(self, *args, **kwargs)
+          return asyncio.run(coro)
+      else:
+        target_fn = method
       future = self.threadpools[thread_pool_name].submit(
-          ctx.run, method, self, *args, **kwargs
+          ctx.run, target_fn, self, *args, **kwargs
       )
       logging.vlog(1, 'Submitted task to threadpool %s', thread_pool_name)
 
