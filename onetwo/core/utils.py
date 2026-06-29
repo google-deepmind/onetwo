@@ -680,6 +680,47 @@ def raising_returned_exception(function):
       return wrapper
 
 
+def _serialize_to_bytes(val: Any) -> bytes:
+  """Serializes a Python structure to bytes deterministically."""
+  match val:
+    case bool():
+      return b'b' + (b'\x01' if val else b'\x00')
+    case bytes():
+      return b'B' + len(val).to_bytes(8, 'big') + val
+    case str():
+      val_bytes = val.encode('utf-8')
+      return b'S' + len(val_bytes).to_bytes(8, 'big') + val_bytes
+    case int():
+      val_bytes = str(val).encode('utf-8')
+      return b'I' + len(val_bytes).to_bytes(8, 'big') + val_bytes
+    case float():
+      val_bytes = str(val).encode('utf-8')
+      return b'F' + len(val_bytes).to_bytes(8, 'big') + val_bytes
+    case list():
+      elem_bytes = b''.join(_serialize_to_bytes(x) for x in val)
+      return b'L' + len(val).to_bytes(8, 'big') + elem_bytes
+    case tuple():
+      elem_bytes = b''.join(_serialize_to_bytes(x) for x in val)
+      return b'T' + len(val).to_bytes(8, 'big') + elem_bytes
+    case _ if val is None:
+      return b'N'
+    case _:
+      logging.warning('Unexpected type in _serialize_to_bytes: %s', type(val))
+      val_bytes = str(val).encode('utf-8')
+      return b'?' + len(val_bytes).to_bytes(8, 'big') + val_bytes
+
+
+def _has_bytes(val: Any) -> bool:
+  """Returns True if val is or contains bytes objects."""
+  match val:
+    case bytes():
+      return True
+    case list() | tuple():
+      return any(_has_bytes(x) for x in val)
+    case _:
+      return False
+
+
 def get_bytes_for_hashing(key: Any, fallback_if_safe: bool = False) -> bytes:
   """Best-effort conversion of key to bytes for further hashing."""
 
@@ -726,40 +767,22 @@ def get_bytes_for_hashing(key: Any, fallback_if_safe: bool = False) -> bytes:
         else:
           raise ValueError(f'Unsupported key type: {type(key)}')
 
+  result = _recurse(key)
   if fallback_if_safe:
-    # We reproduce the old behavior of this function until 20250524.
+    # We reproduce the old behavior of this function until 20260623.
     # TODO: Remove this branch once we are confident that caches
     # are updated.
-    match key:
-      case bytes():
-        return key
-      case list() | tuple():
-        encoding = str(key)
-      case dict():
-        encoding = str(sorted(key.items()))
-      case set():
-        encoding = str(sorted(list(key)))
-      case content_lib.ChunkList():
-        return b''.join([
-            chunk.content
-            if chunk.content_type == 'bytes'
-            else str(chunk.content).encode('utf-8')
-            for chunk in key.chunks
-        ])
-      case _:
-        if hasattr(key, 'tobytes'):  # Type `str` has no such attribute.
-          # This handles the case of a np.ndarray.
-          return key.tobytes()
-        else:
-          encoding = str(key)
-    if '<bytes>' not in encoding:
-      return encoding.encode('utf-8')
+    if isinstance(result, bytes):
+      return result
+    else:
+      return str(result).encode('utf-8')
 
-  result = _recurse(key)
   if isinstance(result, bytes):
     return result
+  elif isinstance(result, (list, tuple)) and _has_bytes(result):
+    return _serialize_to_bytes(result)
   else:
-    return str(_recurse(key)).encode('utf-8')
+    return str(result).encode('utf-8')
 
 
 def get_str_hash(key: Any, fallback_if_safe: bool = False) -> str:

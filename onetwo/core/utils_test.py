@@ -326,7 +326,9 @@ class UtilsTest(parameterized.TestCase):
     t2 = ClassForTest()
 
     async def plan(instance):
-      return await asyncio.gather(*[instance.af(i) for i in range(10)])  # pytype: disable=wrong-arg-count
+      return await asyncio.gather(
+          *[instance.af(i) for i in range(10)]  # pytype: disable=wrong-arg-count
+      )
 
     async def run_both():
       return await asyncio.gather(plan(t1), plan(t2))
@@ -520,12 +522,24 @@ class UtilsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       ('str', 'key1', False, b'key1'),
-      ('list', [1, 2, 3, 1.0, True, 'a'], False, b"[1, 2, 3, 1.0, True, 'a']"),
+      (
+          'list',
+          [1, 2, 3, 1.0, True, 'a'],
+          False,
+          b"[1, 2, 3, 1.0, True, 'a']",
+      ),
       ('tuple', (1, 2, 3), False, b'(1, 2, 3)'),
       ('set', {'b', 'a'}, False, b"['a', 'b']"),
       (
           'dict',
-          {'b': 2, 'a': 1, 'c': (1.0, 2.0), 'e': True, 'd': 's', 'f': [1, 'a']},
+          {
+              'b': 2,
+              'a': 1,
+              'c': (1.0, 2.0),
+              'e': True,
+              'd': 's',
+              'f': [1, 'a'],
+          },
           False,
           (
               b"[('a', 1), ('b', 2), ('c', (1.0, 2.0)), ('d', 's'), ('e',"
@@ -538,8 +552,28 @@ class UtilsTest(parameterized.TestCase):
           [{'a': 1, 'b': 2}, ([1, 2], {'c': 3, 'b': b'abc', 1: 2})],
           False,
           (
-              b"[[('a', 1), ('b', 2)], ([1, 2], [('1', 2), ('b', b'abc'), ('c',"
-              b' 3)])]'
+              b'L\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'L\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'T\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x01a'
+              b'I\x00\x00\x00\x00\x00\x00\x00\x011'
+              b'T\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x01b'
+              b'I\x00\x00\x00\x00\x00\x00\x00\x012'
+              b'T\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'L\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'I\x00\x00\x00\x00\x00\x00\x00\x011'
+              b'I\x00\x00\x00\x00\x00\x00\x00\x012'
+              b'L\x00\x00\x00\x00\x00\x00\x00\x03'
+              b'T\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x011'
+              b'I\x00\x00\x00\x00\x00\x00\x00\x012'
+              b'T\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x01b'
+              b'B\x00\x00\x00\x00\x00\x00\x00\x03abc'
+              b'T\x00\x00\x00\x00\x00\x00\x00\x02'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x01c'
+              b'I\x00\x00\x00\x00\x00\x00\x00\x013'
           ),
       ),
       ('chunk', _Chunk('abc'), False, b'abc'),
@@ -547,7 +581,12 @@ class UtilsTest(parameterized.TestCase):
           'chunk_list',
           _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'cd'), _Chunk('ef')]),
           False,
-          b"['ab', b'cd', 'ef']",
+          (
+              b'L\x00\x00\x00\x00\x00\x00\x00\x03'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x02ab'
+              b'B\x00\x00\x00\x00\x00\x00\x00\x02cd'
+              b'S\x00\x00\x00\x00\x00\x00\x00\x02ef'
+          ),
       ),
       (
           'message',
@@ -602,7 +641,7 @@ class UtilsTest(parameterized.TestCase):
       (
           'dict_with_fallback',
           {'b': 2, 'a': 1, 'c': (1.0, 2.0), 'e': True, 'd': 's', 'f': [1, 'a']},
-          False,
+          True,
           (
               b"[('a', 1), ('b', 2), ('c', (1.0, 2.0)), ('d', 's'), ('e',"
               b" True), ('f', [1, 'a'])]"
@@ -614,13 +653,13 @@ class UtilsTest(parameterized.TestCase):
           'chunk_list_with_fallback',
           _ChunkList(chunks=[_Chunk('ab'), _Chunk(b'cd'), _Chunk('ef')]),
           True,
-          b'abcdef',
+          b"['ab', b'cd', 'ef']",
       ),
       (
           'message_with_fallback',
           _Message(content='abc', role='user'),
           True,
-          b"Message(role='user', content='abc')",
+          b'Message(role=user, content=abc)',
       ),
       (
           'messages_with_fallback',
@@ -630,12 +669,12 @@ class UtilsTest(parameterized.TestCase):
           ],
           True,
           (
-              b"[Message(role='user', content='abc'),"
-              b" Message(role='model', content='def')]"
+              b"['Message(role=user, content=abc)', 'Message(role=model,"
+              b" content=def)']"
           ),
       ),
       (
-          'messages_with_bytes_with_fallback',  # Does not use fallback.
+          'messages_with_bytes_with_fallback',
           [
               _Message(
                   content=_ChunkList([_Chunk(b'abc', content_type='bytes')]),
@@ -650,7 +689,7 @@ class UtilsTest(parameterized.TestCase):
           ),
       ),
       (
-          'message_with_bytes_with_fallback',  # Does not use fallback.
+          'message_with_bytes_with_fallback',
           _Message(
               content=_ChunkList([_Chunk(b'abc', content_type='bytes')]),
               role='user',
@@ -761,6 +800,7 @@ class UtilsTest(parameterized.TestCase):
           np.array([1, 2, 3]),
           np.array([3, 2, 1]),
       ),
+
   )
   def test_get_hash(self, key, similar_key, other_key):
     # We create a simple copy of the key.
