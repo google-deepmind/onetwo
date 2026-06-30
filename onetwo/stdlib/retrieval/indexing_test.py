@@ -20,7 +20,9 @@ from unittest import mock
 from absl.testing import absltest
 import numpy as np
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
@@ -123,10 +125,9 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     super().setUp()
     mock_embed_fn.embeddings = []
     mock_embed_fn.call_count = 0
-    self.mock_llm_embed = mock.patch(
-        'onetwo.builtins.llm.embed', new=mock_embed_fn
-    ).start()
-    self.addCleanup(mock.patch.stopall)
+    self.patcher = mock.patch('onetwo.builtins.llm.embed', new=mock_embed_fn)
+    self.mock_llm_embed = self.patcher.start()
+    self.addCleanup(self.patcher.stop)
 
   def test_retrieve_basic(self):
     """Tests basic vector search without constraints."""
@@ -148,6 +149,62 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     results = list(ot.run(index(query, max_results=1)))  # pytype: disable=wrong-arg-count
     self.assertLen(results, 1)
     self.assertEqual(results[0].doc_id, 'doc1')
+
+  def test_localized_backend_initialization(self):
+    """Tests that localized backend arguments correctly lazily configure the backend."""
+
+    class FakeEmbedderBackend(backends_test_utils.LLMForTest):
+
+      def __init__(self, model_name: str | None = None, **kwargs):
+        super().__init__()
+        self.model_name = model_name
+        self.kwargs = kwargs
+
+    backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend'] = (
+        FakeEmbedderBackend
+    )
+
+    index = indexing.EmbeddingBasedIndex(
+        embed_backend_class_name='FakeEmbedderBackend',
+        embed_model_name='fake_model',
+        embed_kwargs={'some_param': 'some_value'},
+    )
+
+    backend = index.embedder_backend
+    self.assertIsInstance(backend, FakeEmbedderBackend)
+    self.assertEqual(backend.model_name, 'fake_model')
+    self.assertEqual(backend.kwargs, {'some_param': 'some_value'})
+
+  def test_localized_backend_execution(self):
+    """Tests that localized backend correctly intercepts embed calls."""
+    self.patcher.stop()
+
+    class FakeEmbedderBackend(backends_test_utils.EmbedderForTest):
+
+      def __init__(self, model_name: str | None = None, **kwargs):
+        super().__init__()
+        self.called_embed = False
+
+      @executing.make_executable(copy_self=False)
+      async def embed(self, content: str | content_lib.ChunkList, **kwargs):
+        self.called_embed = True
+        return np.array([0.5, 0.5])
+
+    backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend2'] = (
+        FakeEmbedderBackend
+    )
+
+    index = indexing.EmbeddingBasedIndex(
+        embed_backend_class_name='FakeEmbedderBackend2',
+    )
+
+    docs = [Document(doc_id='doc1', content='test')]
+    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+
+    backend = index.embedder_backend
+    self.assertIsInstance(backend, FakeEmbedderBackend)
+    self.assertTrue(backend.called_embed)
+    self.patcher.start()
 
 
 class EmbeddingBasedDocumentIndexTest(absltest.TestCase):

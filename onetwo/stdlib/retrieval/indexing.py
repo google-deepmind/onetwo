@@ -46,13 +46,17 @@ are mathematically closest to the query embedding.
 
 import abc
 import collections
+import contextlib
 import dataclasses
 import random
-from typing import Any, Callable, Generic, Iterable, Sequence
+import threading
+from typing import Any, Callable, Generic, Iterable, Iterator, Sequence
 
 import numpy as np
+from onetwo.backends import backends_base
 from onetwo.builtins import llm
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.core import tracing
 
 from onetwo.stdlib.retrieval import corpus_rewriting
@@ -60,6 +64,10 @@ from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
+
+from onetwo.backends import backend_registry
+from onetwo.stdlib.retrieval import serialization
+base_serializer = serialization.SimpleEmbeddingBasedIndexSerializer
 
 QueryT = retrieval.QueryT
 RetrievalResultT = retrieval.RetrievalResultT
@@ -415,11 +423,90 @@ class AbstractEmbeddingBasedIndex(
     prepare_query: Callable that prepares the query for embedding.
     prepare_document: Callable that prepares the document for embedding.
     task_type: Task type to use when calling `llm.embed` (optional).
+    embed_backend_class_name: The name of the backend class to use for localized
+      embedding execution (e.g., 'GoogleGenAIAPI'). If provided, the index will
+      lazily instantiate this backend and route `llm.embed` calls to it instead
+      of relying on a globally configured backend.
+    embed_model_name: The name of the embedding model to initialize the backend.
+    embed_kwargs: Additional keyword arguments to pass to the embedder backend's
+      constructor.
   """
   prepare_query: Callable[[QueryT], str] = default_prepare_query
   prepare_document: Callable[[DocT], str] = default_prepare_document
 
   task_type: str | None = None
+
+  # Configuration for the embedder backend.
+  embed_backend_class_name: str | None = None
+  embed_model_name: str | None = None
+  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+  # Localized embedder backend to use for calculating embeddings. This is
+  # lazily instantiated from the embedder configuration during initialization
+  # and the manifest when the index is loaded.
+  _embedder_backend: backends_base.Backend | None = dataclasses.field(
+      default=None, repr=False, compare=False
+  )
+  _embedder_backend_lock: threading.Lock = dataclasses.field(
+      default_factory=threading.Lock, repr=False, compare=False
+  )
+
+  @property
+  def embedder_backend(self):
+    """Lazily instantiates the backend from the manifest if not set.
+
+    We use a property with lazy instantiation instead of eager initialization
+    in `__post_init__` because this object may be pickled and unpickled by Beam
+    workers. The `__getstate__` method explicitly drops `_embedder_backend` to
+    avoid pickling issues with backend clients (e.g. gRPC channels). This lazy
+    property ensures the backend is seamlessly recreated upon first use after
+    unpickling.
+    """
+    if (self._embedder_backend is None and
+        self.embed_backend_class_name is not None):
+      with self._embedder_backend_lock:
+        if self._embedder_backend is None:
+          self._embedder_backend = backend_registry.instantiate_backend(
+              self.embed_backend_class_name,
+              model_name=self.embed_model_name,
+              **self.embed_kwargs,
+          )
+    return self._embedder_backend
+
+  @embedder_backend.setter
+  def embedder_backend(self, value):
+    """Manually overrides the embedder backend (for custom injection only)."""
+    self._embedder_backend = value
+
+  def __getstate__(self):
+    state = self.__dict__.copy()
+    if '_embedder_backend' in state:
+      # We cannot pickle backend clients (e.g. gRPC channels). We set it to None
+      # here and will recreate it on load using the manifest configuration.
+      state['_embedder_backend'] = None
+    if '_embedder_backend_lock' in state:
+      del state['_embedder_backend_lock']
+    return state
+
+  def __setstate__(self, state):
+    # Initialize new fields for backward compatibility with old pickled states.
+    state.setdefault('embed_backend_class_name', None)
+    state.setdefault('embed_model_name', None)
+    state.setdefault('embed_kwargs', {})
+    state.setdefault('_embedder_backend', None)
+
+    self.__dict__.update(state)
+    self._embedder_backend_lock = threading.Lock()
+
+  @contextlib.contextmanager
+  def _backend_routing_context(self) -> Iterator[None]:
+    """Yields a context with the embedder backend registered if one is set."""
+    if self.embedder_backend is not None:
+      with routing.RegistryContext():
+        self.embedder_backend.register()  # pytype: disable=attribute-error
+        yield
+    else:
+      yield
 
 
 def _default_list_map():
@@ -479,7 +566,10 @@ class EmbeddingBasedIndex(
   async def _calculate_query_embedding(self, query: QueryT) -> Sequence[float]:
     """Returns a newly-calculated embedding of the query."""
     query_text = self.prepare_query(query)
-    query_embedding = await llm.embed(query_text, task_type=self.task_type)  # pytype: disable=wrong-arg-count
+
+    with self._backend_routing_context():
+      query_embedding = await llm.embed(query_text, task_type=self.task_type)  # pytype: disable=wrong-arg-count
+
     return query_embedding
 
   @executing.make_executable(copy_self=False)
@@ -488,10 +578,13 @@ class EmbeddingBasedIndex(
   ) -> Sequence[Sequence[float]]:
     """Returns newly-calculated embeddings of the documents."""
     doc_texts = [self.prepare_document(doc) for doc in docs]
-    embed_executables = [
-        llm.embed(text, task_type=self.task_type) for text in doc_texts  # pytype: disable=wrong-arg-count
-    ]
-    embedded_results = await executing.parallel(*embed_executables)
+
+    with self._backend_routing_context():
+      embed_executables = [
+          llm.embed(text, task_type=self.task_type) for text in doc_texts  # pytype: disable=wrong-arg-count
+      ]
+      embedded_results = await executing.parallel(*embed_executables)
+
     return embedded_results
 
   @property
@@ -663,9 +756,6 @@ class RewritingEmbeddingBasedIndex(
         min_score=min_score,
         **kwargs,
     )
-
-from onetwo.stdlib.retrieval import serialization
-base_serializer = serialization.SimpleEmbeddingBasedIndexSerializer
 
 
 @dataclasses.dataclass(kw_only=True)
