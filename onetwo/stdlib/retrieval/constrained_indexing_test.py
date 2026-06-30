@@ -23,11 +23,14 @@ from unittest import mock
 from absl.testing import absltest
 import numpy as np
 from onetwo import ot
+from onetwo.backends import backend_registry
+from onetwo.backends import backends_test_utils
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_indexing
 from onetwo.stdlib.retrieval import constrained_retrieval
 from onetwo.stdlib.retrieval import corpus_rewriting
+from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 Document = retrieval_data_structures.Document
@@ -389,7 +392,8 @@ class ConstrainedRewritingEmbeddingBasedIndexTest(absltest.TestCase):
 
 
 class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
-    absltest.TestCase):
+    absltest.TestCase
+):
 
   def setUp(self):
     super().setUp()
@@ -407,19 +411,32 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
 
   def test_save_load_roundtrip_full(self):
     """Tests the main save and load methods for chunks and embeds."""
+
+    class FakeEmbedderBackend(backends_test_utils.LLMForTest):
+
+      def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend'] = (
+        FakeEmbedderBackend
+    )
+
     rewriter = corpus_rewriting.ChunkingCorpusRewriter(
         chunker=chunking.NoChunking()
     )
     index = constrained_indexing.RewritingConstrainedEmbeddingBasedDocumentIndex(
         rewriter=rewriter,
         inner_index=constrained_indexing.ConstrainedEmbeddingBasedDocumentIndex(
+            embed_backend_class_name='FakeEmbedderBackend',
+            embed_model_name='MyModel',
+            embed_kwargs={'api_key': 'secret'},
             discrete_field_extractors={
                 'external_keys': (
                     lambda doc: doc.metadata.get('external_keys', [])
                     if doc.metadata
                     else []
                 )
-            }
+            },
         ),
     )
     docs = [
@@ -462,6 +479,15 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
           new_index.inner_index._doc_indices_by_discrete_value,  # pytype: disable=attribute-error
           index.inner_index._doc_indices_by_discrete_value,  # pytype: disable=attribute-error
           '_doc_indices_by_discrete_value mismatch',
+      )
+
+      self.assertEqual(
+          new_index.inner_index.embed_backend_class_name,
+          'FakeEmbedderBackend',
+      )
+      self.assertEqual(new_index.inner_index.embed_model_name, 'MyModel')
+      self.assertEqual(
+          new_index.inner_index.embed_kwargs, {'api_key': 'secret'}
       )
 
       self.assertEqual(
@@ -541,7 +567,7 @@ class ConstrainedPickleabilityTest(absltest.TestCase):
 
   def test_default_list_map_is_pickleable(self):
     """Verifies the _default_list_map helper pickles correctly."""
-    d = constrained_indexing._default_list_map()
+    d = index_state.default_list_map()
     d['key'].append(42)
     restored = pickle.loads(pickle.dumps(d))
     self.assertEqual(restored['key'], [42])
@@ -550,7 +576,7 @@ class ConstrainedPickleabilityTest(absltest.TestCase):
 
   def test_default_discrete_value_map_is_pickleable(self):
     """Verifies the _default_discrete_value_map helper pickles correctly."""
-    d = constrained_indexing._default_discrete_value_map()
+    d = index_state.default_discrete_value_map()
     d['field']['value'].append(0)
     restored = pickle.loads(pickle.dumps(d))
     self.assertEqual(restored['field']['value'], [0])

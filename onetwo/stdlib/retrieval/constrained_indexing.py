@@ -14,7 +14,6 @@
 
 """Index classes for constrained retrieval."""
 
-import collections
 from collections.abc import Callable, Iterable, Sequence
 import dataclasses
 from typing import Any, Generic
@@ -33,16 +32,6 @@ QueryT = indexing.QueryT
 RetrievalResultT = indexing.RetrievalResultT
 DocT = indexing.DocT
 Document = retrieval_data_structures.Document
-
-
-def _default_list_map() -> collections.defaultdict[Any, list[int]]:
-  return collections.defaultdict(list)
-
-
-def _default_discrete_value_map() -> (
-    collections.defaultdict[str, collections.defaultdict[Any, list[int]]]
-):
-  return collections.defaultdict(_default_list_map)
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -95,7 +84,7 @@ class ConstrainedEmbeddingBasedIndex(
   # (e.g., continuous values for which constraints may be specified in terms of
   # a value range).
   _doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]] = (
-      dataclasses.field(default_factory=_default_discrete_value_map)
+      dataclasses.field(default_factory=index_state.default_discrete_value_map)
   )
 
   def _update_doc_indices_by_discrete_value(
@@ -251,7 +240,9 @@ class ConstrainedEmbeddingBasedIndex(
   def destroy_index(self) -> None:
     """Overridden from base class (Index)."""
     super().destroy_index()
-    self._doc_indices_by_discrete_value = _default_discrete_value_map()
+    self._doc_indices_by_discrete_value = (
+        index_state.default_discrete_value_map()
+    )
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -289,10 +280,18 @@ class ConstrainedEmbeddingBasedDocumentIndex(
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
+    manifest = None
+    if self.embed_backend_class_name is not None:
+      manifest = index_state.IndexManifest(
+          embed_backend_class_name=self.embed_backend_class_name,
+          embed_model_name=self.embed_model_name,
+          embed_kwargs=self.embed_kwargs,
+      )
     index_state_dto = index_state.ConstrainedEmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
         doc_indices_by_discrete_value=self._doc_indices_by_discrete_value,
+        manifest=manifest,
     )
     constrained_serializer(Document).save(index_state_dto, base_path)
 
@@ -302,6 +301,13 @@ class ConstrainedEmbeddingBasedDocumentIndex(
     index_state_dto = await constrained_serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
+    if index_state_dto.manifest:
+      self.embed_backend_class_name = (
+          index_state_dto.manifest.embed_backend_class_name
+      )
+      self.embed_model_name = index_state_dto.manifest.embed_model_name
+      self.embed_kwargs = index_state_dto.manifest.embed_kwargs
+      self._embedder_backend = None
     if hasattr(index_state_dto, 'doc_indices_by_discrete_value'):
       self._doc_indices_by_discrete_value = (
           index_state_dto.doc_indices_by_discrete_value

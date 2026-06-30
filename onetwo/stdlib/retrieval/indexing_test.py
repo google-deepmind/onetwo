@@ -434,10 +434,31 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
       self.assertLen(retrieved_docs, num_docs)
 
   def test_save_load_roundtrip(self):
+    class FakeEmbedderBackend(backends_test_utils.LLMForTest):
+
+      def __init__(self, model_name: str | None = None, **kwargs):
+        super().__init__()
+        self.model_name = model_name
+        self.kwargs = kwargs
+
+    backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend'] = (
+        FakeEmbedderBackend
+    )
+    self.addCleanup(
+        backend_registry.BACKEND_REGISTRY.pop, 'FakeEmbedderBackend', None
+    )
+
     rewriter = corpus_rewriting.ChunkingCorpusRewriter(
         chunker=chunking.NoChunking()
     )
-    index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=rewriter,
+        inner_index=indexing.EmbeddingBasedDocumentIndex(
+            embed_backend_class_name='FakeEmbedderBackend',
+            embed_model_name='MyModel',
+            embed_kwargs={'reply': 'val1'},
+        ),
+    )
     docs = [
         Document(doc_id='doc1', content='This is document one.'),
         Document(doc_id='doc2', content='This is document two.'),
@@ -458,6 +479,10 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         len(new_index.inner_index._doc_embeddings),
         len(index.inner_index._doc_embeddings),
     )
+    self.assertEqual(
+        new_index.inner_index.embed_backend_class_name, 'FakeEmbedderBackend')
+    self.assertEqual(new_index.inner_index.embed_model_name, 'MyModel')
+    self.assertEqual(new_index.inner_index.embed_kwargs, {'reply': 'val1'})
 
   def test_retrieve_after_load(self):
     rewriter = corpus_rewriting.ChunkingCorpusRewriter(

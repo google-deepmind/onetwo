@@ -19,11 +19,37 @@ and Serialization handlers. By using these DTOs, we decouple the physical
 storage logic (JSONL/NPY) from the in-memory index implementation.
 """
 
+import collections
 import dataclasses
 from typing import Any, Generic, List, TypeVar
+
+import dataclasses_json
 import numpy as np
 
+
 DocT = TypeVar('DocT')
+
+
+def default_list_map() -> collections.defaultdict[Any, list[int]]:
+  """Returns a defaultdict(list) for use as a default factory."""
+  return collections.defaultdict(list)
+
+
+def default_discrete_value_map() -> (
+    collections.defaultdict[str, dict[Any, list[int]]]
+):
+  """Returns a nested defaultdict for discrete value indexing."""
+  return collections.defaultdict(default_list_map)
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(frozen=True)
+class IndexManifest:
+  """Configuration manifest for an index."""
+
+  embed_backend_class_name: str | None = None
+  embed_model_name: str | None = None
+  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -33,10 +59,12 @@ class EmbeddingBasedIndexState(Generic[DocT]):
   Attributes:
     docs: The raw documents to be serialized.
     doc_embeddings: A list of numpy arrays representing the document embeddings.
+    manifest: Configuration manifest for the index.
   """
 
   docs: List[DocT]
   doc_embeddings: List[np.ndarray]
+  manifest: IndexManifest | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,4 +79,6 @@ class ConstrainedEmbeddingBasedIndexState(
       `ConstrainedEmbeddingBasedIndex` class for more details.
   """
 
-  doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]]
+  doc_indices_by_discrete_value: dict[str, dict[Any, list[int]]] = (
+      dataclasses.field(default_factory=default_discrete_value_map)
+  )

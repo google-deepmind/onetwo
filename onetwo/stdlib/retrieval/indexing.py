@@ -429,7 +429,7 @@ class AbstractEmbeddingBasedIndex(
       of relying on a globally configured backend.
     embed_model_name: The name of the embedding model to initialize the backend.
     embed_kwargs: Additional keyword arguments to pass to the embedder backend's
-      constructor.
+      constructor. All arguments must be JSON-serializable.
   """
   prepare_query: Callable[[QueryT], str] = default_prepare_query
   prepare_document: Callable[[DocT], str] = default_prepare_document
@@ -767,9 +767,17 @@ class EmbeddingBasedDocumentIndex(
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
+    manifest = None
+    if self.embed_backend_class_name is not None:
+      manifest = index_state.IndexManifest(
+          embed_backend_class_name=self.embed_backend_class_name,
+          embed_model_name=self.embed_model_name,
+          embed_kwargs=self.embed_kwargs,
+      )
     index_state_dto = index_state.EmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
+        manifest=manifest,
     )
     base_serializer(Document).save(index_state_dto, base_path)
 
@@ -779,6 +787,11 @@ class EmbeddingBasedDocumentIndex(
     index_state_dto = await base_serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
+    if index_state_dto.manifest:
+      self.embed_backend_class_name = index_state_dto.manifest.embed_backend_class_name
+      self.embed_model_name = index_state_dto.manifest.embed_model_name
+      self.embed_kwargs = index_state_dto.manifest.embed_kwargs
+      self._embedder_backend = None
     # Build the searcher index.
     await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
 

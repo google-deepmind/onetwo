@@ -85,6 +85,49 @@ class SerializationTest(absltest.TestCase):
         new_state.doc_indices_by_discrete_value,
         state.doc_indices_by_discrete_value,
     )
+    self.assertIsNone(new_state.manifest)
+
+  def test_serialization_with_manifest_and_kwargs(self):
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
+    state = index_state.EmbeddingBasedIndexState(
+        docs=[_Document(doc_id='id1', content='content1')],
+        doc_embeddings=[np.array([1.0], dtype=np.float32)],
+        manifest=index_state.IndexManifest(
+            embed_backend_class_name='MyBackend',
+            embed_model_name='MyModel',
+            embed_kwargs={'api_key': 'secret', 'retries': 3, 'timeout': 10.5},
+        ),
+    )
+    serializer.save(state, self.test_dir)
+    self.assertTrue(
+        os.path.exists(os.path.join(self.test_dir, 'index_manifest.json'))
+    )
+
+    new_state = ot.run(serializer.load(self.test_dir))  # pytype: disable=wrong-arg-count
+    self.assertIsNotNone(new_state.manifest)
+    self.assertEqual(
+        new_state.manifest.embed_backend_class_name, 'MyBackend'
+    )
+    self.assertEqual(new_state.manifest.embed_model_name, 'MyModel')
+    self.assertEqual(
+        new_state.manifest.embed_kwargs,
+        {'api_key': 'secret', 'retries': 3, 'timeout': 10.5},
+    )
+
+  def test_serialization_unserializable_kwargs(self):
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
+    state = index_state.EmbeddingBasedIndexState(
+        docs=[_Document(doc_id='id1', content='content1')],
+        doc_embeddings=[np.array([1.0], dtype=np.float32)],
+        manifest=index_state.IndexManifest(
+            embed_backend_class_name='MyBackend',
+            embed_kwargs={'non_serializable': object()},
+        ),
+    )
+    with self.assertRaisesRegex(
+        TypeError, 'Failed to serialize IndexManifest to JSON'
+    ):
+      serializer.save(state, self.test_dir)
 
   def test_simple_serializer_init_raises_error(self):
     class InvalidDoc:

@@ -39,12 +39,14 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     base_path: The default base path for saving and loading the index state.
     docs_jsonl_name: Name of the file for storing documents (JSON lines).
     embeds_npy_name: Name of the file for storing embeddings (NumPy).
+    manifest_json_name: Name of the file for storing the index manifest (JSON).
   """
 
   doc_class: type[DocT]
   base_path: str | None = None
   docs_jsonl_name: str = 'docs.jsonl'
   embeds_npy_name: str = 'embeddings.npy'
+  manifest_json_name: str = 'index_manifest.json'
 
   def __post_init__(self):
     """Validates interface at initialization."""
@@ -82,6 +84,18 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeddings_path = os.path.join(path, self.embeds_npy_name)
     np.save(embeddings_path, np.stack(state.doc_embeddings, axis=0))
 
+    # Save manifest to JSON if it exists.
+    if state.manifest:
+      manifest_path = os.path.join(path, self.manifest_json_name)
+      with open(manifest_path, 'w') as f:
+        try:
+          f.write(state.manifest.to_json())
+        except TypeError as e:
+          raise TypeError(
+              f'Failed to serialize IndexManifest to JSON. Ensure all '
+              f'embed_kwargs are JSON-serializable. Original error: {e}'
+          ) from e
+
   @executing.make_executable(copy_self=False)
   async def load(
       self,
@@ -115,9 +129,18 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeddings_path = os.path.join(path, self.embeds_npy_name)
     doc_embeddings = list(np.load(embeddings_path))
 
+    # Load manifest if it exists.
+    manifest_path = os.path.join(path, self.manifest_json_name)
+    manifest = None
+    if os.path.exists(manifest_path):
+      with open(manifest_path, 'r') as f:
+        json_str = f.read()
+      manifest = index_state.IndexManifest.from_json(json_str)
+
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
         doc_embeddings=doc_embeddings,
+        manifest=manifest,
     )
 
 
@@ -174,5 +197,6 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
     return index_state.ConstrainedEmbeddingBasedIndexState(
         docs=base_state.docs,
         doc_embeddings=base_state.doc_embeddings,
+        manifest=base_state.manifest,
         doc_indices_by_discrete_value=doc_indices_by_discrete_value,
     )
