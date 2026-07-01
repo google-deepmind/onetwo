@@ -21,6 +21,7 @@ import os
 from typing import Generic, TypeVar
 
 import numpy as np
+from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_state
 
@@ -39,14 +40,15 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     base_path: The default base path for saving and loading the index state.
     docs_jsonl_name: Name of the file for storing documents (JSON lines).
     embeds_npy_name: Name of the file for storing embeddings (NumPy).
-    manifest_json_name: Name of the file for storing the index manifest (JSON).
+    embed_backend_config_json_name: Name of the file for storing the embedding
+      backend config (JSON).
   """
 
   doc_class: type[DocT]
   base_path: str | None = None
   docs_jsonl_name: str = 'docs.jsonl'
   embeds_npy_name: str = 'embeddings.npy'
-  manifest_json_name: str = 'index_manifest.json'
+  embed_backend_config_json_name: str = 'embed_backend_config.json'
 
   def __post_init__(self):
     """Validates interface at initialization."""
@@ -84,16 +86,16 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeddings_path = os.path.join(path, self.embeds_npy_name)
     np.save(embeddings_path, np.stack(state.doc_embeddings, axis=0))
 
-    # Save manifest to JSON if it exists.
-    if state.manifest:
-      manifest_path = os.path.join(path, self.manifest_json_name)
-      with open(manifest_path, 'w') as f:
+    # Save embed_backend_config to JSON if it exists.
+    if state.embed_backend_config:
+      config_path = os.path.join(path, self.embed_backend_config_json_name)
+      with open(config_path, 'w') as f:
         try:
-          f.write(state.manifest.to_json())
+          f.write(state.embed_backend_config.to_json())
         except TypeError as e:
           raise TypeError(
-              f'Failed to serialize IndexManifest to JSON. Ensure all '
-              f'embed_kwargs are JSON-serializable. Original error: {e}'
+              'Failed to serialize EmbedBackendConfig to JSON. Ensure all '
+              f'kwargs are JSON-serializable. Original error: {e}'
           ) from e
 
   @executing.make_executable(copy_self=False)
@@ -129,18 +131,20 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeddings_path = os.path.join(path, self.embeds_npy_name)
     doc_embeddings = list(np.load(embeddings_path))
 
-    # Load manifest if it exists.
-    manifest_path = os.path.join(path, self.manifest_json_name)
-    manifest = None
-    if os.path.exists(manifest_path):
-      with open(manifest_path, 'r') as f:
+    # Load embed_backend_config if it exists.
+    config_path = os.path.join(path, self.embed_backend_config_json_name)
+    embed_backend_config = None
+    if os.path.exists(config_path):
+      with open(config_path, 'r') as f:
         json_str = f.read()
-      manifest = index_state.IndexManifest.from_json(json_str)
+      embed_backend_config = backend_registry.EmbedBackendConfig.from_json(
+          json_str
+      )
 
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
         doc_embeddings=doc_embeddings,
-        manifest=manifest,
+        embed_backend_config=embed_backend_config,
     )
 
 
@@ -197,6 +201,6 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
     return index_state.ConstrainedEmbeddingBasedIndexState(
         docs=base_state.docs,
         doc_embeddings=base_state.doc_embeddings,
-        manifest=base_state.manifest,
+        embed_backend_config=base_state.embed_backend_config,
         doc_indices_by_discrete_value=doc_indices_by_discrete_value,
     )

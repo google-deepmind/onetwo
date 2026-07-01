@@ -19,7 +19,7 @@ import dataclasses
 from typing import Any, Generic
 
 import numpy as np
-
+from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.stdlib.retrieval import constrained_retrieval
@@ -280,18 +280,18 @@ class ConstrainedEmbeddingBasedDocumentIndex(
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
-    manifest = None
+    embed_backend_config = None
     if self.embed_backend_class_name is not None:
-      manifest = index_state.IndexManifest(
-          embed_backend_class_name=self.embed_backend_class_name,
-          embed_model_name=self.embed_model_name,
-          embed_kwargs=self.embed_kwargs,
+      embed_backend_config = backend_registry.EmbedBackendConfig(
+          backend_class_name=self.embed_backend_class_name,
+          model_name=self.embed_model_name,
+          kwargs=self.embed_kwargs,
       )
     index_state_dto = index_state.ConstrainedEmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
         doc_indices_by_discrete_value=self._doc_indices_by_discrete_value,
-        manifest=manifest,
+        embed_backend_config=embed_backend_config,
     )
     constrained_serializer(Document).save(index_state_dto, base_path)
 
@@ -301,12 +301,11 @@ class ConstrainedEmbeddingBasedDocumentIndex(
     index_state_dto = await constrained_serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
-    if index_state_dto.manifest:
-      self.embed_backend_class_name = (
-          index_state_dto.manifest.embed_backend_class_name
-      )
-      self.embed_model_name = index_state_dto.manifest.embed_model_name
-      self.embed_kwargs = index_state_dto.manifest.embed_kwargs
+    if index_state_dto.embed_backend_config is not None:
+      embed_backend_config = index_state_dto.embed_backend_config
+      self.embed_backend_class_name = embed_backend_config.backend_class_name
+      self.embed_model_name = embed_backend_config.model_name
+      self.embed_kwargs = embed_backend_config.kwargs
       self._embedder_backend = None
     if hasattr(index_state_dto, 'doc_indices_by_discrete_value'):
       self._doc_indices_by_discrete_value = (

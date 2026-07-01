@@ -23,9 +23,8 @@ import collections
 import dataclasses
 from typing import Any, Generic, List, TypeVar
 
-import dataclasses_json
 import numpy as np
-
+from onetwo.backends import backend_registry
 
 DocT = TypeVar('DocT')
 
@@ -42,16 +41,6 @@ def default_discrete_value_map() -> (
   return collections.defaultdict(default_list_map)
 
 
-@dataclasses_json.dataclass_json
-@dataclasses.dataclass(frozen=True)
-class IndexManifest:
-  """Configuration manifest for an index."""
-
-  embed_backend_class_name: str | None = None
-  embed_model_name: str | None = None
-  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-
 @dataclasses.dataclass(frozen=True)
 class EmbeddingBasedIndexState(Generic[DocT]):
   """A point-in-time snapshot of an EmbeddingBasedIndex state.
@@ -59,12 +48,13 @@ class EmbeddingBasedIndexState(Generic[DocT]):
   Attributes:
     docs: The raw documents to be serialized.
     doc_embeddings: A list of numpy arrays representing the document embeddings.
-    manifest: Configuration manifest for the index.
+    embed_backend_config: Configuration for the embedding backend used to
+      generate the document embeddings.
   """
 
   docs: List[DocT]
   doc_embeddings: List[np.ndarray]
-  manifest: IndexManifest | None = None
+  embed_backend_config: backend_registry.EmbedBackendConfig | None = None
 
 
 @dataclasses.dataclass(frozen=True)

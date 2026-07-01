@@ -19,6 +19,7 @@ import tempfile
 from absl.testing import absltest
 import numpy as np
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import serialization
@@ -85,32 +86,32 @@ class SerializationTest(absltest.TestCase):
         new_state.doc_indices_by_discrete_value,
         state.doc_indices_by_discrete_value,
     )
-    self.assertIsNone(new_state.manifest)
+    self.assertIsNone(new_state.embed_backend_config)
 
   def test_serialization_with_manifest_and_kwargs(self):
     serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
     state = index_state.EmbeddingBasedIndexState(
         docs=[_Document(doc_id='id1', content='content1')],
         doc_embeddings=[np.array([1.0], dtype=np.float32)],
-        manifest=index_state.IndexManifest(
-            embed_backend_class_name='MyBackend',
-            embed_model_name='MyModel',
-            embed_kwargs={'api_key': 'secret', 'retries': 3, 'timeout': 10.5},
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='MyBackend',
+            model_name='MyModel',
+            kwargs={'api_key': 'secret', 'retries': 3, 'timeout': 10.5},
         ),
     )
     serializer.save(state, self.test_dir)
     self.assertTrue(
-        os.path.exists(os.path.join(self.test_dir, 'index_manifest.json'))
+        os.path.exists(os.path.join(self.test_dir, 'embed_backend_config.json'))
     )
 
     new_state = ot.run(serializer.load(self.test_dir))  # pytype: disable=wrong-arg-count
-    self.assertIsNotNone(new_state.manifest)
+    self.assertIsNotNone(new_state.embed_backend_config)
     self.assertEqual(
-        new_state.manifest.embed_backend_class_name, 'MyBackend'
+        new_state.embed_backend_config.backend_class_name, 'MyBackend'
     )
-    self.assertEqual(new_state.manifest.embed_model_name, 'MyModel')
+    self.assertEqual(new_state.embed_backend_config.model_name, 'MyModel')
     self.assertEqual(
-        new_state.manifest.embed_kwargs,
+        new_state.embed_backend_config.kwargs,
         {'api_key': 'secret', 'retries': 3, 'timeout': 10.5},
     )
 
@@ -119,13 +120,13 @@ class SerializationTest(absltest.TestCase):
     state = index_state.EmbeddingBasedIndexState(
         docs=[_Document(doc_id='id1', content='content1')],
         doc_embeddings=[np.array([1.0], dtype=np.float32)],
-        manifest=index_state.IndexManifest(
-            embed_backend_class_name='MyBackend',
-            embed_kwargs={'non_serializable': object()},
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='MyBackend',
+            kwargs={'non_serializable': object()},
         ),
     )
     with self.assertRaisesRegex(
-        TypeError, 'Failed to serialize IndexManifest to JSON'
+        TypeError, 'Failed to serialize EmbedBackendConfig to JSON'
     ):
       serializer.save(state, self.test_dir)
 
