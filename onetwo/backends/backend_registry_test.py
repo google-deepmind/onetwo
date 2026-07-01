@@ -50,6 +50,48 @@ class BackendRegistryTest(absltest.TestCase):
     )
     self.assertIsInstance(backend, google_genai_api.GoogleGenAIAPI)
 
+  def test_get_backend_google_genai(self):
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI',
+        model_name='gemini-1.5-pro',
+        kwargs={'temperature': 0.5},
+    )
+    backend = backend_registry.get_backend(config, api_key='test_key')
+    self.assertIsInstance(backend, google_genai_api.GoogleGenAIAPI)
+    self.assertEqual(backend.generate_model_name, 'gemini-1.5-pro')
+    self.assertEqual(backend.chat_model_name, 'gemini-1.5-pro')
+    self.assertEqual(backend.temperature, 0.5)
+
+  def test_get_backend_google_genai_embedding(self):
+    config = backend_registry.EmbedBackendConfig(
+        backend_class_name='GoogleGenAIAPI',
+        model_name='text-embedding-004',
+    )
+    backend = backend_registry.get_backend(config, api_key='test_key')
+    self.assertIsInstance(backend, google_genai_api.GoogleGenAIAPI)
+    self.assertEqual(backend.embed_model_name, 'text-embedding-004')
+
+  def test_get_backend_other_backend(self):
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='OllamaAPI',
+        model_name='llama2',
+        kwargs={'max_tokens': 100},
+    )
+    backend = backend_registry.get_backend(config)
+    self.assertIsInstance(backend, ollama_api.OllamaAPI)
+    self.assertEqual(backend.model_name, 'llama2')
+    self.assertEqual(backend.max_tokens, 100)
+
+  def test_get_backend_conflict(self):
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI',
+        kwargs={'temperature': 0.5},
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Conflict between BackendConfig and runtime arguments'
+    ):
+      backend_registry.get_backend(config, temperature=0.8)
+
 
 if __name__ == '__main__':
   absltest.main()
