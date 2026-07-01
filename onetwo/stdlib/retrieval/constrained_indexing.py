@@ -19,7 +19,6 @@ import dataclasses
 from typing import Any, Generic
 
 import numpy as np
-from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.stdlib.retrieval import constrained_retrieval
@@ -280,21 +279,15 @@ class ConstrainedEmbeddingBasedDocumentIndex(
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
-    embed_backend_config = None
-    if self.embed_backend_class_name is not None:
-      embed_backend_config = backend_registry.EmbedBackendConfig(
-          backend_class_name=self.embed_backend_class_name,
-          model_name=self.embed_model_name,
-          kwargs=self.embed_kwargs,
-      )
     index_state_dto = index_state.ConstrainedEmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
         doc_indices_by_discrete_value=self._doc_indices_by_discrete_value,
-        embed_backend_config=embed_backend_config,
+        embed_backend_config=self.embed_backend_config,
     )
     constrained_serializer(Document).save(index_state_dto, base_path)
 
+  # TODO: Consider passing runtime_kwargs to the load method.
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
@@ -302,10 +295,7 @@ class ConstrainedEmbeddingBasedDocumentIndex(
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
-      embed_backend_config = index_state_dto.embed_backend_config
-      self.embed_backend_class_name = embed_backend_config.backend_class_name
-      self.embed_model_name = embed_backend_config.model_name
-      self.embed_kwargs = embed_backend_config.kwargs
+      self.embed_backend_config = index_state_dto.embed_backend_config
       self._embedder_backend = None
     if hasattr(index_state_dto, 'doc_indices_by_discrete_value'):
       self._doc_indices_by_discrete_value = (

@@ -423,13 +423,14 @@ class AbstractEmbeddingBasedIndex(
     prepare_query: Callable that prepares the query for embedding.
     prepare_document: Callable that prepares the document for embedding.
     task_type: Task type to use when calling `llm.embed` (optional).
-    embed_backend_class_name: The name of the backend class to use for localized
-      embedding execution (e.g., 'GoogleGenAIAPI'). If provided, the index will
-      lazily instantiate this backend and route `llm.embed` calls to it instead
-      of relying on a globally configured backend.
-    embed_model_name: The name of the embedding model to initialize the backend.
-    embed_kwargs: Additional keyword arguments to pass to the embedder backend's
-      constructor. All arguments must be JSON-serializable.
+    embed_backend_config: Configuration for the embedder backend, which is used
+      for calculating embeddings. If None, the pre-existing `llm.embed` backend
+      is used.
+    runtime_kwargs: Environment-specific deployment settings (e.g.,
+      `threadpool_size`, `project`) and credentials (`api_key`, `credentials`)
+      that are not stored in the serializable configuration. Used in conjunction
+      with `embed_backend_config` to lazily instantiate the embedder backend
+      upon initialization or when the index is loaded.
   """
   prepare_query: Callable[[QueryT], str] = default_prepare_query
   prepare_document: Callable[[DocT], str] = default_prepare_document
@@ -437,9 +438,8 @@ class AbstractEmbeddingBasedIndex(
   task_type: str | None = None
 
   # Configuration for the embedder backend.
-  embed_backend_class_name: str | None = None
-  embed_model_name: str | None = None
-  embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  embed_backend_config: backend_registry.EmbedBackendConfig | None = None
+  runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
   # Localized embedder backend to use for calculating embeddings. This is
   # lazily instantiated from the embedder configuration during initialization
@@ -463,13 +463,12 @@ class AbstractEmbeddingBasedIndex(
     unpickling.
     """
     if (self._embedder_backend is None and
-        self.embed_backend_class_name is not None):
+        self.embed_backend_config is not None):
       with self._embedder_backend_lock:
         if self._embedder_backend is None:
-          self._embedder_backend = backend_registry.instantiate_backend(
-              self.embed_backend_class_name,
-              model_name=self.embed_model_name,
-              **self.embed_kwargs,
+          self._embedder_backend = backend_registry.get_backend(
+              self.embed_backend_config,
+              **self.runtime_kwargs,
           )
     return self._embedder_backend
 
@@ -767,20 +766,14 @@ class EmbeddingBasedDocumentIndex(
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
-    embed_backend_config = None
-    if self.embed_backend_class_name is not None:
-      embed_backend_config = backend_registry.EmbedBackendConfig(
-          backend_class_name=self.embed_backend_class_name,
-          model_name=self.embed_model_name,
-          kwargs=self.embed_kwargs,
-      )
     index_state_dto = index_state.EmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
-        embed_backend_config=embed_backend_config,
+        embed_backend_config=self.embed_backend_config,
     )
     base_serializer(Document).save(index_state_dto, base_path)
 
+  # TODO: Consider passing runtime_kwargs to the load method.
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
@@ -788,10 +781,7 @@ class EmbeddingBasedDocumentIndex(
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
-      embed_backend_config = index_state_dto.embed_backend_config
-      self.embed_backend_class_name = embed_backend_config.backend_class_name
-      self.embed_model_name = embed_backend_config.model_name
-      self.embed_kwargs = embed_backend_config.kwargs
+      self.embed_backend_config = index_state_dto.embed_backend_config
       self._embedder_backend = None
     # Build the searcher index.
     await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count

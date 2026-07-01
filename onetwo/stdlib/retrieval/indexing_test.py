@@ -155,9 +155,9 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
 
     class FakeEmbedderBackend(backends_test_utils.LLMForTest):
 
-      def __init__(self, model_name: str | None = None, **kwargs):
+      def __init__(self, embed_model_name: str | None = None, **kwargs):
         super().__init__()
-        self.model_name = model_name
+        self.embed_model_name = embed_model_name
         self.kwargs = kwargs
 
     backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend'] = (
@@ -165,14 +165,16 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     )
 
     index = indexing.EmbeddingBasedIndex(
-        embed_backend_class_name='FakeEmbedderBackend',
-        embed_model_name='fake_model',
-        embed_kwargs={'some_param': 'some_value'},
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='FakeEmbedderBackend',
+            model_name='fake_model',
+            kwargs={'some_param': 'some_value'},
+        )
     )
 
     backend = index.embedder_backend
     self.assertIsInstance(backend, FakeEmbedderBackend)
-    self.assertEqual(backend.model_name, 'fake_model')
+    self.assertEqual(backend.embed_model_name, 'fake_model')
     self.assertEqual(backend.kwargs, {'some_param': 'some_value'})
 
   def test_localized_backend_execution(self):
@@ -195,7 +197,9 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     )
 
     index = indexing.EmbeddingBasedIndex(
-        embed_backend_class_name='FakeEmbedderBackend2',
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='FakeEmbedderBackend2',
+        )
     )
 
     docs = [Document(doc_id='doc1', content='test')]
@@ -436,9 +440,9 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
   def test_save_load_roundtrip(self):
     class FakeEmbedderBackend(backends_test_utils.LLMForTest):
 
-      def __init__(self, model_name: str | None = None, **kwargs):
+      def __init__(self, embed_model_name: str | None = None, **kwargs):
         super().__init__()
-        self.model_name = model_name
+        self.embed_model_name = embed_model_name
         self.kwargs = kwargs
 
     backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend'] = (
@@ -454,9 +458,11 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     index = indexing.RewritingEmbeddingBasedDocumentIndex(
         rewriter=rewriter,
         inner_index=indexing.EmbeddingBasedDocumentIndex(
-            embed_backend_class_name='FakeEmbedderBackend',
-            embed_model_name='MyModel',
-            embed_kwargs={'reply': 'val1'},
+            embed_backend_config=backend_registry.EmbedBackendConfig(
+                backend_class_name='FakeEmbedderBackend',
+                model_name='MyModel',
+                kwargs={'reply': 'val1'},
+            )
         ),
     )
     docs = [
@@ -479,10 +485,17 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         len(new_index.inner_index._doc_embeddings),
         len(index.inner_index._doc_embeddings),
     )
+    self.assertIsNotNone(new_index.inner_index.embed_backend_config)
     self.assertEqual(
-        new_index.inner_index.embed_backend_class_name, 'FakeEmbedderBackend')
-    self.assertEqual(new_index.inner_index.embed_model_name, 'MyModel')
-    self.assertEqual(new_index.inner_index.embed_kwargs, {'reply': 'val1'})
+        new_index.inner_index.embed_backend_config.backend_class_name,
+        'FakeEmbedderBackend',
+    )
+    self.assertEqual(
+        new_index.inner_index.embed_backend_config.model_name, 'MyModel'
+    )
+    self.assertEqual(
+        new_index.inner_index.embed_backend_config.kwargs, {'reply': 'val1'}
+    )
 
   def test_retrieve_after_load(self):
     rewriter = corpus_rewriting.ChunkingCorpusRewriter(

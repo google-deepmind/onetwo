@@ -427,9 +427,11 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
     index = constrained_indexing.RewritingConstrainedEmbeddingBasedDocumentIndex(
         rewriter=rewriter,
         inner_index=constrained_indexing.ConstrainedEmbeddingBasedDocumentIndex(
-            embed_backend_class_name='FakeEmbedderBackend',
-            embed_model_name='MyModel',
-            embed_kwargs={'api_key': 'secret'},
+            embed_backend_config=backend_registry.EmbedBackendConfig(
+                backend_class_name='FakeEmbedderBackend',
+                model_name='MyModel',
+                kwargs={'api_key': 'secret'},
+            ),
             discrete_field_extractors={
                 'external_keys': (
                     lambda doc: doc.metadata.get('external_keys', [])
@@ -481,13 +483,17 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
           '_doc_indices_by_discrete_value mismatch',
       )
 
+      self.assertIsNotNone(new_index.inner_index.embed_backend_config)
       self.assertEqual(
-          new_index.inner_index.embed_backend_class_name,
+          new_index.inner_index.embed_backend_config.backend_class_name,
           'FakeEmbedderBackend',
       )
-      self.assertEqual(new_index.inner_index.embed_model_name, 'MyModel')
       self.assertEqual(
-          new_index.inner_index.embed_kwargs, {'api_key': 'secret'}
+          new_index.inner_index.embed_backend_config.model_name, 'MyModel'
+      )
+      self.assertEqual(
+          new_index.inner_index.embed_backend_config.kwargs,
+          {'api_key': 'secret'},
       )
 
       self.assertEqual(
