@@ -96,7 +96,7 @@ class Update(Generic[_T]):
     if isinstance(self.payload, Update):
       return cast(Update[_T], self.payload).to_simplified_result()
     else:
-      return self.payload
+      return self.payload  # pyrefly: ignore[bad-return]
 
 
 @dataclasses.dataclass
@@ -111,14 +111,14 @@ class AddableUpdate(Generic[_Tadd], Update[_Tadd]):
 
   payload: _Tadd | None = None
 
-  def __add__(
+  def __add__(  # pyrefly: ignore[bad-override]
       self, other: AddableUpdate[_Tadd] | _Tadd
   ) -> AddableUpdate[_Tadd]:
     """See base class."""
     if isinstance(other, AddableUpdate):
-      self.payload += other.payload
+      self.payload += other.payload  # pyrefly: ignore[unsupported-operation]
     else:
-      self.payload += other
+      self.payload += other  # pyrefly: ignore[unsupported-operation]
     return self
 
 
@@ -152,7 +152,7 @@ class ListUpdate(Generic[_T], Update[_T]):
       tuple[Update[_T] | _T, int]
   ] = dataclasses.field(default_factory=list)
 
-  def __add__(self, other: ListUpdate[_T]) -> ListUpdate[_T]:
+  def __add__(self, other: ListUpdate[_T]) -> ListUpdate[_T]:  # pyrefly: ignore[bad-override]
     """See base class."""
     for update_or_value, index in other.payload:
       # Indices accumulated so far.
@@ -163,7 +163,7 @@ class ListUpdate(Generic[_T], Update[_T]):
         if isinstance(found_update_or_value, ListUpdate):
           # Nested list case.
           self.payload[index_in_payload] = (
-              found_update_or_value + update_or_value, index
+              found_update_or_value + update_or_value, index  # pyrefly: ignore[unsupported-operation]
           )
         else:
           # If the content is not a nested list update we just use the value to
@@ -174,7 +174,7 @@ class ListUpdate(Generic[_T], Update[_T]):
         self.payload.append((update_or_value, index))
     return self
 
-  def to_result(self) -> list[_T]:
+  def to_result(self) -> list[_T]:  # pyrefly: ignore[bad-override]
     """See base class."""
     if not self.payload:
       return []
@@ -182,12 +182,12 @@ class ListUpdate(Generic[_T], Update[_T]):
     result = [None] * (largest_index + 1)
     for update_or_value, index in self.payload:
       if isinstance(update_or_value, Update):
-        result[index] = update_or_value.to_result()
+        result[index] = update_or_value.to_result()  # pyrefly: ignore[unsupported-operation]
       else:
-        result[index] = update_or_value
-    return result
+        result[index] = update_or_value  # pyrefly: ignore[unsupported-operation]
+    return result  # pyrefly: ignore[bad-return]
 
-  def to_simplified_result(self) -> list[_T]:
+  def to_simplified_result(self) -> list[_T]:  # pyrefly: ignore[bad-override]
     """See base class."""
     if not self.payload:
       return []
@@ -195,7 +195,7 @@ class ListUpdate(Generic[_T], Update[_T]):
     result = [None] * (largest_index + 1)
     for update_or_value, index in self.payload:
       if isinstance(update_or_value, Update):
-        result[index] = update_or_value.to_simplified_result()
+        result[index] = update_or_value.to_simplified_result()  # pyrefly: ignore[unsupported-operation]
       else:
-        result[index] = update_or_value
+        result[index] = update_or_value  # pyrefly: ignore[unsupported-operation]
     return [r for r in result if r is not None]

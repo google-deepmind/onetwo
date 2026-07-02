@@ -109,7 +109,7 @@ class PrefixCachingTest(parameterized.TestCase):
         'CachedChunkList can only be used as the outermost prompt, not nested'
         ' inside a sequence',
     ):
-      prefix_caching.validate_cached_prompt(prompt)
+      prefix_caching.validate_cached_prompt(prompt)  # pyrefly: ignore[bad-argument-type]
 
   def test_validate_cached_prompt_nested_in_message_content_raises_error(self):
     cached_chunks = prefix_caching.CachedChunkList(

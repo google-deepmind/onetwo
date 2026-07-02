@@ -211,7 +211,7 @@ class UtilsTest(parameterized.TestCase):
       self.assertEqual('x', param(C('x')))
 
     with self.subTest('can_retrieve_by_function'):
-      param = utils.FromInstance(function=lambda x: x.test_attribute * 2)
+      param = utils.FromInstance(function=lambda x: x.test_attribute * 2)  # pyrefly: ignore[missing-attribute]
       self.assertEqual('xx', param(C('x')))
 
     with self.subTest('FROM_INSTANCE_CLASS_NAME_retrieves_class_name'):
@@ -461,15 +461,15 @@ class UtilsTest(parameterized.TestCase):
         return value
 
     with self.subTest('should_succeed_when_retrying_enough_times'):
-      self.assertEqual('x', asyncio.run(FailOnFirstNCalls(n=max_retries)('x')))
+      self.assertEqual('x', asyncio.run(FailOnFirstNCalls(n=max_retries)('x')))  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('should_raise_underlying_error_when_not_enough_retries'):
       with self.assertRaisesRegex(ValueError, 'error'):
-        asyncio.run(FailOnFirstNCalls(n=max_retries + 1)('x'))
+        asyncio.run(FailOnFirstNCalls(n=max_retries + 1)('x'))  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('should_introduce_no_delay_if_no_retry_is_needed'):
       start_time = time.perf_counter()
-      _ = asyncio.run(FailOnFirstNCalls(n=0)('x'))
+      _ = asyncio.run(FailOnFirstNCalls(n=0)('x'))  # pyrefly: ignore[bad-argument-type]
       end_time = time.perf_counter()
       self.assertLess(
           end_time - start_time, 0.5 * initial_base_delay + _TIMING_SLACK
@@ -479,7 +479,7 @@ class UtilsTest(parameterized.TestCase):
       # More precisely, the delay should be a random value somewhere between
       # initial_base_delay and 2 * initial_base_delay.
       start_time = time.perf_counter()
-      _ = asyncio.run(FailOnFirstNCalls(n=1)('x'))
+      _ = asyncio.run(FailOnFirstNCalls(n=1)('x'))  # pyrefly: ignore[bad-argument-type]
       end_time = time.perf_counter()
       self.assertGreaterEqual(end_time - start_time, initial_base_delay)
       self.assertLess(
@@ -489,7 +489,7 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('second_retry_should_double_the_base_delay'):
       # This is because we increase the base delay after two consecutive errors.
       start_time = time.perf_counter()
-      _ = asyncio.run(FailOnFirstNCalls(n=2)('x'))
+      _ = asyncio.run(FailOnFirstNCalls(n=2)('x'))  # pyrefly: ignore[bad-argument-type]
       end_time = time.perf_counter()
       # Minimum: (1 + 2) * initial_base_delay
       self.assertGreaterEqual(end_time - start_time, 3 * initial_base_delay)
@@ -502,7 +502,7 @@ class UtilsTest(parameterized.TestCase):
       # We don't increase the base delay in this case because we only increase
       # the base delay after two consecutive errors at the same base delay.
       start_time = time.perf_counter()
-      _ = asyncio.run(FailOnFirstNCalls(n=3)('x'))
+      _ = asyncio.run(FailOnFirstNCalls(n=3)('x'))  # pyrefly: ignore[bad-argument-type]
       end_time = time.perf_counter()
       # Minimum: (1 + 2 + 2) * initial_base_delay
       self.assertGreaterEqual(end_time - start_time, 5 * initial_base_delay)
@@ -514,7 +514,7 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('base_delay_should_be_capped_at_max_base_delay'):
       # This is because we increase the base delay after two consecutive errors.
       start_time = time.perf_counter()
-      _ = asyncio.run(FailOnFirstNCalls(n=10)('x'))
+      _ = asyncio.run(FailOnFirstNCalls(n=10)('x'))  # pyrefly: ignore[bad-argument-type]
       end_time = time.perf_counter()
       self.assertLessEqual(
           end_time - start_time, 2 * 10 * max_base_delay + _TIMING_SLACK
@@ -898,7 +898,7 @@ class UtilsTest(parameterized.TestCase):
       self.assertEqual('error: 1, a', str(result))
 
     with self.subTest('async_function'):
-      result = asyncio.run(af(1, y='a'))
+      result = asyncio.run(af(1, y='a'))  # pyrefly: ignore[bad-argument-type]
       self.assertEqual(ValueError, type(result))
       self.assertEqual('error: 1, a', str(result))
 
@@ -908,7 +908,7 @@ class UtilsTest(parameterized.TestCase):
       self.assertEqual('error: 1, a', str(result))
 
     with self.subTest('async_method'):
-      result = asyncio.run(o.af(1, y='a'))
+      result = asyncio.run(o.af(1, y='a'))  # pyrefly: ignore[bad-argument-type]
       self.assertEqual(ValueError, type(result))
       self.assertEqual('error: 1, a', str(result))
 

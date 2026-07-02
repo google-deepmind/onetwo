@@ -105,9 +105,9 @@ class CachedChunkList(content_lib.ChunkList):
       return False
     return (
         super().__eq__(other)
-        and self.cache_chunk_count == other.cache_chunk_count
-        and self.cache_name == other.cache_name
-        and self.cache_ttl == other.cache_ttl
+        and self.cache_chunk_count == other.cache_chunk_count  # pyrefly: ignore[missing-attribute]
+        and self.cache_name == other.cache_name  # pyrefly: ignore[missing-attribute]
+        and self.cache_ttl == other.cache_ttl  # pyrefly: ignore[missing-attribute]
     )
 
   def __repr__(self) -> str:

@@ -49,7 +49,7 @@ def _get_and_register_backend(**kwargs) -> ollama_api.OllamaAPI:
   backend = ollama_api.OllamaAPI(
       host='http://localhost:11434', batch_size=_BATCH_SIZE, **kwargs
   )
-  backend._client = ollama_mock.Client(host=backend.host)
+  backend._client = ollama_mock.Client(host=backend.host)  # pyrefly: ignore[bad-assignment]
   backend.register()
   return backend
 
@@ -209,8 +209,8 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_generate_text_with_thinking(self):
     """Verifies that generate_text returns thoughts if include_details is True."""
     backend = _get_and_register_backend()
-    backend._client._thinking = 'Thinking process'
-    backend._client._reply = 'Result text'
+    backend._client._thinking = 'Thinking process'  # pyrefly: ignore[missing-attribute]
+    backend._client._reply = 'Result text'  # pyrefly: ignore[missing-attribute]
 
     prompt_text = 'Something'
     res = executing.run(

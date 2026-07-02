@@ -363,7 +363,7 @@ class ChunkList:
   def __eq__(self, other: object) -> bool:
     if type(self) is not type(other):
       return False
-    return self.chunks == other.chunks
+    return self.chunks == other.chunks  # pyrefly: ignore[missing-attribute]
 
   def __bool__(self):
     return self.__nonzero__()
@@ -609,7 +609,7 @@ class Message:
       else:
         normalized_content = ChunkList(chunks)
 
-    return cls(role=role, content=normalized_content)
+    return cls(role=role, content=normalized_content)  # pyrefly: ignore[bad-argument-type]
 
   def get_chunk_list(self) -> ChunkList:
     """Returns the message contents in the form of a ChunkList."""
@@ -649,7 +649,7 @@ def to_json_compatible(arg: Any) -> Any:
     if arg.content_type:
       obj['content_type'] = arg.content_type
     if arg.role:
-      obj['role'] = arg.role
+      obj['role'] = arg.role  # pyrefly: ignore[bad-assignment]
     match arg.content:
       case str():
         obj['text'] = arg.content
@@ -679,7 +679,7 @@ def from_json_compatible(arg: Any) -> Any:
           content = _b64dec(data) if data else b''
         return Chunk(
             content=content,
-            content_type=res.get('content_type'),
+            content_type=res.get('content_type'),  # pyrefly: ignore[bad-argument-type]
             role=res.get('role'),
             metadata=res.get('metadata'),
         )

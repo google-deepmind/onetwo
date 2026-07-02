@@ -127,7 +127,7 @@ class MessagesNamespace:
           " 'invalid_request_error', 'message': 'messages: must not be"
           " empty'}}"
       )
-    del (
+    del (  # pyrefly: ignore[unsupported-delete]
         model,
         max_tokens,
         system,
@@ -174,12 +174,12 @@ class MessagesNamespace:
           )
       )
       return Message(
-          content=content,
+          content=content,  # pyrefly: ignore[bad-argument-type]
           stop_reason='tool_use',
       )
 
     content.append(TextBlock(text=self._reply))
-    return Message(content=content)
+    return Message(content=content)  # pyrefly: ignore[bad-argument-type]
 
   def count_tokens(
       self,

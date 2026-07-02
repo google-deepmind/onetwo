@@ -664,7 +664,7 @@ def main(argv: Sequence[str]) -> None:
     label = str(dim) if dim is not None else 'default'
     embed_kwargs = {'normalize': True}
     if dim is not None:
-      embed_kwargs['output_dimensionality'] = dim
+      embed_kwargs['output_dimensionality'] = dim  # pyrefly: ignore[bad-assignment]
 
     res = executing.run(
         llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args

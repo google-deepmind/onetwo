@@ -221,12 +221,12 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       kwargs = mock_create.call_args.kwargs
       messages = kwargs.get('messages')
       self.assertLen(messages, 2)
-      self.assertEqual(messages[0].role, _PredefinedRole.SYSTEM)
+      self.assertEqual(messages[0].role, _PredefinedRole.SYSTEM)  # pyrefly: ignore[unsupported-operation]
       self.assertEqual(
-          messages[0].content, openai_api._COMPLETION_SYSTEM_PROMPT_PREFIX
+          messages[0].content, openai_api._COMPLETION_SYSTEM_PROMPT_PREFIX  # pyrefly: ignore[unsupported-operation]
       )
-      self.assertEqual(messages[1].role, _PredefinedRole.USER)
-      self.assertEqual(messages[1].content, prompt_text)
+      self.assertEqual(messages[1].role, _PredefinedRole.USER)  # pyrefly: ignore[unsupported-operation]
+      self.assertEqual(messages[1].content, prompt_text)  # pyrefly: ignore[unsupported-operation]
 
   def test_generate_object(self):
     """Verifies that generate_object works and calls the mock parse API."""
@@ -323,7 +323,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     ) as mock_responses_parse:
 
       with self.subTest('PopulateCache'):
-        obj1 = executing.run(
+        obj1 = executing.run(  # pyrefly: ignore[no-matching-overload]
             backend1.generate_object(  # pytype: disable=wrong-keyword-args
                 prompt='Describe a city', cls=CityInfoTestData
             )
@@ -334,7 +334,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         self.assertEqual(backend1._counters['generate_object'], 1)
 
       with self.subTest('CacheHitSameBackend'):
-        obj2 = executing.run(
+        obj2 = executing.run(  # pyrefly: ignore[no-matching-overload]
             backend1.generate_object(  # pytype: disable=wrong-keyword-args
                 prompt='Describe a city', cls=CityInfoTestData
             )
@@ -363,7 +363,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
             autospec=True,
             return_value=mock_response,
         ) as mock_responses_parse_new:
-          obj3 = executing.run(
+          obj3 = executing.run(  # pyrefly: ignore[no-matching-overload]
               backend2.generate_object(  # pytype: disable=wrong-keyword-args
                   prompt='Describe a city', cls=CityInfoTestData
               )

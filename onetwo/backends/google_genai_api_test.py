@@ -105,7 +105,7 @@ def _mock_list_models() -> Sequence[genai_types.Model]:
 def genai_content(parts: Sequence[str] | str, role: str | None = None):
   content = parts if isinstance(parts, list) else [parts]
   return genai_types.Content(
-      parts=[genai_types.Part(text=p) for p in content],
+      parts=[genai_types.Part(text=p) for p in content],  # pyrefly: ignore[bad-argument-type]
       role=role,
   )
 
@@ -125,7 +125,7 @@ def _get_and_register_backend(**kwargs) -> google_genai_api.GoogleGenAIAPI:
 
 @dataclasses.dataclass
 class RespondWithTextAndTemperature(
-    Callable[[genai_types.GenerateContentConfig], Sequence[str]]
+    Callable[[genai_types.GenerateContentConfig], Sequence[str]]  # pyrefly: ignore[invalid-inheritance]
 ):
   """Returns a fixed reply text, with temperature appended if specified."""
 
@@ -658,7 +658,7 @@ class GoogleGenaiApiTest(
 
     json_str = pydantic.TypeAdapter(list[Recipe]).dump_json(expected_objects)
     mock_response = genai_types.GenerateContentResponse(
-        candidates=[genai_candidate(json_str)]
+        candidates=[genai_candidate(json_str)]  # pyrefly: ignore[bad-argument-type]
     )
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = mock_response
@@ -695,15 +695,15 @@ class GoogleGenaiApiTest(
     json_str = pydantic.TypeAdapter(MyData).dump_json(test_object)
 
     mock_response = genai_types.GenerateContentResponse(
-        candidates=[genai_candidate(json_str)]
+        candidates=[genai_candidate(json_str)]  # pyrefly: ignore[bad-argument-type]
     )
 
     mock_generate_content = self._mock_genai_client.models.generate_content
     mock_generate_content.return_value = mock_response
 
     with self.subTest('PopulateCache'):
-      obj1 = executing.run(
-          backend1.generate_object(prompt='some prompt', cls=MyData)
+      obj1 = executing.run(  # pyrefly: ignore[no-matching-overload]
+          backend1.generate_object(prompt='some prompt', cls=MyData)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       )
       mock_generate_content.assert_called_once()
       self.assertEqual(obj1, test_object)
@@ -711,8 +711,8 @@ class GoogleGenaiApiTest(
       self.assertEqual(backend1._counters['generate_contents'], 1)
 
     with self.subTest('CacheHitSameBackend'):
-      obj2 = executing.run(
-          backend1.generate_object(prompt='some prompt', cls=MyData)
+      obj2 = executing.run(  # pyrefly: ignore[no-matching-overload]
+          backend1.generate_object(prompt='some prompt', cls=MyData)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       )
       self.assertEqual(mock_generate_content.call_count, 1)
       self.assertEqual(obj2, test_object)
@@ -729,8 +729,8 @@ class GoogleGenaiApiTest(
 
     with self.subTest('CacheHitNewBackend'):
       # This call should hit the loaded cache
-      obj3 = executing.run(
-          backend2.generate_object(prompt='some prompt', cls=MyData)
+      obj3 = executing.run(  # pyrefly: ignore[no-matching-overload]
+          backend2.generate_object(prompt='some prompt', cls=MyData)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       )
       self.assertEqual(obj3, test_object)
       self.assertIsInstance(obj3, MyData)
@@ -1454,7 +1454,7 @@ class GoogleGenaiApiTest(
           'content': content_hash,
       }
       if has_task_type:
-        key_dict['task_type'] = task_type
+        key_dict['task_type'] = task_type  # pyrefly: ignore[bad-assignment]
       key_str = json.dumps(key_dict, sort_keys=True)
       return utils.get_str_hash(key_str)
 
@@ -2030,8 +2030,8 @@ class GoogleGenaiApiTest(
 
     def generate_contents(samples: int, **kwargs):
       """Demonstrates generating multiple candidates e.g. generate_texts()."""
-      return executing.run(
-          backend._generate_contents(samples=samples, **kwargs)
+      return executing.run(  # pyrefly: ignore[no-matching-overload]
+          backend._generate_contents(samples=samples, **kwargs)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       )
 
     gc_mock.return_value = genai_types.GenerateContentResponse(
@@ -2069,7 +2069,7 @@ class GoogleGenaiApiTest(
     json_str = pydantic.TypeAdapter(list[MyData]).dump_json(expected)
     gc_mock = self._mock_genai_client.models.generate_content
     gc_mock.return_value = genai_types.GenerateContentResponse(
-        candidates=[genai_candidate(json_str)]
+        candidates=[genai_candidate(json_str)]  # pyrefly: ignore[bad-argument-type]
     )
     self.assertEqual(
         gen_obj(prompt='prompt', decoding_constraint=list[MyData]), expected

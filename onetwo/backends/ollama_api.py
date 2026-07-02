@@ -115,7 +115,7 @@ def _convert_messages_to_ollama_format(
   """
   api_messages = []
   for message in messages:
-    role = _OLLAMA_ROLE_BY_PREDEFINED_ROLE.get(message.role, str(message.role))
+    role = _OLLAMA_ROLE_BY_PREDEFINED_ROLE.get(message.role, str(message.role))  # pyrefly: ignore[no-matching-overload]
     content, images = _convert_content_to_ollama_format(message.content)
     api_message = {
         'role': role,
@@ -141,7 +141,7 @@ class CustomChatResponse(ollama.ChatResponse):
 class CustomOllamaClient(ollama.Client):
   """Subclass of ollama.Client that supports extracting the thinking field."""
 
-  def _request(
+  def _request(  # pyrefly: ignore[bad-override]
       self,
       cls: Type[_T],
       *args,
@@ -151,7 +151,7 @@ class CustomOllamaClient(ollama.Client):
     if stream:
       return super()._request(cls, *args, stream=stream, **kwargs)
     if cls is ollama.ChatResponse:
-      cls = CustomChatResponse
+      cls = CustomChatResponse  # pyrefly: ignore[bad-assignment]
     raw_json = self._request_raw(*args, **kwargs).json()
     return cls(**raw_json)
 
@@ -420,7 +420,7 @@ class OllamaAPI(
     details = {'text': text, 'score': 0.0}
     thinking = getattr(response.message, 'thinking', None)
     if thinking:
-      details[llm.THOUGHTS] = content_lib.ChunkList(
+      details[llm.THOUGHTS] = content_lib.ChunkList(  # pyrefly: ignore[bad-assignment]
           [content_lib.Chunk(thinking)]
       )
     return text, details
@@ -441,7 +441,7 @@ class OllamaAPI(
     # Remove kwargs that are not supported by the Ollama API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Chat API via client.chat.
-    return await self.chat_via_api(messages, **kwargs)
+    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.

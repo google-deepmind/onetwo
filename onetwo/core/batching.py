@@ -340,7 +340,7 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
       # For convenience we wrap the requests into _Container objects and will
       # carry those around so that we can be sure that the result is attached
       # to the corresponding request.
-      wrapped_requests = [_Container(r) for r in requests]
+      wrapped_requests = [_Container(r) for r in requests]  # pyrefly: ignore[bad-argument-type]
       for r in wrapped_requests:
         item = PrioritizedItem(priority=self.request_queue.qsize(), item=r)
         self.request_queue.put(item)
@@ -357,7 +357,7 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
         # it.
         try:
           exception = self.task.exception()
-          raise exception
+          raise exception  # pyrefly: ignore[bad-raise]
         except asyncio.InvalidStateError:
           pass
         if all([r.done for r in wrapped_requests]):
@@ -373,18 +373,18 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
           for r in wrapped_requests:
             if r.exception is not None:
               raise r.exception
-          return [r.result for r in wrapped_requests]
+          return [r.result for r in wrapped_requests]  # pyrefly: ignore[bad-return]
         elif self.task.done():
           raise ValueError(
               'Watcher task is done but not all requests are processed.'
           )
     else:
-      wrapped_requests = [_Container(r) for r in requests]
+      wrapped_requests = [_Container(r) for r in requests]  # pyrefly: ignore[bad-argument-type]
       await self.process(wrapped_requests)
       for r in wrapped_requests:
         if r.exception is not None:
           raise r.exception
-      return [r.result for r in wrapped_requests]
+      return [r.result for r in wrapped_requests]  # pyrefly: ignore[bad-return]
 
   async def finish(self, force: bool = False) -> None:
     """Sends a signal to close the queue and stop its processing."""
@@ -403,14 +403,14 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
           raise ValueError('Could not close watcher task on queue.')
       self.request_queue.join()
     # Delete the task.
-    self.task = None
+    self.task = None  # pyrefly: ignore[bad-argument-type]
     # Close and remove the request queue.
     _thread_data.request_queues.pop(id(self))
 
   async def process(self, requests: Sequence[_Container]):
     """Actually send a batch of requests to the underlying function."""
     if self.debug:
-      self.calls.append([req.payload for req in requests])
+      self.calls.append([req.payload for req in requests])  # pyrefly: ignore[bad-argument-type]
     # Actually call the wrapped function with a batch of requests.
     try:
       if inspect.iscoroutinefunction(self.wrapped):
@@ -740,7 +740,7 @@ def stream_with_callback(
 
 
 @overload
-def safe_stream(
+def safe_stream(  # pyrefly: ignore[inconsistent-overload]
     iterator: AsyncIterator[_ReplyT],
     *,
     enable_batching: bool = True,
@@ -750,7 +750,7 @@ def safe_stream(
 
 
 @overload
-def safe_stream(
+def safe_stream(  # pyrefly: ignore[inconsistent-overload]
     iterator: AsyncIterator[_ReplyT],
     *,
     enable_batching: bool = True,
@@ -761,7 +761,7 @@ def safe_stream(
 
 # The last overload is a fallback in case the caller provides a regular bool:
 @overload
-def safe_stream(
+def safe_stream(  # pyrefly: ignore[inconsistent-overload]
     iterator: AsyncIterator[_ReplyT],
     *,
     enable_batching: bool = True,
@@ -863,10 +863,10 @@ def stream_updates(  # pytype: disable=invalid-annotation
     depth = iteration_depth + 1 if iteration_depth >= 0 else iteration_depth
     tracer = tracing.OutputTracer(callback=callback, depth=depth)
     async with running_context(enable_batching=enable_batching, tracer=tracer):
-      return await coroutine
+      return await coroutine  # pyrefly: ignore[bad-return]
 
   with run_once():
-    yield tracing.IteratorWithReturnValue(_stream_updates(wrapper))
+    yield tracing.IteratorWithReturnValue(_stream_updates(wrapper))  # pyrefly: ignore[bad-argument-type]
 
 
 @overload
@@ -931,7 +931,7 @@ def stream(
   Yields:
     The results yielded by the iterator or a pair (result, execution_result).
   """
-  with safe_stream(
+  with safe_stream(  # pyrefly: ignore[bad-context-manager]
       iterator,
       enable_batching=enable_batching,
       enable_tracing=enable_tracing,
@@ -970,11 +970,11 @@ def add_batching(my_class: Type[_T]) -> Type[_T]:
     for original, bound in zip(decorated_methods, bound_methods):
       obj.batching_queues[original.__qualname__] = BatchQueue(
           wrapped=bound,
-          batch_size=utils.RuntimeParameter(original.batch_size, obj),
+          batch_size=utils.RuntimeParameter(original.batch_size, obj),  # pyrefly: ignore[missing-attribute]
           batching_function=utils.RuntimeParameter(
-              original.batching_function, obj
+              original.batching_function, obj  # pyrefly: ignore[missing-attribute]
           ),
-          debug=original.debug,
+          debug=original.debug,  # pyrefly: ignore[missing-attribute]
       )
 
   my_class.__init__ = new_init
@@ -1037,8 +1037,8 @@ def batch_function(
   ) -> Callable[[Sequence[_RequestT]], Awaitable[Sequence[_ReplyT]]]:
     batch_queue = BatchQueue(
         wrapped=wrapped,
-        batch_size=utils.RuntimeParameter(batch_size),
-        batching_function=utils.RuntimeParameter(batching_function),
+        batch_size=utils.RuntimeParameter(batch_size),  # pyrefly: ignore[bad-argument-type]
+        batching_function=utils.RuntimeParameter(batching_function),  # pyrefly: ignore[bad-argument-type]
         debug=debug,
     )
     # Disabling pytype, see https://github.com/google/pytype/issues/527.
@@ -1078,22 +1078,22 @@ def batch_method(
     A wrapper that makes the function into a batched coroutine.
   """
   # Check params at decoration time.
-  validate_parameters(batch_size, batching_function, allow_from_instance=True)
+  validate_parameters(batch_size, batching_function, allow_from_instance=True)  # pyrefly: ignore[bad-argument-type]
 
   def inner(
       method: _BatchedMethod[_RequestT, _ReplyT]
   ) -> Callable[[Any, Sequence[_RequestT]], Awaitable[Sequence[_ReplyT]]]:
     # We tag the method for the `add_batching` decorator to know it has been
     # batched.
-    method.is_batched = True
+    method.is_batched = True  # pyrefly: ignore[missing-attribute]
     # We attach parameters to the decorated function so that they
     # can be retrieved when executing the function.
-    method.batching_function = batching_function
-    method.batch_size = batch_size
+    method.batching_function = batching_function  # pyrefly: ignore[missing-attribute]
+    method.batch_size = batch_size  # pyrefly: ignore[missing-attribute]
     # We keep the original function, as it is the one that will have to be
     # called.
-    method.original_function = method
-    method.debug = debug
+    method.original_function = method  # pyrefly: ignore[missing-attribute]
+    method.debug = debug  # pyrefly: ignore[missing-attribute]
 
     @functools.wraps(method)
     async def wrapped(self, requests: Sequence[_RequestT]) -> Sequence[_ReplyT]:
@@ -1283,7 +1283,7 @@ def run_function_in_threadpool(
     ValueError if one of the calls to the underlying function failed.
   """
   if return_exceptions:
-    function = utils.returning_raised_exception(function)
+    function = utils.returning_raised_exception(function)  # pyrefly: ignore[bad-assignment]
 
   @functools.wraps(function)
   def wrapper(requests: ParametersBatch) -> Sequence[_ReplyT | None]:
@@ -1306,7 +1306,7 @@ def run_function_in_threadpool(
           f' {function.__name__} in threadpool:\n'  # pylint: disable=attribute-error
           + _render_exceptions(exceptions)
       ) from exceptions[0]
-    return replies
+    return replies  # pyrefly: ignore[bad-return]
 
   return wrapper
 
@@ -1365,7 +1365,7 @@ def run_method_in_threadpool(
     )
 
   if return_exceptions:
-    method = utils.returning_raised_exception(method)
+    method = utils.returning_raised_exception(method)  # pyrefly: ignore[bad-assignment]
 
   @functools.wraps(method)
   def wrapper(self, requests: ParametersBatch) -> Sequence[_ReplyT | None]:
@@ -1451,7 +1451,7 @@ def batch_function_with_threadpool(
     )
     if wrapper is not None:
       signature = inspect.signature(threadpool_function)
-      threadpool_function = wrapper(threadpool_function)
+      threadpool_function = wrapper(threadpool_function)  # pyrefly: ignore[bad-argument-type]
       other_signature = inspect.signature(threadpool_function)
       if signature != other_signature:
         raise ValueError(
@@ -1464,7 +1464,7 @@ def batch_function_with_threadpool(
                 batch_size=batch_size,
                 batching_function=batching_function,
                 debug=debug,
-            )(threadpool_function)
+            )(threadpool_function)  # pyrefly: ignore[bad-argument-type]
         )(threadpool_function)
     )
 
@@ -1536,7 +1536,7 @@ def batch_method_with_threadpool(
     threadpool_method = run_method_in_threadpool(method, return_exceptions=True)
     if wrapper is not None:
       signature = inspect.signature(threadpool_method)
-      threadpool_method = wrapper(threadpool_method)
+      threadpool_method = wrapper(threadpool_method)  # pyrefly: ignore[bad-argument-type]
       other_signature = inspect.signature(threadpool_method)
       if signature != other_signature:
         raise ValueError(
@@ -1549,7 +1549,7 @@ def batch_method_with_threadpool(
                 batch_size=batch_size,
                 batching_function=batching_function,
                 debug=debug,
-            )(threadpool_method),
+            )(threadpool_method),  # pyrefly: ignore[bad-argument-type]
             pass_self=True,
         )(threadpool_method)
     )
@@ -1600,7 +1600,7 @@ def to_thread_pool_method(
       if not hasattr(self, 'threadpools'):
         self.threadpools = {}
       if thread_pool_name not in self.threadpools:
-        num_workers_val = utils.RuntimeParameter[int](num_workers, self).value()
+        num_workers_val = utils.RuntimeParameter[int](num_workers, self).value()  # pyrefly: ignore[bad-argument-type]
         logging.vlog(
             1,
             'Creating threadpool for %s with %d workers',

@@ -132,10 +132,10 @@ class Sampler(Generic[_O], Protocol):
   @abc.abstractmethod
   async def __call__(
       self,
-      *args: _Args.args,
+      *args: _Args.args,  # pyrefly: ignore[not-a-type]
       num_samples: int = 1,
       start_index: int = 0,
-      **kwargs: _Args.kwargs,
+      **kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
   ) -> Sequence[_O]:
     """Returns the specified number of samples of output for the given inputs.
 
@@ -165,20 +165,20 @@ class Repeated(Generic[_O], Sampler[_O]):
       distribution.
   """
 
-  inner: Callable[_Args, _O] | Callable[_Args, Awaitable[_O]]
+  inner: Callable[_Args, _O] | Callable[_Args, Awaitable[_O]]  # pyrefly: ignore[invalid-type-var]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def __call__(
       self,
-      *args: _Args.args,
+      *args: _Args.args,  # pyrefly: ignore[not-a-type]
       num_samples: int = 1,
       start_index: int = 0,
-      **kwargs: _Args.kwargs,
+      **kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
   ) -> Sequence[_O]:
     """Overridden from base class (Sampler)."""
     repeated_executable = repeat(
-        executable=self.inner(*args, **kwargs),
+        executable=self.inner(*args, **kwargs),  # pyrefly: ignore[bad-argument-type, invalid-param-spec]
         num_repeats=num_samples,
         start_index=start_index,
     )
@@ -205,10 +205,10 @@ class RoundRobin(Generic[_O], Sampler[_O]):
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def __call__(
       self,
-      *args: _Args.args,
+      *args: _Args.args,  # pyrefly: ignore[not-a-type]
       num_samples: int = 1,
       start_index: int = 0,
-      **kwargs: _Args.kwargs,
+      **kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
   ) -> Sequence[_O]:
     """Overridden from base class (Sampler)."""
     num_samplers = len(self.inner)
@@ -220,7 +220,7 @@ class RoundRobin(Generic[_O], Sampler[_O]):
       sampler_id = sample_index % num_samplers
       sampler = self.inner[sampler_id]
       repeated_executable.append(
-          sampler(*args, num_samples=1, start_index=sample_index, **kwargs),
+          sampler(*args, num_samples=1, start_index=sample_index, **kwargs),  # pyrefly: ignore[unexpected-keyword]
       )
 
     # We execute the sampling as much as possible in parallel.

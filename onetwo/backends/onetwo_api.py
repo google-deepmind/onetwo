@@ -106,7 +106,7 @@ class OneTwoAPI(
     # Check the health status of the endpoint.
     try:
       response = requests.get(self.endpoint + '/health')
-      if response.status_code != requests.codes.ok:
+      if response.status_code != requests.codes.ok:  # pyrefly: ignore[missing-attribute]
         raise ValueError(f'OneTwoAPI endpoint unhealthy: {response.text}')
     except Exception as err:
       raise ValueError(f'OneTwoAPI connection failed: {err}') from err
@@ -155,7 +155,7 @@ class OneTwoAPI(
         headers={'Content-Type': 'application/json'},
         data=json.dumps(args),
     )
-    if response.status_code != requests.codes.ok:
+    if response.status_code != requests.codes.ok:  # pyrefly: ignore[missing-attribute]
       raise ValueError(f'OneTwoAPI /generate_text failed: {response.text}')
     response = json.loads(response.text)
     return (response if include_details else response[0])
@@ -186,7 +186,7 @@ class OneTwoAPI(
             'content': content,
         },
     )
-    if response.status_code != requests.codes.ok:
+    if response.status_code != requests.codes.ok:  # pyrefly: ignore[missing-attribute]
       raise ValueError(f'OneTwoAPI /tokenize failed: {response.text}')
     response = json.loads(response.text)
     return response['result']
@@ -215,7 +215,7 @@ class OneTwoAPI(
         url=self.endpoint + '/count_tokens',
         json={'content': content},
     )
-    if response.status_code != requests.codes.ok:
+    if response.status_code != requests.codes.ok:  # pyrefly: ignore[missing-attribute]
       raise ValueError(
           f'OneTwoAPI /count_tokens failed: {response.text}'
       )

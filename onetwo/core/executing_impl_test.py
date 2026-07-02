@@ -63,7 +63,7 @@ def traced_executable_function(x, y):
 
 
 def executable_function_that_does_not_use_make_executable_decorator(x, y):
-  return executing.serial(executable_function(x, y), executable_function(x, y))
+  return executing.serial(executable_function(x, y), executable_function(x, y))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
 
 
 class C:

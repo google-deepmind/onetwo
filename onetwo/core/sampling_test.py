@@ -30,8 +30,8 @@ async def process(request: str, suffix: str = '') -> tuple[str, str]:
 class SamplingTest(parameterized.TestCase):
 
   def test_repeat(self):
-    executable = process('test')
-    executables = sampling.repeat(executable, 3)
+    executable = process('test')  # pyrefly: ignore[bad-argument-type]
+    executables = sampling.repeat(executable, 3)  # pyrefly: ignore[bad-argument-type]
 
     res = executing.run(executing.par_iter(executables))
 
@@ -39,12 +39,12 @@ class SamplingTest(parameterized.TestCase):
       self.assertEqual(res, [('test', ''), ('test', '1'), ('test', '2')])
 
   def test_repeat_multiple_times(self):
-    executable = process('test')
-    executables = sampling.repeat(executable, 3)
+    executable = process('test')  # pyrefly: ignore[bad-argument-type]
+    executables = sampling.repeat(executable, 3)  # pyrefly: ignore[bad-argument-type]
     res = list(executing.run(executing.par_iter(executables)))
-    executables = sampling.repeat(executable, 3, start_index=3)
+    executables = sampling.repeat(executable, 3, start_index=3)  # pyrefly: ignore[bad-argument-type]
     res += executing.run(executing.par_iter(executables))
-    executables = sampling.repeat(executable, 3, start_index=6)
+    executables = sampling.repeat(executable, 3, start_index=6)  # pyrefly: ignore[bad-argument-type]
     res += executing.run(executing.par_iter(executables))
     res_keys = [key for _, key in res]
 
@@ -59,20 +59,20 @@ class SamplingTest(parameterized.TestCase):
 
     # Static creation
     static_executable = executing.serial(
-        sampling.repeat_and_execute(process('test1'), 3),
-        sampling.repeat_and_execute(process('test2'), 3),
+        sampling.repeat_and_execute(process('test1'), 3),  # pyrefly: ignore[bad-argument-type]
+        sampling.repeat_and_execute(process('test2'), 3),  # pyrefly: ignore[bad-argument-type]
     )
 
     # Dynamic creation
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def dynamic_executable():
       return await executing.serial(
-          sampling.repeat_and_execute(process('test1'), 3),
-          sampling.repeat_and_execute(process('test2'), 3),
+          sampling.repeat_and_execute(process('test1'), 3),  # pyrefly: ignore[bad-argument-type]
+          sampling.repeat_and_execute(process('test2'), 3),  # pyrefly: ignore[bad-argument-type]
       )
 
     executable1 = sampling.repeat_and_execute(static_executable, 2)
-    executable2 = sampling.repeat_and_execute(dynamic_executable(), 2)
+    executable2 = sampling.repeat_and_execute(dynamic_executable(), 2)  # pyrefly: ignore[bad-argument-count, bad-argument-type]
     res1 = executing.run(executable1)
     res2 = executing.run(executable2)
 
@@ -108,7 +108,7 @@ class SamplingTest(parameterized.TestCase):
       return result[0], result[1], sample_id, sample_size
 
     executable = sampling.repeat_and_execute(
-        process('test'), sample_size, update_result_fn=update_result
+        process('test'), sample_size, update_result_fn=update_result  # pyrefly: ignore[bad-argument-type]
     )
     res = executing.run(executable)
     with self.subTest('should_update_results'):
@@ -116,7 +116,7 @@ class SamplingTest(parameterized.TestCase):
         self.assertEqual(res[i], ('test', str(i) if i else '', i, sample_size))
 
   def test_streaming(self):
-    executable = executing.par_iter(sampling.repeat(process('test'), 3))
+    executable = executing.par_iter(sampling.repeat(process('test'), 3))  # pyrefly: ignore[bad-argument-type]
 
     with executing.safe_stream(executable) as iterator:
       results = sum(iterator, start=executing.Update()).to_result()
@@ -127,7 +127,7 @@ class SamplingTest(parameterized.TestCase):
     )
 
   def test_repeat_sampler(self):
-    sampler = sampling.Repeated(process)
+    sampler = sampling.Repeated(process)  # pyrefly: ignore[bad-argument-type]
     # Note that we pass in both a positional and a keyword argument to verify
     # that the sampler is correctly passing them through.
     res = executing.run(sampler('test', suffix='-a', num_samples=3))  # pytype: disable=wrong-arg-count
@@ -137,15 +137,15 @@ class SamplingTest(parameterized.TestCase):
   def test_round_robin_sampler(self):
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def strategy1(request, **kwargs):
-      return await process(f'{request}-1', **kwargs)
+      return await process(f'{request}-1', **kwargs)  # pyrefly: ignore[bad-argument-type, not-async]
 
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def strategy2(request, **kwargs):
-      return await process(f'{request}-2', **kwargs)
+      return await process(f'{request}-2', **kwargs)  # pyrefly: ignore[bad-argument-type, not-async]
 
     sampler = sampling.RoundRobin([
-        sampling.Repeated(strategy1),
-        sampling.Repeated(strategy2),
+        sampling.Repeated(strategy1),  # pyrefly: ignore[bad-argument-type]
+        sampling.Repeated(strategy2),  # pyrefly: ignore[bad-argument-type]
     ])
 
     # Note that we pass in both a positional and a keyword argument to verify

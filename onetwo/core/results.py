@@ -431,7 +431,7 @@ ExperimentResult = EvaluationResult
 
 def execution_result_from_dict(data: dict[str, Any]) -> ExecutionResult:
   """Returns an ExecutionResult restored from a structure created by to_dict."""
-  result = ExecutionResult.from_dict(data)
+  result = ExecutionResult.from_dict(data)  # pyrefly: ignore[missing-attribute]
   # Theoretically `ExecutionResult.from_dict` alone should be sufficient, but
   # for some reason when we try to do this, the nested stage results fail to get
   # converted from dicts back into ExecutionResult objects. Might be a
@@ -443,7 +443,7 @@ def execution_result_from_dict(data: dict[str, Any]) -> ExecutionResult:
 
 def evaluation_result_from_dict(data: dict[str, Any]) -> EvaluationResult:
   """Returns an EvaluationResult restored from structure created by to_dict."""
-  result = EvaluationResult.from_dict(data)
+  result = EvaluationResult.from_dict(data)  # pyrefly: ignore[missing-attribute]
   # See note on `execution_result_from_dict` above for why this is needed.
   result.stages = list(execution_result_from_dict(s) for s in result.stages)
   return result
@@ -1420,7 +1420,7 @@ class HTMLRenderer:
 
   def _get_default_renderers(self) -> Sequence[HTMLObjectRenderer]:
     """Returns a list of default renderers for various object types."""
-    return [
+    return [  # pyrefly: ignore[bad-return]
         HTMLRenderer._render_bytes,
         HTMLRenderer._render_image,
         HTMLRenderer._render_result,

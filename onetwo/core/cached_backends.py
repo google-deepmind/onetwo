@@ -238,7 +238,7 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
       return
 
     cache_filenames = []
-    cache_file_basename = os.path.basename(cache.cache_filename)
+    cache_file_basename = os.path.basename(cache.cache_filename)  # pyrefly: ignore[no-matching-overload]
     if self.shared_cache_directory:
       shared_cache_filename = os.path.join(
           self.shared_cache_directory, cache_file_basename

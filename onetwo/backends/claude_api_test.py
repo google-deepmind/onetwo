@@ -471,7 +471,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
       pass
 
     response = MockResponse()
-    response.content = [
+    response.content = [  # pyrefly: ignore[missing-attribute]
         claude_mock.TextBlock(text='Let me search for that.'),
         claude_mock.ToolUseBlock(
             id='toolu_123',
@@ -479,7 +479,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
             input={'query': 'AAPL stock price'},
         ),
     ]
-    response.stop_reason = 'tool_use'
+    response.stop_reason = 'tool_use'  # pyrefly: ignore[missing-attribute]
 
     text, thinking, tool_calls = backend._extract_response(response)
     with self.subTest('extracts_text'):
@@ -500,7 +500,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
       pass
 
     response = MockResponse()
-    response.content = [
+    response.content = [  # pyrefly: ignore[missing-attribute]
         claude_mock.ThinkingBlock(thinking='I need to search.'),
         claude_mock.ToolUseBlock(
             id='toolu_789',
@@ -508,7 +508,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
             input={'location': 'Paris'},
         ),
     ]
-    response.stop_reason = 'tool_use'
+    response.stop_reason = 'tool_use'  # pyrefly: ignore[missing-attribute]
 
     text, thinking, tool_calls = backend._extract_response(response)
     with self.subTest('no_text'):

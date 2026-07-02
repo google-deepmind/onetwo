@@ -134,7 +134,7 @@ class ExecutableWithPostprocessing(
       if self.update_callback is not None:
         yield self.update_callback(update)
       else:
-        result = self.postprocessing_callback(updates.to_result())
+        result = self.postprocessing_callback(updates.to_result())  # pyrefly: ignore[bad-argument-type]
         if inspect.isawaitable(result):
           result = await result
         yield _Update(result)
@@ -159,7 +159,7 @@ def set_decorated_with_make_executable(f: Callable[..., Any]) -> None:
   Args:
     f: An arbitrary callable.
   """
-  f.decorated_with_make_executable = True
+  f.decorated_with_make_executable = True  # pyrefly: ignore[missing-attribute]
 
 
 def is_decorated_with_make_executable(f: Callable[..., Any]) -> bool:
@@ -214,11 +214,11 @@ async def call_and_maybe_await(
 ) -> _Result:
   """"Calls the callable and awaits the result if appropriate."""
   if returns_awaitable(f):
-    result = await f(*args, **kwargs)
+    result = await f(*args, **kwargs)  # pyrefly: ignore[not-async]
   else:
     result = f(*args, **kwargs)
   # The below condition is needed in case `f` was manually implemented to return
   # an Executable, without using the `@executing.make_executable` decorator.
   if isinstance(result, Executable):
     result = await result
-  return result
+  return result  # pyrefly: ignore[bad-return]

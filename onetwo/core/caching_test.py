@@ -183,7 +183,7 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
         yield text[:i]
       yield text + ' done'
 
-    return stream()
+    return stream()  # pyrefly: ignore[bad-argument-count, bad-return]
 
   @caching.cache_method()
   def method_that_raises_error(self, **kwargs):
@@ -375,7 +375,7 @@ class CacheDecorationTest(parameterized.TestCase):
     # Full execution which should be handled by the make_executable decorator,
     # hence the cache_method decorator does not see an Executable as the return
     # value.
-    result = executing.run(backend.method_which_returns_executable('test'))
+    result = executing.run(backend.method_which_returns_executable('test'))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
     with self.subTest('cached_the_value'):
       self.assertEqual(result, 'test done')
       self.assertListEqual(list(contents.values()), ['test done'])
@@ -387,18 +387,18 @@ class CacheDecorationTest(parameterized.TestCase):
     async def wrapper():
       nonlocal stream
       # Fill in the cache (by full execution).
-      _ = await backend.method_which_returns_executable('it')
+      _ = await backend.method_which_returns_executable('it')  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
       # This will read from the cache and get directly a string.
-      e = await backend.method_which_returns_executable('it').pre_execute()
+      e = await backend.method_which_returns_executable('it').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]
       stream.append(e)
       # This will not read from the cache and thus return an Executable.
-      e = await backend.method_which_returns_executable('it2').pre_execute()
+      e = await backend.method_which_returns_executable('it2').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]
       result = None
       async for result in e:
         stream.append(result)
       return result
 
-    _ = executing.run(wrapper())
+    _ = executing.run(wrapper())  # pyrefly: ignore[bad-argument-count, no-matching-overload]
     with self.subTest('cached_the_value'):
       self.assertEqual(
           stream,
@@ -763,13 +763,13 @@ class SimpleFunctionCacheTest(parameterized.TestCase):
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def repeated_raising_code():
       for i in range(5):
-        executable = caching.SamplingKeyUpdater(str(i), maybe_raise(i))
+        executable = caching.SamplingKeyUpdater(str(i), maybe_raise(i))  # pyrefly: ignore[bad-argument-type]
         try:
           await executable
         except ValueError:
           pass
 
-    executing.run(repeated_raising_code())
+    executing.run(repeated_raising_code())  # pyrefly: ignore[bad-argument-count, no-matching-overload]
     self.assertEqual(observed_sample_keys, ['', '1', '2', '3', '4'])
 
   def test_write_to_and_load_from_disk(self):
@@ -971,7 +971,7 @@ class CacheDataTest(parameterized.TestCase):
         ),
         'key3': 'simple string',
     }
-    cache_data.values_by_key = copy.deepcopy(values_by_key)
+    cache_data.values_by_key = copy.deepcopy(values_by_key)  # pyrefly: ignore[bad-assignment]
     json_serialized = cache_data.to_json()
     decoded = caching._CacheData.from_json(
         json_serialized,

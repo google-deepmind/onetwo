@@ -103,7 +103,7 @@ def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
       if isinstance(thr.result, Exception):
         raise thr.result
       else:
-        return thr.result
+        return thr.result  # pyrefly: ignore[bad-return]
   else:
     return asyncio.run(coroutine)
 
@@ -168,24 +168,24 @@ async def merge(
     for index, (it, it_anext) in enumerate(to_process):
       if it is not None and it_anext is None:
         future = asyncio.ensure_future(it.__anext__())
-        future.index = index
-        to_process[index] = (to_process[index][0], future)
+        future.index = index  # pyrefly: ignore[missing-attribute]
+        to_process[index] = (to_process[index][0], future)  # pyrefly: ignore[unsupported-operation]
     # We execute the anext coroutines and return as soon as one is
     # done.
-    done, _ = await asyncio.wait(
+    done, _ = await asyncio.wait(  # pyrefly: ignore[bad-specialization]
         [f for it, f in to_process if it is not None],
         return_when=asyncio.FIRST_COMPLETED,
     )
     results = []
     for future in done:
-      to_process[future.index] = (to_process[future.index][0], None)
+      to_process[future.index] = (to_process[future.index][0], None)  # pyrefly: ignore[missing-attribute]
       try:
-        result = future.result()
-        results.append((result, future.index))
+        result = future.result()  # pyrefly: ignore[missing-attribute]
+        results.append((result, future.index))  # pyrefly: ignore[missing-attribute]
       except Exception as e:  # pylint: disable=broad-exception-caught
         # An exception has been raised, it is either a processing error or just
         # the end of this iterator, we remove it from the list.
-        to_process[future.index] = (None, None)
+        to_process[future.index] = (None, None)  # pyrefly: ignore[missing-attribute, unsupported-operation]
         if not isinstance(e, StopAsyncIteration):
           # If the exception is of type StopAsyncIteration, it just means we
           # reached the end of the iterator, so there is nothing to be done and
@@ -206,7 +206,7 @@ async def merge(
             # If return_exceptions is set to True, we simply interrupt the
             # processing of the current iterator and replace its result by the
             # exception it raised.
-            results.append((e, future.index))
+            results.append((e, future.index))  # pyrefly: ignore[missing-attribute]
     # We sort the results by index of the iterator that generated it to ensure
     # reproducibility.
     results.sort(key=lambda x: x[1])
@@ -446,7 +446,7 @@ async def _async_process_queue(
       raise result
     if result is job_done:
       break
-    yield result
+    yield result  # pyrefly: ignore[invalid-yield]
 
 
 def _process_queue(result_queue: TQueue[T], job_done: object) -> Iterator[T]:
@@ -466,7 +466,7 @@ def _process_queue(result_queue: TQueue[T], job_done: object) -> Iterator[T]:
       raise result
     if result is job_done:
       break
-    yield result
+    yield result  # pyrefly: ignore[invalid-yield]
 
 
 def _process_queue_with_result(
@@ -488,7 +488,7 @@ def _process_queue_with_result(
       raise result
     if result is job_done:
       break
-    yield result
+    yield result  # pyrefly: ignore[invalid-yield]
   # Extract the final result from the queue
   result = result_queue.get()
   result_queue.task_done()

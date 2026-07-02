@@ -259,7 +259,7 @@ class LLMForTest(backends_base.Backend):
         for i in range(1, len(reply) + 1):
           yield produce_reply(reply[:i])
 
-      return iterate(reply)
+      return iterate(reply)  # pyrefly: ignore[bad-argument-type, bad-return]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @batching.batch_method_with_threadpool(

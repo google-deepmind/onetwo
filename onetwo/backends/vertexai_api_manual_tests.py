@@ -117,43 +117,43 @@ def main(argv: Sequence[str]) -> None:
     Answer: 12.
     Question: Differentiate $\\frac{1}{\\log(x)}$.
   """
-  res = executing.run(check_and_complete(
-      prompt_text=prompt_text,
-      stop=['\n\n'],
-      max_tokens=5,
+  res = executing.run(check_and_complete(  # pyrefly: ignore[no-matching-overload]
+      prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
+      max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.1 Same query to see if it has been cached.')
-  res = executing.run(check_and_complete(
-      prompt_text=prompt_text,
-      stop=['\n\n'],
-      max_tokens=5,
+  res = executing.run(check_and_complete(  # pyrefly: ignore[no-matching-overload]
+      prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
+      max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
 
   print('1.2 Same query but different parameters, run requests again.')
-  res = executing.run(check_and_complete(
-      prompt_text=prompt_text,
-      temperature=0.,
-      stop=['\n\n'],
-      max_tokens=5,
+  res = executing.run(check_and_complete(  # pyrefly: ignore[no-matching-overload]
+      prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      temperature=0.,  # pyrefly: ignore[unexpected-keyword]
+      stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
+      max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
 
   print('1.3 Same query but include details.')
-  res = executing.run(
+  res = executing.run(  # pyrefly: ignore[no-matching-overload]
       check_and_complete(
-          prompt_text=prompt_text,
-          temperature=0.0,
-          stop=['\n\n'],
-          max_tokens=5,
-          include_details=True,
+          prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+          temperature=0.0,  # pyrefly: ignore[unexpected-keyword]
+          stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
+          max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
+          include_details=True,  # pyrefly: ignore[unexpected-keyword]
       )
   )
   if _PRINT_DEBUG.value:
@@ -162,8 +162,8 @@ def main(argv: Sequence[str]) -> None:
 
   print('2. Repeated generate request.')
   exe = executing.par_iter(sampling.repeat(
-      executable=check_and_complete(
-          'Today is', temperature=0.5, max_tokens=5, stop=['.']
+      executable=check_and_complete(  # pyrefly: ignore[bad-argument-type]
+          'Today is', temperature=0.5, max_tokens=5, stop=['.']  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       ),
       num_repeats=5,
   ))
@@ -173,10 +173,10 @@ def main(argv: Sequence[str]) -> None:
     pprint.pprint(res)
 
   print('3. Three batched generate queries.')
-  exe = executing.par_iter([
-      check_and_complete(prompt_text='In summer', max_tokens=5),
-      check_and_complete(prompt_text='In winter', max_tokens=7),
-      check_and_complete(prompt_text='In autumn', max_tokens=9),
+  exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
+      check_and_complete(prompt_text='In summer', max_tokens=5),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      check_and_complete(prompt_text='In winter', max_tokens=7),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      check_and_complete(prompt_text='In autumn', max_tokens=9),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
   ])
   res = executing.run(exe)
   if _PRINT_DEBUG.value:
@@ -187,8 +187,8 @@ def main(argv: Sequence[str]) -> None:
   value_error_raised = False
   try:
     # This call should fail and raise ValueError in _batch_generate.
-    _ = executing.run(
-        check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS)))))
+    _ = executing.run(  # pyrefly: ignore[no-matching-overload]
+        check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS)))))  # pyrefly: ignore[bad-argument-type]
     )
   except ValueError as err:
     if 'VertexAIAPI.generate_content raised' not in repr(err):
@@ -202,10 +202,10 @@ def main(argv: Sequence[str]) -> None:
     print('ValueError not raised.')
 
   print('5. Three batched generate queries, one of which does not fit.')
-  exe = executing.par_iter([
-      check_and_complete(prompt_text='In summer', max_tokens=1),
-      check_and_complete(prompt_text='In winter', max_tokens=32),
-      check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),
+  exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
+      check_and_complete(prompt_text='In summer', max_tokens=1),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      check_and_complete(prompt_text='In winter', max_tokens=32),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),  # pyrefly: ignore[bad-argument-type]
   ])
   value_error_raised = False
   try:
@@ -254,9 +254,9 @@ def main(argv: Sequence[str]) -> None:
 
   print('7. Use ChunkList.')
   executable = (
-      c.c('What is the answer to this question: ')
-      + c.c('What is the third planet from the sun? ')
-      + c.store('answer', c.generate_text())
+      c.c('What is the answer to this question: ')  # pyrefly: ignore[bad-argument-type, unsupported-operation]
+      + c.c('What is the third planet from the sun? ')  # pyrefly: ignore[bad-argument-type]
+      + c.store('answer', c.generate_text())  # pyrefly: ignore[bad-argument-count]
   )
   _ = executing.run(executable)
   if 'earth' not in executable['answer'].lower():
@@ -425,9 +425,9 @@ def main(argv: Sequence[str]) -> None:
   with open(image_path, 'rb') as f:
     image_bytes = f.read()
     executable = (
-        c.c('What is the following image? ')
-        + c.c(image_bytes)
-        + c.store('answer', c.generate_text())
+        c.c('What is the following image? ')  # pyrefly: ignore[bad-argument-type, unsupported-operation]
+        + c.c(image_bytes)  # pyrefly: ignore[bad-argument-type]
+        + c.store('answer', c.generate_text())  # pyrefly: ignore[bad-argument-count]
     )
     _ = executing.run(executable)
   if 'chickadee' not in executable['answer'].lower():
@@ -445,12 +445,12 @@ def main(argv: Sequence[str]) -> None:
 
   print('11. Check response_schema and response_mime_type.')
   executable = (
-      c.c('What is the capital of France? ')
+      c.c('What is the capital of France? ')  # pyrefly: ignore[bad-argument-type]
       + c.store(
           'answer',
           c.generate_text(
-              response_mime_type='application/json',
-              response_schema={
+              response_mime_type='application/json',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+              response_schema={  # pyrefly: ignore[unexpected-keyword]
                   'type': 'object',
                   'properties': {'answer': {'type': 'string'}},
               },
@@ -459,12 +459,12 @@ def main(argv: Sequence[str]) -> None:
   )
   _ = executing.run(executable)
   try:
-    answer = json.loads(executable['answer'])
+    answer = json.loads(executable['answer'])  # pyrefly: ignore[bad-index]
     if _PRINT_DEBUG.value:
       print('Returned value:', answer)
   except json.JSONDecodeError as e:
     success = False
-    print('Returned value is not a valid JSON:', executable['answer'], e)
+    print('Returned value is not a valid JSON:', executable['answer'], e)  # pyrefly: ignore[bad-index]
 
   print('PASS' if success else 'FAIL')
 

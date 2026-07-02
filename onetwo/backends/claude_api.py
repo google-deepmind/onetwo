@@ -71,7 +71,7 @@ _DEPRECATED_PARAMS: Final[tuple[str, ...]] = ('temperature', 'top_k', 'top_p')
 
 def _convert_chunk_to_claude_part(
     chunk: content_lib.Chunk,
-) -> dict[str, Any]:
+) -> dict[str, Any]:  # pyrefly: ignore[bad-return]
   """Converts a single OneTwo Chunk into a Claude content block dict.
 
   See https://docs.anthropic.com/en/api/messages for the
@@ -171,7 +171,7 @@ def _convert_messages_to_claude_format(
   system_parts = []
   api_messages = []
   for message in messages:
-    role = _CLAUDE_ROLE_BY_PREDEFINED_ROLE.get(message.role, str(message.role))
+    role = _CLAUDE_ROLE_BY_PREDEFINED_ROLE.get(message.role, str(message.role))  # pyrefly: ignore[no-matching-overload]
     if role == 'system':
       # Claude handles system messages as a separate top-level parameter.
       content = _convert_content_to_claude_format(message.content)
@@ -680,7 +680,7 @@ class ClaudeAPI(
     # Remove kwargs that are not supported by the Claude API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Messages API via client.messages.create.
-    return await self.chat_via_api(messages, **kwargs)
+    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.

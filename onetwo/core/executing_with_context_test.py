@@ -82,7 +82,7 @@ class SerialContextForTest:
 
 @dataclasses.dataclass
 class SerialExecutableWithContextForTest(
-    executing_with_context.SerialExecutableWithContext[
+    executing_with_context.SerialExecutableWithContext[  # pyrefly: ignore[bad-specialization]
         SerialContextForTest, list[str]
     ]
 ):
@@ -98,12 +98,12 @@ class SerialExecutableWithContextForTest(
 
   @classmethod
   @override
-  def wrap(cls, other: str) -> SingleStepSerialExecutableWithContextForTest:
+  def wrap(cls, other: str) -> SingleStepSerialExecutableWithContextForTest:  # pyrefly: ignore[bad-override]
     return SingleStepSerialExecutableWithContextForTest(content=other)
 
   @classmethod
   @override
-  def get_result(cls, context: SerialContextForTest) -> str:
+  def get_result(cls, context: SerialContextForTest) -> str:  # pyrefly: ignore[bad-override]
     return ''.join(context.content)
 
 
@@ -142,7 +142,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello')
 
     with self.subTest('result_has_quotes'):
-      res = executing.run(e.execute(ContextForTest()))
+      res = executing.run(e.execute(ContextForTest()))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
       self.assertEqual(res, '"hello"')
 
     with self.subTest('run_with_arguments'):
@@ -158,7 +158,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertListEqual(res, ['hello'])
 
     with self.subTest('stream_iterate'):
-      res = _collect_stream(e.iterate(ContextForTest()))
+      res = _collect_stream(e.iterate(ContextForTest()))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
       self.assertListEqual(res, ['"hello"'])
 
   def test_execute_serial(self):
@@ -171,7 +171,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('result_is_a_list_with_quotes'):
-      res = executing.run(e.execute(SerialContextForTest()))
+      res = executing.run(e.execute(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
       self.assertListEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('stored_result_is_correct_after_run'):
@@ -182,14 +182,14 @@ class ExecutingWithContextTest(parameterized.TestCase):
 
     with self.subTest('stored_result_is_correct_after_stream'):
       _ = _collect_stream(e())
-      self.assertListEqual(e._result, ['"hello "', '"world"'])
+      self.assertListEqual(e._result, ['"hello "', '"world"'])  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('run_with_arguments'):
       res = executing.run(e(['prefix ']))
       self.assertEqual(res, 'prefix hello world')
 
     with self.subTest('result_with_arguments'):
-      res = executing.run(e.execute(SerialContextForTest(['prefix '])))
+      res = executing.run(e.execute(SerialContextForTest(['prefix '])))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
       self.assertEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('run_with_resetting'):
@@ -197,7 +197,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('stream_iterate_returns_lists'):
-      res = _collect_stream(e.iterate(SerialContextForTest()))
+      res = _collect_stream(e.iterate(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
       self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
 
   def test_right_addition(self):
@@ -210,7 +210,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('result_is_a_list_with_quotes'):
-      res = executing.run(e.execute(SerialContextForTest()))
+      res = executing.run(e.execute(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
       self.assertListEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('run_with_arguments'):
@@ -222,7 +222,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('stream_iterate'):
-      res = _collect_stream(e.iterate(SerialContextForTest()))
+      res = _collect_stream(e.iterate(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
       self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
 
 

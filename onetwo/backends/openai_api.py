@@ -70,7 +70,7 @@ _COMPLETION_SYSTEM_PROMPT_PREFIX: Final[str] = 'Continue the sentence: '
 
 def _convert_chunk_to_openai_part(
     chunk: content_lib.Chunk,
-) -> dict[str, Any]:
+) -> dict[str, Any]:  # pyrefly: ignore[bad-return]
   """Converts a single OneTwo Chunk into an OpenAI content part dict.
 
   See https://platform.openai.com/docs/api-reference/responses/create for the
@@ -153,7 +153,7 @@ def _convert_messages_to_input(
   """
   return [
       {
-          'role': _OPENAI_ROLE_BY_PREDEFINED_ROLE.get(
+          'role': _OPENAI_ROLE_BY_PREDEFINED_ROLE.get(  # pyrefly: ignore[no-matching-overload]
               message.role, str(message.role)
           ),
           'content': _convert_content_to_openai_format(message.content),
@@ -358,7 +358,7 @@ class OpenAIAPI(
         if instructions is None:
           instructions = msg['content']
         else:
-          instructions += '\n' + msg['content']
+          instructions += '\n' + msg['content']  # pyrefly: ignore[unsupported-operation]
       else:
         input_messages.append(msg)
 
@@ -382,18 +382,18 @@ class OpenAIAPI(
         'model': self.model_name,
     }
     if input_messages:
-      api_kwargs['input'] = input_messages
+      api_kwargs['input'] = input_messages  # pyrefly: ignore[bad-assignment]
       if instructions is not None:
-        api_kwargs['instructions'] = instructions
+        api_kwargs['instructions'] = instructions  # pyrefly: ignore[bad-assignment]
     elif instructions is not None:
-      api_kwargs['input'] = instructions
+      api_kwargs['input'] = instructions  # pyrefly: ignore[bad-assignment]
     else:
       api_kwargs['input'] = ''
     api_kwargs.update(kwargs)
 
     try:
       # TODO: Trace this external API call.
-      response = self._client.responses.create(**api_kwargs)
+      response = self._client.responses.create(**api_kwargs)  # pyrefly: ignore[missing-attribute]
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'openai.client.responses.create raised err:\n{err}\n'
@@ -451,7 +451,7 @@ class OpenAIAPI(
         if instructions is None:
           instructions = msg['content']
         else:
-          instructions += '\n' + msg['content']
+          instructions += '\n' + msg['content']  # pyrefly: ignore[unsupported-operation]
       else:
         input_messages.append(msg)
 
@@ -460,32 +460,32 @@ class OpenAIAPI(
         'text_format': cls,
     }
     if input_messages:
-      api_kwargs['input'] = input_messages
+      api_kwargs['input'] = input_messages  # pyrefly: ignore[bad-assignment]
       if instructions is not None:
-        api_kwargs['instructions'] = instructions
+        api_kwargs['instructions'] = instructions  # pyrefly: ignore[bad-assignment]
     elif instructions is not None:
-      api_kwargs['input'] = instructions
+      api_kwargs['input'] = instructions  # pyrefly: ignore[bad-assignment]
     else:
       api_kwargs['input'] = ''
     if temperature is not None:
-      api_kwargs['temperature'] = temperature
+      api_kwargs['temperature'] = temperature  # pyrefly: ignore[bad-assignment]
     if max_tokens is not None:
-      api_kwargs['max_output_tokens'] = max_tokens
+      api_kwargs['max_output_tokens'] = max_tokens  # pyrefly: ignore[bad-assignment]
     if top_p is not None:
-      api_kwargs['top_p'] = top_p
+      api_kwargs['top_p'] = top_p  # pyrefly: ignore[bad-assignment]
 
     # Apply instance-level defaults for reasoning and tools, then override
     # with any per-call values.
     effective_reasoning = reasoning if reasoning is not None else self.reasoning
     effective_tools = tools if tools is not None else self.tools
     if effective_reasoning is not None:
-      api_kwargs['reasoning'] = effective_reasoning
+      api_kwargs['reasoning'] = effective_reasoning  # pyrefly: ignore[bad-assignment]
     if effective_tools is not None:
-      api_kwargs['tools'] = effective_tools
+      api_kwargs['tools'] = effective_tools  # pyrefly: ignore[bad-assignment]
     api_kwargs.update(kwargs)
 
     try:
-      response = self._client.responses.parse(**api_kwargs)
+      response = self._client.responses.parse(**api_kwargs)  # pyrefly: ignore[missing-attribute]
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'OpenAI API client.responses.parse raised err:\n{err}\n'
@@ -675,7 +675,7 @@ class OpenAIAPI(
     else:
       messages = [
           content_lib.Message(
-              content=prompt,
+              content=prompt,  # pyrefly: ignore[bad-argument-type]
               role=content_lib.PredefinedRole.USER,
           )
       ]
@@ -689,7 +689,7 @@ class OpenAIAPI(
       kwargs['top_p'] = top_p
 
     response = self._responses_parse(  # pytype: disable=wrong-keyword-args
-        messages=messages,
+        messages=messages,  # pyrefly: ignore[bad-argument-type]
         cls=cls,
         **kwargs,
     )
@@ -760,12 +760,12 @@ class OpenAIAPI(
       target_cls = cls
       is_wrapped = False
 
-    serializable_result = await self._generate_object_internal(
-        prompt=prompt,
-        cls=target_cls,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        top_p=top_p,
+    serializable_result = await self._generate_object_internal(  # pyrefly: ignore[bad-argument-type, not-async]
+        prompt=prompt,  # pyrefly: ignore[unexpected-keyword]
+        cls=target_cls,  # pyrefly: ignore[unexpected-keyword]
+        temperature=temperature,  # pyrefly: ignore[unexpected-keyword]
+        max_tokens=max_tokens,  # pyrefly: ignore[unexpected-keyword]
+        top_p=top_p,  # pyrefly: ignore[unexpected-keyword]
     )
 
     value = serializable_result['value'] if is_wrapped else serializable_result
@@ -788,7 +788,7 @@ class OpenAIAPI(
     # Remove kwargs that are not supported by the OpenAI API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Responses API via client.responses.create.
-    return await self.chat_via_api(messages, **kwargs)
+    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
@@ -880,7 +880,7 @@ class OpenAIAPI(
       api_kwargs['dimensions'] = kwargs['output_dimensionality']
 
     try:
-      response = self._client.embeddings.create(**api_kwargs)
+      response = self._client.embeddings.create(**api_kwargs)  # pyrefly: ignore[missing-attribute]
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'openai.client.embeddings.create raised err:\n{err}\n'
@@ -970,7 +970,7 @@ class OpenAIAPI(
       )
 
     try:
-      response = self._client.responses.input_tokens.count(
+      response = self._client.responses.input_tokens.count(  # pyrefly: ignore[missing-attribute]
           model=self.model_name,
           input=api_input,
       )

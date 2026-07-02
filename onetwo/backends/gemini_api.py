@@ -97,7 +97,7 @@ def _convert_chunk_list_to_contents_type(
           )
         case _:
           converted.append(c.content)
-    prompt = converted
+    prompt = converted  # pyrefly: ignore[bad-assignment]
   return prompt
 
 
@@ -351,7 +351,7 @@ class GeminiAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> generation_types.GenerateContentResponse:
     """Generate content."""
-    prompt = _convert_chunk_list_to_contents_type(prompt)
+    prompt = _convert_chunk_list_to_contents_type(prompt)  # pyrefly: ignore[bad-assignment]
     response_mime_type = kwargs.pop('response_mime_type', None)
     response_schema = kwargs.pop('response_schema', None)
 
@@ -450,9 +450,9 @@ class GeminiAPI(
   ) -> str:
     """See builtins.llm.chat."""
     if formatter == formatting.FormatterName.API:
-      return await self.chat_via_api(messages, **kwargs)
+      return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
     else:
-      return await llm.default_chat(messages, formatter, **kwargs)
+      return await llm.default_chat(messages, formatter, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
@@ -518,7 +518,7 @@ class GeminiAPI(
         original_prompt=messages[-1].content,
         healing_option=healing_option,
     )
-    healed_content = _convert_chunk_list_to_contents_type(healed_content)
+    healed_content = _convert_chunk_list_to_contents_type(healed_content)  # pyrefly: ignore[bad-assignment]
     # TODO: Trace this external API call.
     chat = cast(genai.GenerativeModel, self._chat_model).start_chat(
         history=history[:-1]

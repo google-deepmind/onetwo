@@ -291,7 +291,7 @@ class EvaluationResultTest(absltest.TestCase):
         metrics={'strict_accuracy': 0},
     )
 
-    results_dict = evaluation_result.to_dict()
+    results_dict = evaluation_result.to_dict()  # pyrefly: ignore[missing-attribute]
     expected_results_dict = {
         'inputs': {'question': 'q'},
         'outputs': {'answer': 'Wrong answer'},
@@ -1233,7 +1233,7 @@ dict_with_multiple_elements_and_custom_collapsed_html
                 outputs={'o2': 'o_v2'},
             ),
         ],
-        error=ValueError(
+        error=ValueError(  # pyrefly: ignore[bad-argument-type]
             'A very very very very very very very very very very very very very'
             ' very very very very very very very very very very very very very'
             ' long error message'

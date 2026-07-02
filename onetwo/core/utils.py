@@ -87,7 +87,7 @@ def is_method(function: Callable[..., Any]) -> bool:
 
 
 def decorator_with_optional_args(
-    decorator: Callable[[Concatenate[_FunctionToDecorate, _Args]], _T],
+    decorator: Callable[[Concatenate[_FunctionToDecorate, _Args]], _T],  # pyrefly: ignore[invalid-annotation]
 ) -> Callable[_Args, Callable[[_FunctionToDecorate], _T]]:
   """Decorator of decorators to make passing arguments easier.
 
@@ -177,13 +177,13 @@ def get_expanded_arguments(
         value = copy.deepcopy(result[name])
         del result[name]
         result.update(value)
-  return result
+  return result  # pyrefly: ignore[bad-return]
 
 
 def get_calling_args_and_kwargs(
     f: Callable[_Args, Any],
     arguments: collections.OrderedDict[str, Any],
-) -> _Args:
+) -> _Args:  # pyrefly: ignore[invalid-annotation]
   """Generates positional/keyword arguments for calling a function.
 
   When using `get_expanded_arguments` we get an ordered dict of argument
@@ -250,7 +250,7 @@ class FromInstance(Generic[_T]):
     if self.function is not None:
       return self.function(instance)
     else:
-      return getattr(instance, self.name)
+      return getattr(instance, self.name)  # pyrefly: ignore[bad-argument-type]
 
 
 FROM_INSTANCE_CLASS_NAME: Final[FromInstance[str]] = FromInstance(
@@ -322,17 +322,17 @@ def rate_limit_function[F: Callable[..., Any]](
       try:
         if current < last_call + interval:
           await asyncio.sleep(interval - current + last_call)
-        return await function(*args, **kwargs)
+        return await function(*args, **kwargs)  # pyrefly: ignore[not-async]
       finally:
         last_call = time.perf_counter()
         lock.release()
 
     if inspect.iscoroutinefunction(function):
-      return awrapper
+      return awrapper  # pyrefly: ignore[bad-return]
     else:
       return wrapper
 
-  return decorate
+  return decorate  # pyrefly: ignore[bad-return]
 
 
 def rate_limit_method(
@@ -421,7 +421,7 @@ def rate_limit_method(
     async def awrapper(self, *args: _Args.args, **kwargs: _Args.kwargs) -> _T:
       qps_value = RuntimeParameter[float | None](qps, self).value()
       if qps_value is None:
-        return await method(*((self,) + args), **kwargs)
+        return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
       instance_lock, interval = get_params(self, qps_value)
       while not instance_lock.acquire(blocking=False):
         await asyncio.sleep(0)
@@ -430,15 +430,15 @@ def rate_limit_method(
       try:
         if current < last_call + interval:
           await asyncio.sleep(interval - current + last_call)
-        return await method(*((self,) + args), **kwargs)
+        return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
       finally:
         set_last_call(self)
         instance_lock.release()
 
     if inspect.iscoroutinefunction(method):
-      return awrapper
+      return awrapper  # pyrefly: ignore[bad-return]
     else:
-      return wrapper
+      return wrapper  # pyrefly: ignore[bad-return]
 
   return decorate
 
@@ -474,19 +474,19 @@ def with_retry(
     The decorated function.
   """
 
-  def wrapper_impl(*args, **kwargs) -> _ReturnType:
+  def wrapper_impl(*args, **kwargs) -> _ReturnType:  # pyrefly: ignore[bad-return]
     self = args[0] if is_method(function) else None
-    max_retries_value = RuntimeParameter[int](max_retries, self).value()
+    max_retries_value = RuntimeParameter[int](max_retries, self).value()  # pyrefly: ignore[bad-argument-type]
     initial_base_delay_value = RuntimeParameter[int](
-        initial_base_delay, self
+        initial_base_delay, self  # pyrefly: ignore[bad-argument-type]
     ).value()
-    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
+    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()  # pyrefly: ignore[bad-argument-type]
     if not max_retries_value:
-      return function(*args, **kwargs)
+      return function(*args, **kwargs)  # pyrefly: ignore[bad-return]
     base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
-        return function(*args, **kwargs)
+        return function(*args, **kwargs)  # pyrefly: ignore[bad-return]
       except Exception as e:  # pylint: disable=broad-except
         if not retriable_error_filter(e):
           raise e
@@ -502,19 +502,19 @@ def with_retry(
           # If we are out of retries, then raise the original exception.
           raise e
 
-  async def async_wrapper_impl(*args, **kwargs) -> _ReturnType:
+  async def async_wrapper_impl(*args, **kwargs) -> _ReturnType:  # pyrefly: ignore[bad-return]
     self = args[0] if is_method(function) else None
-    max_retries_value = RuntimeParameter[int](max_retries, self).value()
+    max_retries_value = RuntimeParameter[int](max_retries, self).value()  # pyrefly: ignore[bad-argument-type]
     initial_base_delay_value = RuntimeParameter[int](
-        initial_base_delay, self
+        initial_base_delay, self  # pyrefly: ignore[bad-argument-type]
     ).value()
-    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
+    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()  # pyrefly: ignore[bad-argument-type]
     if not max_retries_value:
-      return await function(*args, **kwargs)
+      return await function(*args, **kwargs)  # pyrefly: ignore[not-async]
     base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
-        return await call_and_maybe_await(function, *args, **kwargs)
+        return await call_and_maybe_await(function, *args, **kwargs)  # pyrefly: ignore[bad-return]
       except Exception as e:  # pylint: disable=broad-except
         if not retriable_error_filter(e):
           raise e

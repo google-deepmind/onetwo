@@ -25,7 +25,7 @@ from onetwo.core import updating
 Update = updating.Update
 ListUpdate = updating.ListUpdate
 
-_S: TypeAlias = updating.AddableUpdate[str]
+_S: TypeAlias = updating.AddableUpdate[str]  # pyrefly: ignore[bad-specialization]
 
 
 class UpdatingTest(parameterized.TestCase):

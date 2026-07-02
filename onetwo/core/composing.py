@@ -69,7 +69,7 @@ def _safe_add(
   if isinstance(right, list):
     result = left
     for element in right:
-      result = _safe_add(result, element)
+      result = _safe_add(result, element)  # pyrefly: ignore[bad-argument-type]
     return result
   else:
     if left is None:
@@ -194,11 +194,11 @@ class Composable(
     return ChunkList()
 
   @classmethod
-  def get_result(cls, context: Context) -> str:
+  def get_result(cls, context: Context) -> str:  # pyrefly: ignore[bad-override]
     return str(context.prefix)
 
   @classmethod
-  def wrap(cls, other: str | Chunk) -> Composable:
+  def wrap(cls, other: str | Chunk) -> Composable:  # pyrefly: ignore[bad-override]
     return _AppendNode(content=other)
 
   def __getitem__(self, key: str) -> Any:
@@ -207,7 +207,7 @@ class Composable(
           f'Impossible to access key {key}. Composable {self} has not been'
           ' executed.'
       )
-    return self._final_context[key]
+    return self._final_context[key]  # pyrefly: ignore[unsupported-operation]
 
   def __str__(self) -> str:
     return ' + '.join(str(node) for node in self.nodes)
@@ -218,9 +218,9 @@ class Composable(
 
   @contextlib.contextmanager
   def section(self, name: str, hidden: bool = False) -> Iterator[None]:
-    self += section_start(name, hidden)
+    self += section_start(name, hidden)  # pyrefly: ignore[bad-argument-count, bad-argument-type]
     yield
-    self += section_end()
+    self += section_end()  # pyrefly: ignore[bad-argument-count]
 
 
 @dataclasses.dataclass
@@ -236,7 +236,7 @@ class _AppendNode(Composable):
   ) -> AsyncIterator[list[ChunkList]]:
     # Default implementation: single step execution.
     del iteration_depth
-    return (await self.execute(context))
+    return (await self.execute(context))  # pyrefly: ignore[bad-argument-count, not-async]
 
   @override
   @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -291,7 +291,7 @@ class _FunctionNode(Composable):
   """
 
   executable: executing.FunctionExecWrapper[ChunkList] = (
-      dataclasses.field(default=_noop())
+      dataclasses.field(default=_noop())  # pyrefly: ignore[bad-argument-count, bad-assignment]
   )
   context_arg_name: str = dataclasses.field(default_factory=str)
 
@@ -309,7 +309,7 @@ class _FunctionNode(Composable):
   # # pylint: enable=protected-access
 
   @override
-  async def execute(self, context: Context) -> ChunkList:
+  async def execute(self, context: Context) -> ChunkList:  # pyrefly: ignore[bad-override]
     self._context = context
     # We execute the wrapped Executable.
     result = await self.executable
@@ -319,7 +319,7 @@ class _FunctionNode(Composable):
       result = await result
     # We may get a Composable in which case we execute it with the right
     # context.
-    result = await self.maybe_execute(result, context)
+    result = await self.maybe_execute(result, context)  # pyrefly: ignore[bad-argument-type]
     assert not isinstance(result, Composable)
     # We may get yet another Executable and again we execute it.
     while isinstance(result, executing.Executable):
@@ -343,12 +343,12 @@ class _FunctionNode(Composable):
       content = updates.to_result()
       if not isinstance(content, executing.Executable):
         pre_context = copy.deepcopy(context)
-        yield await self.maybe_execute(content, context)
+        yield await self.maybe_execute(content, context)  # pyrefly: ignore[bad-argument-type]
         updated_context = copy.deepcopy(context)
         context.replace(pre_context)
         done = True
       else:
-        yield content
+        yield content  # pyrefly: ignore[invalid-yield]
     if done:
       context.replace(updated_context)
 
@@ -445,7 +445,7 @@ def make_composable(
   first_arg_name = parameter_names[0]
 
   if not utils.is_decorated_with_make_executable(fn):
-    fn = executing.make_executable(
+    fn = executing.make_executable(  # pyrefly: ignore[bad-assignment]
         first_arg_name, *composable_args, execute_result=False
     )(fn)
 
@@ -596,9 +596,9 @@ async def store(
   """
   saved_prefix = copy.deepcopy(context.prefix)
   if isinstance(content, Composable):
-    content = await content.execute(context)
+    content = await content.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
   else:
-    content = await _AppendNode(content=content).execute(context)
+    content = await _AppendNode(content=content).execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
   context.prefix = saved_prefix
   # The content can either be a ChunkList or a generic python object.
   # If it is a ChunkList, we store a string version of it into the context
@@ -653,10 +653,10 @@ async def _fork(
   saved_prefix = copy.deepcopy(context.prefix)
 
   branches_executables = (
-      branch.execute(ctx) if isinstance(branch, Composable) else branch
+      branch.execute(ctx) if isinstance(branch, Composable) else branch  # pyrefly: ignore[bad-argument-count]
       for ctx, branch in zip(contexts, branches)
   )
-  executed_branches = await run_all(*branches_executables)
+  executed_branches = await run_all(*branches_executables)  # pyrefly: ignore[bad-argument-type, not-async]
   executed_branches = [branch for branch in executed_branches]
   result = joiner(context, list(zip(executed_branches, contexts)))
   if isinstance(result, Coroutine):

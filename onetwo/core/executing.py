@@ -121,7 +121,7 @@ class ExecutableWithCallback(
         yield update
     self.final_value = updates.to_result()
     if self.final_value_callback is not None:
-      result = self.final_value_callback(self.final_value)
+      result = self.final_value_callback(self.final_value)  # pyrefly: ignore[bad-argument-type]
       if inspect.isawaitable(result):
         await result
     if iteration_depth == 0:
@@ -136,7 +136,7 @@ class ExecutableWithCallback(
     """
     async for _ in self._aiterate():
       pass
-    return self.final_value
+    return self.final_value  # pyrefly: ignore[bad-return]
 
   @abc.abstractmethod
   async def _iterate(self) -> AsyncIterator[Update[Result]]:
@@ -165,7 +165,7 @@ def _safe_stream(
 
     def iterator():
       if enable_tracing:
-        yield Update(result[0]), result[1]
+        yield Update(result[0]), result[1]  # pyrefly: ignore[unsupported-operation]
       else:
         yield Update(result)
 
@@ -175,7 +175,7 @@ def _safe_stream(
     # and we explicitly type cast the return value as the type checker gets
     # confused otherwise.
     if enable_tracing:
-      with batching.safe_stream(
+      with batching.safe_stream(  # pyrefly: ignore[bad-context-manager]
           executable.with_depth(iteration_depth),
           enable_batching=enable_batching,
           enable_tracing=True,
@@ -186,7 +186,7 @@ def _safe_stream(
             iterator,
         )
     else:
-      with batching.safe_stream(
+      with batching.safe_stream(  # pyrefly: ignore[bad-context-manager]
           executable.with_depth(iteration_depth),
           enable_batching=enable_batching,
           enable_tracing=False,
@@ -543,9 +543,9 @@ def stream_with_callback(
       tracer=tracer,
   )
   if enable_tracing:
-    return updates.to_result(), final_execution_result
+    return updates.to_result(), final_execution_result  # pyrefly: ignore[bad-return]
   else:
-    return updates.to_result()
+    return updates.to_result()  # pyrefly: ignore[bad-return]
 
 
 # TODO: This decorator has many arguments now, and the fact that
@@ -649,7 +649,7 @@ def make_executable(
     function = function.__call__
 
   if utils.is_decorated_with_make_executable(function):
-    return function
+    return function  # pyrefly: ignore[bad-return]
 
   non_copied_args = list(non_copied_args)
   if not copy_self and 'self' not in non_copied_args:
@@ -686,7 +686,7 @@ def make_executable(
   if inspect.isfunction(function):
     # Decorating a function or decorating a method with "@".
     if utils.is_method(function):
-      return inner_m
+      return inner_m  # pyrefly: ignore[bad-return]
     else:
       return inner_f
   elif inspect.ismethod(function):
@@ -876,7 +876,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       else:
         copied_expanded_arguments[name] = copy.deepcopy(value, memo)
     copied_args, copied_kwargs = utils.get_calling_args_and_kwargs(  # pytype: disable=wrong-arg-types
-        self.wrapped, copied_expanded_arguments
+        self.wrapped, copied_expanded_arguments  # pyrefly: ignore[bad-argument-type]
     )
     other = type(self)(
         self.wrapped,
@@ -1027,14 +1027,14 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
           # latest value.
           updates = Update(copy.deepcopy(update_or_result))
     else:  # Normal iterator.
-      for update_or_result in self.wrapped(*args, **kwargs):
+      for update_or_result in self.wrapped(*args, **kwargs):  # pyrefly: ignore[not-iterable]
         if isinstance(update_or_result, Update):
           updates += update_or_result
         else:
           # If the underlying object doesn't return updates we simply keep the
           # latest value.
           updates = Update(copy.deepcopy(update_or_result))
-    return updates.to_result()
+    return updates.to_result()  # pyrefly: ignore[bad-return]
 
   async def pre_execute(self) -> Result:
     """Executes the arguments and calls the wrapped function.
@@ -1084,7 +1084,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       else:
         return result
 
-  async def _aiterate(
+  async def _aiterate(  # pyrefly: ignore[bad-override]
       self, iteration_depth: int = 1
   ) -> AsyncIterator[Update[Result] | Result]:
     """Executes the arguments of and iterates through the wrapped function.
@@ -1142,7 +1142,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
             yield result
         else:
           # Should be a normal iterator.
-          for result in self.wrapped(*args, **kwargs):
+          for result in self.wrapped(*args, **kwargs):  # pyrefly: ignore[not-iterable]
             yield result
       else:
         result = await self._call_or_await()
@@ -1199,7 +1199,7 @@ async def _wrap_executable(
     await tracing.report_update(ListUpdate([(res, index)]))
   finally:
     if tracer is not None:
-      tracing.execution_tracer.reset(tracer_token)
+      tracing.execution_tracer.reset(tracer_token)  # pyrefly: ignore[bad-argument-type]
 
   return res
 

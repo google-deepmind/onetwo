@@ -263,7 +263,7 @@ class BeginEndExtension(j2_ext.Extension, metaclass=abc.ABCMeta):
   # Override this with the name of the start tag.
   tag_name = ''
   # This should contain tag_name and endtag_name.
-  tags = {}
+  tags = {}  # pyrefly: ignore[bad-assignment]
 
   def parse(self, parser: j2_parser.Parser) -> jinja2.nodes.Node:
     """Calls the _start and _end methods when parsing the corresponding tags."""
@@ -282,10 +282,10 @@ class BeginEndExtension(j2_ext.Extension, metaclass=abc.ABCMeta):
         target = jinja2.nodes.Const(token.value, lineno=token.lineno)
         parser.stream.expect('assign')
         value = parser.parse_expression()
-        args.append(target)
-        args.append(value)
+        args.append(target)  # pyrefly: ignore[bad-argument-type]
+        args.append(value)  # pyrefly: ignore[bad-argument-type]
       result = self.call_method(
-          'start', args, lineno=lineno
+          'start', args, lineno=lineno  # pyrefly: ignore[bad-argument-type]
       )
     else:
       token = parser.stream.expect(f'name:end{self.tag_name}')
@@ -366,7 +366,7 @@ class SectionExtension(BeginEndExtension):
     self.update_defaults(arguments, *args)
     # We store the index at which the section start (which is the length
     # of the current prefix).
-    arguments[self.START] = len(context.prefix)
+    arguments[self.START] = len(context.prefix)  # pyrefly: ignore[unsupported-operation]
     # We put all the data corresponding to this section (its start index
     # and its arguments) on a stack, so that we know about it when we reach
     # the end of the section (i.e. when the _end method is called).
@@ -462,7 +462,7 @@ class RoleExtension(BeginEndExtension):
     self.update_defaults(arguments, *args)
     # We store the index at which the role start (which is the length
     # of the current prefix).
-    arguments[self.START] = len(context.prefix)
+    arguments[self.START] = len(context.prefix)  # pyrefly: ignore[unsupported-operation]
     # We put all the data corresponding to this role (its start index
     # and its arguments) on a stack, so that we know about it when we reach
     # the end of the role (i.e. when the _end method is called).
@@ -470,7 +470,7 @@ class RoleExtension(BeginEndExtension):
     if not arguments['hidden']:
       role_name = arguments['name']
       context.role_indices.append(
-          (role_name, arguments[self.START], True)
+          (role_name, arguments[self.START], True)  # pyrefly: ignore[bad-argument-type]
       )
       if role_name and (
           context.add_prefix_role_tags or arguments['add_tags']
@@ -725,9 +725,9 @@ def _format_with_roles(
     if ITERABLE_REPLY in role_tags:
       if role_tags[ITERABLE_REPLY][0] is None:
         return formatted  # We don't append the iterable reply.
-      formatted += role_tags[ITERABLE_REPLY][0]
+      formatted += role_tags[ITERABLE_REPLY][0]  # pyrefly: ignore[unsupported-operation]
       formatted += iterable_reply
-      formatted += role_tags[ITERABLE_REPLY][1]
+      formatted += role_tags[ITERABLE_REPLY][1]  # pyrefly: ignore[unsupported-operation]
     else:
       formatted += iterable_reply
   return formatted
@@ -921,7 +921,7 @@ class JinjaTemplate:
         raise ValueError(f'{k} is already in the jinja environment globals.')
       environment.globals[k] = v
 
-    parsed_prompt = environment.from_string(self.text)
+    parsed_prompt = environment.from_string(self.text)  # pyrefly: ignore[bad-argument-type]
     parsed_prompt.globals.update(self._callbacks)
     return parsed_prompt
 
@@ -942,7 +942,7 @@ class JinjaTemplate:
       None whenever a new stage is added.
     """
     template = self._prepare_prompt()
-    ctx = template.new_context(context.jinja_context)
+    ctx = template.new_context(context.jinja_context)  # pyrefly: ignore[bad-argument-type]
     result = tracing.execution_context.get()
     stages_length = -1
     try:
@@ -1040,8 +1040,8 @@ class JinjaTemplate:
   ) -> AsyncIterator[Mapping[str, Any]]:
     """Actually processes and fills in the template iteratively."""
     context = PromptTemplateContext()
-    context.prefix_role_tags.update(self.prefix_role_tags)
-    context.add_prefix_role_tags = self.add_prefix_role_tags
+    context.prefix_role_tags.update(self.prefix_role_tags)  # pyrefly: ignore[no-matching-overload]
+    context.add_prefix_role_tags = self.add_prefix_role_tags  # pyrefly: ignore[bad-argument-type]
     # Divide args between inputs and context_variables.
     inputs = {}
     for k, v in kwargs.items():
@@ -1056,10 +1056,10 @@ class JinjaTemplate:
     self._context = context
     self._prompt_done = False
     par = executing.parallel(
-        self._iterate_through_prompt(context),
-        self._iterate_through_reply(context)
+        self._iterate_through_prompt(context),  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+        self._iterate_through_reply(context)  # pyrefly: ignore[bad-argument-count, bad-argument-type]
         if iteration_depth
-        else self._execute_reply(context),
+        else self._execute_reply(context),  # pyrefly: ignore[bad-argument-count, bad-argument-type]
     )
     updates = updating.Update()
     async for update in par.with_depth(iteration_depth=iteration_depth):
@@ -1074,7 +1074,7 @@ class JinjaTemplate:
         context.output_variables[ERROR] = context.error
       iterable_reply = None
       if (
-          len(current_pair) > 1
+          len(current_pair) > 1  # pyrefly: ignore[bad-argument-type]
           and context.iterable_reply is not None
       ):
         # Due to the parallel executing, we could get the yield from
@@ -1082,7 +1082,7 @@ class JinjaTemplate:
         # finished and has been added to the prefix. This is why we also
         # check that the ITERABLE_REPLY is not None (if it is None it means
         # we have added it to the prefix already).
-        iterable_reply = self._postprocess_iterable_reply(current_pair[1])
+        iterable_reply = self._postprocess_iterable_reply(current_pair[1])  # pyrefly: ignore[unsupported-operation]
       if self.role_tags:
         context.output_variables[PREFIX_WITH_ROLES] = _format_with_roles(
             context.prefix,
@@ -1152,5 +1152,5 @@ class JinjaTemplate:
     final_outputs = {}
     async for outputs in self._render(0, kwargs):
       final_outputs = outputs
-    final_outputs.pop(ITERABLE_REPLY, None)
+    final_outputs.pop(ITERABLE_REPLY, None)  # pyrefly: ignore[missing-attribute]
     return final_outputs

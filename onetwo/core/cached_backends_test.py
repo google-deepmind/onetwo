@@ -125,7 +125,7 @@ def _create_cache_data(
       num_used_values_by_key=collections.defaultdict(
           int, num_used_values_by_key
       ),
-      sample_id_by_sampling_key_by_key=nested_sample_id_dict,
+      sample_id_by_sampling_key_by_key=nested_sample_id_dict,  # pyrefly: ignore[bad-argument-type]
   )
 
 

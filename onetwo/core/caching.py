@@ -384,7 +384,7 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
   # TODO: Remove the setters and getters once we have migrated all
   # usages to the new cache field.
   @property
-  def _cache_handler(self) -> SimpleFileCache[CachedType]:
+  def _cache_handler(self) -> SimpleFileCache[CachedType]:  # pyrefly: ignore[bad-override]
     cache = self.cache
     if cache is None:
       raise ValueError('Cache handler is not initialized.')
@@ -547,14 +547,14 @@ class CacheKeyMaker(Generic[CachedType]):
       Cache key to lookup.
     """
     arguments = utils.get_expanded_arguments(
-        self._method, True, (obj_with_cache,) + args, kwargs
+        self._method, True, (obj_with_cache,) + args, kwargs  # pyrefly: ignore[bad-argument-type]
     )
     arguments.pop('self', None)
     if self.dropped is not None:
       for name in self.dropped:
         # Remove arguments with that name from the main arguments.
         arguments.pop(name, None)
-    key = _create_cache_key(self._name, arguments, self.hashed)
+    key = _create_cache_key(self._name, arguments, self.hashed)  # pyrefly: ignore[bad-argument-type]
     return key
 
 
@@ -775,7 +775,7 @@ def cache_method(
             key=key,
             sampling_key=sampling_key,
         )
-      return value, (key, sampling_key)
+      return value, (key, sampling_key)  # pyrefly: ignore[bad-return]
 
     async def store(
         obj_with_cache: CacheEnabled[CachedType],
@@ -816,7 +816,7 @@ def cache_method(
           )
           return v
 
-        value = executing.ExecutableWithPostprocessing(
+        value = executing.ExecutableWithPostprocessing(  # pyrefly: ignore[bad-assignment]
             wrapped=value, postprocessing_callback=callback
         )
       else:
@@ -867,7 +867,7 @@ def cache_method(
           # Method returns a Sequence of CachedType elements. Handle this case.
           logging.info('Caching extra replies for method %s.', method.__name__)  # pytype: disable=attribute-error
           value = await return_first_and_cache_remaining(
-              values=value,
+              values=value,  # pyrefly: ignore[bad-argument-type]
               disable_caching=self.disable_caching,
               cache_value_callback=functools.partial(
                   self._cache_handler.cache_value,  # pytype: disable=attribute-error
@@ -876,7 +876,7 @@ def cache_method(
               ),
           )
         result = await store(self, value, key, sampling_key)
-        return result
+        return result  # pyrefly: ignore[bad-return]
       finally:
         # Finally remove the call from `_calls_in_progress` to unblock other
         # coroutines waiting for the value. Note that we do this both in the
@@ -889,7 +889,7 @@ def cache_method(
     return ainner
     # pylint: enable=protected-access
 
-  return method_wrapper
+  return method_wrapper  # pyrefly: ignore[bad-return]
 
 
 class SamplingKeyUpdater(executing.Executable):
@@ -1187,7 +1187,7 @@ class _CacheData(
           # We map a new one.
           sample_id = self.num_used_values_by_key[key]
           self.num_used_values_by_key[key] += 1
-          self.sample_id_by_sampling_key_by_key[key][sampling_key] = sample_id
+          self.sample_id_by_sampling_key_by_key[key][sampling_key] = sample_id  # pyrefly: ignore[unsupported-operation]
         else:
           if update_counters:
             self.counters['get_hit_miss_sample'] += 1

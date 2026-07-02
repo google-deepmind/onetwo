@@ -79,7 +79,7 @@ def _convert_chunk_list_to_parts_list(
     for c in prompt:
       match c.content_type:
         case 'str':
-          converted.append(generative_models.Part.from_text(c.content))
+          converted.append(generative_models.Part.from_text(c.content))  # pyrefly: ignore[bad-argument-type]
         case 'bytes' | 'image/jpeg':
           # If we have bytes we assume for now that it is an image.
           converted.append(
@@ -256,14 +256,14 @@ class VertexAIAPI(
   ) -> generative_models.GenerationResponse:
     """Generate content."""
     if isinstance(prompt, content_lib.ChunkList):
-      prompt = _convert_chunk_list_to_parts_list(prompt)
+      prompt = _convert_chunk_list_to_parts_list(prompt)  # pyrefly: ignore[bad-assignment]
 
     response_mime_type = kwargs.pop('response_mime_type', None)
     response_schema = kwargs.pop('response_schema', None)
 
     generation_config = generative_models.GenerationConfig(
         candidate_count=samples,
-        stop_sequences=stop,
+        stop_sequences=stop,  # pyrefly: ignore[bad-argument-type]
         max_output_tokens=max_tokens,
         temperature=temperature,
         top_k=top_k,
@@ -273,7 +273,7 @@ class VertexAIAPI(
     )
     try:
       # TODO: Trace this external API call.  # pylint: disable=g-bad-todo
-      response = self._generate_model.generate_content(
+      response = self._generate_model.generate_content(  # pyrefly: ignore[missing-attribute]
           prompt,
           generation_config=generation_config,
           **kwargs,
@@ -410,9 +410,9 @@ class VertexAIAPI(
   ) -> str:
     """See builtins.llm.chat."""
     if formatter == formatting.FormatterName.API:
-      return await self.chat_via_api(messages, **kwargs)
+      return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
     else:
-      return await llm.default_chat(messages, formatter, **kwargs)
+      return await llm.default_chat(messages, formatter, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.
@@ -468,13 +468,13 @@ class VertexAIAPI(
       history.append(
           generative_models.Content(
               role=role,
-              parts=[generative_models.Part.from_text(msg.content)],
+              parts=[generative_models.Part.from_text(msg.content)],  # pyrefly: ignore[bad-argument-type]
           )
       )
 
     system_msg_part = None
     if system_msg:
-      system_msg_part = generative_models.Part.from_text(system_msg)
+      system_msg_part = generative_models.Part.from_text(system_msg)  # pyrefly: ignore[bad-argument-type]
 
     chat_model = generative_models.GenerativeModel(
         self.chat_model_name, system_instruction=system_msg_part
@@ -490,7 +490,7 @@ class VertexAIAPI(
     response_schema = kwargs.pop('response_schema', None)
 
     generation_config = generative_models.GenerationConfig(
-        stop_sequences=stop,
+        stop_sequences=stop,  # pyrefly: ignore[bad-argument-type]
         max_output_tokens=max_tokens,
         temperature=temperature,
         top_k=top_k,
@@ -500,7 +500,7 @@ class VertexAIAPI(
     )
 
     chat = chat_model.start_chat(history=history[:-1])
-    response = chat.send_message(
+    response = chat.send_message(  # pyrefly: ignore[no-matching-overload]
         content=content_parts,
         generation_config=generation_config,
         stream=False,
@@ -553,9 +553,9 @@ class VertexAIAPI(
           )
           continue
 
-        input_content += chunk.content
+        input_content += chunk.content  # pyrefly: ignore[unsupported-operation]
 
-    responses = self._embed_model.get_embeddings([input_content])
+    responses = self._embed_model.get_embeddings([input_content])  # pyrefly: ignore[missing-attribute]
     return responses[0].values
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -574,11 +574,11 @@ class VertexAIAPI(
     self._counters['count_tokens'] += 1
 
     if isinstance(content, content_lib.ChunkList):
-      content = [chunk.content for chunk in content]
+      content = [chunk.content for chunk in content]  # pyrefly: ignore[bad-assignment]
 
     try:
       # TODO: Trace this external API call.  # pylint: disable=g-bad-todo
-      response = self._generate_model.count_tokens(content)
+      response = self._generate_model.count_tokens(content)  # pyrefly: ignore[missing-attribute]
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'VertexAIAPI.count_tokens raised err:\n{err}\n'
