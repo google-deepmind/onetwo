@@ -1515,9 +1515,9 @@ class GoogleGenaiApiTest(
 
     # For v2 with task_type=None, task_type should be present and None
     expected_hash_none_v2 = make_expected_hash('text_v2_none', None)
-    # For v2 with explicit task_type, content is prefixed, task_type is popped
+    # For v2 with explicit task_type, content is prefixed, task_type is None
     expected_hash_query_v2 = make_expected_hash(
-        'task: search result | query: text_v2_query', None, has_task_type=False
+        'task: search result | query: text_v2_query', None
     )
 
     self.assertIn(expected_hash_none_v2, handler_v2._cache_data.values_by_key)
@@ -2384,6 +2384,17 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
     self.assertEqual(result.chunks[1].content, 'hello')
     self.assertEqual(result.chunks[2].content, b'img')
 
+  def test_prepend_prefix_to_empty_string(self):
+    result = google_genai_api._prepend_prefix_to_content('prefix: ', '')
+    self.assertEqual(result, 'prefix: none')
+
+  def test_prepend_prefix_to_empty_chunk_list(self):
+    content = content_lib.ChunkList(chunks=[])
+    result = google_genai_api._prepend_prefix_to_content('prefix: ', content)
+    self.assertIsInstance(result, content_lib.ChunkList)
+    self.assertLen(result.chunks, 1)
+    self.assertEqual(result.chunks[0].content, 'prefix: none')
+
   # --- _apply_embed_formatting_v2 ---
 
   @parameterized.named_parameters(
@@ -2482,6 +2493,14 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
           title=None,
           expected_content='hello',
           expected_task_type=None,
+      ),
+      dict(
+          testcase_name='retrieval_document_empty_title_empty_content',
+          content='',
+          task_type=llm_lib.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          title='',
+          expected_content='title: none | text: none',
+          expected_task_type='RETRIEVAL_DOCUMENT',
       ),
   )
   def test_apply_embed_formatting_v1(

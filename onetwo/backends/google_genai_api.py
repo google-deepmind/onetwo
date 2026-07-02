@@ -298,9 +298,12 @@ def _prepend_prefix_to_content(
 ) -> str | _ChunkList:
   """Prepends a text prefix to content (str or ChunkList)."""
   if isinstance(content, str):
-    return prefix + content
+    return prefix + (content or 'none')
   elif isinstance(content, content_lib.ChunkList):
-    new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
+    if not content.chunks:
+      new_chunks = [content_lib.Chunk(content=prefix + 'none')]
+    else:
+      new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
     return content_lib.ChunkList(chunks=new_chunks)
   return content
 
@@ -1054,9 +1057,8 @@ class GoogleGenAIAPI(
 
     # To maintain caching compatibility with old cache keys that had
     # "task_type" in kwargs.
-    if task_type is not None:
-      if not is_v2:
-        kwargs['task_type'] = str(task_type)
+    if task_type is not None and not is_v2:
+      kwargs['task_type'] = str(task_type)
     else:
       kwargs['task_type'] = None
 

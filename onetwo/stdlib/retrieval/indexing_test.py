@@ -34,9 +34,14 @@ Document = retrieval_data_structures.Document
 
 # Mock llm.embed to be async
 @executing.make_executable(copy_self=False)  # pytype: disable=wrong-arg-count
-async def mock_embed_fn(text: str, task_type: str | None = None) -> np.ndarray:
+async def mock_embed_fn(
+    content: str | content_lib.ChunkList,
+    task_type: str | None = None,
+    title: str | None = None,
+    **kwargs,
+) -> np.ndarray:
   """Mock async embed function."""
-  del text, task_type
+  del content, task_type, title, kwargs
   embedding = mock_embed_fn.embeddings[mock_embed_fn.call_count]
   mock_embed_fn.call_count += 1
   return embedding

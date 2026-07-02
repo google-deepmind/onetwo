@@ -50,7 +50,7 @@ import contextlib
 import dataclasses
 import random
 import threading
-from typing import Any, Callable, Generic, Iterable, Iterator, Sequence
+from typing import Any, Generic, Iterable, Iterator, Sequence
 
 import numpy as np
 from onetwo.backends import backends_base
@@ -58,7 +58,6 @@ from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import tracing
-
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
@@ -387,6 +386,8 @@ class NaiveIndex(DocumentIndex):
     return result
 
 
+# TODO: remove these functions as they are unused in this file
+# and fix calling places.
 def default_prepare_query(query: Any) -> str:
   """Returns an appropriately formatted query string for embeddings."""
   return f'task: search result | query: {str(query)}'
@@ -420,9 +421,12 @@ class AbstractEmbeddingBasedIndex(
   `retrieve` and `retrieve_with_scores` along with the embedding functionality.
 
   Attributes:
-    prepare_query: Callable that prepares the query for embedding.
-    prepare_document: Callable that prepares the document for embedding.
-    task_type: Task type to use when calling `llm.embed` (optional).
+    query_task_type: Task type to use when embedding queries via `llm.embed`
+      (e.g. 'SEMANTIC_SIMILARITY', 'RETRIEVAL_QUERY'). The backend handles
+      translation for both v1 and v2 embedding models.
+    document_task_type: Task type to use when embedding documents via
+      `llm.embed` (e.g. 'SEMANTIC_SIMILARITY', 'RETRIEVAL_DOCUMENT'). The
+      backend handles translation for both v1 and v2 embedding models.
     embed_backend_config: Configuration for the embedder backend, which is used
       for calculating embeddings. If None, the pre-existing `llm.embed` backend
       is used.
@@ -432,10 +436,8 @@ class AbstractEmbeddingBasedIndex(
       with `embed_backend_config` to lazily instantiate the embedder backend
       upon initialization or when the index is loaded.
   """
-  prepare_query: Callable[[QueryT], str] = default_prepare_query
-  prepare_document: Callable[[DocT], str] = default_prepare_document
-
-  task_type: str | None = None
+  query_task_type: str | None = 'RETRIEVAL_QUERY'
+  document_task_type: str | None = 'RETRIEVAL_DOCUMENT'
 
   # Configuration for the embedder backend.
   embed_backend_config: backend_registry.EmbedBackendConfig | None = None
@@ -493,6 +495,17 @@ class AbstractEmbeddingBasedIndex(
     state.setdefault('embed_model_name', None)
     state.setdefault('embed_kwargs', {})
     state.setdefault('_embedder_backend', None)
+    # Migrate legacy task_type to query/document task types.
+    if 'task_type' in state:
+      legacy_task_type = state.pop('task_type')
+      state.setdefault('query_task_type', legacy_task_type)
+      state.setdefault('document_task_type', legacy_task_type)
+    else:
+      state.setdefault('query_task_type', None)
+      state.setdefault('document_task_type', None)
+    # Remove legacy prepare_* callables that are no longer attributes.
+    state.pop('prepare_query', None)
+    state.pop('prepare_document', None)
 
     self.__dict__.update(state)
     self._embedder_backend_lock = threading.Lock()
@@ -537,6 +550,10 @@ def _validate_docs(docs: Sequence[Document]) -> None:
     )
 
 
+# TODO: Combine EmbeddingBasedIndex and
+# EmbeddingBasedDocumentIndex as EmbeddingBasedIndex requires `QueryT` to be
+# Either ChunkList or str and DocT to have `.title` and `.content`, essentially
+# a `Document`.
 @dataclasses.dataclass(kw_only=True)
 class EmbeddingBasedIndex(
     AbstractEmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
@@ -564,10 +581,8 @@ class EmbeddingBasedIndex(
   @executing.make_executable(copy_self=False)
   async def _calculate_query_embedding(self, query: QueryT) -> Sequence[float]:
     """Returns a newly-calculated embedding of the query."""
-    query_text = self.prepare_query(query)
-
     with self._backend_routing_context():
-      query_embedding = await llm.embed(query_text, task_type=self.task_type)  # pytype: disable=wrong-arg-count
+      query_embedding = await llm.embed(query, task_type=self.query_task_type)  # pytype: disable=wrong-arg-count
 
     return query_embedding
 
@@ -576,11 +591,14 @@ class EmbeddingBasedIndex(
       self, docs: Sequence[DocT]
   ) -> Sequence[Sequence[float]]:
     """Returns newly-calculated embeddings of the documents."""
-    doc_texts = [self.prepare_document(doc) for doc in docs]
-
     with self._backend_routing_context():
       embed_executables = [
-          llm.embed(text, task_type=self.task_type) for text in doc_texts  # pytype: disable=wrong-arg-count
+          llm.embed(  # pytype: disable=wrong-arg-count
+              doc.content,
+              task_type=self.document_task_type,
+              title=doc.title,
+          )
+          for doc in docs
       ]
       embedded_results = await executing.parallel(*embed_executables)
 
