@@ -49,7 +49,9 @@ import abc
 import dataclasses
 from typing import Sequence
 import numpy as np
+from onetwo.core import batching
 from onetwo.core import executing
+from onetwo.core import utils
 
 
 class Searcher(metaclass=abc.ABCMeta):
@@ -152,10 +154,13 @@ class BruteForceSearcher(Searcher):
       to unit length during the `build` and `search_batched` phases. This
       ensures the resulting scores represent cosine similarity (range [-1, 1]).
       Note: Input arrays are not modified in-place; a normalized copy is stored.
+    threadpool_size: The number of threads to use for parallelizing the
+      search/retrieval.
   """
 
   normalize_embeds: bool = False
   _doc_embeds: np.ndarray | None = None
+  threadpool_size: int = 1
 
   @executing.make_executable(copy_self=False)
   async def build(self, doc_embeds: np.ndarray) -> None:
@@ -168,6 +173,9 @@ class BruteForceSearcher(Searcher):
       self._doc_embeds = doc_embeds
 
   @executing.make_executable(copy_self=False)
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size')
+  )
   async def search_batched(
       self,
       query_embeds: np.ndarray,
@@ -203,6 +211,10 @@ class BruteForceSearcher(Searcher):
   def destroy(self) -> None:
     """Overridden from base class (Searcher)."""
     self._doc_embeds = None
+    if hasattr(self, 'threadpools'):
+      for pool in self.threadpools.values():
+        pool.shutdown(wait=False)
+      self.threadpools.clear()
 
   def __eq__(self, other):
     if not isinstance(other, BruteForceSearcher):

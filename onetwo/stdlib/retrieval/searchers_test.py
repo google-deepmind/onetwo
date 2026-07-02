@@ -139,6 +139,26 @@ class SearchersTest(parameterized.TestCase):
     ot.run(searcher3.build(doc_embeds))  # pytype: disable=wrong-arg-count
     self.assertEqual(searcher1, searcher3)
 
+  def test_brute_force_searcher_threadpool(self):
+    query_embeds = np.array([[0.7, 0.2, 0.1]])
+    doc_embeds = np.array([
+        [0.1, 0.1, 0.8],  # doc 0
+        [0.8, 0.1, 0.1],  # doc 1
+        [0.1, 0.8, 0.1],  # doc 2
+    ])
+    searcher = searchers.BruteForceSearcher(threadpool_size=2)
+    ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+
+    with self.subTest('single_search'):
+      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+      np.testing.assert_array_equal(top_ids, [[1, 2, 0]])
+      np.testing.assert_array_almost_equal(
+          top_scores, [[0.59, 0.24, 0.17]], decimal=6
+      )
+      threadpools = getattr(searcher, 'threadpools', {})
+      self.assertIn('search_batched', threadpools)
+      self.assertEqual(threadpools['search_batched']._max_workers, 2)
+
 
 class ConstrainedBruteForceSearcherTest(parameterized.TestCase):
 
