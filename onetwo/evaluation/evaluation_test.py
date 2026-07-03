@@ -178,6 +178,17 @@ def executable_accuracy_function_taking_example_as_arg(
   return float(target == prediction)
 
 
+def metric_taking_execution_result(
+    target: str,
+    prediction: str,
+    example: _Example | None = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> tuple[float, dict[str, Any]]:
+  del target, prediction, example
+  stage_name = execution_result.stage_name if execution_result else 'None'
+  return 1.0, {'trace_stage_name': stage_name}
+
+
 @executing.make_executable  # pytype: disable=wrong-arg-types
 async def strategy_taking_question_and_option_and_calling_llm(
     question: str, option: int, **kwargs
@@ -719,6 +730,22 @@ class EvaluationTest(parameterized.TestCase):
       self.assertEqual(expected_info, summary.results[0].info)
     with self.subTest('results_debug_info'):
       self.assertEqual(expected_info, summary.results_debug[0].info)
+
+  def test_evaluate_metric_receives_execution_result(self):
+    examples = [{'question': 'a', 'answer': 'b'}]
+    summary = evaluation.evaluate(
+        strategy=ordinary_identity_function,
+        examples=examples,
+        metric_functions={
+            'metric_with_trace': metric_taking_execution_result,
+        },
+        output_results=True,
+        enable_tracing=True,
+    )
+    _reset_times(summary)
+
+    expected_info = {'trace_stage_name': 'ordinary_identity_function'}
+    self.assertEqual(expected_info, summary.results[0].info)
 
   @parameterized.named_parameters(
       ('output_results', True, False, False),

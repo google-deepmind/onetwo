@@ -119,8 +119,24 @@ class MetricFunctionWithoutExampleArg(Protocol[_O]):
     ...
 
 
+class MetricFunctionWithExecutionResult(Protocol[_O, _Example]):
+  """Metric function that receives the execution trace for the example."""
+
+  def __call__(
+      self,
+      target: _O,
+      prediction: _O,
+      example: _Example | None = None,
+      execution_result: results.ExecutionResult | None = None,
+  ) -> EvaluationMetricPossibleReturnTypes:
+    """Returns the value of the metric (+extra info?) for a given example."""
+    ...
+
+
 MetricFunction: TypeAlias = (
-    MetricFunctionWithExampleArg | MetricFunctionWithoutExampleArg
+    MetricFunctionWithExampleArg
+    | MetricFunctionWithoutExampleArg
+    | MetricFunctionWithExecutionResult
 )
 
 
@@ -316,20 +332,32 @@ async def _evaluate_example(
     tracing.execution_context.set(metrics_trace)
   if metric_functions:
     for metric_name, metric_function in metric_functions.items():
+      # TODO: Revisit how to handle robustly all the possible
+      # types of inputs to metrics in a nicer way that does not involve
+      # two nested try-except blocks.
       try:
         metric_value = await utils.call_and_maybe_await(
             metric_function,  # pyrefly: ignore[bad-argument-type]
             target=target,
             prediction=prediction,
             example=example,
+            execution_result=execution_result,  # pyrefly: ignore[unexpected-keyword]
         )
       except TypeError:
-        # Since not all metric functions require access to the `example` dict,
-        # we fall back to trying calling the metric function with just the
-        # `target` and `prediction` arguments.
-        metric_value = await utils.call_and_maybe_await(
-            metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
-        )
+        try:
+          metric_value = await utils.call_and_maybe_await(
+              metric_function,  # pyrefly: ignore[bad-argument-type]
+              target=target,
+              prediction=prediction,
+              example=example,
+          )
+        except TypeError:
+          # Since not all metric functions require access to the `example`
+          # dict, we fall back to trying calling the metric function with
+          # just the `target` and `prediction` arguments.
+          metric_value = await utils.call_and_maybe_await(
+              metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
+          )
       if isinstance(metric_value, tuple):
         metric_value, metric_extra_info = metric_value
         if metric_extra_info:
