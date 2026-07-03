@@ -250,14 +250,14 @@ class ReactTest(parameterized.TestCase):
     )
     llm_backend.register()
 
-    prompt_outputs, _ = executing.run(
+    prompt_outputs, _ = executing.run(  # pyrefly: ignore[no-matching-overload]
         prompt(
-            tools=config.tools,
-            exemplars=exemplars,
-            stop_prefix=stop_prefix,
-            stop_sequences=stop_sequences,
-            state=state,
-            force_finish=False,
+            tools=config.tools,  # pyrefly: ignore[unexpected-keyword]
+            exemplars=exemplars,  # pyrefly: ignore[unexpected-keyword]
+            stop_prefix=stop_prefix,  # pyrefly: ignore[unexpected-keyword]
+            stop_sequences=stop_sequences,  # pyrefly: ignore[unexpected-keyword]
+            state=state,  # pyrefly: ignore[unexpected-keyword]
+            force_finish=False,  # pyrefly: ignore[unexpected-keyword]
         ),
         enable_tracing=True,
     )

@@ -62,7 +62,7 @@ async def asyncgenerator_function(a: int) -> AsyncIterator[int]:
 
 
 def normal_function_with_typevar(a: _T, b: list[_T]) -> _T:
-  return a + b[0]
+  return a + b[0]  # pyrefly: ignore[unsupported-operation]
 
 
 @executing.make_executable()
@@ -273,7 +273,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
       return 0
 
     def add(a: int, b: int | None = None, c: int = 0) -> int:
-      return a + b + c
+      return a + b + c  # pyrefly: ignore[unsupported-operation]
 
     with self.subTest('can_not_update_if_not_configured'):
       with self.assertRaises(ValueError):
@@ -383,7 +383,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     @executing.make_executable  # pytype: disable=wrong-arg-types
     def add(a: int, b: int | None = None, c: int = 0) -> int:
-      return a + b + c
+      return a + b + c  # pyrefly: ignore[unsupported-operation]
 
     fn.configure(add, b=1)  # The `add` executable will be used.
     self.assertExecutableResultEqual(fn(1, **defaults), expected)  # pytype: disable=wrong-arg-count
@@ -397,7 +397,7 @@ class BaseTest(parameterized.TestCase, ExecutableAssertions):
 
     arguments = list(inspect.signature(fn).parameters.keys())
     self.assertListEqual(arguments, ['a', 'b', 'c'])
-    self.assertEqual(fn.__name__, 'fn')
+    self.assertEqual(fn.__name__, 'fn')  # pyrefly: ignore[missing-attribute]
 
   def test_configure_update_copy_registry(self):
     @builtins_base.Builtin[int]

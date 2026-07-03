@@ -131,11 +131,11 @@ class QACoTPromptJ2:
     """
     if exemplars is None:
       exemplars = self.exemplars
-    prompt_template = composables.j(self.prompt_text)
+    prompt_template = composables.j(self.prompt_text)  # pyrefly: ignore[bad-argument-type]
     _ = await prompt_template(question=question, exemplars=exemplars)
     return CoTReply(
-        answer=prompt_template['answer'].strip(),
-        reasoning=prompt_template['reasoning'].strip(),
+        answer=prompt_template['answer'].strip(),  # pyrefly: ignore[unsupported-operation]
+        reasoning=prompt_template['reasoning'].strip(),  # pyrefly: ignore[unsupported-operation]
     )
 
 
@@ -305,9 +305,9 @@ class QACoTPromptWithAnswerParserJ2:
     """
     if exemplars is None:
       exemplars = self.exemplars
-    prompt_template = composables.j(self.prompt_text)
+    prompt_template = composables.j(self.prompt_text)  # pyrefly: ignore[bad-argument-type]
     _ = await prompt_template(question=question, exemplars=exemplars)
-    return self.answer_parser(prompt_template['reasoning_and_answer'])
+    return self.answer_parser(prompt_template['reasoning_and_answer'])  # pyrefly: ignore[unsupported-operation]
 
 
 # Exemplars used for math word problems in the original chain-of-thought paper.

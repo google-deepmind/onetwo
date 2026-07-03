@@ -34,7 +34,7 @@ Document = retrieval_data_structures.Document
 
 
 @dataclasses.dataclass(kw_only=True)
-class ConstrainedEmbeddingBasedIndex(
+class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     indexing.EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
     constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
     Generic[QueryT, RetrievalResultT, DocT],
@@ -72,7 +72,7 @@ class ConstrainedEmbeddingBasedIndex(
   discrete_field_extractors: dict[str, Callable[[DocT], Any]] = (
       dataclasses.field(default_factory=dict)
   )
-  searcher: searchers.ConstrainedSearcher = dataclasses.field(
+  searcher: searchers.ConstrainedSearcher = dataclasses.field(  # pyrefly: ignore[bad-assignment]
       default_factory=searchers.ConstrainedBruteForceSearcher
   )
 
@@ -245,7 +245,7 @@ class ConstrainedEmbeddingBasedIndex(
 
 
 @dataclasses.dataclass(kw_only=True)
-class RewritingConstrainedEmbeddingBasedIndex(
+class RewritingConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     indexing.RewritingEmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
     constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
     Generic[QueryT, RetrievalResultT, DocT],

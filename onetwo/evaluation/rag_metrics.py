@@ -164,8 +164,8 @@ async def accuracy_critic(
   Returns:
     A tuple of (accuracy_score, extra_info_dict).
   """
-  return await evaluation.structured_evaluation_critic(
-      target=target,
-      prediction=prediction.answer,
-      example=example,
+  return await evaluation.structured_evaluation_critic(  # pyrefly: ignore[not-async]
+      target=target,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      prediction=prediction.answer,  # pyrefly: ignore[unexpected-keyword]
+      example=example,  # pyrefly: ignore[unexpected-keyword]
   )

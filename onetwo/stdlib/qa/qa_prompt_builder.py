@@ -68,7 +68,8 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
   query_to_content: Callable[[QueryT], PromptContentSource] = str
 
   template: Callable[[Composable, Composable], Composable] = (
-      lambda context, question: (
+      lambda context, question: (  # pyrefly: ignore[bad-assignment]
+          # pyrefly: ignore[bad-argument-type]
           composables.c(textwrap.dedent("""\
                   Use the following pieces of context to answer the question at
                   the end. If you don't know the answer, just say that you don't know,
@@ -77,23 +78,23 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
                   Context:
                   """))
           + context
-          + composables.c('\n\nQuestion: ')
+          + composables.c('\n\nQuestion: ')  # pyrefly: ignore[bad-argument-type]
           + question
-          + composables.c('\nAnswer:')
+          + composables.c('\nAnswer:')  # pyrefly: ignore[bad-argument-type]
       )
   )
 
   async def _concatenate_documents(self, docs: Iterable[DocT]) -> Composable:
     """Formats each Document and concatenates them using the delimiter."""
-    e = composables.c(content_lib.ChunkList())
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
     for i, d in enumerate(docs):
       if i > 0:
-        e += composables.c(self.delimiter)
+        e += composables.c(self.delimiter)  # pyrefly: ignore[bad-argument-type, unsupported-operation]
       content = self.doc_to_content(d)
       if inspect.isawaitable(content):
         content = await content
-      e += composables.c(content)
-    return e
+      e += composables.c(content)  # pyrefly: ignore[bad-argument-type, unsupported-operation]
+    return e  # pyrefly: ignore[bad-return]
 
   async def _compile_prompt(
       self, docs: Iterable[DocT], question: QueryT
@@ -114,9 +115,9 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
     formatted_question = self.query_to_content(question)
     if inspect.isawaitable(formatted_question):
       formatted_question = await formatted_question
-    formatted_question = composables.c(formatted_question)
+    formatted_question = composables.c(formatted_question)  # pyrefly: ignore[bad-argument-type]
 
-    return self.template(context_block, formatted_question)
+    return self.template(context_block, formatted_question)  # pyrefly: ignore[bad-argument-type]
 
   @executing.make_executable(copy_self=False)
   async def compile_prompt(
@@ -158,7 +159,7 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
     """
     composable_prompt: Composable = await self._compile_prompt(docs, question)
     context = composing.Context()
-    await composable_prompt.execute(context)
+    await composable_prompt.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
     return context
 
 

@@ -42,21 +42,21 @@ async def mock_embed_fn(
 ) -> np.ndarray:
   """Mock async embed function."""
   del content, task_type, title, kwargs
-  embedding = mock_embed_fn.embeddings[mock_embed_fn.call_count]
-  mock_embed_fn.call_count += 1
+  embedding = mock_embed_fn.embeddings[mock_embed_fn.call_count]  # pyrefly: ignore[missing-attribute]
+  mock_embed_fn.call_count += 1  # pyrefly: ignore[missing-attribute]
   return embedding
 
 
-mock_embed_fn.embeddings = []
-mock_embed_fn.call_count = 0
+mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
 
 
 class NaiveIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -128,8 +128,8 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.patcher = mock.patch('onetwo.builtins.llm.embed', new=mock_embed_fn)
     self.mock_llm_embed = self.patcher.start()
     self.addCleanup(self.patcher.stop)
@@ -145,7 +145,7 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     doc2_embed = np.array([0.1, 0.9])
     query_embed = np.array([1.0, 0.0])
 
-    mock_embed_fn.embeddings = [doc1_embed, doc2_embed, query_embed]
+    mock_embed_fn.embeddings = [doc1_embed, doc2_embed, query_embed]  # pyrefly: ignore[missing-attribute]
 
     index = indexing.EmbeddingBasedIndex()
     ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
@@ -193,7 +193,7 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
         self.called_embed = False
 
       @executing.make_executable(copy_self=False)
-      async def embed(self, content: str | content_lib.ChunkList, **kwargs):
+      async def embed(self, content: str | content_lib.ChunkList, **kwargs):  # pyrefly: ignore[bad-override]
         self.called_embed = True
         return np.array([0.5, 0.5])
 
@@ -220,8 +220,8 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -251,7 +251,7 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
     # Order: doc1, doc2, doc3 (during add_docs), then query (during retrieve).
     # Then query three more times to compute distances.
     # Then query one more time during retrieve_doc_scores.
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         doc1_embed,
         doc2_embed,
         doc3_embed,
@@ -275,7 +275,7 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertEqual(retrieved_list[0].doc_id, 'doc1')
     self.assertEqual(retrieved_list[1].doc_id, 'doc2')
 
-    self.assertEqual(mock_embed_fn.call_count, 4)
+    self.assertEqual(mock_embed_fn.call_count, 4)  # pyrefly: ignore[missing-attribute]
 
     # Each of these will reembed the query
     score_zero = ot.run(index.retrieve_doc_score(query, 0))  # pytype: disable=wrong-arg-count
@@ -303,8 +303,8 @@ class RewritingEmbeddingBasedIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -329,7 +329,7 @@ class RewritingEmbeddingBasedIndexTest(absltest.TestCase):
         Document(doc_id='doc2', content='there'),
     ]
 
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         np.array([0.9, 0.1]),
         np.array([0.1, 0.9]),
     ]
@@ -352,8 +352,8 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -382,7 +382,7 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     doc3_embed = np.array([0.1, 0.9])
     query_embed = np.array([1.0, 0.0])
 
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         doc1_embed,
         doc2_embed,
         doc3_embed,
@@ -404,7 +404,7 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertEqual(retrieved_list[0].doc_id, 'doc1')
     self.assertEqual(retrieved_list[1].doc_id, 'doc2')
 
-    self.assertEqual(mock_embed_fn.call_count, 4)
+    self.assertEqual(mock_embed_fn.call_count, 4)  # pyrefly: ignore[missing-attribute]
 
     score_zero = ot.run(index.retrieve_doc_score(query, 0))  # pytype: disable=wrong-arg-count
     score_one = ot.run(index.retrieve_doc_score(query, 1))  # pytype: disable=wrong-arg-count
@@ -429,7 +429,7 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         Document(doc_id='doc2', content='This is document two.'),
         Document(doc_id='doc3', content='This is document three.'),
     ]
-    mock_embed_fn.embeddings = [np.array([0.9, 0.1]) for _ in range(20)]
+    mock_embed_fn.embeddings = [np.array([0.9, 0.1]) for _ in range(20)]  # pyrefly: ignore[missing-attribute]
     rewriter = corpus_rewriting.ChunkingCorpusRewriter(
         chunker=chunking.ChunkByMaxTokens(max_tokens_per_chunk=5)
     )
@@ -475,7 +475,7 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         Document(doc_id='doc2', content='This is document two.'),
     ]
 
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         np.array([0.9, 0.1]),
         np.array([0.8, 0.2]),
     ]
@@ -516,7 +516,7 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     doc2_embed = np.array([0.8, 0.2])
     query_embed = np.array([1.0, 0.0])
 
-    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]
+    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]  # pyrefly: ignore[missing-attribute]
     ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
 
     index.save(self.temp_dir)
@@ -524,8 +524,8 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     new_index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
     ot.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
 
-    mock_embed_fn.embeddings = [query_embed]
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = [query_embed]  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     retrieved_docs = ot.run(new_index('find document one', max_results=2))  # pytype: disable=wrong-arg-count
     retrieved_list = list(retrieved_docs)
     self.assertLen(retrieved_list, 2)
@@ -537,8 +537,8 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -562,7 +562,7 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
         Document(doc_id='a', content='A'),
         Document(doc_id='b', content='B'),
     ]
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         np.array([0.1, 0.2]),
         np.array([0.3, 0.4]),
     ]
@@ -588,8 +588,8 @@ class PickleabilityTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -603,7 +603,7 @@ class PickleabilityTest(absltest.TestCase):
     ]
     doc1_embed = np.array([0.9, 0.1])
     doc2_embed = np.array([0.1, 0.9])
-    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]
+    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]  # pyrefly: ignore[missing-attribute]
 
     index = indexing.EmbeddingBasedIndex()
     ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count

@@ -142,7 +142,7 @@ class CriticsTest(parameterized.TestCase):
       updates = await dist_agent.sample_next_step(state=state, num_candidates=3)  # pytype: disable=wrong-keyword-args
       for update in updates:
         scores.append(
-            await scoring_function(state, update)
+            await scoring_function(state, update)  # pyrefly: ignore[bad-argument-count, not-async]
         )
         expected_scores.append(dist_map[update.update])
 
@@ -155,7 +155,7 @@ class CriticsTest(parameterized.TestCase):
     state = _ULS('', [_SU('a', 0.1), _SU('b', 0.3), _SU('c', 0.6)])
     update = _SU('d', 0.1)
 
-    res = executing.run(scoring_function(state, update))
+    res = executing.run(scoring_function(state, update))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
     self.assertEqual(res, 1.1)
 
 

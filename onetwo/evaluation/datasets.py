@@ -123,7 +123,7 @@ def parse_standard_qa_example(example: dict[str, Any]) -> _ExampleDict:
 
 def generate_document_id(doc: _Document) -> str:
   """Generates a deterministic document ID based on the document content."""
-  return str(uuid.uuid5(uuid.NAMESPACE_OID, doc.content))
+  return str(uuid.uuid5(uuid.NAMESPACE_OID, doc.content))  # pyrefly: ignore[bad-argument-type]
 
 
 def load_examples_from_jsonl(
@@ -292,7 +292,7 @@ class JsonlDatasetLoader(DatasetLoader[_ExampleDict]):
           if not line:
             continue
           try:
-            doc = _Document.from_json(line)
+            doc = _Document.from_json(line)  # pyrefly: ignore[missing-attribute]
             if not doc.doc_id:
               missing_doc_id_count += 1
               # Generate a deterministic ID if missing.

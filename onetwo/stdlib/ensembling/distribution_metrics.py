@@ -44,7 +44,7 @@ class AccuracyAtK(Generic[_O]):
   """
 
   k: int | None = 1
-  base_metric: evaluation.MetricFunction = lambda t, p: 1.0 * (t == p)
+  base_metric: evaluation.MetricFunction = lambda t, p: 1.0 * (t == p)  # pyrefly: ignore[bad-assignment]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
@@ -66,7 +66,7 @@ class AccuracyAtK(Generic[_O]):
     # `async` function, though, this could potentially be optimized in the
     # future by wrapping the calls to the base metric with `executing.parallel`.
     base_metric_values = [
-        await utils.call_and_maybe_await(self.base_metric, target, x)
+        await utils.call_and_maybe_await(self.base_metric, target, x)  # pyrefly: ignore[bad-argument-type]
         for x, _ in prediction[:k]
     ]
-    return max(base_metric_values, default=0.0)
+    return max(base_metric_values, default=0.0)  # pyrefly: ignore[no-matching-overload]

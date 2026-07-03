@@ -43,8 +43,8 @@ async def mock_embed_fn(
 ) -> np.ndarray:
   """Mock async embed function."""
   del text, task_type, kwargs
-  embedding = mock_embed_fn.embeddings[mock_embed_fn.call_count]
-  mock_embed_fn.call_count += 1
+  embedding = mock_embed_fn.embeddings[mock_embed_fn.call_count]  # pyrefly: ignore[missing-attribute]
+  mock_embed_fn.call_count += 1  # pyrefly: ignore[missing-attribute]
   return embedding
 
 
@@ -53,8 +53,8 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -83,7 +83,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
 
     # Order: doc1, doc2, doc3 (during add_docs), then query (during retrieve).
     # Then query one more time during retrieve with min_score.
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         doc1_embed,
         doc2_embed,
         doc3_embed,
@@ -177,7 +177,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
         np.array([0.4, 0.6]),
     ]
     query_embed = np.array([0.15, 0.85])
-    mock_embed_fn.embeddings = doc_embeds + [query_embed]
+    mock_embed_fn.embeddings = doc_embeds + [query_embed]  # pyrefly: ignore[missing-attribute]
 
     def extract_external_keys(doc):
       return doc.metadata.get('external_keys', [])
@@ -248,7 +248,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
         np.array([0.4, 0.6]),
     ]
     query_embed = np.array([1.0, 0.0])
-    mock_embed_fn.embeddings = doc_embeds + 2 * [query_embed]
+    mock_embed_fn.embeddings = doc_embeds + 2 * [query_embed]  # pyrefly: ignore[missing-attribute]
 
     def extract_external_keys(doc):
       return doc.metadata.get('external_keys', [])
@@ -323,8 +323,8 @@ class ConstrainedRewritingEmbeddingBasedIndexTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -346,7 +346,7 @@ class ConstrainedRewritingEmbeddingBasedIndexTest(absltest.TestCase):
     doc2_embed = np.array([0.1, 0.9])
     query_embed = np.array([1.0, 0.0])
 
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         doc1_embed,
         doc2_embed,
         query_embed,
@@ -399,8 +399,8 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()
@@ -447,7 +447,7 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
         Document(doc_id='a', content='A', metadata={'external_keys': ['a']}),
         Document(doc_id='b', content='B', metadata={'external_keys': ['b']}),
     ]
-    mock_embed_fn.embeddings = [
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
         np.array([0.1, 0.2]),
         np.array([0.3, 0.4]),
     ]
@@ -528,7 +528,7 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
     docs = [
         Document(doc_id='a', content='A', metadata={'external_keys': ['old']}),
     ]
-    mock_embed_fn.embeddings = [np.array([0.1, 0.2])]
+    mock_embed_fn.embeddings = [np.array([0.1, 0.2])]  # pyrefly: ignore[missing-attribute]
     executing.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
     index.save(self.temp_dir)
 
@@ -566,8 +566,8 @@ class ConstrainedPickleabilityTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    mock_embed_fn.embeddings = []
-    mock_embed_fn.call_count = 0
+    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
     self.mock_llm_embed = mock.patch(
         'onetwo.builtins.llm.embed', new=mock_embed_fn
     ).start()

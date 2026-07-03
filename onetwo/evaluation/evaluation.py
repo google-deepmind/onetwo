@@ -234,8 +234,8 @@ async def _evaluate_example(
     *,
     inputs_extractor: Callable[
         [_Example], tuple[Sequence[Any], Mapping[str, Any]]
-    ] = lambda x: ([x['question']], {}),
-    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],
+    ] = lambda x: ([x['question']], {}),  # pyrefly: ignore[bad-index]
+    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],  # pyrefly: ignore[bad-index]
     metric_functions: dict[str, MetricFunction] | None = None,
     output_final_states: bool = False,
     enable_tracing: bool = True,
@@ -285,12 +285,12 @@ async def _evaluate_example(
     if enable_tracing:
       if isinstance(strategy, agents_base.Agent):
         (prediction, final_state), execution_result = (
-            await _execute_with_tracing(
-                strategy, *args, **kwargs, return_final_state=True
+            await _execute_with_tracing(  # pyrefly: ignore[not-async]
+                strategy, *args, **kwargs, return_final_state=True  # pyrefly: ignore[unexpected-keyword]
             )
         )
       else:
-        prediction, execution_result = await _execute_with_tracing(
+        prediction, execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async]
             strategy, *args, **kwargs
         )
     else:
@@ -299,7 +299,7 @@ async def _evaluate_example(
             strategy, *args, **kwargs, return_final_state=True
         )
       else:
-        prediction = await utils.call_and_maybe_await(strategy, *args, **kwargs)
+        prediction = await utils.call_and_maybe_await(strategy, *args, **kwargs)  # pyrefly: ignore[invalid-param-spec]
   except Exception as e:  # pylint: disable=broad-exception-caught
     traceback.print_exc()
     error = e
@@ -318,7 +318,7 @@ async def _evaluate_example(
     for metric_name, metric_function in metric_functions.items():
       try:
         metric_value = await utils.call_and_maybe_await(
-            metric_function,
+            metric_function,  # pyrefly: ignore[bad-argument-type]
             target=target,
             prediction=prediction,
             example=example,
@@ -328,7 +328,7 @@ async def _evaluate_example(
         # we fall back to trying calling the metric function with just the
         # `target` and `prediction` arguments.
         metric_value = await utils.call_and_maybe_await(
-            metric_function, target=target, prediction=prediction
+            metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
         )
       if isinstance(metric_value, tuple):
         metric_value, metric_extra_info = metric_value
@@ -365,7 +365,7 @@ async def _evaluate_example(
         stage_name=strategy_name,
         inputs={'args': args, 'kwargs': kwargs},
         outputs=outputs,
-        error=error if error else '',
+        error=error if error else '',  # pyrefly: ignore[bad-argument-type]
     )
   else:
     # Strategy executed without error. Output a full summary.
@@ -400,8 +400,8 @@ async def _evaluate_example(
     evaluation_debug.outputs['output'] = output[0]
 
   if error and not evaluation_debug.error:
-    evaluation_debug.error = error
-  evaluation_debug.counters = summary.counters
+    evaluation_debug.error = error  # pyrefly: ignore[bad-assignment]
+  evaluation_debug.counters = summary.counters  # pyrefly: ignore[missing-attribute]
   # TODO: Modify `EvaluationResult.targets` to accept `Any`, and
   # then store the target value there directly rather than wrapping as a dict.
   evaluation_debug.targets = {'target': target}
@@ -435,8 +435,8 @@ def evaluate(
     *,
     inputs_extractor: Callable[
         [_Example], tuple[Sequence[Any], Mapping[str, Any]]
-    ] = lambda x: ([x['question']], {}),
-    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],
+    ] = lambda x: ([x['question']], {}),  # pyrefly: ignore[bad-index]
+    target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],  # pyrefly: ignore[bad-index]
     metric_functions: Mapping[str, MetricFunction] | None = None,
     aggregation_functions: Sequence[AggregationFunction] | None = None,
     callback: (
@@ -510,7 +510,7 @@ def evaluate(
   """
   # pyformat: enable
   if hasattr(examples, '__len__'):
-    examples_len = len(examples)
+    examples_len = len(examples)  # pyrefly: ignore[bad-argument-type]
   elif examples_total_num is not None:
     examples_len = examples_total_num
   else:
@@ -529,18 +529,18 @@ def evaluate(
 
   executables = (
       _evaluate_example(
-          strategy=strategy,
-          example=example,
-          inputs_extractor=inputs_extractor,
-          target_extractor=target_extractor,
-          metric_functions=metric_functions,
-          output_final_states=output_final_states,
-          enable_tracing=enable_tracing,
+          strategy=strategy,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+          example=example,  # pyrefly: ignore[unexpected-keyword]
+          inputs_extractor=inputs_extractor,  # pyrefly: ignore[unexpected-keyword]
+          target_extractor=target_extractor,  # pyrefly: ignore[unexpected-keyword]
+          metric_functions=metric_functions,  # pyrefly: ignore[unexpected-keyword]
+          output_final_states=output_final_states,  # pyrefly: ignore[unexpected-keyword]
+          enable_tracing=enable_tracing,  # pyrefly: ignore[unexpected-keyword]
       )
       for example in examples
   )
   eval_executable = executing.par_iter(
-      executables=executables, chunk_size=chunk_size
+      executables=executables, chunk_size=chunk_size  # pyrefly: ignore[bad-argument-type]
   )
 
   with executing.safe_stream(eval_executable, iteration_depth=1) as iterator:
@@ -554,7 +554,7 @@ def evaluate(
         )
       # Payload contains a single element of the form
       # (critic_result, example_index).
-      (example, example_evaluation_summary), example_index = update.payload[0]
+      (example, example_evaluation_summary), example_index = update.payload[0]  # pyrefly: ignore[not-iterable]
       if example_key_function:
         example_key = example_key_function(example_index, example)
       else:
@@ -631,8 +631,8 @@ class EvaluationConfig(Generic[_Example, _I, _O]):
   examples: Iterable[_Example]
   inputs_extractor: Callable[
       [_Example], tuple[Sequence[Any], Mapping[str, Any]]
-  ] = lambda x: ([x[_QUESTION_KEY]], {})
-  target_extractor: Callable[[_Example], _O] = lambda x: x['answer']
+  ] = lambda x: ([x[_QUESTION_KEY]], {})  # pyrefly: ignore[unsupported-operation]
+  target_extractor: Callable[[_Example], _O] = lambda x: x['answer']  # pyrefly: ignore[unsupported-operation]
   metric_functions: Mapping[str, MetricFunction] | None = None
   aggregation_functions: Sequence[AggregationFunction] | None = None
   callback: (

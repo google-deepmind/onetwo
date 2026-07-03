@@ -72,9 +72,9 @@ async def j(
     role: content_lib.RoleType = None,
 ) -> content_lib.Chunk:
   """Composable version of a jinja formatted prompt using context vars."""
-  result = await prompt_templating.JinjaTemplateWithCallbacks(
+  result = await prompt_templating.JinjaTemplateWithCallbacks(  # pyrefly: ignore[not-async]
       name=name, text=template
-  ).render(**context.variables)
+  ).render(**context.variables)  # pyrefly: ignore[bad-argument-type]
   # We extract the output variables from the template and store them into the
   # context.
   for key, value in result.items():

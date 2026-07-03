@@ -167,7 +167,7 @@ class LlmTest(parameterized.TestCase):
         top_p: float | None = None,
     ) -> _T:
       del prompt, cls, temperature, max_tokens, top_k, top_p
-      return 1
+      return 1  # pyrefly: ignore[bad-return]
 
     llm.generate_object.configure(generate_test_function)
     result = executing.run(llm.generate_object(prompt='hello', cls=int))  # pytype: disable=wrong-keyword-args

@@ -91,7 +91,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
       config_path = os.path.join(path, self.embed_backend_config_json_name)
       with open(config_path, 'w') as f:
         try:
-          f.write(state.embed_backend_config.to_json())
+          f.write(state.embed_backend_config.to_json())  # pyrefly: ignore[missing-attribute]
         except TypeError as e:
           raise TypeError(
               'Failed to serialize EmbedBackendConfig to JSON. Ensure all '
@@ -139,7 +139,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
         json_str = f.read()
       embed_backend_config = backend_registry.EmbedBackendConfig.from_json(
           json_str
-      )
+      )  # pyrefly: ignore[missing-attribute]
 
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
@@ -173,7 +173,7 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
 
     if isinstance(state, index_state.ConstrainedEmbeddingBasedIndexState):
       path = base_path or self.base_path
-      indices_path = os.path.join(path, self.discrete_indices_json_name)
+      indices_path = os.path.join(path, self.discrete_indices_json_name)  # pyrefly: ignore[no-matching-overload]
       with open(indices_path, 'w') as f:
         json.dump(state.doc_indices_by_discrete_value, f)
 
@@ -186,7 +186,7 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
     base_state = await super().load(base_path)  # pytype: disable=wrong-arg-count
 
     path = base_path or self.base_path
-    indices_path = os.path.join(path, self.discrete_indices_json_name)
+    indices_path = os.path.join(path, self.discrete_indices_json_name)  # pyrefly: ignore[no-matching-overload]
     with open(indices_path, 'r') as f:
       loaded_indices = json.load(f)
 
@@ -202,5 +202,5 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
         docs=base_state.docs,
         doc_embeddings=base_state.doc_embeddings,
         embed_backend_config=base_state.embed_backend_config,
-        doc_indices_by_discrete_value=doc_indices_by_discrete_value,
+        doc_indices_by_discrete_value=doc_indices_by_discrete_value,  # pyrefly: ignore[bad-argument-type]
     )

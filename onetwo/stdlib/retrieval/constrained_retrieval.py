@@ -151,7 +151,7 @@ def get_candidate_indices(
       return []
 
     val_to_id_map = field_to_val_id_map.get(field_name)
-    current_matches = get_indices_for_constraint(constraint, val_to_id_map)
+    current_matches = get_indices_for_constraint(constraint, val_to_id_map)  # pyrefly: ignore[bad-argument-type]
 
     if candidate_set is None:
       candidate_set = current_matches
@@ -160,10 +160,10 @@ def get_candidate_indices(
       if not candidate_set:
         return []
 
-  return sorted(list(candidate_set))
+  return sorted(list(candidate_set))  # pyrefly: ignore[bad-argument-type]
 
 
-class ConstrainedRetriever(
+class ConstrainedRetriever(  # pyrefly: ignore[invalid-type-var]
     retrieval.Retriever[QueryT, RetrievalResultT],
     Protocol[QueryT, RetrievalResultT],
 ):

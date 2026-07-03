@@ -336,11 +336,11 @@ class PythonPlanningPromptJ2(
       tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """See PythonPlanningPromptProtocol."""
-    result = await self.render(
-        instruction=self.instruction,
-        exemplars=exemplars,
-        state=state,
-        tools=tools,
+    result = await self.render(  # pyrefly: ignore[not-async]
+        instruction=self.instruction,  # pyrefly: ignore[unexpected-keyword]
+        exemplars=exemplars,  # pyrefly: ignore[unexpected-keyword]
+        state=state,  # pyrefly: ignore[unexpected-keyword]
+        tools=tools,  # pyrefly: ignore[unexpected-keyword]
     )
     if 'llm_reply' in result:
       # If the prompt succeeded in running to the end, we should come here.
@@ -379,17 +379,17 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
 
   def _render_tool(self, tool: llm_tool_use.Tool) -> composing.Composable:
     """Returns a composable with the prompt content describing a single tool."""
-    e = composables.c(
-        f'\nTool name: {tool.name}\n',
-        role=self.instruction_role,
+    e = composables.c(  # pyrefly: ignore[unsupported-operation]
+        f'\nTool name: {tool.name}\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     ) + composables.c(
-        f'Tool description: {tool.description}\n',
-        role=self.instruction_role,
+        f'Tool description: {tool.description}\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     )
     if tool.example:
       e += composables.c(
-          f'Tool example: {tool.example_str}\n',
-          role=self.instruction_role,
+          f'Tool example: {tool.example_str}\n',  # pyrefly: ignore[bad-argument-type]
+          role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
       )
     return e
 
@@ -399,37 +399,37 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
   ) -> composing.Composable:
     """Returns a composable with the prompt content describing all tools."""
     e = composables.f(
-        'Here is a list of available tools:\n', role=self.instruction_role
+        'Here is a list of available tools:\n', role=self.instruction_role  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
     )
     for tool in tools:
       e += self._render_tool(tool)
-    return e
+    return e  # pyrefly: ignore[bad-return]
 
   def _render_step(
       self, step: PythonPlanningStep
   ) -> composing.Composable:
     """Returns a composable for rendering a single PythonPlanning step."""
-    e = composables.c(content_lib.ChunkList())
-    e += composables.c(
-        f'```\n{step.code}\n```\n',
-        role=self.response_role,
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
+    e += composables.c(  # pyrefly: ignore[unsupported-operation]
+        f'```\n{step.code}\n```\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.response_role,  # pyrefly: ignore[unexpected-keyword]
     )
     e += composables.c(
-        f'{step.result.strip()}\n\n',
-        role=self.instruction_role,
+        f'{step.result.strip()}\n\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     )
     if step.is_finished:
       e += composables.c(
-          '**Done**\n',
-          role=content_lib.PredefinedRole.MODEL,
+          '**Done**\n',  # pyrefly: ignore[bad-argument-type]
+          role=content_lib.PredefinedRole.MODEL,  # pyrefly: ignore[unexpected-keyword]
       )
     return e
 
   def _render_state(self, state: PythonPlanningState) -> composing.Composable:
     """Returns a composable for rendering the agent state for one example."""
-    e = composables.c('\n**Question**: ', role=content_lib.PredefinedRole.USER)
-    e += composables.c(state.inputs, role=content_lib.PredefinedRole.USER)
-    e += composables.f('\n', role=content_lib.PredefinedRole.USER)
+    e = composables.c('\n**Question**: ', role=content_lib.PredefinedRole.USER)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+    e += composables.c(state.inputs, role=content_lib.PredefinedRole.USER)  # pyrefly: ignore[bad-argument-type, unexpected-keyword, unsupported-operation]
+    e += composables.f('\n', role=content_lib.PredefinedRole.USER)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
     for step in state.updates:
       e += self._render_step(step)
     return e
@@ -438,10 +438,10 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       self, exemplars: Sequence[PythonPlanningState]
   ) -> composing.Composable:
     """Returns a composable for rendering all of the few-shot exemplars."""
-    e = composables.c(content_lib.ChunkList())
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
     for exemplar in exemplars:
       e += self._render_state(exemplar)
-    return e
+    return e  # pyrefly: ignore[bad-return]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
@@ -450,18 +450,18 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       state: PythonPlanningState,
       tools: Sequence[llm_tool_use.Tool],
   ) -> content_lib.ChunkList | str:
-    e = composables.c(content_lib.ChunkList())
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
     # Instruction
     if self.instruction:
-      e += composables.c(
-          self.instruction + '\n\n', role=self.instruction_role)
+      e += composables.c(  # pyrefly: ignore[unsupported-operation]
+          self.instruction + '\n\n', role=self.instruction_role)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
 
     e += self._render_tools(tools)
     e += self._render_exemplars(exemplars)
     e += self._render_state(state)
-    e += composables.f('```', role=self.response_role)
+    e += composables.f('```', role=self.response_role)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
     # Using chat instead of generate_text to return ChunkList.
-    e += composables.store('llm_reply', composables.chat(stop=['\n```']))
+    e += composables.store('llm_reply', composables.chat(stop=['\n```']))  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
 
     try:
       _ = await e
@@ -470,7 +470,7 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       e['llm_reply'] = f'#ERROR#: {error_message}'
     # Checking 'llm_reply' in e itself results in a ValueError.
     # So just try to return it for now.
-    return e['llm_reply'].strip()
+    return e['llm_reply'].strip()  # pyrefly: ignore[bad-index]
 
 
 # TODO: Generalize the output type from `str` to `Any`.
@@ -582,10 +582,10 @@ class PythonPlanningAgent(
       raise ValueError('Environment must be specified for this agent.')
 
     # Prompt the LLM to determine the next action to take.
-    llm_reply = await self.prompt(
-        exemplars=self.exemplars,
-        state=state,
-        tools=environment.config.tools,
+    llm_reply = await self.prompt(  # pyrefly: ignore[not-async]
+        exemplars=self.exemplars,  # pyrefly: ignore[unexpected-keyword]
+        state=state,  # pyrefly: ignore[unexpected-keyword]
+        tools=environment.config.tools,  # pyrefly: ignore[unexpected-keyword]
     )
 
     sandbox_state = _sandbox_state_from_agent_state(state)

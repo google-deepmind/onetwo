@@ -189,7 +189,7 @@ def _parse_assign_targets(targets: list[ast.Expr], text: str) -> None:
         f'Assign targets in {text} should be either a Name or Tuple.'
         f' Is: {targets[0]}'
     )
-  return assign_targets
+  return assign_targets  # pyrefly: ignore[bad-return]
 
 
 def _parse_call_content(
@@ -209,7 +209,7 @@ def _parse_call_content(
 
     # Extract assign_targets.
     if isinstance(parse_tree.body[0], ast.Assign):
-      assign_targets = _parse_assign_targets(parse_tree.body[0].targets, text)
+      assign_targets = _parse_assign_targets(parse_tree.body[0].targets, text)  # pyrefly: ignore[bad-argument-type]
     elif isinstance(parse_tree.body[0], ast.Expr):
       assign_targets = []
     else:
@@ -249,7 +249,7 @@ def _parse_call_content(
     kwargs = {
         arg.arg: ast.literal_eval(arg.value) for arg in call_node.keywords
     }
-    return assign_targets, call_node.func.id, args, kwargs
+    return assign_targets, call_node.func.id, args, kwargs  # pyrefly: ignore[bad-return, missing-attribute]
   elif fmt in [ArgumentFormat.YAML, ArgumentFormat.YAML_CODE]:
     # TODO: Figure out how to extend assign statements to YAML.
     contents = yaml.safe_load(text)
@@ -481,7 +481,7 @@ class ToolExample:
   rendering_format: ArgumentFormat | None = None
 
   def render(self) -> str:
-    rendered_call = self.function_call.render(self.rendering_format)
+    rendered_call = self.function_call.render(self.rendering_format)  # pyrefly: ignore[bad-argument-type]
     rendered_response = render_response(self.rendering_format, self.response)
     return f'{rendered_call}\nwill return: {rendered_response}'
 

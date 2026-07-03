@@ -89,7 +89,7 @@ class ReActStep:
   def render_action(self) -> str | content_lib.ChunkList:
     """Returns the action formatted appropriately for insertion in a prompt."""
     if self.action is not None:
-      return self.action.render(fmt=self.fmt)
+      return self.action.render(fmt=self.fmt)  # pyrefly: ignore[bad-argument-type]
     else:
       return str(self.action)
 
@@ -365,13 +365,13 @@ class ReActPromptJ2(
       tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """See ReActPromptProtocol."""
-    result = await self.render(
-        force_finish=force_finish,
-        exemplars=exemplars,
-        state=state,
-        stop_prefix=stop_prefix,
-        stop_sequences=stop_sequences,
-        tools=tools,
+    result = await self.render(  # pyrefly: ignore[not-async]
+        force_finish=force_finish,  # pyrefly: ignore[unexpected-keyword]
+        exemplars=exemplars,  # pyrefly: ignore[unexpected-keyword]
+        state=state,  # pyrefly: ignore[unexpected-keyword]
+        stop_prefix=stop_prefix,  # pyrefly: ignore[unexpected-keyword]
+        stop_sequences=stop_sequences,  # pyrefly: ignore[unexpected-keyword]
+        tools=tools,  # pyrefly: ignore[unexpected-keyword]
     )
     if 'llm_reply' in result:
       # If the prompt succeeded in running to the end, we should come here.
@@ -417,17 +417,17 @@ class ReActPromptComposable(ReActPromptProtocol):
       tool: llm_tool_use.Tool,
   ) -> composing.Composable:
     """Returns a composable with the prompt content describing a single tool."""
-    e = composables.c(
-        f'Tool name: {tool.name}\n',
-        role=self.instruction_role,
+    e = composables.c(  # pyrefly: ignore[unsupported-operation]
+        f'Tool name: {tool.name}\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     ) + composables.c(
-        f'Tool description: {tool.description}\n',
-        role=self.instruction_role,
+        f'Tool description: {tool.description}\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     )
     if tool.example:
       e += composables.c(
-          f'Tool example: {tool.example_str}\n',
-          role=self.instruction_role,
+          f'Tool example: {tool.example_str}\n',  # pyrefly: ignore[bad-argument-type]
+          role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
       )
     return e
 
@@ -437,12 +437,12 @@ class ReActPromptComposable(ReActPromptProtocol):
   ) -> composing.Composable:
     """Returns a composable with the prompt content describing all tools."""
     e = composables.f(
-        'Here is a list of available tools:\n\n', role=self.instruction_role
+        'Here is a list of available tools:\n\n', role=self.instruction_role  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
     )
     for tool in tools:
       e += self._build_tool_composable(tool)
-    e += composables.f('\n', role=self.instruction_role)
-    return e
+    e += composables.f('\n', role=self.instruction_role)  # pyrefly: ignore[bad-argument-type, unexpected-keyword, unsupported-operation]
+    return e  # pyrefly: ignore[bad-return]
 
   def _build_update_step(
       self,
@@ -450,27 +450,27 @@ class ReActPromptComposable(ReActPromptProtocol):
       stop_prefix: str,
   ) -> composing.Composable:
     """Returns a composable for rendering a single ReAct step."""
-    e = composables.c(content_lib.ChunkList())
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
     if step.thought:
-      e += composables.c(
-          f'[Thought]: {step.thought}\n', role=self.response_role
+      e += composables.c(  # pyrefly: ignore[unsupported-operation]
+          f'[Thought]: {step.thought}\n', role=self.response_role  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       )
     if step.action:
-      e += composables.c(
-          f'[Act]: {step.render_action()}\n', role=self.response_role
+      e += composables.c(  # pyrefly: ignore[unsupported-operation]
+          f'[Act]: {step.render_action()}\n', role=self.response_role  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       )
       if step.observation:
         e += composables.c(
-            f'[{stop_prefix}Observe]: {step.render_observation()}\n',
-            role=content_lib.PredefinedRole.USER,
+            f'[{stop_prefix}Observe]: {step.render_observation()}\n',  # pyrefly: ignore[bad-argument-type]
+            role=content_lib.PredefinedRole.USER,  # pyrefly: ignore[unexpected-keyword]
         )
     elif step.is_finished:
       if step.observation:
-        e += composables.c(
-            f'[Finish]: {step.observation}\n',
-            role=content_lib.PredefinedRole.MODEL,
+        e += composables.c(  # pyrefly: ignore[unsupported-operation]
+            f'[Finish]: {step.observation}\n',  # pyrefly: ignore[bad-argument-type]
+            role=content_lib.PredefinedRole.MODEL,  # pyrefly: ignore[unexpected-keyword]
         )
-    return e
+    return e  # pyrefly: ignore[bad-return]
 
   def _build_example(
       self,
@@ -479,13 +479,13 @@ class ReActPromptComposable(ReActPromptProtocol):
   ) -> composing.Composable:
     """Returns a composable for rendering a single few-shot exemplar."""
     e = composables.f(
-        f'[{stop_prefix}Question]: {example.inputs}\n',
-        role=self.instruction_role,
+        f'[{stop_prefix}Question]: {example.inputs}\n',  # pyrefly: ignore[bad-argument-type]
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     )
     for step in example.updates:
       e += self._build_update_step(step, stop_prefix)
-    e += composables.f('\n', role=self.instruction_role)
-    return e
+    e += composables.f('\n', role=self.instruction_role)  # pyrefly: ignore[bad-argument-type, unexpected-keyword, unsupported-operation]
+    return e  # pyrefly: ignore[bad-return]
 
   def _build_react_fewshots(
       self,
@@ -494,13 +494,14 @@ class ReActPromptComposable(ReActPromptProtocol):
   ) -> composing.Composable:
     """Returns a composable for rendering all of the few-shot exemplars."""
     e = composables.f(
+        # pyrefly: ignore[bad-argument-type]
         'Here are examples of how different tasks can be solved with these'
         ' tools:\n\n',
-        role=self.instruction_role,
+        role=self.instruction_role,  # pyrefly: ignore[unexpected-keyword]
     )
     for example in exemplars:
       e += self._build_example(example, stop_prefix)
-    return e
+    return e  # pyrefly: ignore[bad-return]
 
   def _build_question(
       self,
@@ -509,10 +510,10 @@ class ReActPromptComposable(ReActPromptProtocol):
   ) -> composing.Composable:
     """Returns a composable for rendering the user-provided question."""
     e = composables.f(
-        f'[{stop_prefix}Question]: ', role=content_lib.PredefinedRole.USER
+        f'[{stop_prefix}Question]: ', role=content_lib.PredefinedRole.USER  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
     )
-    e += composables.c(state.inputs)
-    e += composables.f('\n')
+    e += composables.c(state.inputs)  # pyrefly: ignore[bad-argument-type, unsupported-operation]
+    e += composables.f('\n')  # pyrefly: ignore[bad-argument-type]
     return e
 
   def _build_current_state(
@@ -521,12 +522,12 @@ class ReActPromptComposable(ReActPromptProtocol):
       stop_prefix: str,
   ) -> composing.Composable:
     """Returns a composable for rendering the entire current agent state."""
-    e = composables.c(content_lib.ChunkList())
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
     if state.updates:
       for step in state.updates:
         e += self._build_update_step(step, stop_prefix)
-      e += composables.f('\n', role=content_lib.PredefinedRole.USER)
-    return e
+      e += composables.f('\n', role=content_lib.PredefinedRole.USER)  # pyrefly: ignore[bad-argument-type, unexpected-keyword, unsupported-operation]
+    return e  # pyrefly: ignore[bad-return]
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def __call__(
@@ -540,17 +541,17 @@ class ReActPromptComposable(ReActPromptProtocol):
   ) -> Union[content_lib.ChunkList, str]:
     """See ReActPromptProtocol."""
 
-    e = composables.c(content_lib.ChunkList())
+    e = composables.c(content_lib.ChunkList())  # pyrefly: ignore[bad-argument-type]
     if self.prompt_prefix:
-      e += composables.c(self.prompt_prefix)
+      e += composables.c(self.prompt_prefix)  # pyrefly: ignore[bad-argument-type, unsupported-operation]
     e += self._build_tools_description(tools)
     e += self._build_react_fewshots(exemplars, stop_prefix)
     e += self._build_question(state, stop_prefix)
     e += self._build_current_state(state, stop_prefix)
     if force_finish:
-      e += composables.f('[Finish]: \n', role=content_lib.PredefinedRole.MODEL)
+      e += composables.f('[Finish]: \n', role=content_lib.PredefinedRole.MODEL)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
     # Using chat instead of generate_text to return ChunkList.
-    e += composables.store('llm_reply', composables.chat(stop=stop_sequences))
+    e += composables.store('llm_reply', composables.chat(stop=stop_sequences))  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
 
     try:
       _ = await e
@@ -559,7 +560,7 @@ class ReActPromptComposable(ReActPromptProtocol):
       e['llm_reply'] = f'#ERROR#: {error_message}'
     # Checking 'llm_reply' in e itself results in a ValueError.
     # So just try to return it for now.
-    return e['llm_reply']
+    return e['llm_reply']  # pyrefly: ignore[bad-index]
 
 
 class ReActParseProtocol(Protocol):
@@ -884,13 +885,13 @@ class ReActAgent(
     force_finish = len(state.updates) >= self.max_steps or got_empty_reply
 
     # Prompt the LLM to determine the next action to take.
-    llm_reply = await self.prompt(
-        tools=environment.config.tools,
-        exemplars=self.exemplars,
-        stop_prefix=self.stop_prefix,
-        stop_sequences=self._get_stop_sequences(),
-        state=state,
-        force_finish=force_finish,
+    llm_reply = await self.prompt(  # pyrefly: ignore[not-async]
+        tools=environment.config.tools,  # pyrefly: ignore[unexpected-keyword]
+        exemplars=self.exemplars,  # pyrefly: ignore[unexpected-keyword]
+        stop_prefix=self.stop_prefix,  # pyrefly: ignore[unexpected-keyword]
+        stop_sequences=self._get_stop_sequences(),  # pyrefly: ignore[unexpected-keyword]
+        state=state,  # pyrefly: ignore[unexpected-keyword]
+        force_finish=force_finish,  # pyrefly: ignore[unexpected-keyword]
     )
 
     # Parse the LLM response and execute the selected action.

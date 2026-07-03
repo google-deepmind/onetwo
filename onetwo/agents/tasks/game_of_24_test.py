@@ -49,8 +49,8 @@ class GameOf24Test(absltest.TestCase):
     # these assertions should be sufficient to catch many basic bugs where we
     # omitted a for-loop, or failed to include some of the fields due to a typo,
     # etc.)
-    next_step, result = executing.run(
-        prompt(description=description, few_shots=few_shots, state=state),
+    next_step, result = executing.run(  # pyrefly: ignore[no-matching-overload]
+        prompt(description=description, few_shots=few_shots, state=state),  # pyrefly: ignore[unexpected-keyword]
         enable_tracing=True,
     )
     prefix = result.stages[0].outputs['prefix']
@@ -102,8 +102,8 @@ class GameOf24Test(absltest.TestCase):
     # these assertions should be sufficient to catch many basic bugs where we
     # omitted a for-loop, or failed to include some of the fields due to a typo,
     # etc.)
-    next_steps, result = executing.run(
-        prompt(description=description, few_shots=few_shots, state=state),
+    next_steps, result = executing.run(  # pyrefly: ignore[no-matching-overload]
+        prompt(description=description, few_shots=few_shots, state=state),  # pyrefly: ignore[unexpected-keyword]
         enable_tracing=True,
     )
     prefix = result.stages[0].outputs['prefix']

@@ -28,7 +28,7 @@ AnswerT = qa.AnswerT
 RetrievalResultT = retrieval.RetrievalResultT
 
 
-class RetrievalQAStrategy(Protocol[QuestionT, AnswerT, RetrievalResultT]):
+class RetrievalQAStrategy(Protocol[QuestionT, AnswerT, RetrievalResultT]):  # pyrefly: ignore[invalid-type-var]
   """Generic interface for QA strategies that actively use a retriever."""
 
   @abc.abstractmethod

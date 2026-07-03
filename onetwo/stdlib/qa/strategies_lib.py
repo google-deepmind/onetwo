@@ -73,18 +73,20 @@ _PromptContent = str | content_lib.ChunkList
 
 default_qa_template = lambda context, question: (
     composables.c(
+        # pyrefly: ignore[bad-argument-type]
         'Your goal is to answer a query the best way you can. You will'
         ' be given a query and possibly some evidence that could help'
         ' you craft the answer.\n\nQUERY:\n'
     )
     + question
-    + composables.c('\n\nCONTEXT:\n')
+    + composables.c('\n\nCONTEXT:\n')  # pyrefly: ignore[bad-argument-type]
     + context
-    + composables.c('\n\nPlease answer the query.')
+    + composables.c('\n\nPlease answer the query.')  # pyrefly: ignore[bad-argument-type]
 )
 
 default_qa_template_only_from_context = lambda context, question: (
     composables.c(
+        # pyrefly: ignore[bad-argument-type]
         'Your goal is to answer a query the best way you can. You will'
         ' be given a query and possibly some evidence that could help'
         ' you craft the answer. If the context does not contain the'
@@ -93,9 +95,9 @@ default_qa_template_only_from_context = lambda context, question: (
         '\nQUERY:\n'
     )
     + question
-    + composables.c('\n\nCONTEXT:\n')
+    + composables.c('\n\nCONTEXT:\n')  # pyrefly: ignore[bad-argument-type]
     + context
-    + composables.c('\n\nPlease answer the query.')
+    + composables.c('\n\nPlease answer the query.')  # pyrefly: ignore[bad-argument-type]
 )
 
 

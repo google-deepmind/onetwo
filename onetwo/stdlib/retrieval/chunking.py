@@ -210,7 +210,7 @@ async def filter_by_max_tokens(
           # So text_tokens reduced by what we need to save is
           # the max length we can still afford, so we truncate to that.
           max_text_tokens = text_tokens + (max_tokens - total_tokens)
-          truncated = await truncate_string_to_max_tokens(text, max_text_tokens)
+          truncated = await truncate_string_to_max_tokens(text, max_text_tokens)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
           filtered_texts.append(truncated)
         break
     return filtered_texts
@@ -248,7 +248,7 @@ class ChunkByMaxTokens(TextChunker):
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
-  async def _chunk_text(self, text: str) -> Iterable[str]:
+  async def _chunk_text(self, text: str) -> Iterable[str]:  # pyrefly: ignore[bad-override]
     """Returns `text` broken into chunks of up to `max_tokens_per_chunk`.
 
     Args:

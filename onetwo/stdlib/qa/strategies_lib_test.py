@@ -42,7 +42,7 @@ class MockRetriever(retrieval.Retriever[str, _Document]):
     self._documents = documents
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  async def retrieve(self, query: str, **kwargs) -> Iterable[_Document]:
+  async def retrieve(self, query: str, **kwargs) -> Iterable[_Document]:  # pyrefly: ignore[bad-override]
     max_results = kwargs.get('max_results')
     if max_results is not None:
       return self._documents[:max_results]
@@ -336,7 +336,7 @@ class RAGStrategyTest(parameterized.TestCase):
       self, documents, question, max_results, expected_doc_ids
   ):
     retriever = MockRetriever(documents)
-    strategy = strategies_lib.RAGStrategy(retriever=retriever)
+    strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     kwargs = {}
     if max_results is not None:
       kwargs['max_results'] = max_results
@@ -352,13 +352,13 @@ class RAGStrategyTest(parameterized.TestCase):
 
   def test_empty_retrieval_returns_empty_doc_ids(self):
     retriever = MockRetriever([])
-    strategy = strategies_lib.RAGStrategy(retriever=retriever)
+    strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
     self.assertEmpty(result.doc_ids)
 
   def test_max_results_limits_retrieval(self):
     retriever = MockRetriever(_TEXT_DOCS)
-    strategy = strategies_lib.RAGStrategy(retriever=retriever)
+    strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     result = ot.run(strategy(question='What?', max_results=1))  # pytype: disable=wrong-keyword-args
     self.assertLen(result.doc_ids, 1)
     self.assertEqual(result.doc_ids[0], 'd1')
@@ -406,7 +406,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
       self, documents, question, max_results, expected_doc_ids
   ):
     retriever = MockRetriever(documents)
-    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     kwargs = {}
     if max_results is not None:
       kwargs['max_results'] = max_results
@@ -424,7 +424,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
 
   def test_empty_retrieval_returns_empty_doc_ids(self):
     retriever = MockRetriever([])
-    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
     self.assertEmpty(result.doc_ids)
     self.assertEqual(result.answer, '')
@@ -460,7 +460,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='rag',
           strategy=strategies_lib.RAGStrategy(
-              retriever=MockRetriever(_TEXT_DOCS),
+              retriever=MockRetriever(_TEXT_DOCS),  # pyrefly: ignore[bad-argument-type]
           ),
           question=_TEXT_QUESTION,
       ),
@@ -487,7 +487,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='rag_multimodal',
           strategy=strategies_lib.RAGStrategy(
-              retriever=MockRetriever(_MULTIMODAL_DOCS),
+              retriever=MockRetriever(_MULTIMODAL_DOCS),  # pyrefly: ignore[bad-argument-type]
           ),
           question=_MULTIMODAL_QUESTION,
       ),

@@ -70,11 +70,11 @@ Input: qN
 
     # Now we execute the prompt and verify that the prompt was generated as
     # expected.
-    next_step = executing.run(
+    next_step = executing.run(  # pyrefly: ignore[no-matching-overload]
         prompt(
-            description=description,
-            few_shots=few_shots,
-            state=iterative_thought.IterativeThoughtState(
+            description=description,  # pyrefly: ignore[unexpected-keyword]
+            few_shots=few_shots,  # pyrefly: ignore[unexpected-keyword]
+            state=iterative_thought.IterativeThoughtState(  # pyrefly: ignore[unexpected-keyword]
                 inputs='qN', updates=steps_so_far
             ),
         )
@@ -167,7 +167,7 @@ Input: qN
 
     with self.subTest('should_do_an_additional_max_steps_in_second_call'):
       self.assertLen(second_round_of_updates, max_steps)
-      self.assertLen(state_4.updates, 2 * max_steps)
+      self.assertLen(state_4.updates, 2 * max_steps)  # pyrefly: ignore[missing-attribute]
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -179,8 +179,8 @@ Input: qN
       )
 
     with self.subTest('is_finished_should_stay_false_indefinitely'):
-      self.assertFalse(agent.is_finished(state=state_2))
-      self.assertFalse(agent.is_finished(state=state_4))
+      self.assertFalse(agent.is_finished(state=state_2))  # pyrefly: ignore[bad-argument-type]
+      self.assertFalse(agent.is_finished(state=state_4))  # pyrefly: ignore[bad-argument-type]
 
   def test_sample_next_step(self):
     # Some minimal agent configuration and inputs.
@@ -390,11 +390,11 @@ tb\
 
     # Now we execute the prompt and verify that the prompt was generated as
     # expected.
-    next_steps = executing.run(
+    next_steps = executing.run(  # pyrefly: ignore[no-matching-overload]
         prompt(
-            description=description,
-            few_shots=few_shots,
-            state=iterative_thought.IterativeThoughtState(
+            description=description,  # pyrefly: ignore[unexpected-keyword]
+            few_shots=few_shots,  # pyrefly: ignore[unexpected-keyword]
+            state=iterative_thought.IterativeThoughtState(  # pyrefly: ignore[unexpected-keyword]
                 inputs='qN', updates=steps_so_far
             ),
         )

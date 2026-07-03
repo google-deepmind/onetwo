@@ -873,8 +873,8 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
 
     corpus_file = os.path.join(self.temp_dir, 'corpus.jsonl')
     with open(corpus_file, 'w') as f:
-      f.write(original_doc1.to_json() + '\n')
-      f.write(original_doc2.to_json() + '\n')
+      f.write(original_doc1.to_json() + '\n')  # pyrefly: ignore[missing-attribute]
+      f.write(original_doc2.to_json() + '\n')  # pyrefly: ignore[missing-attribute]
 
     loader = datasets.JsonlDatasetLoader(corpus_path=corpus_file)
     documents = list(ot.run(loader.load_documents()))

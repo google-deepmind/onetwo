@@ -129,7 +129,7 @@ class _BuiltinWrapper(Generic[_T], routing.RegistryReference):
 
     # Make sure that implementation returns an Executable.
     if not utils.is_decorated_with_make_executable(implementation):
-      implementation = executing.make_executable(copy_self=False)(
+      implementation = executing.make_executable(copy_self=False)(  # pyrefly: ignore[bad-assignment]
           implementation
       )
     self._builtin_name = builtin_name
@@ -346,7 +346,7 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
   """
 
   def __init__(self, wrapped: Callable[_Params, _T | Awaitable[_T]]):
-    self._wrapped = wrapped  # Builtin function.
+    self._wrapped = wrapped  # Builtin function.  # pyrefly: ignore[invalid-type-var]
     # We determine the name to use in the registry.
     module = getattr(wrapped, '__module__', None)
     self._name = getattr(wrapped, '__name__', None)
@@ -362,7 +362,7 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
   @property
   def name(self) -> str:
     """Return the name of the builtin function."""
-    return self._name
+    return self._name  # pyrefly: ignore[bad-return]
 
   def is_configured(self) -> bool:
     """Return whether the builtin function has been configured."""
@@ -426,8 +426,8 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
       *args: Default positional arguments to pass to the underlying function.
       **kwargs: Default keyword arguments to pass to the underlying function.
     """
-    routing.function_registry[self._name] = _BuiltinWrapper[_T](
-        self._name, self._wrapped, implementation, *args, **kwargs
+    routing.function_registry[self._name] = _BuiltinWrapper[_T](  # pyrefly: ignore[unsupported-operation]
+        self._name, self._wrapped, implementation, *args, **kwargs  # pyrefly: ignore[bad-argument-type]
     )
     self._configured = True
 
@@ -454,7 +454,7 @@ class Builtin(Generic[_T], metaclass=abc.ABCMeta):
       raise ValueError(
           'Attempting to amend a builtin function that has not been configured.'
       )
-    routing.function_registry[self._name].update(**kwargs)
+    routing.function_registry[self._name].update(**kwargs)  # pyrefly: ignore[bad-index]
 
   @executing.make_executable(copy_self=False, execute_result=True)
   async def __call__(

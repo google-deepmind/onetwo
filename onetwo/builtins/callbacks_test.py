@@ -72,7 +72,7 @@ class CallbacksTest(parameterized.TestCase):
     tpl.register_callback(
         'generate_text', callbacks.generate_text, pass_context=True
     )
-    res = executing.run(tpl.render())
+    res = executing.run(tpl.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
     self.assertEqual(res['prefix'], ' done')
 
 

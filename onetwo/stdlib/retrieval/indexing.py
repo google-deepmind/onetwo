@@ -74,7 +74,7 @@ DocT = retrieval.DocT
 Document = retrieval_data_structures.Document
 
 
-class Index(
+class Index(  # pyrefly: ignore[invalid-type-var]
     retrieval.Retriever[QueryT, RetrievalResultT],
     Generic[QueryT, RetrievalResultT, DocT],
     metaclass=abc.ABCMeta,
@@ -226,7 +226,7 @@ class IndexWrapper(
 
 
 @dataclasses.dataclass(kw_only=True)
-class RewritingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):
+class RewritingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):  # pyrefly: ignore[bad-specialization]
   """Index that rewrites a corpus before adding it to an inner index.
 
   By default, this class treats the rewritten documents as the primary units of
@@ -555,8 +555,8 @@ def _validate_docs(docs: Sequence[Document]) -> None:
 # Either ChunkList or str and DocT to have `.title` and `.content`, essentially
 # a `Document`.
 @dataclasses.dataclass(kw_only=True)
-class EmbeddingBasedIndex(
-    AbstractEmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
+class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
+    AbstractEmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],  # pyrefly: ignore[bad-specialization]
     Generic[QueryT, RetrievalResultT, DocT],
 ):
   """In-memory index that retrieves documents based on embedding similarity.
@@ -730,8 +730,8 @@ class EmbeddingBasedIndex(
 
 
 @dataclasses.dataclass(kw_only=True)
-class RewritingEmbeddingBasedIndex(
-    RewritingIndex[QueryT, RetrievalResultT, DocT],
+class RewritingEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
+    RewritingIndex[QueryT, RetrievalResultT, DocT],  # pyrefly: ignore[bad-specialization]
     EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
     Generic[QueryT, RetrievalResultT, DocT],
 ):

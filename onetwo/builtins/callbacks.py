@@ -46,10 +46,10 @@ def _heal_reply(reply):
   elif isinstance(reply, tuple):
     reply, details = reply
     reply = reply.lstrip(' ')
-    reply = (reply, details)
+    reply = (reply, details)  # pyrefly: ignore[bad-assignment]
   elif isinstance(reply, Sequence):
     # We have a Sequence.
-    reply = [_heal_reply(r) for r in reply]
+    reply = [_heal_reply(r) for r in reply]  # pyrefly: ignore[bad-assignment]
   else:
     raise ValueError(f'Unexpected type of the reply:{type(reply)}')
   return reply
@@ -400,7 +400,7 @@ def mock_generate_object_callback(
   assert (
       cls in default_type_to_object_map
   ), f'No default instance was supplied for object type: {cls}'
-  return default_type_to_object_map[cls]
+  return default_type_to_object_map[cls]  # pyrefly: ignore[bad-return]
 
 
 def mock_choose_callback(

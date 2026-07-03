@@ -87,7 +87,7 @@ def _get_dotted_name(node: ast.AST) -> str | None:
     return str(node.value)
   elif isinstance(node, ast.Attribute):
     lhs = _get_dotted_name(node.value)
-    return lhs + '.' + node.attr
+    return lhs + '.' + node.attr  # pyrefly: ignore[unsupported-operation]
   else:
     return None
 
@@ -132,7 +132,7 @@ def _get_attribute_list(node: ast.Attribute) -> tuple[ast.Name, Sequence[str]]:
     if node.attr.startswith('__'):
       raise SyntaxError('Prohibited attribute %r' % node.attr)
     attrs.append(node.attr)
-    node = node.value
+    node = node.value  # pyrefly: ignore[bad-assignment]
 
   if not isinstance(node, ast.Name):
     # We would come here, for example, in a construction like `obj.func().attr`.
@@ -161,8 +161,8 @@ def _get_attribute(node: ast.Attribute, context: dict[str, Any]) -> Any:
     SyntaxError: Occurs if the expression is incorrect or a prohibited attribute
       name is used.
   """
-  node, attrs = _get_attribute_list(node)
-  result = context[node.id]
+  node, attrs = _get_attribute_list(node)  # pyrefly: ignore[bad-assignment]
+  result = context[node.id]  # pyrefly: ignore[missing-attribute]
   for attr in attrs:
     result = getattr(result, attr)
   return result
@@ -287,7 +287,7 @@ async def safe_eval(
       return [await _evaluate(elt) for elt in node.elts]
     if isinstance(node, ast.Dict):
       return {
-          await _evaluate(k): await _evaluate(v)
+          await _evaluate(k): await _evaluate(v)  # pyrefly: ignore[bad-argument-type]
           for k, v in zip(node.keys, node.values)
       }
     if isinstance(node, ast.Set):
@@ -383,9 +383,9 @@ async def safe_eval(
     if isinstance(node, ast.IfExp) or isinstance(node, ast.If):
       condition = await _evaluate(node.test)
       if condition:
-        return await _evaluate(node.body)
+        return await _evaluate(node.body)  # pyrefly: ignore[bad-argument-type]
       else:
-        return await _evaluate(node.orelse)
+        return await _evaluate(node.orelse)  # pyrefly: ignore[bad-argument-type]
 
     # Function calls
     if isinstance(node, ast.Call):
@@ -410,7 +410,7 @@ async def safe_eval(
           return await utils.call_and_maybe_await(
               allowed_callables[callable_name],
               *[await _evaluate(arg) for arg in node.args],
-              **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
+              **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},  # pyrefly: ignore[bad-unpacking]
           )
         except Exception as e:
           if hooks and callable_name in hooks:
@@ -437,7 +437,7 @@ async def safe_eval(
           return await utils.call_and_maybe_await(
               allowed_callables[dotted_method_name],
               *args,
-              **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},
+              **{kw.arg: await _evaluate(kw.value) for kw in node.keywords},  # pyrefly: ignore[bad-unpacking]
           )
 
         # If we get this far, then we have exhausted all options for resolving
@@ -501,7 +501,7 @@ async def safe_eval(
 
   # We use parse mode 'exec' to allow code blocks with multiple statements.
   node = ast.parse(code.strip(), mode='exec').body
-  return await _evaluate(node)
+  return await _evaluate(node)  # pyrefly: ignore[bad-argument-type]
 
 
 @dataclasses.dataclass
@@ -656,7 +656,7 @@ class PythonSandboxSafeSubsetFactory(python_execution.PythonSandboxFactory):
 
     return PythonSandboxSafeSubset(
         hooks=hooks or {},
-        hook_objects=hook_objects or {},
+        hook_objects=hook_objects or {},  # pyrefly: ignore[bad-argument-type]
     )
 
 
@@ -736,5 +736,5 @@ class PythonSandboxSafeSubsetMultiProcessFactory(
     return PythonSandboxSafeSubsetMultiProcess(
         timeout=timeout,
         hooks=hooks or {},
-        hook_objects=hook_objects or {},
+        hook_objects=hook_objects or {},  # pyrefly: ignore[bad-argument-type]
     )

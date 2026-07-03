@@ -536,16 +536,16 @@ class EvaluationTest(parameterized.TestCase):
             {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
         ),
         example_keys={0: 0, 1: 1},
-        results=expected_results,
+        results=expected_results,  # pyrefly: ignore[bad-argument-type]
         # In this case, the results_debug should be the same as the results
         # because the strategy consists of just a single step.
-        results_debug=expected_results,
+        results_debug=expected_results,  # pyrefly: ignore[bad-argument-type]
     )
 
     # We separate out the timing field because it requires some special handling
     # for comparing the FakeDatetime objects returned by freezegun.
     actual_timing = summary.timing
-    summary.timing = expected_summary.timing = None
+    summary.timing = expected_summary.timing = None  # pyrefly: ignore[bad-assignment]
 
     with self.subTest('timing'):
       self.assertEqual(expected_timing, actual_timing)
@@ -605,11 +605,11 @@ class EvaluationTest(parameterized.TestCase):
             {'total_count': 2, 'error_count': 0, 'accuracy_count': 2}
         ),
         example_keys={0: 0, 1: 1},
-        results=expected_results,
-        results_debug=expected_results,
+        results=expected_results,  # pyrefly: ignore[bad-argument-type]
+        results_debug=expected_results,  # pyrefly: ignore[bad-argument-type]
     )
 
-    summary.timing = expected_summary.timing = None
+    summary.timing = expected_summary.timing = None  # pyrefly: ignore[bad-assignment]
     self.assertEqual(expected_summary, summary)
 
   @parameterized.named_parameters(
@@ -667,7 +667,7 @@ class EvaluationTest(parameterized.TestCase):
     # We separate out the timing field because it requires some special handling
     # for comparing the FakeDatetime objects returned by freezegun.
     actual_timing = summary.timing
-    summary.timing = expected_summary.timing = None
+    summary.timing = expected_summary.timing = None  # pyrefly: ignore[bad-assignment]
 
     with self.subTest('timing'):
       self.assertEqual(expected_timing, actual_timing)
@@ -882,7 +882,7 @@ class EvaluationTest(parameterized.TestCase):
     summary = evaluation.evaluate(
         strategy=ordinary_identity_function,
         examples=examples,
-        metric_functions={'accuracy': metric_function},
+        metric_functions={'accuracy': metric_function},  # pyrefly: ignore[bad-argument-type]
         output_results=True,
     )
     _reset_times(summary)
@@ -910,7 +910,7 @@ class EvaluationTest(parameterized.TestCase):
     expected_result = _EvaluationResult(
         stage_name='strategy_taking_question_and_option_and_calling_llm',
         inputs={'args': ['Something'], 'kwargs': {}},
-        error=TypeError(
+        error=TypeError(  # pyrefly: ignore[bad-argument-type]
             'strategy_taking_question_and_option_and_calling_llm()'
             " missing 1 required positional argument: 'option'"
         ),
@@ -957,7 +957,7 @@ class EvaluationTest(parameterized.TestCase):
         strategy=strategy_taking_question_and_option_and_calling_llm,
         examples=examples,
         inputs_extractor=extract_all_example_fields_except_target,
-        metric_functions={
+        metric_functions={  # pyrefly: ignore[bad-argument-type]
             'accuracy': _accuracy_function_that_returns_example_option
         },
         aggregation_functions=[_aggregate_via_dict_update],
@@ -997,7 +997,7 @@ class EvaluationTest(parameterized.TestCase):
         strategy=strategy_taking_question_and_option_and_calling_llm,
         examples=examples,
         inputs_extractor=inputs_extractor,
-        metric_functions={
+        metric_functions={  # pyrefly: ignore[bad-argument-type]
             'accuracy': _accuracy_function_that_returns_example_option
         },
     )
@@ -1020,7 +1020,7 @@ class EvaluationTest(parameterized.TestCase):
         strategy=strategy_taking_question_and_option_and_calling_llm,
         examples=examples,
         inputs_extractor=inputs_extractor,
-        metric_functions={
+        metric_functions={  # pyrefly: ignore[bad-argument-type]
             'accuracy': _accuracy_function_that_returns_example_option
         },
     )
@@ -1220,9 +1220,9 @@ class NaiveEvaluationCriticTest(parameterized.TestCase):
       self, example, expected_error_message
   ):
     with self.assertRaisesRegex(ValueError, expected_error_message):
-      _ = executing.run(
+      _ = executing.run(  # pyrefly: ignore[no-matching-overload]
           evaluation.naive_evaluation_critic(
-              target='bla', prediction='answer 1', example=example
+              target='bla', prediction='answer 1', example=example  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
           )
       )
 
@@ -1240,11 +1240,11 @@ class NaiveEvaluationCriticTest(parameterized.TestCase):
         _fake_generate_text_returns_anything, return_value=critic_llm_reply
     )
     with self.assertRaisesRegex(ValueError, expected_error_message):
-      _ = executing.run(
+      _ = executing.run(  # pyrefly: ignore[no-matching-overload]
           evaluation.naive_evaluation_critic(
-              target='bla',
-              prediction='answer 1',
-              example={'question': 'bla'},
+              target='bla',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+              prediction='answer 1',  # pyrefly: ignore[unexpected-keyword]
+              example={'question': 'bla'},  # pyrefly: ignore[unexpected-keyword]
           )
       )
 
@@ -1332,11 +1332,11 @@ class NaiveEvaluationCriticTest(parameterized.TestCase):
     llm.generate_text.configure(
         _fake_generate_text_returns_anything, return_value=critic_llm_reply
     )
-    rating, extra_info = executing.run(
+    rating, extra_info = executing.run(  # pyrefly: ignore[no-matching-overload]
         evaluation.naive_evaluation_critic(
-            target='bla',
-            prediction=prediction_containing_newline,
-            example={'question': question},
+            target='bla',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+            prediction=prediction_containing_newline,  # pyrefly: ignore[unexpected-keyword]
+            example={'question': question},  # pyrefly: ignore[unexpected-keyword]
         )
     )
 
@@ -1383,9 +1383,9 @@ Does prediction agree with target? (yes/no): """
       self,
   ):
     with self.assertRaisesRegex(ValueError, 'Example must be provided'):
-      _ = executing.run(
+      _ = executing.run(  # pyrefly: ignore[no-matching-overload]
           evaluation.naive_fuzzy_evaluation_critic(
-              target='bla', prediction='answer 1', example={}
+              target='bla', prediction='answer 1', example={}  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
           )
       )
 
@@ -1427,11 +1427,11 @@ Does prediction agree with target? (yes/no): """
         _fake_generate_text_returns_anything,
         return_value=critic_llm_reply,
     )
-    rating, extra_info = executing.run(
+    rating, extra_info = executing.run(  # pyrefly: ignore[no-matching-overload]
         evaluation.naive_fuzzy_evaluation_critic(
-            target='bla',
-            prediction=prediction,
-            example={'question': question},
+            target='bla',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+            prediction=prediction,  # pyrefly: ignore[unexpected-keyword]
+            example={'question': question},  # pyrefly: ignore[unexpected-keyword]
         )
     )
 
@@ -1504,11 +1504,11 @@ Score prediction against target in [0.0, 1.0]: """
     with self.assertRaisesRegex(
         ValueError, 'Critic is expected to include a floating point score'
     ):
-      _ = executing.run(
+      _ = executing.run(  # pyrefly: ignore[no-matching-overload]
           evaluation.naive_fuzzy_evaluation_critic(
-              target='bla',
-              prediction='answer 1',
-              example={'question': 'bla'},
+              target='bla',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+              prediction='answer 1',  # pyrefly: ignore[unexpected-keyword]
+              example={'question': 'bla'},  # pyrefly: ignore[unexpected-keyword]
           )
       )
 
@@ -1529,11 +1529,11 @@ Score prediction against target in [0.0, 1.0]: """
 
     llm.generate_object.configure(fake_generate_object)
 
-    rating, extra_info = executing.run(
+    rating, extra_info = executing.run(  # pyrefly: ignore[no-matching-overload]
         evaluation.structured_evaluation_critic(
-            target='bla',
-            prediction=prediction_containing_newline,
-            example={'question': question},
+            target='bla',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+            prediction=prediction_containing_newline,  # pyrefly: ignore[unexpected-keyword]
+            example={'question': question},  # pyrefly: ignore[unexpected-keyword]
         )
     )
 

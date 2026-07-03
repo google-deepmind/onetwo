@@ -99,8 +99,8 @@ class Scorer(Protocol[_O]):
 
   def __call__(
       self,
-      args: _Args.args,
-      kwargs: _Args.kwargs,
+      args: _Args.args,  # pyrefly: ignore[not-a-type]
+      kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
       output: _O,
   ) -> float | Awaitable[float] | executing.Executable[float]:
     """Returns the score for the given inputs + candidate output.
@@ -161,21 +161,21 @@ class SelfConsistency(Generic[_O, _Bucket]):
   )
   scorer: Scorer[_O] = lambda args, kwargs, output: 1.0
   bucketizer: Callable[[_O], _Bucket] | Callable[[_O], Awaitable[_Bucket]] = (
-      lambda x: x
+      lambda x: x  # pyrefly: ignore[bad-assignment]
   )
   representative_output_selector: (
       Callable[[_Bucket, _PredictionsWithScores], _O | None]
       | Callable[[_Bucket, _PredictionsWithScores], Awaitable[_O | None]]
-  ) = select_first_highest_scoring_output
+  ) = select_first_highest_scoring_output  # pyrefly: ignore[bad-assignment]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def __call__(
-      self, *args: _Args.args, **kwargs: _Args.kwargs
+      self, *args: _Args.args, **kwargs: _Args.kwargs  # pyrefly: ignore[not-a-type]
   ) -> list[tuple[_O, float]]:
     # Generate samples.
-    result_objects = await self.sampler(
-        *args, num_samples=self.num_samples, **kwargs
+    result_objects = await self.sampler(  # pyrefly: ignore[not-async]
+        *args, num_samples=self.num_samples, **kwargs  # pyrefly: ignore[unexpected-keyword]
     )
 
     # Create mapping of bucket to list of (output, score) tuples.
@@ -221,15 +221,15 @@ class ExtractConsensus(Generic[_O]):
     inner: The SelfConsistency strategy to wrap.
   """
 
-  inner: Callable[_Args, Awaitable[list[tuple[_O, float]]]]
+  inner: Callable[_Args, Awaitable[list[tuple[_O, float]]]]  # pyrefly: ignore[invalid-type-var]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def __call__(
-      self, *args: _Args.args, **kwargs: _Args.kwargs
+      self, *args: _Args.args, **kwargs: _Args.kwargs  # pyrefly: ignore[not-a-type]
   ) -> _O | None:
     """Returns the consensus output, or None if the distribution is empty."""
-    predicted_distribution = await self.inner(*args, **kwargs)
+    predicted_distribution = await self.inner(*args, **kwargs)  # pyrefly: ignore[invalid-param-spec]
     if predicted_distribution:
       return predicted_distribution[0][0]
     else:

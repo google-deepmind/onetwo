@@ -106,8 +106,8 @@ class PythonSandboxForTest(python_execution.PythonSandbox):
         # Sequence of replies specified. Return the next (until we run out).
         reply_index = self._num_run_calls_by_request[code]
         self._num_run_calls_by_request[code] += 1
-        if reply_index < len(reply):
-          return reply[reply_index]
+        if reply_index < len(reply):  # pyrefly: ignore[bad-argument-type]
+          return reply[reply_index]  # pyrefly: ignore[bad-index]
 
     # Default.
     self.unexpected_requests.append(code)

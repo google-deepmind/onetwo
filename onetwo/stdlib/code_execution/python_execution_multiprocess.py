@@ -422,7 +422,7 @@ def _sandbox_process_target(
 
     async def execute_in_inner_sandbox():
       await inner_sandbox.set_variables(**context)
-      sandbox_result = await inner_sandbox.run(code)
+      sandbox_result = await inner_sandbox.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
       # Retrieve all variables from the inner sandbox's context,
       if hasattr(inner_sandbox, 'context'):
         updated_context = await inner_sandbox.get_variables(

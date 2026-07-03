@@ -94,17 +94,17 @@ class ChunkingTest(parameterized.TestCase):
   def testTruncateStringToMaxTokens(self):
     text = 'hello world'
     with self.subTest('truncate_to_6_tokens'):
-      truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 6))
+      truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 6))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
       # Trimming is done by the chunking method, not the truncation method.
       self.assertEqual(truncated_text, 'hello ')
 
     with self.subTest('truncate_to_60_tokens'):
-      truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 60))
+      truncated_text = ot.run(chunking.truncate_string_to_max_tokens(text, 60))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
       self.assertEqual(truncated_text, 'hello world')
 
   def testFilterByMaxTokens(self):
     texts = ['one', 'two', 'three', 'four']
-    filtered_texts = ot.run(chunking.filter_by_max_tokens(texts, 10))
+    filtered_texts = ot.run(chunking.filter_by_max_tokens(texts, 10))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
     self.assertEqual(filtered_texts, ['one', 'two', 'thre'])
 
   @parameterized.named_parameters([

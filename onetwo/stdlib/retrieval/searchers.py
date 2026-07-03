@@ -206,7 +206,7 @@ class BruteForceSearcher(Searcher):
           top_k_indices_unsorted, sorted_order_in_top_k, axis=1
       )
     top_scores = np.take_along_axis(scores, top_ids, axis=1)
-    return top_ids, top_scores  # (Q x top_k, Q x top_k)
+    return top_ids, top_scores  # (Q x top_k, Q x top_k)  # pyrefly: ignore[bad-return]
 
   def destroy(self) -> None:
     """Overridden from base class (Searcher)."""

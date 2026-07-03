@@ -184,7 +184,7 @@ class AgentTest(parameterized.TestCase):
 
     with self.subTest('should_do_an_additional_max_steps_in_second_call'):
       self.assertLen(second_round_of_updates, max_steps)
-      self.assertLen(state_4.updates, 2 * max_steps)
+      self.assertLen(state_4.updates, 2 * max_steps)  # pyrefly: ignore[missing-attribute]
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -192,15 +192,15 @@ class AgentTest(parameterized.TestCase):
       )
 
     with self.subTest('is_finished_should_be_false_until_reaching_max_length'):
-      self.assertFalse(agent.is_finished(state=state_2))
-      self.assertFalse(agent.is_finished(state=state_4))
+      self.assertFalse(agent.is_finished(state=state_2))  # pyrefly: ignore[bad-argument-type]
+      self.assertFalse(agent.is_finished(state=state_4))  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('is_finished_should_be_true_after_reaching_max_length'):
-      self.assertTrue(agent.is_finished(state=state_5))
+      self.assertTrue(agent.is_finished(state=state_5))  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('should_stop_once_is_finished_is_true'):
       self.assertLen(third_round_of_updates, 1)
-      self.assertLen(state_5.updates, 5)
+      self.assertLen(state_5.updates, 5)  # pyrefly: ignore[missing-attribute]
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -262,7 +262,7 @@ class AgentTest(parameterized.TestCase):
         final_env = env
       return states_1, states_2, final_env
 
-    states_1, states_2, final_env = executing.run(wrapper())
+    states_1, states_2, final_env = executing.run(wrapper())  # pyrefly: ignore[bad-argument-count, no-matching-overload]
 
     with self.subTest('stream_should_yield_the_sequence_of_states_1st_call'):
       self.assertSequenceEqual(

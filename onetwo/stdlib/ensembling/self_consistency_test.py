@@ -127,13 +127,13 @@ class SelfConsistencyTest(parameterized.TestCase):
 
     # Self-consistency variant of the above strategy.
     cot_sc = self_consistency.SelfConsistency(
-        sampler=sampling.Repeated(cot),
+        sampler=sampling.Repeated(cot),  # pyrefly: ignore[bad-argument-type]
         num_samples=4,
         bucketizer=lambda x: x.answer,
     )
 
     # We first call the underlying strategy directly for comparison.
-    res_cot = executing.run(cot('a', 'b'))
+    res_cot = executing.run(cot('a', 'b'))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
     expected_res_cot = chain_of_thought.CoTReply(reasoning='a', answer='b-')
     with self.subTest('underlying_strategy_returns_single_answer'):
       self.assertEqual(expected_res_cot, res_cot, res_cot)
@@ -153,7 +153,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     # If we want to return just the consensus answer, we can wrap the
     # SelfConsistency strategy with ExtractConsensus. This makes the interface
     # the same as the original strategy, so it can be used interchangeably.
-    cot_sc_consensus = self_consistency.ExtractConsensus(inner=cot_sc)
+    cot_sc_consensus = self_consistency.ExtractConsensus(inner=cot_sc)  # pyrefly: ignore[bad-argument-type]
     res_cot_sc_consensus = executing.run(cot_sc_consensus('a', 'b'))  # pytype: disable=wrong-arg-count
     # The consensus answer is the answer with the highest score. By default,
     # in case of a tie (like in this case), the first answer is selected.
@@ -178,7 +178,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     # Note that the scores of the filtered-out answers are omitted from the
     # denominator when normalizing the scores to calculate the probabilities.
     sc_strategy = self_consistency.SelfConsistency(
-        sampler=sampling.Repeated(two_arg_cot_first_sample_none),
+        sampler=sampling.Repeated(two_arg_cot_first_sample_none),  # pyrefly: ignore[bad-argument-type]
         num_samples=5,
         output_filter=output_filter,
         bucketizer=lambda x: x.answer,
@@ -202,7 +202,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     # In each case, we use a custom scorer that looks at the answer's numeric
     # suffix (e.g., if the answer is 'b-3', the score is 3).
     sc_strategy = self_consistency.SelfConsistency(
-        sampler=sampling.Repeated(two_arg_cot),
+        sampler=sampling.Repeated(two_arg_cot),  # pyrefly: ignore[bad-argument-type]
         num_samples=5,
         bucketizer=lambda x: x.answer,
         scorer=scorer,
@@ -219,7 +219,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     with self.subTest('self_consistency_distribution_based_on_custom_scorer'):
       self.assertEqual(expected_sc_result, sc_result, sc_result)
 
-    consensus_strategy = self_consistency.ExtractConsensus(inner=sc_strategy)
+    consensus_strategy = self_consistency.ExtractConsensus(inner=sc_strategy)  # pyrefly: ignore[bad-argument-type]
     expected_consensus_result = chain_of_thought.CoTReply(
         reasoning='a', answer='b-4'
     )
@@ -240,7 +240,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     # In each case, we use a custom scorer that looks at the answer's numeric
     # suffix (e.g., if the answer is 'b-3', the score is 3).
     sc_strategy = self_consistency.SelfConsistency(
-        sampler=sampling.Repeated(two_arg_cot),
+        sampler=sampling.Repeated(two_arg_cot),  # pyrefly: ignore[bad-argument-type]
         num_samples=5,
         bucketizer=bucketizer,
         scorer=score_by_trailing_int_sync,
@@ -269,7 +269,7 @@ class SelfConsistencyTest(parameterized.TestCase):
     # highest trailing integer in its answer (i.e., with the largest sample key)
     # as the representative for each bucket.
     sc_strategy = self_consistency.SelfConsistency(
-        sampler=sampling.Repeated(two_arg_cot),
+        sampler=sampling.Repeated(two_arg_cot),  # pyrefly: ignore[bad-argument-type]
         num_samples=5,
         bucketizer=bucketize_by_trailing_int_mod_2_sync,
         representative_output_selector=selector,

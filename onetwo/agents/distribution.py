@@ -127,7 +127,7 @@ class DistributionAgent(
     # This requires the updates to be hashable.
     dist_dict = {d.update: d.score for d in distribution}
     samples = random.choices(values, weights=probabilities, k=num_candidates)
-    return [
+    return [  # pyrefly: ignore[bad-return]
         agents_base.ScoredUpdate(update=s, score=float(dist_dict[s]))
         for s in samples
     ]
@@ -227,7 +227,7 @@ class ReweightedDistributionAgent(
     ]
     # We restore the original order.
     updated_distribution = sorted(updated_distribution, key=lambda x: x[2])
-    return [
+    return [  # pyrefly: ignore[bad-return]
         agents_base.ScoredUpdate(update=u, score=float(p))
         for (u, p, _) in updated_distribution
     ]
