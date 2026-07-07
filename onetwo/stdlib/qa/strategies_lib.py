@@ -149,6 +149,7 @@ class ClosedBookStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   async def __call__(
       self,
       question: _PromptContent,
+      **query_time_kwargs,
   ) -> StrategyResult:
     """Returns an answer with no context."""
     dummy_doc = _Document(doc_id='none', content='None')
@@ -180,6 +181,7 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   async def __call__(
       self,
       question: _PromptContent,
+      **query_time_kwargs,
   ) -> StrategyResult:
     """Returns an answer using all documents as context."""
     docs = (
@@ -216,7 +218,7 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   async def __call__(
       self,
       question: _PromptContent,
-      **retrieval_kwargs,
+      **query_time_kwargs,
   ) -> StrategyResult:
     """Returns an answer using retrieved documents as context."""
     if self.retriever is None:
@@ -227,7 +229,7 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     # Retrieve relevant documents.
     retrieved_docs = await self.retriever.retrieve(  # pytype: disable=wrong-keyword-args
         query=question,
-        **retrieval_kwargs,
+        **query_time_kwargs,
     )
     retrieved_docs = list(retrieved_docs)
 
@@ -258,7 +260,7 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   async def __call__(
       self,
       question: _PromptContent,
-      **retrieval_kwargs,
+      **query_time_kwargs,
   ) -> StrategyResult:
     """Returns empty answer and retrieved document IDs."""
     if self.retriever is None:
@@ -270,7 +272,7 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     # Retrieve relevant documents.
     retrieved_docs = await self.retriever.retrieve(  # pytype: disable=wrong-keyword-args
         query=question,
-        **retrieval_kwargs,
+        **query_time_kwargs,
     )
     retrieved_docs = list(retrieved_docs)
     doc_ids = [doc.doc_id for doc in retrieved_docs]
