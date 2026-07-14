@@ -19,6 +19,7 @@ defined in `evaluation.py` and expected by `evaluation.evaluate`.
 """
 
 from collections.abc import Callable
+import re
 from typing import Any
 
 from onetwo.core import executing
@@ -27,6 +28,14 @@ from onetwo.stdlib.qa import strategies_lib
 
 StrategyResult = strategies_lib.StrategyResult
 _ExampleDict = evaluation.ExampleDict
+
+_CHUNK_SUFFIX_RE = re.compile(r'(_chunk\d+)+$')
+
+
+def _strip_chunk_suffix(doc_id: str) -> str:
+  """Strips the '_chunkNNN' suffix from the document ID if present."""
+  return _CHUNK_SUFFIX_RE.sub('', doc_id)
+
 
 # TODO: Consider adding a metric that captures AUC-equivalent
 # score for retrieval.
@@ -63,9 +72,8 @@ def _default_golden_doc_ids_extractor(example: _ExampleDict) -> list[str]:
 
 def make_recall_at_k(
     k: int | None = None,
-    answer_doc_ids_extractor: (
-        Callable[[_ExampleDict], list[str]] | None
-    ) = None,
+    answer_doc_ids_extractor: Callable[[_ExampleDict], list[str]] | None = None,
+    strip_chunk_suffix: bool = True,
 ) -> Callable[..., tuple[float, dict[str, Any]]]:
   """Returns a recall@k metric function for RAG evaluation.
 
@@ -100,6 +108,8 @@ def make_recall_at_k(
     answer_doc_ids_extractor: A function that takes the dataset example and
       returns a list of golden document IDs (as strings). If None, defaults to
       using the 'answer_doc_ids' field in the example's 'metadata' field.
+    strip_chunk_suffix: If True, strips the '_chunkNNN' suffix from both
+      retrieved and golden document IDs before computing recall.
 
   Returns:
     A metric function (conforming to `evaluation.MetricFunction`) that takes the
@@ -121,6 +131,7 @@ def make_recall_at_k(
       raise ValueError('Example is required to retrieve golden_doc_ids.')
 
     gold_ids = answer_doc_ids_extractor(example)
+    gold_ids = [str(gid) for gid in gold_ids]
     if not gold_ids:
       # If there are no gold docs defined, recall is trivially 1.0.
       return 1.0, {}
@@ -128,16 +139,16 @@ def make_recall_at_k(
     retrieved_ids = prediction.doc_ids
     if k is not None:
       retrieved_ids = retrieved_ids[:k]
-
-    # Ensure string comparison to avoid type mismatches.
     retrieved_ids = [str(rid) for rid in retrieved_ids]
-    gold_ids = [str(gid) for gid in gold_ids]
+
+    original_retrieved_ids = list(retrieved_ids)
+    if strip_chunk_suffix:
+      retrieved_ids = [_strip_chunk_suffix(rid) for rid in retrieved_ids]
 
     intersection = set(gold_ids).intersection(set(retrieved_ids))
-
     extra_evaluation_info = {
         'answer_doc_ids': gold_ids,
-        'retrieved_doc_ids': retrieved_ids,
+        'retrieved_doc_ids': original_retrieved_ids,
     }
     return len(intersection) / len(gold_ids), extra_evaluation_info
 

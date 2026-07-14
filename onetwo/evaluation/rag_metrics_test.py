@@ -65,6 +65,27 @@ class MetricsLibTest(parameterized.TestCase):
           ['doc1', 'doc2'],
           0.5,
       ),
+      (
+          'recall_chunked_perfect',
+          2,
+          ['doc1_chunk1', 'doc2_chunk1'],
+          ['doc1', 'doc2'],
+          1.0,
+      ),
+      (
+          'recall_chunked_partial',
+          1,
+          ['doc1_chunk1', 'doc2_chunk1'],
+          ['doc1', 'doc2'],
+          0.5,
+      ),
+      (
+          'recall_nested_chunked',
+          2,
+          ['doc1_chunk1_chunk2'],
+          ['doc1'],
+          1.0,
+      ),
   )
   def test_recall_at_k_calculation(
       self, k, prediction_doc_ids, golden_doc_ids, expected_recall
@@ -104,6 +125,19 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertAlmostEqual(recall, 1.0)
     self.assertEqual(extra_info['answer_doc_ids'], ['doc1'])
     self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1', 'doc3'])
+
+  def test_recall_at_k_no_strip(self):
+    example = {'metadata': {'answer_doc_ids': ['doc1']}}
+    prediction = StrategyResult(
+        answer='some answer', doc_ids=['doc1_chunk1', 'doc2']
+    )
+    recall_fn = rag_metrics.make_recall_at_k(k=2, strip_chunk_suffix=False)
+    recall, extra_info = recall_fn(
+        target=None, prediction=prediction, example=example
+    )
+    self.assertAlmostEqual(recall, 0.0)
+    self.assertEqual(extra_info['answer_doc_ids'], ['doc1'])
+    self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1_chunk1', 'doc2'])
 
 
 if __name__ == '__main__':
