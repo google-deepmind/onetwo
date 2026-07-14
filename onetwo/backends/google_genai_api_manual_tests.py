@@ -15,7 +15,6 @@
 from collections.abc import Iterator, Sequence
 import contextlib
 import dataclasses
-
 import json
 import math
 import os
@@ -26,7 +25,9 @@ import uuid
 from absl import app
 from absl import flags
 from absl import logging
+import fastmcp
 from google.genai import types as genai_types
+import mcp
 from onetwo.backends import google_genai_api
 from onetwo.builtins import composables as c
 from onetwo.builtins import formatting
@@ -39,6 +40,11 @@ from onetwo.core import routing
 from onetwo.core import sampling
 import pydantic
 import pydantic.dataclasses as pydantic_dataclasses
+
+McpClient = fastmcp.Client
+FastMCPServer = fastmcp.FastMCP
+
+mcp.ClientSession.__deepcopy__ = lambda self, memo: self
 
 pydantic_dataclass = pydantic_dataclasses.dataclass
 
@@ -1467,6 +1473,65 @@ def main(argv: Sequence[str]) -> None:
           )
     finally:
       backend.register()
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  async def _run_mcp_add_test() -> tuple[str, bool]:
+    """Returns the sum of two numbers and whether the tool was called."""
+    mcp_server = FastMCPServer('Calculator')
+    tool_called = False
+
+    @mcp_server.tool()
+    def add(a: int, b: int) -> int:
+      """Add two numbers together."""
+      nonlocal tool_called
+      tool_called = True
+      return a + b
+
+    async with McpClient(mcp_server) as mcp_client:
+      session = mcp_client.session
+      result = await llm.generate_content(  # pytype: disable=wrong-keyword-args
+          prompt='What is 2 + 3? Use the add tool.',
+          tools=[session],
+      )
+      return str(result), tool_called
+
+  if _should_run_test(32):
+    with _run_test(32, 'MCP Tool: FastMCP add server', test_results) as tc:
+      result_text, tool_called = executing.run(_run_mcp_add_test())
+      print(f'MCP result: {result_text} (tool called: {tool_called})')
+      if '5' not in result_text:
+        tc.fail(f'Expected "5" in response, got: {result_text}')
+      if not tool_called:
+        tc.fail('The add tool was not called by the LLM.')
+
+  if _should_run_test(33):
+    # TODO: b/532970232 - Running sequential executing.run calls with MCP tools
+    # fails on subsequent runs due to the cached GenAI Client's event loop
+    # binding.
+    with _run_test(
+        33,
+        'MCP Tool: sequential calls on different loops (expected failure)',
+        test_results,
+    ) as tc:
+      # The first run (in test 32) established and closed Loop A.
+      # If test 32 did not run, we run it once here to close Loop A.
+      if not _should_run_test(32):
+        try:
+          executing.run(_run_mcp_add_test())
+        except Exception:  # pylint: disable=broad-except
+          pass
+
+      # Now, run it again on a brand new Loop B.
+      try:
+        executing.run(_run_mcp_add_test())
+        tc.fail('Expected event loop closed error, but it succeeded.')
+      except ValueError as err:
+        if 'Event loop is closed' in str(err):
+          print(f'Caught expected loop closed error: {err}')
+        else:
+          tc.fail(f'Caught unexpected ValueError: {err}')
+      except Exception as err:  # pylint: disable=broad-except
+        tc.fail(f'Caught unexpected exception: {err}')
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)

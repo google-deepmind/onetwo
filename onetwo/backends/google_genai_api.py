@@ -31,6 +31,7 @@ from absl import logging
 from etils import epath
 from google import genai
 import google.auth.credentials
+from google.genai import _mcp_utils
 from google.genai import client
 from google.genai import types as genai_types
 import google.genai.errors as genai_errors
@@ -701,6 +702,118 @@ class GoogleGenAIAPI(
     """See builtins.llm.generate_content."""
     return (await self._generate_contents(prompt, samples=1, **kwargs))[0]  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async, unexpected-keyword]
 
+  def _prepare_generation_config_and_contents(
+      self,
+      prompt: llm.Prompt,
+      samples: int = 1,
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      **kwargs,
+  ) -> tuple[str, list[genai_types.Content], genai_types.GenerateContentConfig]:
+    """Helper to prepare contents and generation config for GoogleGenAIAPI."""
+    self._counters['generate_contents'] += 1
+
+    # Validate prompt first.
+    prefix_caching.validate_cached_prompt(prompt)
+
+    if healing_option != _TokenHealingOption.NONE:
+      logging.warning(
+          'Token healing is no longer supported in '
+          'GoogleGenAIAPI.generate_contents.'
+      )
+
+    # Perform server-side prefix caching, if requested.
+    if isinstance(prompt, prefix_caching.CachedChunkList):
+      if 'cached_content' in kwargs:
+        raise ValueError(
+            'cached_content cannot be set manually when using caching classes.'
+        )
+      try:
+        kwargs['cached_content'] = self._update_contents_cache(prompt)
+        n = prompt.cache_chunk_count
+        contents = _contents_from_prompt(prompt[n:])  # pyrefly: ignore[bad-argument-type]
+      except genai_errors.APIError as e:
+        if (
+            e.code == http.HTTPStatus.BAD_REQUEST
+            and 'minimum token count' in str(e)
+        ):
+          logging.warning(
+              'Context too small for caching, falling back to full prompt.'
+          )
+          contents = _contents_from_prompt(prompt)
+        else:
+          raise e
+    else:
+      contents = _contents_from_prompt(prompt)
+
+    # Make call to the underlying GenAI client.
+    self._extract_system_instruction_from_contents(contents, kwargs)
+    generation_config = genai_types.GenerateContentConfig(
+        candidate_count=samples,
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        stop_sequences=stop,
+        top_k=top_k,
+        top_p=top_p,
+        **kwargs,
+    )
+    model_name = self._generate_model_name()
+    return model_name, contents, generation_config
+
+  def _process_generation_response(
+      self,
+      response: Any,
+      model_name: str,
+      include_details: bool,
+  ) -> Sequence[llm.Content]:
+    """Helper to process generation response and format results."""
+    if response.prompt_feedback and response.prompt_feedback.block_reason:
+      prompt_feedback = pprint.pformat(response.prompt_feedback)
+      raise ValueError(
+          'GoogleGenAIAPI.generate_content request was blocked by safety'
+          f' filters:\n{prompt_feedback}'
+      )
+    _raise_if_empty_response(response)
+
+    if usage_metadata := getattr(response, 'usage_metadata', None):
+      tracing.update_info({
+          'llm.model': model_name.rsplit('/', 1)[-1],
+          'llm.tokens.prompt': usage_metadata.prompt_token_count,
+          'llm.tokens.cached_content': (
+              usage_metadata.cached_content_token_count
+          ),
+          'llm.tokens.candidates': usage_metadata.candidates_token_count,
+          'llm.tokens.thoughts': usage_metadata.thoughts_token_count,
+      })
+
+    # Bug fix for Gemini b/454877141: Clean up conflated candidates.
+    c0 = response.candidates[0].content  # pyrefly: ignore[unsupported-operation]
+    for ci in range(len(response.candidates) - 1, 0, -1):  # pyrefly: ignore[bad-argument-type]
+      c = response.candidates[ci].content  # pyrefly: ignore[unsupported-operation]
+      off = len(c0.parts) - len(c.parts)  # pyrefly: ignore[missing-attribute]
+      for pi in range(len(c.parts) - 1, -1, -1):  # pyrefly: ignore[missing-attribute]
+        idx = off + pi
+        if 0 <= idx < len(c0.parts):  # pyrefly: ignore[missing-attribute]
+          if c.parts[pi] == c0.parts[idx]:  # pyrefly: ignore[missing-attribute]
+            c0.parts.pop()  # pyrefly: ignore[missing-attribute]
+
+    contents_with_details = [
+        _chunks_with_details_from_candidate(c) for c in response.candidates  # pyrefly: ignore[not-iterable]
+    ]
+
+    results = (
+        contents_with_details
+        if include_details
+        else [c[0] for c in contents_with_details]
+    )
+    return results
+
+  # TODO: b/532970232 - Consider using only _generate_contents_inner_async.
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_contents')
   @caching.cache_method(  # Cache this method.
@@ -723,6 +836,57 @@ class GoogleGenAIAPI(
       healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[llm.Content]:
+    """Generates content from the model, routing to sync or async paths.
+
+    Routes to the async path when MCP tools are present (since MCP sessions
+    are bound to the caller's event loop), and to the sync thread-pool path
+    otherwise.
+
+    Args:
+      prompt: The input prompt to the model.
+      samples: Number of candidate responses to generate.
+      temperature: Sampling temperature for controlling randomness.
+      max_tokens: Maximum number of tokens in the generated response.
+      stop: Sequences where the model should stop generating.
+      top_k: Number of highest-probability tokens to consider at each step.
+      top_p: Cumulative probability threshold for nucleus sampling.
+      include_details: If True, returns content with additional metadata
+        (e.g., safety ratings, finish reason).
+      healing_option: Token healing strategy (currently unsupported, will
+        log a warning if set to anything other than NONE).
+      **kwargs: Additional genai-specific arguments passed to
+        GenerateContentConfig. Common examples include ``tools`` (a sequence
+        of tool declarations enabling function-calling or MCP tool usage)
+        and ``cached_content`` (for server-side prefix caching).
+
+    Returns:
+      A sequence of generated content, one per candidate.
+    """
+    # We must support two execution paths for content generation.
+    # 1. Async route (_generate_contents_inner_async): Necessary when using MCP
+    #    tools. MCP sessions manage async streams that are bound to the caller's
+    #    event loop and cannot be dispatched to a separate thread pool.
+    # 2. Sync route (_generate_contents_inner): Used for all other calls. The
+    #    underlying google.genai async client caches network connections that
+    #    are bound to a specific asyncio event loop. The sync path uses a
+    #    blocking HTTP client with no loop affinity, dispatched to a thread
+    #    pool via @batching.to_thread_pool_method to keep execution
+    #    non-blocking.
+    tools = kwargs.get('tools')
+    if tools and _mcp_utils.has_mcp_session_usage(tools):
+      return await self._generate_contents_inner_async(
+          prompt=prompt,
+          samples=samples,
+          temperature=temperature,
+          max_tokens=max_tokens,
+          stop=stop,
+          top_k=top_k,
+          top_p=top_p,
+          include_details=include_details,
+          healing_option=healing_option,
+          **kwargs,
+      )
+
     return await self._generate_contents_inner(  # pyrefly: ignore[bad-return]
         prompt=prompt,
         samples=samples,
@@ -812,6 +976,53 @@ class GoogleGenAIAPI(
     prompt.cache_name = new_cache.name
     return new_cache.name  # pyrefly: ignore[bad-return]
 
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
+  )
+  async def _generate_contents_inner_async(
+      self,
+      prompt: llm.Prompt,
+      samples: int = 1,
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      include_details: bool = False,
+      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
+      tools: Sequence[Any] | None = None,
+      **kwargs,  # Optional genai specific arguments.
+  ) -> Sequence[llm.Content]:
+    """Async counterpart of _generate_contents_inner with retry."""
+    model_name, contents, generation_config = (
+        self._prepare_generation_config_and_contents(
+            prompt=prompt,
+            samples=samples,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop=stop,
+            top_k=top_k,
+            top_p=top_p,
+            healing_option=healing_option,
+            tools=tools,
+            **kwargs,
+        )
+    )
+    response = await self._genai_client.aio.models.generate_content(
+        model=model_name,
+        contents=contents,
+        config=generation_config,
+    )
+    return self._process_generation_response(
+        response=response,
+        model_name=model_name,
+        include_details=include_details,
+    )
+
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
   )
@@ -836,103 +1047,29 @@ class GoogleGenAIAPI(
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[llm.Content]:
     """This is builtins.llm.generate_content for multiple candidates."""
-    self._counters['generate_contents'] += 1
-
-    # Validate prompt first.
-    prefix_caching.validate_cached_prompt(prompt)
-
-    if healing_option != _TokenHealingOption.NONE:
-      logging.warning(
-          'Token healing is no longer supported in '
-          'GoogleGenAIAPI.generate_contents.'
-      )
-    del healing_option  # No longer used.
-
-    # Perform server-side prefix caching, if requested.
-    # We split the prompt *before* converting to genai contents, because
-    # _contents_from_prompt may merge adjacent same-role chunks, which would
-    # misalign cache_chunk_count with the resulting contents list.
-    if isinstance(prompt, prefix_caching.CachedChunkList):
-      if 'cached_content' in kwargs:
-        raise ValueError(
-            'cached_content cannot be set manually when using caching classes.'
+    model_name, contents, generation_config = (
+        self._prepare_generation_config_and_contents(
+            prompt=prompt,
+            samples=samples,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stop=stop,
+            top_k=top_k,
+            top_p=top_p,
+            healing_option=healing_option,
+            **kwargs,
         )
-      try:
-        kwargs['cached_content'] = self._update_contents_cache(prompt)
-        n = prompt.cache_chunk_count
-        contents = _contents_from_prompt(prompt[n:])  # pyrefly: ignore[bad-argument-type]
-      except genai_errors.APIError as e:
-        if (
-            e.code == http.HTTPStatus.BAD_REQUEST
-            and 'minimum token count' in str(e)
-        ):
-          logging.warning(
-              'Context too small for caching, falling back to full prompt.'
-          )
-          # Fallback: convert the full prompt.
-          contents = _contents_from_prompt(prompt)
-        else:
-          raise e
-    else:
-      contents = _contents_from_prompt(prompt)
-
-    # Make call to the underlying GenAI client.
-    self._extract_system_instruction_from_contents(contents, kwargs)
-    generation_config = genai_types.GenerateContentConfig(
-        candidate_count=samples,
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        stop_sequences=stop,
-        top_k=top_k,
-        top_p=top_p,
-        **kwargs,
     )
-    model_name = self._generate_model_name()
     response = self._genai_client.models.generate_content(
         model=model_name,
         contents=contents,
         config=generation_config,
     )
-    if response.prompt_feedback and response.prompt_feedback.block_reason:
-      prompt_feedback = pprint.pformat(response.prompt_feedback)
-      raise ValueError(
-          'GoogleGenAIAPI.generate_content request was blocked by safety'
-          f' filters:\n{prompt_feedback}'
-      )
-    _raise_if_empty_response(response)
-
-    if usage_metadata := getattr(response, 'usage_metadata', None):
-      tracing.update_info({
-          # Extract the model name from the full model name.
-          'llm.model': model_name.rsplit('/', 1)[-1],
-          'llm.tokens.prompt': usage_metadata.prompt_token_count,
-          'llm.tokens.cached_content': (
-              usage_metadata.cached_content_token_count
-          ),
-          'llm.tokens.candidates': usage_metadata.candidates_token_count,
-          'llm.tokens.thoughts': usage_metadata.thoughts_token_count,
-      })
-    # Bug fix for Gemini b/454877141: Clean up conflated candidates.
-    c0 = response.candidates[0].content  # pyrefly: ignore[unsupported-operation]
-    for ci in range(len(response.candidates) - 1, 0, -1):  # pyrefly: ignore[bad-argument-type]
-      c = response.candidates[ci].content  # pyrefly: ignore[unsupported-operation]
-      off = len(c0.parts) - len(c.parts)  # pyrefly: ignore[missing-attribute]
-      for pi in range(len(c.parts) - 1, -1, -1):  # pyrefly: ignore[missing-attribute]
-        idx = off + pi
-        if 0 <= idx < len(c0.parts):  # pyrefly: ignore[missing-attribute]
-          if c.parts[pi] == c0.parts[idx]:  # pyrefly: ignore[missing-attribute]
-            c0.parts.pop()  # pyrefly: ignore[missing-attribute]
-
-    contents_with_details = [
-        _chunks_with_details_from_candidate(c) for c in response.candidates  # pyrefly: ignore[not-iterable]
-    ]
-
-    results = (
-        contents_with_details
-        if include_details
-        else [c[0] for c in contents_with_details]
+    return self._process_generation_response(
+        response=response,
+        model_name=model_name,
+        include_details=include_details,
     )
-    return results
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @tracing.trace(name='GoogleGenAIAPI.generate_object')
