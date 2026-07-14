@@ -57,7 +57,7 @@ DOC1_CHUNKS_5TOKENS = [
     retrieval_data_structures.Document(
         title='Text-only doc',
         content='origi',
-        doc_id='1_1',
+        doc_id='1_chunk1',
         metadata={
             'key1': 'value1',
             'key2': 'value2',
@@ -69,7 +69,7 @@ DOC1_CHUNKS_5TOKENS = [
     retrieval_data_structures.Document(
         title='Text-only doc',
         content='nal t',
-        doc_id='1_2',
+        doc_id='1_chunk2',
         metadata={
             'key1': 'value1',
             'key2': 'value2',
@@ -81,7 +81,7 @@ DOC1_CHUNKS_5TOKENS = [
     retrieval_data_structures.Document(
         title='Text-only doc',
         content='ext',
-        doc_id='1_3',
+        doc_id='1_chunk3',
         metadata={
             'key1': 'value1',
             'key2': 'value2',
@@ -96,7 +96,7 @@ DOC2_CHUNKS_5TOKENS = [
     retrieval_data_structures.Document(
         title='ChunkList doc',
         content='origi',
-        doc_id='2_1',
+        doc_id='2_chunk1',
         metadata={
             'key1': 'value1',
             'key2': 'value2',
@@ -108,7 +108,7 @@ DOC2_CHUNKS_5TOKENS = [
     retrieval_data_structures.Document(
         title='ChunkList doc',
         content='nal t',
-        doc_id='2_2',
+        doc_id='2_chunk2',
         metadata={
             'key1': 'value1',
             'key2': 'value2',
@@ -120,7 +120,7 @@ DOC2_CHUNKS_5TOKENS = [
     retrieval_data_structures.Document(
         title='ChunkList doc',
         content='ext',
-        doc_id='2_3',
+        doc_id='2_chunk3',
         metadata={
             'key1': 'value1',
             'key2': 'value2',
@@ -355,11 +355,11 @@ class CorpusRewritingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   content='original text',
                   title='Text-only doc',
-                  doc_id='1_1_1_1_1_1',
+                  doc_id='1_chunk1_chunk1_chunk1_chunk1_chunk1',
                   metadata={
                       'key1': 'value1',
                       'key2': 'value2',
-                      _ORIGINAL_DOC_ID: '1_1_1_1_1',
+                      _ORIGINAL_DOC_ID: '1_chunk1_chunk1_chunk1_chunk1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 1,
                   },
@@ -367,11 +367,11 @@ class CorpusRewritingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   content='original text',
                   title='ChunkList doc',
-                  doc_id='2_1_1_1_1_1',
+                  doc_id='2_chunk1_chunk1_chunk1_chunk1_chunk1',
                   metadata={
                       'key1': 'value1',
                       'key2': 'value2',
-                      _ORIGINAL_DOC_ID: '2_1_1_1_1',
+                      _ORIGINAL_DOC_ID: '2_chunk1_chunk1_chunk1_chunk1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 1,
                   },
@@ -412,7 +412,7 @@ class CorpusRewritingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   content='Title: Test Title\nContent: hello',
                   title='Test Title',
-                  doc_id='1_1',
+                  doc_id='1_chunk1',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
@@ -422,7 +422,7 @@ class CorpusRewritingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   content='Title: Test Title\nContent: world',
                   title='Test Title',
-                  doc_id='1_2',
+                  doc_id='1_chunk2',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,

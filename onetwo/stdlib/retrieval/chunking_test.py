@@ -116,7 +116,7 @@ class ChunkingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   title='Test Title',
                   content='hello',
-                  doc_id='1_1',
+                  doc_id='1_chunk1',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
@@ -126,7 +126,7 @@ class ChunkingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   title='Test Title',
                   content='world',
-                  doc_id='1_2',
+                  doc_id='1_chunk2',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
@@ -143,7 +143,7 @@ class ChunkingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   title='Test Title',
                   content='hello ',
-                  doc_id='1_1',
+                  doc_id='1_chunk1',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
@@ -153,7 +153,7 @@ class ChunkingTest(parameterized.TestCase):
               retrieval_data_structures.Document(
                   title='Test Title',
                   content='world',
-                  doc_id='1_2',
+                  doc_id='1_chunk2',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
@@ -193,7 +193,7 @@ class ChunkingTest(parameterized.TestCase):
           'expected_chunks': [
               retrieval_data_structures.Document(
                   content='hello',
-                  doc_id='1_1',
+                  doc_id='1_chunk1',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
@@ -202,7 +202,7 @@ class ChunkingTest(parameterized.TestCase):
               ),
               retrieval_data_structures.Document(
                   content='world',
-                  doc_id='1_2',
+                  doc_id='1_chunk2',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
@@ -220,7 +220,7 @@ class ChunkingTest(parameterized.TestCase):
           'expected_chunks': [
               retrieval_data_structures.Document(
                   content='hello',
-                  doc_id='1_1',
+                  doc_id='1_chunk1',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
@@ -229,7 +229,7 @@ class ChunkingTest(parameterized.TestCase):
               ),
               retrieval_data_structures.Document(
                   content='o worl',
-                  doc_id='1_2',
+                  doc_id='1_chunk2',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
@@ -238,7 +238,7 @@ class ChunkingTest(parameterized.TestCase):
               ),
               retrieval_data_structures.Document(
                   content='rld',
-                  doc_id='1_3',
+                  doc_id='1_chunk3',
                   metadata={
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 3,

@@ -130,7 +130,7 @@ class TextChunker(Chunker):
       chunk = copy.deepcopy(document)
       chunk.content = chunk_text
       # Modify the doc_id of every chunk to produce a unique id for each chunk.
-      chunk.doc_id = f'{document.doc_id}_{i+1}'
+      chunk.doc_id = f'{document.doc_id}_chunk{i+1}'
       chunks.append(chunk)
 
     # Add additional metadata to chunks.
