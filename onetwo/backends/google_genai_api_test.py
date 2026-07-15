@@ -26,7 +26,6 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from google import genai
-from google.genai import _mcp_utils
 from google.genai import types as genai_types
 import google.genai.errors as genai_errors
 import httpx
@@ -1889,9 +1888,9 @@ class GoogleGenaiApiTest(
     class FakeClientSession:
       pass
 
-    self.enter_context(
-        mock.patch.object(_mcp_utils, 'McpClientSession', FakeClientSession)
-    )
+    mock_mcp = mock.MagicMock()
+    mock_mcp.ClientSession = FakeClientSession
+    self.enter_context(mock.patch.dict('sys.modules', {'mcp': mock_mcp}))
 
     aio_gc_mock = mock.AsyncMock()
     aio_gc_mock.return_value = genai_types.GenerateContentResponse(
@@ -1920,9 +1919,9 @@ class GoogleGenaiApiTest(
     class FakeClientSession:
       pass
 
-    self.enter_context(
-        mock.patch.object(_mcp_utils, 'McpClientSession', FakeClientSession)
-    )
+    mock_mcp = mock.MagicMock()
+    mock_mcp.ClientSession = FakeClientSession
+    self.enter_context(mock.patch.dict('sys.modules', {'mcp': mock_mcp}))
 
     aio_gc_mock = mock.AsyncMock()
     aio_gc_mock.side_effect = [
@@ -1959,9 +1958,9 @@ class GoogleGenaiApiTest(
     class FakeClientSession:
       pass
 
-    self.enter_context(
-        mock.patch.object(_mcp_utils, 'McpClientSession', FakeClientSession)
-    )
+    mock_mcp = mock.MagicMock()
+    mock_mcp.ClientSession = FakeClientSession
+    self.enter_context(mock.patch.dict('sys.modules', {'mcp': mock_mcp}))
 
     aio_gc_mock = mock.AsyncMock()
     aio_gc_mock.side_effect = genai_errors.ClientError(
