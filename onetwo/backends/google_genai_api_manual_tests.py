@@ -1475,34 +1475,94 @@ def main(argv: Sequence[str]) -> None:
       backend.register()
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  async def _run_mcp_add_test() -> tuple[str, bool]:
-    """Returns the sum of two numbers and whether the tool was called."""
+  async def _run_mcp_add_test() -> tuple[str, bool, bool]:
+    """Returns the result, and whether each tool was called."""
     mcp_server = FastMCPServer('Calculator')
-    tool_called = False
+    add_called = False
+    multiply_called = False
 
     @mcp_server.tool()
     def add(a: int, b: int) -> int:
       """Add two numbers together."""
-      nonlocal tool_called
-      tool_called = True
+      nonlocal add_called
+      add_called = True
       return a + b
+
+    @mcp_server.tool()
+    def multiply(a: int, b: int) -> int:
+      """Multiply two numbers together."""
+      nonlocal multiply_called
+      multiply_called = True
+      return a * b
 
     async with McpClient(mcp_server) as mcp_client:
       session = mcp_client.session
       result = await llm.generate_content(  # pytype: disable=wrong-keyword-args
-          prompt='What is 2 + 3? Use the add tool.',
+          prompt=(
+              'First, use the add tool to compute 2 + 3. Then, use the'
+              ' multiply tool to compute 4 * (2 + 3). Report both results.'
+          ),
           tools=[session],
       )
-      return str(result), tool_called
+      return str(result), add_called, multiply_called
 
   if _should_run_test(32):
-    with _run_test(32, 'MCP Tool: FastMCP add server', test_results) as tc:
-      result_text, tool_called = executing.run(_run_mcp_add_test())
-      print(f'MCP result: {result_text} (tool called: {tool_called})')
+    with _run_test(
+        32,
+        'MCP Tool: FastMCP multi-tool server with tracing',
+        test_results,
+    ) as tc:
+      (result_text, add_called, multiply_called), trace = executing.run(
+          _run_mcp_add_test(), enable_tracing=True
+      )
+      print(
+          f'MCP result: {result_text} (add called: {add_called},'
+          f' multiply called: {multiply_called})'
+      )
       if '5' not in result_text:
-        tc.fail(f'Expected "5" in response, got: {result_text}')
-      if not tool_called:
+        tc.fail(f'Expected "5" (2+3) in response, got: {result_text}')
+      if '20' not in result_text:
+        tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
+      if not add_called:
         tc.fail('The add tool was not called by the LLM.')
+      if not multiply_called:
+        tc.fail('The multiply tool was not called by the LLM.')
+
+      # Check llm.tools.calls in the trace.
+      # The trace structure for generate_content is:
+      #   trace (root)
+      #   └── stages[0]: GoogleGenAIAPI.generate_contents  <- info is here
+      # However, with MCP tools the structure may vary; we look for the
+      # stage containing 'llm.tools.calls'.
+      found_tools_calls = False
+
+      def _check_stage(stage):
+        nonlocal found_tools_calls
+        if hasattr(stage, 'info') and stage.info:
+          if 'llm.tools.calls' in stage.info:
+            found_tools_calls = True
+            val = stage.info['llm.tools.calls']
+            print(f'- llm.tools.calls: {val}')
+            for key in [
+                'llm.tokens.prompt',
+                'llm.tokens.cached_content',
+                'llm.tokens.candidates',
+                'llm.tokens.thoughts',
+                'llm.tokens.tool_use_prompt',
+            ]:
+              if key in stage.info:
+                print(f'- {key}: {stage.info[key]}')
+            if not isinstance(val, int) or val < 0:
+              tc.fail(
+                  f'llm.tools.calls is not a valid non-negative integer: {val}'
+              )
+        if hasattr(stage, 'stages'):
+          for sub in stage.stages:
+            _check_stage(sub)
+
+      _check_stage(trace)
+      if not found_tools_calls:
+        tc.fail('llm.tools.calls not found in any trace stage.')
 
   if _should_run_test(33):
     # TODO: b/532970232 - Running sequential executing.run calls with MCP tools

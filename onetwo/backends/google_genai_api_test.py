@@ -212,8 +212,10 @@ class GoogleGenaiApiTest(
         cached_content_token_count=5,
         candidates_token_count=20,
         thoughts_token_count=2,
+        tool_use_prompt_token_count=0,
     )
     mock_response.prompt_feedback = None
+    mock_response.automatic_function_calling_history = None
 
     self._mock_genai_client.models.generate_content.return_value = mock_response
 
@@ -242,10 +244,117 @@ class GoogleGenaiApiTest(
     self.assertEqual(info['llm.tokens.cached_content'], 5)
     self.assertEqual(info['llm.tokens.candidates'], 20)
     self.assertEqual(info['llm.tokens.thoughts'], 2)
+    self.assertEqual(info['llm.tokens.tool_use_prompt'], 0)
+    self.assertEqual(info['llm.tools.calls'], 0)
     self.assertEqual(
         info['llm.model'],
         google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api.rsplit('/')[-1],
     )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='no_tool_calls',
+          candidate_parts=[genai_types.Part(text='Hello')],
+          afc_history=None,
+          expected_tool_calls=0,
+      ),
+      dict(
+          testcase_name='single_tool_call_in_candidates',
+          candidate_parts=[
+              genai_types.Part(
+                  function_call=genai_types.FunctionCall(
+                      name='get_weather', args={'location': 'London'}
+                  )
+              ),
+          ],
+          afc_history=None,
+          expected_tool_calls=1,
+      ),
+      dict(
+          testcase_name='multiple_tool_calls_in_candidates',
+          candidate_parts=[
+              genai_types.Part(
+                  function_call=genai_types.FunctionCall(
+                      name='get_weather', args={'location': 'London'}
+                  )
+              ),
+              genai_types.Part(
+                  function_call=genai_types.FunctionCall(
+                      name='get_weather', args={'location': 'Paris'}
+                  )
+              ),
+          ],
+          afc_history=None,
+          expected_tool_calls=2,
+      ),
+      dict(
+          testcase_name='tool_calls_from_afc_history',
+          # Final response has only text (MCP/auto-tool-call path).
+          candidate_parts=[genai_types.Part(text='The result is 5.')],
+          afc_history=[
+              genai_types.Content(
+                  parts=[
+                      genai_types.Part(
+                          function_call=genai_types.FunctionCall(
+                              name='add', args={'a': 2, 'b': 3}
+                          )
+                      ),
+                      genai_types.Part(
+                          function_call=genai_types.FunctionCall(
+                              name='multiply', args={'a': 4, 'b': 5}
+                          )
+                      ),
+                  ],
+                  role='model',
+              ),
+              genai_types.Content(
+                  parts=[
+                      genai_types.Part(
+                          function_response=genai_types.FunctionResponse(
+                              name='add', response={'result': 5}
+                          )
+                      ),
+                      genai_types.Part(
+                          function_response=genai_types.FunctionResponse(
+                              name='multiply', response={'result': 20}
+                          )
+                      ),
+                  ],
+                  role='user',
+              ),
+          ],
+          expected_tool_calls=2,
+      ),
+  )
+  def test_tracing_tool_call_count(
+      self, candidate_parts, afc_history, expected_tool_calls
+  ):
+    _ = _get_and_register_backend(disable_caching=True)
+
+    content = genai_types.Content(parts=candidate_parts, role='model')
+    candidate = genai_types.Candidate(content=content)
+
+    mock_response = mock.Mock()
+    mock_response.candidates = [candidate]
+    mock_response.usage_metadata = mock.Mock(
+        prompt_token_count=10,
+        cached_content_token_count=0,
+        candidates_token_count=15,
+        thoughts_token_count=0,
+        tool_use_prompt_token_count=0,
+    )
+    mock_response.prompt_feedback = None
+    mock_response.automatic_function_calling_history = afc_history
+
+    self._mock_genai_client.models.generate_content.return_value = mock_response
+
+    _, trace = executing.run(
+        llm.generate_text(prompt='test'), enable_tracing=True
+    )
+
+    generate_contents_stage = trace.stages[0].stages[0]
+    info = generate_contents_stage.info
+    self.assertEqual(info['llm.tools.calls'], expected_tool_calls)
 
   def test_generate_text_with_unsafe_content(self):
     backend = _get_and_register_backend()
@@ -2613,6 +2722,191 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
     )
     self.assertEqual(result_content, expected_content)
     self.assertEqual(result_kwargs.get('task_type'), expected_task_type)
+
+
+class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
+  """Tests for _update_trace_info_from_usage_metadata."""
+
+  def _make_usage_metadata(
+      self,
+      prompt_token_count=10,
+      cached_content_token_count=2,
+      candidates_token_count=5,
+      thoughts_token_count=3,
+      tool_use_prompt_token_count=1,
+  ):
+    return mock.Mock(
+        prompt_token_count=prompt_token_count,
+        cached_content_token_count=cached_content_token_count,
+        candidates_token_count=candidates_token_count,
+        thoughts_token_count=thoughts_token_count,
+        tool_use_prompt_token_count=tool_use_prompt_token_count,
+    )
+
+  def _make_part(self, has_function_call=False):
+    part = mock.Mock()
+    part.function_call = mock.Mock() if has_function_call else None
+    return part
+
+  def _make_candidate(self, parts):
+    candidate = mock.Mock()
+    candidate.content = mock.Mock()
+    candidate.content.parts = parts
+    return candidate
+
+  def _make_response(self, candidates=None, afc_history=None):
+    response = mock.Mock()
+    response.candidates = candidates or []
+    if afc_history is not None:
+      response.automatic_function_calling_history = afc_history
+    else:
+      # Simulate getattr returning None.
+      del response.automatic_function_calling_history
+    return response
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_basic_token_counts_no_tool_calls(self, mock_update_info):
+    usage_metadata = self._make_usage_metadata()
+    candidate = self._make_candidate([self._make_part()])
+    response = self._make_response(candidates=[candidate])
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        usage_metadata, 'models/gemini-2.0-flash', response
+    )
+
+    mock_update_info.assert_called_once_with({
+        'llm.model': 'gemini-2.0-flash',
+        'llm.tokens.prompt': 10,
+        'llm.tokens.cached_content': 2,
+        'llm.tokens.candidates': 5,
+        'llm.tokens.thoughts': 3,
+        'llm.tokens.tool_use_prompt': 1,
+        'llm.tools.calls': 0,
+    })
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_from_candidates(self, mock_update_info):
+    parts = [
+        self._make_part(has_function_call=True),
+        self._make_part(has_function_call=False),
+        self._make_part(has_function_call=True),
+    ]
+    candidate = self._make_candidate(parts)
+    response = self._make_response(candidates=[candidate])
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 2)
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_from_automatic_function_calling_history(
+      self, mock_update_info
+  ):
+    # When afc_history is present, tool calls should be counted from it
+    # instead of from candidates.
+    afc_content_1 = mock.Mock()
+    afc_content_1.parts = [
+        self._make_part(has_function_call=True),
+        self._make_part(has_function_call=True),
+    ]
+    afc_content_2 = mock.Mock()
+    afc_content_2.parts = [
+        self._make_part(has_function_call=True),
+    ]
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[afc_content_1, afc_content_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 3)
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_afc_history_with_no_parts(self, mock_update_info):
+    afc_content = mock.Mock()
+    afc_content.parts = None
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[afc_content],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 0)
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_model_name_extraction(self, mock_update_info):
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])]
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(),
+        'publishers/google/models/gemini-pro',
+        response,
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.model'], 'gemini-pro')
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_model_name_without_slash(self, mock_update_info):
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])]
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'gemini-pro', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.model'], 'gemini-pro')
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_multiple_candidates_with_tool_calls(self, mock_update_info):
+    candidate1 = self._make_candidate([
+        self._make_part(has_function_call=True),
+    ])
+    candidate2 = self._make_candidate([
+        self._make_part(has_function_call=True),
+        self._make_part(has_function_call=True),
+    ])
+    response = self._make_response(candidates=[candidate1, candidate2])
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 3)
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_none_token_counts_passed_through(self, mock_update_info):
+    usage_metadata = self._make_usage_metadata(
+        thoughts_token_count=None,
+        tool_use_prompt_token_count=None,
+    )
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])]
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        usage_metadata, 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertIsNone(call_args['llm.tokens.thoughts'])
+    self.assertIsNone(call_args['llm.tokens.tool_use_prompt'])
 
 
 if __name__ == '__main__':

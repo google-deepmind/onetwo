@@ -359,6 +359,64 @@ def _is_retriable_error(e: Exception) -> bool:
   return e.code in _RETRIABLE_STATUS_CODES
 
 
+def _update_trace_info_from_usage_metadata(
+    usage_metadata: genai_types.GenerateContentResponseUsageMetadata,
+    model_name: str,
+    response: genai_types.GenerateContentResponse,
+) -> None:
+  """Updates tracing info from the response's usage metadata.
+
+  Counts tool calls from either automatic_function_calling_history (when the
+  SDK handles tool use automatically, e.g. MCP) or from the response candidates
+  directly, then records token counts and tool-call count into the trace.
+
+  NOTE: With automatic function calling (e.g. MCP tools), the SDK makes
+  multiple API round trips internally but only exposes usage_metadata from
+  the final round. This means:
+    - prompt_token_count includes the full conversation history (original
+      prompt + tool schemas + function calls + tool responses) accumulated
+      across rounds.
+    - candidates_token_count only reflects the final text output, NOT the
+      intermediate function_call outputs the model generated in earlier
+      rounds. The true total output cost is therefore higher than what
+      candidates_token_count reports.
+    - tool_use_prompt_token_count may be None depending on the model.
+
+  Args:
+    usage_metadata: The usage_metadata attribute from the API response.
+    model_name: The full model name string (e.g. 'models/gemini-2.0-flash').
+    response: The full GenerateContentResponse, used to count tool calls.
+  """
+  # Count tool calls. When the SDK handles tool use automatically (e.g.
+  # MCP), intermediate function calls are recorded in
+  # automatic_function_calling_history (the final response's candidates
+  # only contain the text answer). For non-automatic function calling,
+  # function_call parts appear directly in the candidates.
+  tool_call_count = 0
+  afc_history = getattr(response, 'automatic_function_calling_history', None)
+  if afc_history:
+    for content in afc_history:
+      if content.parts:
+        tool_call_count += sum(
+            1 for part in content.parts if part.function_call
+        )
+  else:
+    for candidate in response.candidates:
+      if candidate.content and candidate.content.parts:
+        tool_call_count += sum(
+            1 for part in candidate.content.parts if part.function_call
+        )
+  tracing.update_info({
+      'llm.model': model_name.rsplit('/', 1)[-1],
+      'llm.tokens.prompt': usage_metadata.prompt_token_count,
+      'llm.tokens.cached_content': usage_metadata.cached_content_token_count,
+      'llm.tokens.candidates': usage_metadata.candidates_token_count,
+      'llm.tokens.thoughts': usage_metadata.thoughts_token_count,
+      'llm.tokens.tool_use_prompt': usage_metadata.tool_use_prompt_token_count,
+      'llm.tools.calls': tool_call_count,
+  })
+
+
 def _raise_if_empty_response(
     response: genai_types.GenerateContentResponse,
 ) -> None:
@@ -781,15 +839,9 @@ class GoogleGenAIAPI(
     _raise_if_empty_response(response)
 
     if usage_metadata := getattr(response, 'usage_metadata', None):
-      tracing.update_info({
-          'llm.model': model_name.rsplit('/', 1)[-1],
-          'llm.tokens.prompt': usage_metadata.prompt_token_count,
-          'llm.tokens.cached_content': (
-              usage_metadata.cached_content_token_count
-          ),
-          'llm.tokens.candidates': usage_metadata.candidates_token_count,
-          'llm.tokens.thoughts': usage_metadata.thoughts_token_count,
-      })
+      _update_trace_info_from_usage_metadata(
+          usage_metadata, model_name, response
+      )
 
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.
     c0 = response.candidates[0].content  # pyrefly: ignore[unsupported-operation]
