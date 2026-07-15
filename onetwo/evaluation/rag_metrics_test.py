@@ -12,9 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import TypeVar
 from absl.testing import absltest
 from absl.testing import parameterized
 
+from onetwo.backends import backend_registry
+from onetwo.backends import backends_test_utils
+from onetwo.core import content as content_lib
+from onetwo.core import executing
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import strategies_lib
 
@@ -138,6 +143,49 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertAlmostEqual(recall, 0.0)
     self.assertEqual(extra_info['answer_doc_ids'], ['doc1'])
     self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1_chunk1', 'doc2'])
+
+  def test_accuracy_critic_with_backend_config(self):
+    _T = TypeVar('_T')
+
+    class FakeBackend(backends_test_utils.LLMForTest):
+
+      def __init__(self, **kwargs):
+        super().__init__()
+        self.called_generate_object = False
+
+      @executing.make_executable(copy_self=False)
+      async def generate_object(
+          self,
+          prompt: str | content_lib.ChunkList,
+          cls: type[_T],
+          **kwargs,
+      ) -> _T:
+        self.called_generate_object = True
+        return rag_metrics.evaluation.NaiveCriticDecision(
+            agree=True, reason='fake_reason'
+        )
+
+    backend_registry.BACKEND_REGISTRY['FakeBackend'] = FakeBackend
+    self.addCleanup(backend_registry.BACKEND_REGISTRY.pop, 'FakeBackend', None)
+
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='FakeBackend',
+    )
+
+    prediction = StrategyResult(answer='some answer', doc_ids=[])
+
+    accuracy_critic_fn = rag_metrics.make_accuracy_critic(backend_config=config)
+
+    rating, extra_info = executing.run(  # pytype: disable=wrong-arg-types
+        accuracy_critic_fn(
+            target='bla',
+            prediction=prediction,
+            example={'question': 'some question'},
+        )
+    )
+
+    self.assertEqual(1.0, rating)
+    self.assertEqual('fake_reason', extra_info['critic_reason'])
 
 
 if __name__ == '__main__':

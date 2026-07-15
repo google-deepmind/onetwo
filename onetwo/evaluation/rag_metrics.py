@@ -22,7 +22,9 @@ from collections.abc import Callable
 import re
 from typing import Any
 
+from onetwo.backends import backend_registry
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.evaluation import evaluation
 from onetwo.stdlib.qa import strategies_lib
 
@@ -155,28 +157,49 @@ def make_recall_at_k(
   return recall_at_k
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
-async def accuracy_critic(
-    target: str,
-    prediction: StrategyResult,
-    example: _ExampleDict | None = None,
-) -> tuple[float, dict[str, Any]]:
-  """AI-Rater critic that evaluates the generated answer against the target.
-
-  Conforms to the `evaluation.MetricFunction` protocol.
-
-  Uses OneTwo's structured_evaluation_critic.
+def make_accuracy_critic(
+    backend_config: backend_registry.GenerateBackendConfig | None = None,
+) -> Callable[..., tuple[float, dict[str, Any]]]:
+  """Returns an AI-Rater critic that evaluates the generated answer.
 
   Args:
-    target: The expected golden answer.
-    prediction: The RAG strategy result containing the generated answer.
-    example: The dataset example mapping.
-
-  Returns:
-    A tuple of (accuracy_score, extra_info_dict).
+    backend_config: Optional backend configuration to use for the evaluation.
+      If None, the default backend is used.
   """
-  return await evaluation.structured_evaluation_critic(  # pyrefly: ignore[not-async]
-      target=target,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      prediction=prediction.answer,  # pyrefly: ignore[unexpected-keyword]
-      example=example,  # pyrefly: ignore[unexpected-keyword]
-  )
+  backend = None
+  if backend_config is not None:
+    backend = backend_registry.get_backend(backend_config)
+
+  @executing.make_executable  # pytype: disable=wrong-arg-types
+  async def accuracy_critic_fn(
+      target: str,
+      prediction: StrategyResult,
+      example: _ExampleDict | None = None,
+  ) -> tuple[float, dict[str, Any]]:
+    """AI-Rater critic that evaluates the generated answer against the target.
+
+    Conforms to the `evaluation.MetricFunction` protocol.
+
+    Uses OneTwo's structured_evaluation_critic.
+
+    Args:
+      target: The expected golden answer.
+      prediction: The RAG strategy result containing the generated answer.
+      example: The dataset example mapping.
+
+    Returns:
+      A tuple of (accuracy_score, extra_info_dict).
+    """
+    with routing.RegistryContext():
+      if backend is not None:
+        backend.register()
+      return await evaluation.structured_evaluation_critic(  # pyrefly: ignore[not-async]
+          target=target,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+          prediction=prediction.answer,  # pyrefly: ignore[unexpected-keyword]
+          example=example,  # pyrefly: ignore[unexpected-keyword]
+      )
+
+  return accuracy_critic_fn
+
+
+accuracy_critic = make_accuracy_critic()
