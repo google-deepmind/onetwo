@@ -26,9 +26,9 @@ from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.evaluation import evaluation
-from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.qa import qa
 
-StrategyResult = strategies_lib.StrategyResult
+StrategyResult = qa.StrategyResult
 _ExampleDict = evaluation.ExampleDict
 
 _CHUNK_SUFFIX_RE = re.compile(r'(_chunk\d+)+$')

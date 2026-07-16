@@ -20,6 +20,7 @@ from onetwo import ot
 from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import qa_prompt_builder
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import retrieval
@@ -28,6 +29,7 @@ from onetwo.stdlib.retrieval import retrieval_data_structures
 _Document = retrieval_data_structures.Document
 _Chunk = content_lib.Chunk
 _ChunkList = content_lib.ChunkList
+_StrategyResult = qa.StrategyResult
 
 
 # =============================================================================
@@ -222,7 +224,7 @@ class ClosedBookStrategyTest(parameterized.TestCase):
   def test_returns_answer_with_no_docs(self, question):
     strategy = strategies_lib.ClosedBookStrategy()
     result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
-    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'mock answer')
     self.assertEmpty(result.doc_ids)
 
@@ -278,7 +280,7 @@ class LongContextStrategyTest(parameterized.TestCase):
   ):
     strategy = strategies_lib.LongContextStrategy(documents=documents)
     result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
-    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'long context answer')
     self.assertEqual(result.doc_ids, expected_doc_ids)
 
@@ -341,7 +343,7 @@ class RAGStrategyTest(parameterized.TestCase):
     if max_results is not None:
       kwargs['max_results'] = max_results
     result = ot.run(strategy(question=question, **kwargs))  # pytype: disable=wrong-keyword-args
-    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'rag answer')
     self.assertEqual(result.doc_ids, expected_doc_ids)
 
@@ -411,7 +413,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
     if max_results is not None:
       kwargs['max_results'] = max_results
     result = ot.run(strategy(question=question, **kwargs))  # pytype: disable=wrong-keyword-args
-    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, '')
     self.assertEqual(result.doc_ids, expected_doc_ids)
     # Verify LLM was not called.
@@ -467,7 +469,7 @@ class CrossStrategyTest(parameterized.TestCase):
   )
   def test_result_is_strategy_result(self, strategy, question):
     result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
-    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertIsInstance(result, _StrategyResult)
     self.assertIsInstance(result.answer, str)
     self.assertIsInstance(result.doc_ids, list)
 
@@ -494,7 +496,7 @@ class CrossStrategyTest(parameterized.TestCase):
   )
   def test_multimodal_inputs_produce_valid_result(self, strategy, question):
     result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
-    self.assertIsInstance(result, strategies_lib.StrategyResult)
+    self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'cross answer')
 
 

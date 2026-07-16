@@ -56,6 +56,7 @@ _Message = content_lib.Message
 _PredefinedRole = content_lib.PredefinedRole
 
 _PromptContent = str | content_lib.ChunkList
+_StrategyResult = qa.StrategyResult
 
 
 # =============================================================================
@@ -100,36 +101,13 @@ default_qa_template_only_from_context = lambda context, question: (
     + composables.c('\n\nPlease answer the query.')  # pyrefly: ignore[bad-argument-type]
 )
 
-
-# =============================================================================
-# Result dataclass
-# =============================================================================
-
-
-@dataclasses.dataclass(frozen=True)
-class StrategyResult:
-  """The result returned by every QA strategy.
-
-  Attributes:
-    answer: The generated answer string.
-    doc_ids: The IDs of the documents used as context. For example, this list
-      will be empty for closed-book strategies, while for long-context
-      strategies this will be the list of all document ids in the dataset. For
-      RAG strategies this will be the list of document ids retrieved by the
-      retriever.
-  """
-
-  answer: str = ''
-  doc_ids: list[str] = dataclasses.field(default_factory=list)
-
-
 # =============================================================================
 # Strategy implementations
 # =============================================================================
 
 
 @dataclasses.dataclass
-class ClosedBookStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
+class ClosedBookStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   """A strategy that answers questions without any context (closed-book).
 
   The context field in the prompt is set to "None".
@@ -150,18 +128,18 @@ class ClosedBookStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       self,
       question: _PromptContent,
       **query_time_kwargs,
-  ) -> StrategyResult:
+  ) -> _StrategyResult:
     """Returns an answer with no context."""
     dummy_doc = _Document(doc_id='none', content='None')
     context = await self.prompt_builder(
         [dummy_doc], question
     )  # pytype: disable=wrong-arg-count
     answer = await llm.chat(context.to_messages())  # pytype: disable=wrong-arg-count
-    return StrategyResult(answer=str(answer), doc_ids=[])
+    return _StrategyResult(answer=str(answer), doc_ids=[])
 
 
 @dataclasses.dataclass
-class LongContextStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
+class LongContextStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   """A strategy that puts all documents in context (long-context).
 
   Attributes:
@@ -182,7 +160,7 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       self,
       question: _PromptContent,
       **query_time_kwargs,
-  ) -> StrategyResult:
+  ) -> _StrategyResult:
     """Returns an answer using all documents as context."""
     docs = (
         self.documents
@@ -194,11 +172,11 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     )  # pytype: disable=wrong-arg-count
     answer = await llm.chat(context.to_messages())  # pytype: disable=wrong-arg-count
     doc_ids = [doc.doc_id for doc in self.documents]
-    return StrategyResult(answer=str(answer), doc_ids=doc_ids)
+    return _StrategyResult(answer=str(answer), doc_ids=doc_ids)
 
 
 @dataclasses.dataclass
-class RAGStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
+class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   """A strategy that retrieves relevant documents before answering (RAG).
 
   Attributes:
@@ -219,7 +197,7 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       self,
       question: _PromptContent,
       **query_time_kwargs,
-  ) -> StrategyResult:
+  ) -> _StrategyResult:
     """Returns an answer using retrieved documents as context."""
     if self.retriever is None:
       raise ValueError(
@@ -243,11 +221,11 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     )  # pytype: disable=wrong-arg-count
     answer = await llm.chat(context.to_messages())  # pytype: disable=wrong-arg-count
     doc_ids = [doc.doc_id for doc in retrieved_docs]
-    return StrategyResult(answer=str(answer), doc_ids=doc_ids)
+    return _StrategyResult(answer=str(answer), doc_ids=doc_ids)
 
 
 @dataclasses.dataclass
-class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
+class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   """A strategy that only retrieves relevant documents without answering.
 
   Attributes:
@@ -261,7 +239,7 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       self,
       question: _PromptContent,
       **query_time_kwargs,
-  ) -> StrategyResult:
+  ) -> _StrategyResult:
     """Returns empty answer and retrieved document IDs."""
     if self.retriever is None:
       raise ValueError(
@@ -276,7 +254,7 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     )
     retrieved_docs = list(retrieved_docs)
     doc_ids = [doc.doc_id for doc in retrieved_docs]
-    return StrategyResult(answer='', doc_ids=doc_ids)
+    return _StrategyResult(answer='', doc_ids=doc_ids)
 
 
 # =============================================================================

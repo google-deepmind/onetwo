@@ -21,9 +21,9 @@ from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.evaluation import rag_metrics
-from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.qa import qa
 
-StrategyResult = strategies_lib.StrategyResult
+StrategyResult = qa.StrategyResult
 
 
 class MetricsLibTest(parameterized.TestCase):

@@ -144,3 +144,21 @@ class ContextualQAExample(QAExample):
   """
 
   docs: list[_Document] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass(frozen=True)
+class StrategyResult:
+  """The result returned by every QA strategy.
+
+  Attributes:
+    answer: The generated answer string.
+    doc_ids: The IDs of the documents used as context. For example, this list
+      will be empty for closed-book strategies, while for long-context
+      strategies this will be the list of all document ids in the dataset. For
+      RAG strategies this will be the list of document ids retrieved by the
+      retriever.
+  """
+
+  answer: str = ''
+  doc_ids: list[str] = dataclasses.field(default_factory=list)
+
