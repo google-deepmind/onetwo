@@ -203,7 +203,7 @@ class ExecutionTest(parameterized.TestCase):
       def __init__(self, requests: list[str]):
         self.requests = requests
 
-      @tracing.trace
+      @tracing.trace()
       def process(self, request: str) -> str:
         return request.replace('req', 'rep')
 
@@ -280,7 +280,7 @@ class ExecutionTest(parameterized.TestCase):
       return await test_fn(text)  # tn should be awaitable
 
     @make_executable
-    @tracing.trace
+    @tracing.trace()
     def test_iterator(text: str) -> Iterator[str]:
       for i in range(1, len(text) + 1):
         res = 'done: ' + text[:i]
@@ -293,9 +293,10 @@ class ExecutionTest(parameterized.TestCase):
       ):  # test_iterator should be async. pylint: disable=not-an-iterable
         yield s
 
-    # The below function is like `test_iterator` above, except `@tracing.trace`
-    # is on the outside. Note that this is not normally the recommended order of
-    # decoration, and it has some limitations. In particular, tracing does not
+    # The below function is like `test_iterator` above, except
+    # `@tracing.trace()` is on the outside. Note that this is not normally
+    # the recommended order of decoration, and it has some limitations. In
+    # particular, tracing does not
     # work reliably when `executing.run` or `executing.stream_updates`, etc. is
     # performed on this function directly. This limitation normally only
     # affects tracing, but in the case of `executing.stream_updates`, it also
@@ -304,7 +305,7 @@ class ExecutionTest(parameterized.TestCase):
     # it `executing.stream_updates` is called directly on the below function, it
     # will just return the final result the way `executing.run` would, rather
     # than properly streaming the individual updates.)
-    @tracing.trace
+    @tracing.trace()
     @make_executable
     def test_iterator_traced_outside(text: str) -> Iterator[str]:
       for i in range(1, len(text) + 1):
@@ -774,7 +775,7 @@ class ExecutionTest(parameterized.TestCase):
   def test_wrap_asyncgen(self):
 
     @executing.make_executable
-    @tracing.trace
+    @tracing.trace()
     async def iterate(num: int) -> AsyncIterator[str]:
       for i in range(num):
         request = _wrap_request(f'{i}_0')
@@ -1380,12 +1381,12 @@ class ExecutionTest(parameterized.TestCase):
     """Test streaming updates."""
 
     @executing.make_executable
-    @tracing.trace
+    @tracing.trace()
     def inner(value):
       return value
 
     @executing.make_executable
-    @tracing.trace
+    @tracing.trace()
     async def plan(value):
       res = 0
       await tracing.report_update('start')

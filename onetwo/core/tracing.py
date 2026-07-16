@@ -25,7 +25,7 @@ import dataclasses
 import functools
 import inspect
 import io
-from typing import Any, Generic, ParamSpec, TypeVar
+from typing import Any, Generic, ParamSpec, TypeVar, cast
 
 from onetwo.core import executing_impl
 from onetwo.core import iterating
@@ -41,6 +41,8 @@ _FunctionToDecorate = (
     | Callable[_ParamType, Awaitable[_ReturnType]]
     | Callable[_ParamType, AsyncIterator[_ReturnType]]
 )
+
+_F = TypeVar('_F', bound=Callable[..., Any])
 
 # This is the context variable that will contain the current execution result.
 execution_context = contextvars.ContextVar('execution_context')
@@ -353,9 +355,8 @@ def is_decorated_with_trace(f: Callable[..., Any]) -> bool:
   return getattr(f, 'decorated_with_trace', False)
 
 
-@utils.decorator_with_optional_args
-def trace(
-    function: _FunctionToDecorate | None = None,
+def _trace_impl(
+    function: _FunctionToDecorate,
     name: str | utils.FromInstance[str] | None = None,
     skip: Sequence[str] | None = None,
 ) -> _FunctionToDecorate:
@@ -651,3 +652,43 @@ def trace(
     return awrapper
   else:
     return wrapper
+
+
+def trace(
+    name: str | utils.FromInstance[str] | None = None,
+    skip: Sequence[str] | None = None,
+) -> Callable[[_F], _F]:
+  """Decorator to enable producing an ExecutionResult of the execution tree.
+
+  Usage:
+
+  ```
+  @trace()
+  def my_f(x, y):
+    ...
+
+  @trace(skip=['x'])
+  def my_f(x, y):
+    ...
+  ```
+
+  Args:
+    name: Name to use for the stage in the ExecutionResult. If not specified,
+      the function name is used.
+    skip: List of argument names to exclude from the inputs/outputs.
+
+  Returns:
+    A decorator that preserves the function signature.
+  """
+
+  def decorator(function: _F) -> _F:
+    return cast(
+        _F,
+        _trace_impl(
+            cast(_FunctionToDecorate, function),
+            name=name,
+            skip=skip,
+        ),
+    )
+
+  return decorator

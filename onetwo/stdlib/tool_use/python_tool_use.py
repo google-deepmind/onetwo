@@ -442,8 +442,8 @@ class PythonToolUseEnvironment:
   async def run_tool(
       self,
       tool_name: str,
-      tool_args: tuple[Any, ...],
-      tool_kwargs: dict[str, Any],
+      tool_args: Sequence[Any],
+      tool_kwargs: Mapping[str, Any],
   ) -> Any:
     """Runs the specified tool and returns the result.
 

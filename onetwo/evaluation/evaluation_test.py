@@ -146,13 +146,13 @@ def executable_identity_function(x):
   return x
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def traced_ordinary_identity_function(x):
   return x
 
 
-@executing.make_executable
-@tracing.trace  # pytype: disable=wrong-arg-types
+@executing.make_executable  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def executable_traced_identity_function(x):
   return x
 

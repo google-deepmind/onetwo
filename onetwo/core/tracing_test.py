@@ -34,7 +34,7 @@ from onetwo.core import utils
 ExecutionResult = results.ExecutionResult
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def f(a: str) -> dict[str, str]:
   return {'b': a + ' done'}
 
@@ -45,13 +45,13 @@ def g(a: str) -> str:
   return a + ' from g'
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def h(b: str) -> str:
   g(b)
   return g(b + '2')
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def af(a: str) -> dict[str, str]:
   await asyncio.sleep(0.1)
   return {'b': a + ' done'}
@@ -63,61 +63,61 @@ async def ag(a: str) -> str:
   return a + ' from g'
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def ah(b: str) -> str:
   await ag(b)
   r = await ag(b + '2')
   return r
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def with_update(a: str) -> str:
   tracing.update_info({'a': a})
   return a
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def traced_async_add(x, y):
   return x + y
 
 
-@executing.make_executable
-@tracing.trace  # pytype: disable=wrong-arg-types
+@executing.make_executable  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def executable_traced_add(x, y):
   return x + y
 
 
-@tracing.trace
+@tracing.trace()
 @executing.make_executable  # pytype: disable=wrong-arg-types
 def traced_executable_add(x, y):
   return x + y
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
-@executing.make_executable
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
+@executing.make_executable  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def traced_executable_traced_add(x, y):
   return x + y
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def async_returns_executable(x, y):
   return executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def async_gen_yields_executable(x, y):
   yield executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def gen_yields_executable(x, y):
   yield executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
 
 
 class ClassForTest:
 
-  @tracing.trace  # pytype: disable=wrong-arg-types
+  @tracing.trace()
   def m(self, a: str) -> str:
     return a + ' done'
 
@@ -378,14 +378,15 @@ class TracingTest(parameterized.TestCase):
         self.assertEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_missing_decorator_tracing(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     def f1(a):
       return f2(a)
 
     def f2(a):
       return f3(a)
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     def f3(a):
       return a
 
@@ -413,11 +414,12 @@ class TracingTest(parameterized.TestCase):
       )
 
   def test_wrapper_resets_context_on_error(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     def failing_fn():
       raise ValueError('error')
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
@@ -431,7 +433,8 @@ class TracingTest(parameterized.TestCase):
     tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
 
   def test_execution_result_tracer_records_exception(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     def failing_fn():
       raise ValueError('expected error')
 
@@ -489,11 +492,12 @@ class TracingTest(parameterized.TestCase):
     self.assertIsInstance(res[0], executing.Executable)
 
   def test_awrapper_resets_context_on_error(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     async def failing_fn():
       raise ValueError('error')
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
@@ -507,12 +511,13 @@ class TracingTest(parameterized.TestCase):
     tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
 
   def test_gwrapper_resets_context_on_error(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     def failing_gen():
       yield 1
       raise ValueError('error')
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
@@ -527,12 +532,13 @@ class TracingTest(parameterized.TestCase):
     tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
 
   def test_iwrapper_resets_context_on_error(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     async def failing_igen():
       yield 1
       raise ValueError('error')
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
@@ -630,7 +636,8 @@ class TracingTest(parameterized.TestCase):
         self.assertEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_async_iterator(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     async def fn(a: str) -> AsyncIterator[str]:
       for i in range(len(a)):
         yield a[: i + 1]
@@ -693,14 +700,15 @@ class TracingTest(parameterized.TestCase):
       self.assertListEqual(expected_trace, trace, pprint.pformat(trace))
 
   def test_par_tracing(self):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     async def f1(a):
       return await asyncio.gather(f2(a + '1'), f2(a + '2'))
 
     async def f2(a):
       return await asyncio.gather(f3(a + '1'), f3(a + '2'))  # pyrefly: ignore[no-matching-overload]
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def f3(a):
       return a + ' done'
 
@@ -789,16 +797,16 @@ class TracingTest(parameterized.TestCase):
       def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
         self.callback(f'{2-self.depth} - {name}: {outputs}')
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     def f0(a: str) -> str:
       return a + ' done'
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     def f1(a: int) -> Iterator[str]:
       for i in range(a):
         yield str(i)
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def f2(a: str) -> str:
       return f0(a) + ' ' + f0(a + '2') + str(list(f1(3)))  # pyrefly: ignore[bad-argument-type, unsupported-operation]
 
@@ -838,7 +846,7 @@ class TracingTest(parameterized.TestCase):
       def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
         self.callback(f'{2-self.depth} - {name}: {outputs}')
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def fn(a: str) -> str:
       return a
 
@@ -917,18 +925,19 @@ class TracingTest(parameterized.TestCase):
       ),
   )
   def test_stream_updates(self, depth: int, expected_updates: list[str]):
-    @tracing.trace  # pytype: disable=wrong-arg-types
+
+    @tracing.trace()
     async def f0(a: str) -> str:
       await tracing.report_update('f0' + a)
       return a + ' done'
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def f1(a: int) -> AsyncIterator[str]:
       for i in range(a):
         await tracing.report_update('update' + str(i))
         yield (await f0(str(i)))  # pyrefly: ignore[bad-argument-type, not-async]
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def f2(a: str) -> str:
       await tracing.report_update(a)
       res = []
@@ -992,11 +1001,11 @@ class TracingTest(parameterized.TestCase):
     # Note that it is important to wrap the call to `function('x', 'y')` in an
     # executable to make sure that the full execution of `function`, including
     # tracing, happens inside the `async with running_context()` block of
-    # `batching.run`. This is one limitation of applying `@tracing.trace` to a
+    # `batching.run`. This is one limitation of applying `@tracing.trace()` to a
     # function that was already decorated with `@executing.make_executable`.
     # To minimize such pitfalls, it is still preferable to decorate with
-    # `@tracing.trace` first, and then with `@executing.make_executable` outside
-    # of that.
+    # `@tracing.trace()` first, and then with `@executing.make_executable`
+    # outside of that.
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def wrapper() -> Any:
       return function('x', 'y')

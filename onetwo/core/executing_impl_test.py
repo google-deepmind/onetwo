@@ -40,23 +40,23 @@ async def async_executable_function(x, y):
   return x + y
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def traced_ordinary_function(x, y):
   return x + y
 
 
-@tracing.trace  # pytype: disable=wrong-arg-types
+@tracing.trace()
 async def traced_async_function(x, y):
   return x + y
 
 
-@executing.make_executable
-@tracing.trace  # pytype: disable=wrong-arg-types
+@executing.make_executable  # pytype: disable=wrong-arg-types
+@tracing.trace()
 def executable_traced_function(x, y):
   return x + y
 
 
-@tracing.trace
+@tracing.trace()
 @executing.make_executable  # pytype: disable=wrong-arg-types
 def traced_executable_function(x, y):
   return x + y

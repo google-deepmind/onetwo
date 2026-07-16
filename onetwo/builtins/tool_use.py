@@ -18,6 +18,7 @@ A tool can be an arbitrary function that we want to expose to the LLM so that
 it can call it.
 """
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from onetwo.builtins import builtins_base
@@ -29,7 +30,9 @@ from onetwo.core import utils
 
 @builtins_base.Builtin
 def run_tool(
-    tool_name: str, tool_args: tuple[Any, ...], tool_kwargs: dict[str, Any]
+    tool_name: str,
+    tool_args: Sequence[Any],
+    tool_kwargs: Mapping[str, Any],
 ) -> Any:
   """Interface of the run_tool built-in function.
 
@@ -54,7 +57,9 @@ def run_tool(
 
 @executing.make_executable  # pytype: disable=wrong-arg-types
 async def default_run_tool(
-    tool_name: str, tool_args: tuple[Any, ...], tool_kwargs: dict[str, Any]
+    tool_name: str,
+    tool_args: Sequence[Any],
+    tool_kwargs: Mapping[str, Any],
 ) -> Any:
   """Default implementation of run_tool which calls function_registry."""
   if tool_name == constants.ERROR_STRING:

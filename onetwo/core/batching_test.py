@@ -516,7 +516,7 @@ class BatchingTest(parameterized.TestCase):
   def test_stream_updates(self):
 
     # This will trace the output.
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def process(value):
       return value + 1
 
@@ -550,7 +550,7 @@ class BatchingTest(parameterized.TestCase):
     batches = []
 
     @batching.batch_function(batch_size=3)  # pyrefly: ignore[bad-argument-type]
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def process(requests):
       batches.append(requests)
       return requests
@@ -1737,11 +1737,11 @@ class BatchingTest(parameterized.TestCase):
     tracer = tracing.ExecutionResultTracer(root_execution_result)
     tracing.execution_tracer.set(tracer)
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def traced_add(x, y):
       return x + y
 
-    @tracing.trace  # pytype: disable=wrong-arg-types
+    @tracing.trace()
     async def traced_outer(a):
       result = await traced_add(a, 10)  # pyrefly: ignore[bad-argument-count, not-async]
       return result
