@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Iterable
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -20,6 +21,7 @@ from onetwo import ot
 from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.stdlib.qa import mcp_strategies
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import qa_prompt_builder
 from onetwo.stdlib.qa import strategies_lib
@@ -98,6 +100,7 @@ class RegistryTest(absltest.TestCase):
     self.assertIn('long_context', names)
     self.assertIn('rag', names)
     self.assertIn('retrieval_only', names)
+    self.assertIn('mcp', names)
 
   def test_get_strategy_returns_correct_type(self):
     self.assertIsInstance(
@@ -117,6 +120,13 @@ class RegistryTest(absltest.TestCase):
             'retrieval_only', retriever=MockRetriever([])
         ),
         strategies_lib.RetrievalOnlyStrategy,
+    )
+    self.assertIsInstance(
+        strategies_lib.get_strategy(
+            'mcp',
+            mcp_server_url='http://localhost:8000',
+        ),
+        strategies_lib._GoogleGenAIMCPStrategy,  # pytype: disable=protected-access
     )
 
   def test_get_unknown_strategy_raises(self):
@@ -448,6 +458,14 @@ class CrossStrategyTest(parameterized.TestCase):
     )
     self.llm_backend.register()
 
+    # Mock fastmcp Client and transport to avoid network requests.
+    self.mock_client_class = self.enter_context(
+        mock.patch.object(mcp_strategies.fastmcp, 'Client', autospec=True)
+    )
+    self.mock_client = self.mock_client_class.return_value
+    self.mock_client.__aenter__ = mock.AsyncMock(return_value=self.mock_client)
+    self.mock_client.session = mock.MagicMock()
+
   @parameterized.named_parameters(
       dict(
           testcase_name='closed_book',
@@ -463,6 +481,13 @@ class CrossStrategyTest(parameterized.TestCase):
           testcase_name='rag',
           strategy=strategies_lib.RAGStrategy(
               retriever=MockRetriever(_TEXT_DOCS),  # pyrefly: ignore[bad-argument-type]
+          ),
+          question=_TEXT_QUESTION,
+      ),
+      dict(
+          testcase_name='mcp',
+          strategy=strategies_lib._GoogleGenAIMCPStrategy(
+              mcp_server_url='http://localhost:8000/mcp',
           ),
           question=_TEXT_QUESTION,
       ),
@@ -490,6 +515,13 @@ class CrossStrategyTest(parameterized.TestCase):
           testcase_name='rag_multimodal',
           strategy=strategies_lib.RAGStrategy(
               retriever=MockRetriever(_MULTIMODAL_DOCS),  # pyrefly: ignore[bad-argument-type]
+          ),
+          question=_MULTIMODAL_QUESTION,
+      ),
+      dict(
+          testcase_name='mcp_multimodal',
+          strategy=strategies_lib._GoogleGenAIMCPStrategy(
+              mcp_server_url='http://localhost:8000/mcp',
           ),
           question=_MULTIMODAL_QUESTION,
       ),

@@ -46,6 +46,7 @@ from onetwo.builtins import composables
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.stdlib.qa import mcp_strategies
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import qa_prompt_builder
 from onetwo.stdlib.retrieval import retrieval
@@ -57,7 +58,7 @@ _PredefinedRole = content_lib.PredefinedRole
 
 _PromptContent = str | content_lib.ChunkList
 _StrategyResult = qa.StrategyResult
-
+_GoogleGenAIMCPStrategy = mcp_strategies.GoogleGenAIMCPStrategy
 
 # =============================================================================
 # Default QA templates
@@ -334,3 +335,4 @@ register_strategy('closed_book', ClosedBookStrategy)
 register_strategy('long_context', LongContextStrategy)
 register_strategy('rag', RAGStrategy)
 register_strategy('retrieval_only', RetrievalOnlyStrategy)
+register_strategy('mcp', _GoogleGenAIMCPStrategy)
