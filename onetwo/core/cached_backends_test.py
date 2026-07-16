@@ -46,7 +46,7 @@ class TestBackendWithTwoLayerCache(caching.CacheEnabled, backends_base.Backend):
     )
 
   @caching.cache_method()
-  def get_value(self, arg: str) -> str:
+  async def get_value(self, arg: str) -> str:
     return arg
 
 
@@ -80,7 +80,7 @@ class TestBackendWithGenericCache(caching.CacheEnabled, backends_base.Backend):
     self.cache = GenericCache()
 
   @caching.cache_method()
-  def get_value(self, arg: str) -> str:
+  async def get_value(self, arg: str) -> str:
     return arg
 
 
@@ -97,7 +97,7 @@ class TestBackend(caching.FileCacheEnabled, backends_base.Backend):
     )
 
   @caching.cache_method(name='get_value')
-  def get_value(self, arg: str) -> str:
+  async def get_value(self, arg: str) -> str:
     del arg
     return self.return_value
 
@@ -508,7 +508,7 @@ class CachedBackendsTest(parameterized.TestCase):
       return_value: str = 'default'
 
       @caching.cache_method(name='get_value')
-      def get_value(self, arg: str) -> str:
+      async def get_value(self, arg: str) -> str:
         del arg
         return self.return_value
 

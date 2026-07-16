@@ -29,7 +29,7 @@ import json
 import logging
 import threading
 import traceback
-from typing import Any, Final, Generic, ParamSpec, TypeVar
+from typing import Any, Final, Generic, ParamSpec, TypeVar, cast
 
 import dataclasses_json
 from etils import epath
@@ -60,6 +60,7 @@ context_sampling_key: contextvars.ContextVar[str] = contextvars.ContextVar(
 CachedType = TypeVar('CachedType')
 
 _Args = ParamSpec('_Args')
+_F = TypeVar('_F', bound=Callable[..., Any])
 
 
 def get_key_for_logging(key: str, sampling_key: str | None = None) -> str:
@@ -654,13 +655,7 @@ def cache_method(
     is_sampled: bool = False,
     cache_key_maker: CacheKeyMaker | Callable[[], CacheKeyMaker] | None = None,
     cache_extra_replies: bool | utils.FromInstance[bool] = False,
-) -> Callable[
-    [
-        # Before caching.
-        Callable[..., ReturnType | Coroutine[None, None, ReturnType]]
-    ],
-    Callable[..., Coroutine[None, None, ReturnType]],  # After caching.
-]:
+) -> Callable[[_F], _F]:
   """Decorator that adds caching to a method.
 
   This decorator is very flexible in terms of how to obtain a cache key from the
@@ -707,8 +702,8 @@ def cache_method(
   """
 
   def method_wrapper(
-      method: Callable[..., ReturnType | Coroutine[None, None, ReturnType]],
-  ) -> Callable[..., ReturnType | Coroutine[None, None, ReturnType]]:
+      method: _F,
+  ) -> _F:
     """Actual decorator replacing the method with a version that uses cache."""
     nonlocal name
     # name will be used to separate between different cached methods. Make sure
@@ -828,7 +823,7 @@ def cache_method(
       return value
 
     @functools.wraps(method)
-    async def ainner(self, *args, **kwargs) -> ReturnType:
+    async def ainner(self, *args, **kwargs) -> Any:
       """Async method decorated with cache."""
       # We access a protected member of `self`.
       # pylint: disable=protected-access
@@ -886,10 +881,10 @@ def cache_method(
         if hasattr(self._cache_handler, '_calls_in_progress'):
           self._cache_handler._calls_in_progress -= {(key, sampling_key)}
 
-    return ainner
+    return cast(_F, ainner)
     # pylint: enable=protected-access
 
-  return method_wrapper  # pyrefly: ignore[bad-return]
+  return method_wrapper
 
 
 class SamplingKeyUpdater(executing.Executable):

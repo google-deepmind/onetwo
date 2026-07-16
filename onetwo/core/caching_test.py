@@ -108,7 +108,7 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
   @caching.cache_method(
       name='method_decorated_with_default_cache_key_maker', is_sampled=True
   )
-  def method_decorated_with_default_cache_key_maker(
+  async def method_decorated_with_default_cache_key_maker(
       self, a: str, b: str
   ) -> str:
     return a + b
@@ -118,7 +118,7 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       is_sampled=True,
       cache_extra_replies=True,
   )
-  def method_decorated_with_cache_extra_replies(
+  async def method_decorated_with_cache_extra_replies(
       self, a: str, b: str
   ) -> Sequence[str]:
     return [a + b, 'extra1 ' + a + b, 'extra2 ' + a + b]
@@ -128,11 +128,11 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       is_sampled=True,
       cache_extra_replies=True,
   )
-  def method_does_not_return_sequence(self, a: str, b: str) -> str:
+  async def method_does_not_return_sequence(self, a: str, b: str) -> str:
     return a + b
 
   @caching.cache_method(name='method_with_default_args', is_sampled=True)
-  def method_with_default_args(self, a: str, b: str, c: str = '') -> str:
+  async def method_with_default_args(self, a: str, b: str, c: str = '') -> str:
     del c
     return a + b
 
@@ -141,7 +141,9 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       is_sampled=True,
       cache_key_maker=KeyMakerForTest,
   )
-  def method_decorated_with_test_cache_key_maker(self, a: str, b: str) -> str:
+  async def method_decorated_with_test_cache_key_maker(
+      self, a: str, b: str
+  ) -> str:
     return a + b
 
   @caching.cache_method(
@@ -149,14 +151,14 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       is_sampled=True,
       cache_key_maker=caching.CacheKeyMaker(hashed=['a']),
   )
-  def method_decorated_with_hash_and_kwargs(self, a: str, **extra) -> str:
+  async def method_decorated_with_hash_and_kwargs(self, a: str, **extra) -> str:
     return a + extra['b']
 
   @caching.cache_method(
       name='method_with_var_positional',
       is_sampled=True,
   )
-  def method_with_var_positional(self, a: str, b: str, *args) -> str:
+  async def method_with_var_positional(self, a: str, b: str, *args) -> str:
     del args
     return a + b
 
@@ -164,14 +166,14 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(dropped=['a']),
   )
-  def method_with_explicit_arg(self, a: str, b: str) -> str:
+  async def method_with_explicit_arg(self, a: str, b: str) -> str:
     return a + b
 
   @caching.cache_method(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(dropped=['a']),
   )
-  def method_with_implicit_arg(self, **kwargs) -> str:
+  async def method_with_implicit_arg(self, **kwargs) -> str:
     return kwargs['a'] + kwargs['b']
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -183,10 +185,10 @@ class ClassWithCachedMethods(caching.CacheEnabled[str]):
         yield text[:i]
       yield text + ' done'
 
-    return stream()  # pyrefly: ignore[bad-argument-count, bad-return]
+    return stream()  # pyrefly: ignore[bad-argument-count, bad-return]  # pytype: disable=bad-return-type
 
   @caching.cache_method()
-  def method_that_raises_error(self, **kwargs):
+  async def method_that_raises_error(self, **kwargs):
     del kwargs
     raise RandomError('Random error.')
 
@@ -197,7 +199,7 @@ class SomeClass:
       name='method_not_of_cacheenabled',
       is_sampled=True,
   )
-  def method_not_of_cacheenabled(self, a: str, b: str) -> str:
+  async def method_not_of_cacheenabled(self, a: str, b: str) -> str:
     del a, b
     return ''
 
@@ -389,10 +391,10 @@ class CacheDecorationTest(parameterized.TestCase):
       # Fill in the cache (by full execution).
       _ = await backend.method_which_returns_executable('it')  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
       # This will read from the cache and get directly a string.
-      e = await backend.method_which_returns_executable('it').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]
+      e = await backend.method_which_returns_executable('it').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]  # pytype: disable=attribute-error
       stream.append(e)
       # This will not read from the cache and thus return an Executable.
-      e = await backend.method_which_returns_executable('it2').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]
+      e = await backend.method_which_returns_executable('it2').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]  # pytype: disable=attribute-error
       result = None
       async for result in e:
         stream.append(result)
@@ -449,7 +451,7 @@ class ClassCachedWithSimpleFunctionCache(caching.CacheEnabled[str]):
     self._cache_handler = caching.SimpleFunctionCache(cache_filename='test')
 
   @caching.cache_method(is_sampled=False)
-  def method_that_may_raise_errors(
+  async def method_that_may_raise_errors(
       self,
       a: str,
       raise_error: bool = False,
@@ -459,7 +461,7 @@ class ClassCachedWithSimpleFunctionCache(caching.CacheEnabled[str]):
     return f'{a} result'
 
   @caching.cache_method(is_sampled=False)
-  def method_that_raises_keyboard_interrupt(
+  async def method_that_raises_keyboard_interrupt(
       self,
       a: str,
   ) -> str:
