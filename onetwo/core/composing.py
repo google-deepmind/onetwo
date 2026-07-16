@@ -309,6 +309,7 @@ class _FunctionNode(Composable):
   # # pylint: enable=protected-access
 
   @override
+  @executing.make_executable  # pytype: disable=wrong-arg-types
   async def execute(self, context: Context) -> ChunkList:  # pyrefly: ignore[bad-override]
     self._context = context
     # We execute the wrapped Executable.
