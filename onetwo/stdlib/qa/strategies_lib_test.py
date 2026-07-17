@@ -126,7 +126,7 @@ class RegistryTest(absltest.TestCase):
             'mcp',
             mcp_server_url='http://localhost:8000',
         ),
-        strategies_lib._GoogleGenAIMCPStrategy,  # pytype: disable=protected-access
+        mcp_strategies.GoogleGenAIMCPStrategy,
     )
 
   def test_get_unknown_strategy_raises(self):
@@ -486,7 +486,7 @@ class CrossStrategyTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='mcp',
-          strategy=strategies_lib._GoogleGenAIMCPStrategy(
+          strategy=mcp_strategies.GoogleGenAIMCPStrategy(
               mcp_server_url='http://localhost:8000/mcp',
           ),
           question=_TEXT_QUESTION,
@@ -520,7 +520,7 @@ class CrossStrategyTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='mcp_multimodal',
-          strategy=strategies_lib._GoogleGenAIMCPStrategy(
+          strategy=mcp_strategies.GoogleGenAIMCPStrategy(
               mcp_server_url='http://localhost:8000/mcp',
           ),
           question=_MULTIMODAL_QUESTION,

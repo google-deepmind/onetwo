@@ -27,6 +27,7 @@ from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.qa import qa
+from onetwo.stdlib.qa import strategies_lib
 
 _PromptContent = str | content_lib.ChunkList
 StrategyResult = qa.StrategyResult
@@ -212,3 +213,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     except Exception as e:
       logging.exception('Error during GoogleGenAIMCPStrategy execution')
       raise RuntimeError(f'{type(e).__name__}: {str(e)}') from e
+
+
+# Self-register the 'mcp' strategy when this module is imported.
+strategies_lib.register_strategy('mcp', GoogleGenAIMCPStrategy)
