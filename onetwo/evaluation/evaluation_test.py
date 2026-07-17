@@ -14,8 +14,10 @@
 
 import collections
 from collections.abc import Iterator
+import contextlib
 import dataclasses
 import datetime
+import io
 import os
 import pprint
 import random
@@ -924,15 +926,18 @@ class EvaluationTest(parameterized.TestCase):
       )
 
   def test_strategy_arg_mismatch(self):
-    summary = evaluation.evaluate(
-        strategy=strategy_taking_question_and_option_and_calling_llm,
-        examples=[{'question': 'Something'}],
-        metric_functions={'accuracy': ordinary_accuracy_function},
-        # Note that we only extract `question`, not `option` (arg mismatch).
-        inputs_extractor=lambda x: ([x['question']], {}),
-        target_extractor=lambda x: '',
-        output_results=True,
-    )
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+      summary = evaluation.evaluate(
+          strategy=strategy_taking_question_and_option_and_calling_llm,
+          examples=[{'question': 'Something'}],
+          metric_functions={'accuracy': ordinary_accuracy_function},
+          # Note that we only extract `question`, not `option` (arg mismatch).
+          inputs_extractor=lambda x: ([x['question']], {}),
+          target_extractor=lambda x: '',
+          output_results=True,
+      )
+    stdout_val = f.getvalue()
 
     expected_result = _EvaluationResult(
         stage_name='strategy_taking_question_and_option_and_calling_llm',
@@ -964,6 +969,94 @@ class EvaluationTest(parameterized.TestCase):
           pprint.pformat(expected_result, width=160),
           pprint.pformat(summary.results[0], width=160),
           f'Incorrect EvaluationResult contents:\n{summary}\n----\nDiff',
+      )
+
+    with self.subTest('prints_should_be_present'):
+      printed_lines = stdout_val.splitlines()
+      self.assertTrue(
+          any(
+              'Example number 0 has failed. Penalizing metrics (setting to 0.0)'
+              ' for the same.'
+              in line
+              for line in printed_lines
+          ),
+          msg=f'Warning not found in output: {stdout_val}',
+      )
+      self.assertTrue(
+          any(
+              'Evaluation completed. Examples succeeded: 0/1 (1 failed).'
+              in line
+              for line in printed_lines
+          ),
+          msg=f'Summary not found in output: {stdout_val}',
+      )
+      self.assertTrue(
+          any(
+              'WARNING: 1 failed examples were penalized with 0.0 for metrics:'
+              ' accuracy.'
+              in line
+              for line in printed_lines
+          ),
+          msg=f'Summary warning not found in output: {stdout_val}',
+      )
+
+  def test_strategy_partial_failure(self):
+    # A strategy that succeeds for 'Succeed' but fails for 'Fail'
+    def strategy_partial(question):
+      if question == 'Fail':
+        raise ValueError('Simulated strategy failure')
+      return 'Success output'
+
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+      summary = evaluation.evaluate(
+          strategy=strategy_partial,
+          examples=[{'question': 'Succeed'}, {'question': 'Fail'}],
+          metric_functions={'accuracy': ordinary_accuracy_function},
+          inputs_extractor=lambda x: ([x['question']], {}),
+          target_extractor=lambda x: 'Success output',
+          output_results=True,
+      )
+    stdout_val = f.getvalue()
+
+    with self.subTest('counters_should_reflect_partial_error'):
+      self.assertDictEqual(
+          {'total_count': 2, 'error_count': 1, 'accuracy_count': 2},
+          summary.counters,
+      )
+
+    with self.subTest('metrics_should_reflect_succeeded_example'):
+      self.assertDictEqual({'accuracy': 0.5}, summary.metrics)
+
+    with self.subTest('prints_should_be_present'):
+      printed_lines = stdout_val.splitlines()
+      # We expect warning for example index 1 (the 'Fail' example)
+      self.assertTrue(
+          any(
+              'Example number 1 has failed. Penalizing metrics (setting to 0.0)'
+              ' for the same.'
+              in line
+              for line in printed_lines
+          ),
+          msg=f'Warning not found in output: {stdout_val}',
+      )
+      # We expect completion message reflecting 1/2 succeeded
+      self.assertTrue(
+          any(
+              'Evaluation completed. Examples succeeded: 1/2 (1 failed).'
+              in line
+              for line in printed_lines
+          ),
+          msg=f'Summary not found in output: {stdout_val}',
+      )
+      self.assertTrue(
+          any(
+              'WARNING: 1 failed examples were penalized with 0.0 for metrics:'
+              ' accuracy.'
+              in line
+              for line in printed_lines
+          ),
+          msg=f'Summary warning not found in output: {stdout_val}',
       )
 
   @parameterized.named_parameters(

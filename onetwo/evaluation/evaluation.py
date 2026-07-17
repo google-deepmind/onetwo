@@ -317,7 +317,9 @@ async def _evaluate_example(
       else:
         prediction = await utils.call_and_maybe_await(strategy, *args, **kwargs)  # pyrefly: ignore[invalid-param-spec]
   except Exception as e:  # pylint: disable=broad-exception-caught
-    traceback.print_exc()
+    # Log the full traceback to Analog but print only the last frame on screen.
+    logging.warning('Error evaluating example.', exc_info=e)
+    traceback.print_exception(e, limit=-1)
     error = e
 
   # Counters
@@ -327,45 +329,50 @@ async def _evaluate_example(
   # Metrics (and extra info)
   combined_extra_info = {}
   metrics_trace = None
-  if enable_tracing and metric_functions:
-    metrics_trace = results.ExecutionResult(stage_name='metrics')
-    tracing.execution_context.set(metrics_trace)
   if metric_functions:
-    for metric_name, metric_function in metric_functions.items():
-      # TODO: Revisit how to handle robustly all the possible
-      # types of inputs to metrics in a nicer way that does not involve
-      # two nested try-except blocks.
-      try:
-        metric_value = await utils.call_and_maybe_await(
-            metric_function,  # pyrefly: ignore[bad-argument-type]
-            target=target,
-            prediction=prediction,
-            example=example,
-            execution_result=execution_result,  # pyrefly: ignore[unexpected-keyword]
-        )
-      except TypeError:
+    if error:
+      for metric_name in metric_functions:
+        summary.metrics[metric_name] = 0.0
+        summary.counters[results.get_metric_counter_name(metric_name)] = 1
+    else:
+      if enable_tracing:
+        metrics_trace = results.ExecutionResult(stage_name='metrics')
+        tracing.execution_context.set(metrics_trace)
+      for metric_name, metric_function in metric_functions.items():
+        # TODO: Revisit how to handle robustly all the possible
+        # types of inputs to metrics in a nicer way that does not involve
+        # two nested try-except blocks.
         try:
           metric_value = await utils.call_and_maybe_await(
               metric_function,  # pyrefly: ignore[bad-argument-type]
               target=target,
               prediction=prediction,
               example=example,
+              execution_result=execution_result,  # pyrefly: ignore[unexpected-keyword]
           )
         except TypeError:
-          # Since not all metric functions require access to the `example`
-          # dict, we fall back to trying calling the metric function with
-          # just the `target` and `prediction` arguments.
-          metric_value = await utils.call_and_maybe_await(
-              metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
-          )
-      if isinstance(metric_value, tuple):
-        metric_value, metric_extra_info = metric_value
-        if metric_extra_info:
-          combined_extra_info.update(metric_extra_info)
-      if metric_value is not None:
-        summary.metrics[metric_name] = metric_value
-        metric_counter_name = results.get_metric_counter_name(metric_name)
-        summary.counters[metric_counter_name] = 1
+          try:
+            metric_value = await utils.call_and_maybe_await(
+                metric_function,  # pyrefly: ignore[bad-argument-type]
+                target=target,
+                prediction=prediction,
+                example=example,
+            )
+          except TypeError:
+            # Since not all metric functions require access to the `example`
+            # dict, we fall back to trying calling the metric function with
+            # just the `target` and `prediction` arguments.
+            metric_value = await utils.call_and_maybe_await(
+                metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
+            )
+        if isinstance(metric_value, tuple):
+          metric_value, metric_extra_info = metric_value
+          if metric_extra_info:
+            combined_extra_info.update(metric_extra_info)
+        if metric_value is not None:
+          summary.metrics[metric_name] = metric_value
+          metric_counter_name = results.get_metric_counter_name(metric_name)
+          summary.counters[metric_counter_name] = 1
 
   # The below placeholders will be replaced by an actual example key calculated
   # on the caller side.
@@ -617,6 +624,12 @@ def evaluate(
         example_evaluation_summary.final_states = {}
 
       evaluation_summary += example_evaluation_summary
+      if example_evaluation_summary.counters.get(results.COUNTER_ERRORS, 0) > 0:
+        print(
+            f'\nExample number {example_index} has failed. Penalizing metrics'
+            ' (setting to 0.0) for the same.',
+            flush=True,
+        )
       if aggregation_functions:
         for aggregation_function in aggregation_functions:
           aggregation_function(evaluation_summary, example_evaluation_summary)
@@ -625,6 +638,22 @@ def evaluate(
 
   # TODO: Capture the backend and tool caches and store them in the
   # evaluation summary too.
+
+  total_examples = evaluation_summary.counters.get(
+      results.COUNTER_TOTAL_EXAMPLES, 0
+  )
+  total_errors = evaluation_summary.counters.get(results.COUNTER_ERRORS, 0)
+  succeeded = total_examples - total_errors
+  print(
+      '\nEvaluation completed. Examples succeeded:'
+      f' {succeeded}/{total_examples} ({total_errors} failed).'
+  )
+  if total_errors > 0 and metric_functions:
+    metrics_list = ', '.join(metric_functions.keys())
+    print(
+        f'WARNING: {total_errors} failed examples were penalized with 0.0 for'
+        f' metrics: {metrics_list}.'
+    )
 
   return evaluation_summary
 
