@@ -34,9 +34,9 @@ from onetwo.core import executing_impl
 import PIL.Image
 
 _T = TypeVar('_T')
+_F = TypeVar('_F', bound=Callable[..., Any])
 _Args = ParamSpec('_Args')
 
-_ParamType = ParamSpec('_ParamType')
 _ReturnType = TypeVar('_ReturnType')
 
 _FunctionToDecorate: TypeAlias = Callable[
@@ -337,7 +337,7 @@ def rate_limit_function[F: Callable[..., Any]](
 
 def rate_limit_method(
     qps: float | None | FromInstance[float | None],
-) -> Callable[[Callable[_Args, _T]], Callable[_Args, _T]]:
+) -> Callable[[_F], _F]:
   """Decorator that limits the frequency at which the method can be called.
 
   This is thread-safe in the sense that if the wrapped method is called from
@@ -361,7 +361,7 @@ def rate_limit_method(
 
   class_lock = threading.Lock()
 
-  def decorate(method: Callable[_Args, _T]) -> Callable[_Args, _T]:
+  def decorate(method: _F) -> _F:
     if not is_method(method):
       raise ValueError('rate_limit_method can decorate only methods.')
     if not hasattr(method, '__name__'):
@@ -398,7 +398,7 @@ def rate_limit_method(
       setattr(self, last_call_name, time.perf_counter())
 
     @functools.wraps(method)
-    def wrapper(self, *args: _Args.args, **kwargs: _Args.kwargs) -> _T:
+    def wrapper(self, *args: Any, **kwargs: Any) -> Any:
       qps_value = RuntimeParameter[float | None](qps, self).value()
       if qps_value is None:
         # Here and below we use `method(*((self,) + args), **kwargs)` instead of
@@ -418,7 +418,7 @@ def rate_limit_method(
         instance_lock.release()
 
     @functools.wraps(method)
-    async def awrapper(self, *args: _Args.args, **kwargs: _Args.kwargs) -> _T:
+    async def awrapper(self, *args: Any, **kwargs: Any) -> Any:
       qps_value = RuntimeParameter[float | None](qps, self).value()
       if qps_value is None:
         return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
@@ -436,22 +436,22 @@ def rate_limit_method(
         instance_lock.release()
 
     if inspect.iscoroutinefunction(method):
-      return awrapper  # pyrefly: ignore[bad-return]
+      return cast(_F, awrapper)
     else:
-      return wrapper  # pyrefly: ignore[bad-return]
+      return cast(_F, wrapper)
 
   return decorate
 
 
 @decorator_with_optional_args
 def with_retry(
-    function: _FunctionToDecorate,
+    function: _F,
     *,
-    max_retries: int | FromInstance[InterruptedError] = 0,
-    initial_base_delay: int | FromInstance[InterruptedError] = 1,
-    max_base_delay: int | FromInstance[InterruptedError] = 32,
+    max_retries: int | FromInstance[int] = 0,
+    initial_base_delay: int | FromInstance[int] = 1,
+    max_base_delay: int | FromInstance[int] = 32,
     retriable_error_filter: Callable[[Exception], bool] = lambda e: True,
-) -> _FunctionToDecorate:
+) -> _F:
   """Decorates a method or function with ability to retry on errors.
 
   Args:
@@ -474,7 +474,7 @@ def with_retry(
     The decorated function.
   """
 
-  def wrapper_impl(*args, **kwargs) -> _ReturnType:  # pyrefly: ignore[bad-return]
+  def wrapper_impl(*args, **kwargs) -> Any:
     self = args[0] if is_method(function) else None
     max_retries_value = RuntimeParameter[int](max_retries, self).value()  # pyrefly: ignore[bad-argument-type]
     initial_base_delay_value = RuntimeParameter[int](
@@ -502,7 +502,7 @@ def with_retry(
           # If we are out of retries, then raise the original exception.
           raise e
 
-  async def async_wrapper_impl(*args, **kwargs) -> _ReturnType:  # pyrefly: ignore[bad-return]
+  async def async_wrapper_impl(*args, **kwargs) -> Any:
     self = args[0] if is_method(function) else None
     max_retries_value = RuntimeParameter[int](max_retries, self).value()  # pyrefly: ignore[bad-argument-type]
     initial_base_delay_value = RuntimeParameter[int](
@@ -531,31 +531,31 @@ def with_retry(
           raise e
 
   @functools.wraps(function)
-  def wrapper(*args, **kwargs) -> _ReturnType:
+  def wrapper(*args, **kwargs) -> Any:
     return wrapper_impl(*args, **kwargs)
 
   @functools.wraps(function)
-  async def awrapper(*args, **kwargs) -> _ReturnType:
+  async def awrapper(*args, **kwargs) -> Any:
     return await async_wrapper_impl(*args, **kwargs)
 
   @functools.wraps(function)
-  def wrapper_m(self, *args, **kwargs) -> _ReturnType:
+  def wrapper_m(self, *args, **kwargs) -> Any:
     return wrapper_impl(self, *args, **kwargs)
 
   @functools.wraps(function)
-  async def awrapper_m(self, *args, **kwargs) -> _ReturnType:
+  async def awrapper_m(self, *args, **kwargs) -> Any:
     return await async_wrapper_impl(self, *args, **kwargs)
 
   if inspect.iscoroutinefunction(function):
     if is_method(function):
-      return awrapper_m
+      return cast(_F, awrapper_m)
     else:
-      return awrapper
+      return cast(_F, awrapper)
   else:
     if is_method(function):
-      return wrapper_m
+      return cast(_F, wrapper_m)
     else:
-      return wrapper
+      return cast(_F, wrapper)
 
 
 @overload
