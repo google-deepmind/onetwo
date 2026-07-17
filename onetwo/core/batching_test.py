@@ -1490,7 +1490,7 @@ class BatchingTest(parameterized.TestCase):
       return await asyncio.gather(*coroutines), c.processed
 
     results, processed = asyncio.run(
-        process_all([(1, 1), (2, 0), (3, 0), (4, 1)])
+        process_all([(1, 1), (2, 0), (3, 0), (4, 2)])
     )
     with self.subTest('results_are_correct'):
       self.assertEqual([1, 2, 3, 4], results)
@@ -1528,14 +1528,16 @@ class BatchingTest(parameterized.TestCase):
       async def parallel(
           self, inputs: Sequence[tuple[int, int]]
       ) -> Sequence[Sequence[int]]:
-        coroutines = [
-            self.sequential(inputs[i : i + 2])
-            for i in range(0, len(inputs) - 1, 2)
-        ]
-        return await asyncio.gather(*coroutines)
+        # We start the first branch and wait a bit to ensure its first task
+        # is submitted before the second branch starts, to make the submission
+        # order deterministic.
+        task1 = asyncio.create_task(self.sequential(inputs[0:2]))
+        await asyncio.sleep(0.1)
+        task2 = asyncio.create_task(self.sequential(inputs[2:4]))
+        return await asyncio.gather(task1, task2)
 
     c = C()
-    results = asyncio.run(c.parallel([(1, 1), (2, 1), (3, 0), (4, 1)]))
+    results = asyncio.run(c.parallel([(1, 2), (2, 2), (3, 0), (4, 3)]))
     with self.subTest('results_are_correct'):
       self.assertEqual([[1, 2], [3, 4]], results)
 
@@ -1564,7 +1566,7 @@ class BatchingTest(parameterized.TestCase):
         return request
 
     c = C()
-    executables = [c.process(*x) for x in [(1, 1), (2, 0), (3, 0), (4, 1)]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+    executables = [c.process(*x) for x in [(1, 1), (2, 0), (3, 0), (4, 2)]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
     results = batching.run(executing.parallel(*executables))  # pyrefly: ignore[bad-argument-type]
     with self.subTest('results_are_correct'):
       self.assertSequenceEqual([1, 2, 3, 4], results)
@@ -1648,7 +1650,7 @@ class BatchingTest(parameterized.TestCase):
       return results, c.processed, c.worker_threads - {main_thread}
 
     results, processed, worker_threads = asyncio.run(
-        process_all([(1, 0.1), (2, 0.0), (3, 0.0), (4, 0.1)])
+        process_all([(1, 1.0), (2, 0.0), (3, 0.0), (4, 2.0)])
     )
     with self.subTest('results_are_correct'):
       self.assertEqual([1, 2, 3, 4], results)
