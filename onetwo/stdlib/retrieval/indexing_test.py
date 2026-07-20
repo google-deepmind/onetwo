@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pickle
 import shutil
 import tempfile
 from unittest import mock
@@ -579,44 +578,6 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
         new_index.inner_index._doc_embeddings[0],
         index.inner_index._doc_embeddings[0],
     )
-
-
-class PickleabilityTest(absltest.TestCase):
-  """Tests that EmbeddingBasedIndex is pickle-able for distributed pipelines."""
-
-  def setUp(self):
-    super().setUp()
-    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
-    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
-    self.mock_llm_embed = mock.patch(
-        'onetwo.builtins.llm.embed', new=mock_embed_fn
-    ).start()
-    self.addCleanup(mock.patch.stopall)
-
-  def test_populated_embedding_based_index_is_pickleable(self):
-    """A populated EmbeddingBasedIndex should survive a pickle roundtrip."""
-    docs = [
-        Document(doc_id='doc1', content='hello'),
-        Document(doc_id='doc2', content='world'),
-    ]
-    doc1_embed = np.array([0.9, 0.1])
-    doc2_embed = np.array([0.1, 0.9])
-    mock_embed_fn.embeddings = [doc1_embed, doc2_embed]  # pyrefly: ignore[missing-attribute]
-
-    index = indexing.EmbeddingBasedIndex()
-    ot.run(index.add_docs(docs))
-
-    restored = pickle.loads(pickle.dumps(index))
-    self.assertEqual(restored.num_docs, 2)
-    restored_docs = list(restored.get_docs())
-    self.assertEqual(restored_docs[0].doc_id, 'doc1')
-    self.assertEqual(restored_docs[1].doc_id, 'doc2')
-
-  def test_embedding_based_document_index_is_pickleable(self):
-    """EmbeddingBasedDocumentIndex should also be pickle-able."""
-    index = indexing.EmbeddingBasedDocumentIndex()
-    restored = pickle.loads(pickle.dumps(index))
-    self.assertEqual(restored.num_docs, 0)
 
 
 if __name__ == '__main__':

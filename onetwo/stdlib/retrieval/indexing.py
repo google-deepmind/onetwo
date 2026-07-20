@@ -49,7 +49,6 @@ import collections
 import contextlib
 import dataclasses
 import random
-import threading
 from typing import Any, Generic, Iterable, Iterator, Sequence
 
 import numpy as np
@@ -454,9 +453,6 @@ class AbstractEmbeddingBasedIndex(
   _embedder_backend: backends_base.Backend | None = dataclasses.field(
       default=None, repr=False, compare=False
   )
-  _embedder_backend_lock: threading.Lock = dataclasses.field(
-      default_factory=threading.Lock, repr=False, compare=False
-  )
 
   @property
   def embedder_backend(self):
@@ -471,49 +467,16 @@ class AbstractEmbeddingBasedIndex(
     """
     if (self._embedder_backend is None and
         self.embed_backend_config is not None):
-      with self._embedder_backend_lock:
-        if self._embedder_backend is None:
-          self._embedder_backend = backend_registry.get_backend(
-              self.embed_backend_config,
-              **self.runtime_kwargs,
-          )
+      self._embedder_backend = backend_registry.get_backend(
+          self.embed_backend_config,
+          **self.runtime_kwargs,
+      )
     return self._embedder_backend
 
   @embedder_backend.setter
   def embedder_backend(self, value):
     """Manually overrides the embedder backend (for custom injection only)."""
     self._embedder_backend = value
-
-  def __getstate__(self):
-    state = self.__dict__.copy()
-    if '_embedder_backend' in state:
-      # We cannot pickle backend clients (e.g. gRPC channels). We set it to None
-      # here and will recreate it on load using the manifest configuration.
-      state['_embedder_backend'] = None
-    if '_embedder_backend_lock' in state:
-      del state['_embedder_backend_lock']
-    return state
-
-  def __setstate__(self, state):
-    # Initialize new fields for backward compatibility with old pickled states.
-    state.setdefault('embed_backend_class_name', None)
-    state.setdefault('embed_model_name', None)
-    state.setdefault('embed_kwargs', {})
-    state.setdefault('_embedder_backend', None)
-    # Migrate legacy task_type to query/document task types.
-    if 'task_type' in state:
-      legacy_task_type = state.pop('task_type')
-      state.setdefault('query_task_type', legacy_task_type)
-      state.setdefault('document_task_type', legacy_task_type)
-    else:
-      state.setdefault('query_task_type', None)
-      state.setdefault('document_task_type', None)
-    # Remove legacy prepare_* callables that are no longer attributes.
-    state.pop('prepare_query', None)
-    state.pop('prepare_document', None)
-
-    self.__dict__.update(state)
-    self._embedder_backend_lock = threading.Lock()
 
   @contextlib.contextmanager
   def _backend_routing_context(self) -> Iterator[None]:

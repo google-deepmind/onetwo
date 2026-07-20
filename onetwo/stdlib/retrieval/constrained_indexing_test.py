@@ -14,8 +14,6 @@
 
 """Tests for constrained indexing."""
 
-import collections
-import pickle
 import shutil
 import tempfile
 from unittest import mock
@@ -30,7 +28,6 @@ from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_indexing
 from onetwo.stdlib.retrieval import constrained_retrieval
 from onetwo.stdlib.retrieval import corpus_rewriting
-from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 Document = retrieval_data_structures.Document
@@ -559,62 +556,6 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
       new_index.rename_discrete_field_key('external_keys', 'another', 'new')
       self.assertIn('new', index_for_field)
       self.assertEqual(index_for_field['new'], [0])
-
-
-class ConstrainedPickleabilityTest(absltest.TestCase):
-  """Tests that ConstrainedEmbeddingBasedIndex is pickle-able."""
-
-  def setUp(self):
-    super().setUp()
-    mock_embed_fn.embeddings = []  # pyrefly: ignore[missing-attribute]
-    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
-    self.mock_llm_embed = mock.patch(
-        'onetwo.builtins.llm.embed', new=mock_embed_fn
-    ).start()
-    self.addCleanup(mock.patch.stopall)
-
-  def test_default_list_map_is_pickleable(self):
-    """Verifies the _default_list_map helper pickles correctly."""
-    d = index_state.default_list_map()
-    d['key'].append(42)
-    restored = pickle.loads(pickle.dumps(d))
-    self.assertEqual(restored['key'], [42])
-    self.assertIsInstance(restored, collections.defaultdict)
-    self.assertEqual(restored['nonexistent'], [])
-
-  def test_default_discrete_value_map_is_pickleable(self):
-    """Verifies the _default_discrete_value_map helper pickles correctly."""
-    d = index_state.default_discrete_value_map()
-    d['field']['value'].append(0)
-    restored = pickle.loads(pickle.dumps(d))
-    self.assertEqual(restored['field']['value'], [0])
-    self.assertIsInstance(restored, collections.defaultdict)
-    self.assertIsInstance(restored['new_field'], collections.defaultdict)
-    self.assertEqual(restored['new_field']['new_value'], [])
-
-  def test_empty_embedding_based_index_is_pickleable(self):
-    """An empty EmbeddingBasedIndex should survive a pickle roundtrip."""
-    index = constrained_indexing.ConstrainedEmbeddingBasedIndex()
-    restored = pickle.loads(pickle.dumps(index))
-    self.assertEqual(restored.num_docs, 0)
-    self.assertIsInstance(
-        restored._doc_indices_by_discrete_value, collections.defaultdict
-    )
-
-  def test_doc_indices_by_discrete_value_is_pickleable(self):
-    """The _doc_indices_by_discrete_value defaultdict survives pickling."""
-    index = constrained_indexing.ConstrainedEmbeddingBasedIndex()
-    index._doc_indices_by_discrete_value['title']['Geography'].append(0)
-    index._doc_indices_by_discrete_value['title']['History'].append(1)
-
-    restored = pickle.loads(pickle.dumps(index))
-    self.assertIn('title', restored._doc_indices_by_discrete_value)
-    self.assertEqual(
-        restored._doc_indices_by_discrete_value['title']['Geography'], [0]
-    )
-    self.assertEqual(
-        restored._doc_indices_by_discrete_value['title']['History'], [1]
-    )
 
 
 if __name__ == '__main__':
