@@ -37,7 +37,7 @@ Document = retrieval_data_structures.Document
 
 
 # Mock llm.embed to be async
-@executing.make_executable(copy_self=False)  # pytype: disable=wrong-arg-count
+@executing.make_executable(copy_self=False)
 async def mock_embed_fn(
     text: str, task_type: str | None = None, **kwargs
 ) -> np.ndarray:
@@ -94,7 +94,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
     index = constrained_indexing.ConstrainedEmbeddingBasedIndex(
         discrete_field_extractors={'title': lambda doc: doc.title}
     )
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     constraints = constrained_retrieval.RetrievalConstraints(
         constraints=[
@@ -113,7 +113,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
           index.searcher, 'search_batched', wraps=original_search_batched
       ) as wrapped_search_batched:
         retrieved_docs = ot.run(
-            index(query, constraints=constraints, max_results=3)  # pytype: disable=wrong-arg-count
+            index(query, constraints=constraints, max_results=3)
         )
 
         wrapped_search_batched.assert_called_once()
@@ -136,7 +136,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
           index.searcher, 'search_batched', wraps=original_search_batched
       ) as wrapped_search_batched:
         retrieved_docs = ot.run(
-            index(query, constraints=constraints, max_results=3, min_score=0.85)  # pytype: disable=wrong-arg-count
+            index(query, constraints=constraints, max_results=3, min_score=0.85)
         )
 
         wrapped_search_batched.assert_called_once()
@@ -185,7 +185,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
     index = constrained_indexing.ConstrainedEmbeddingBasedIndex(
         discrete_field_extractors={'external_keys': extract_external_keys}
     )
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     # Constraint: external_keys must contain 'A' or 'C'
     constraints = constrained_retrieval.RetrievalConstraints(
@@ -204,7 +204,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
         index.searcher, 'search_batched', wraps=original_search_batched
     ) as wrapped_search_batched:
       retrieved_docs = ot.run(
-          index(query, constraints=constraints, max_results=4)  # pytype: disable=wrong-arg-count
+          index(query, constraints=constraints, max_results=4)
       )
 
       wrapped_search_batched.assert_called_once()
@@ -257,7 +257,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
       index = constrained_indexing.ConstrainedEmbeddingBasedIndex(
           discrete_field_extractors={'external_keys': extract_external_keys}
       )
-      ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+      ot.run(index.add_docs(docs))
 
     # Constraint: external_keys must contain 'A' and 'C'
     constraints = constrained_retrieval.RetrievalConstraints(
@@ -282,7 +282,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
           index.searcher, 'search_batched', wraps=original_search_batched
       ) as wrapped_search_batched:
         retrieved_docs = ot.run(
-            index(query, constraints=constraints, max_results=4)  # pytype: disable=wrong-arg-count
+            index(query, constraints=constraints, max_results=4)
         )
 
         wrapped_search_batched.assert_called_once()
@@ -304,7 +304,7 @@ class ConstrainedEmbeddingBasedIndexTest(absltest.TestCase):
           index.searcher, 'search_batched', wraps=original_search_batched
       ) as wrapped_search_batched:
         retrieved_docs = ot.run(
-            index(query, constraints=constraints, max_results=4)  # pytype: disable=wrong-arg-count
+            index(query, constraints=constraints, max_results=4)
         )
 
         wrapped_search_batched.assert_called_once()
@@ -364,14 +364,14 @@ class ConstrainedRewritingEmbeddingBasedIndexTest(absltest.TestCase):
     index = constrained_indexing.RewritingConstrainedEmbeddingBasedIndex(
         inner_index=inner_index, rewriter=rewriter
     )
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     with self.subTest('retrieve_doc_indices_and_scores'):
       original_search = inner_index.retrieve_doc_indices_and_scores
       with mock.patch.object(
           inner_index, 'retrieve_doc_indices_and_scores', wraps=original_search
       ) as wrapped_search:
-        results = ot.run(index.retrieve_doc_indices_and_scores('query'))  # pytype: disable=wrong-arg-count
+        results = ot.run(index.retrieve_doc_indices_and_scores('query'))
         wrapped_search.assert_called_once()
         self.assertLen(results, 2)
 
@@ -388,7 +388,7 @@ class ConstrainedRewritingEmbeddingBasedIndexTest(absltest.TestCase):
       with mock.patch.object(
           inner_index, 'retrieve_doc_score', wraps=original_score
       ) as wrapped_score:
-        score = ot.run(index.retrieve_doc_score('query', 0))  # pytype: disable=wrong-arg-count
+        score = ot.run(index.retrieve_doc_score('query', 0))
         wrapped_score.assert_called_once_with('query', 0)
         np.testing.assert_allclose(score, 0.9)
 
@@ -451,7 +451,7 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
         np.array([0.1, 0.2]),
         np.array([0.3, 0.4]),
     ]
-    executing.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    executing.run(index.add_docs(docs))
 
     with self.subTest('save_index'):
       index.save(self.temp_dir)
@@ -469,19 +469,19 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
               }
           ),
       )
-      executing.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+      executing.run(new_index.load(self.temp_dir))
 
     with self.subTest('verify_correct_attributes'):
       self.assertEqual(new_index.inner_index._docs, docs)
       self.assertEqual(
-          new_index.inner_index._doc_indices_by_discrete_value,  # pytype: disable=attribute-error
+          new_index.inner_index._doc_indices_by_discrete_value,
           {'external_keys': {'a': [0], 'b': [1]}},
       )
 
     with self.subTest('individual_attributes_match'):
       self.assertEqual(
-          new_index.inner_index._doc_indices_by_discrete_value,  # pytype: disable=attribute-error
-          index.inner_index._doc_indices_by_discrete_value,  # pytype: disable=attribute-error
+          new_index.inner_index._doc_indices_by_discrete_value,
+          index.inner_index._doc_indices_by_discrete_value,
           '_doc_indices_by_discrete_value mismatch',
       )
 
@@ -529,7 +529,7 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
         Document(doc_id='a', content='A', metadata={'external_keys': ['old']}),
     ]
     mock_embed_fn.embeddings = [np.array([0.1, 0.2])]  # pyrefly: ignore[missing-attribute]
-    executing.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    executing.run(index.add_docs(docs))
     index.save(self.temp_dir)
 
     new_index = constrained_indexing.RewritingConstrainedEmbeddingBasedDocumentIndex(
@@ -544,11 +544,11 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
             }
         ),
     )
-    executing.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+    executing.run(new_index.load(self.temp_dir))
 
     with self.subTest('rename_with_defaultdict_works'):
       new_index.rename_discrete_field_key('external_keys', 'old', 'new')
-      index_for_field = new_index.inner_index._doc_indices_by_discrete_value[  # pytype: disable=attribute-error
+      index_for_field = new_index.inner_index._doc_indices_by_discrete_value[
           'external_keys'
       ]
       self.assertNotIn('old', index_for_field)

@@ -74,7 +74,7 @@ class ChunkingTest(parameterized.TestCase):
   ])
   def testNoChunking(self, document):
     chunker = chunking.NoChunking()
-    chunks = list(ot.run(chunker(document)))  # pytype: disable=wrong-arg-count
+    chunks = list(ot.run(chunker(document)))
     with self.subTest('correct_number_of_chunks'):
       self.assertLen(chunks, 1)
 
@@ -176,7 +176,7 @@ class ChunkingTest(parameterized.TestCase):
         max_tokens_per_chunk=max_tokens_per_chunk,
         strip_whitespace=strip_whitespace,
     )
-    chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+    chunks = ot.run(chunker(document))
     with self.subTest('chunker_is_equivalent'):
       self.assertEqual(
           chunks,
@@ -257,7 +257,7 @@ class ChunkingTest(parameterized.TestCase):
     chunker = chunking.ChunkByMaxTokens(
         max_tokens_per_chunk=6, overlap_window=overlap_window
     )
-    chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+    chunks = ot.run(chunker(document))
     with self.subTest('chunker_is_equivalent'):
       self.assertEqual(
           chunks,
@@ -272,7 +272,7 @@ class ChunkingTest(parameterized.TestCase):
         max_tokens_per_chunk=6, overlap_window=6
     )
     with self.assertRaises(ValueError):
-      ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+      ot.run(chunker(document))
 
 
 if __name__ == '__main__':

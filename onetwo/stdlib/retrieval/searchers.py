@@ -97,7 +97,7 @@ class Searcher(metaclass=abc.ABCMeta):
       `query_embeds` and whose second dimension is the lesser of
       `final_num_neighbors` and the total number of documents in the index.
     """
-    pass  # pytype: disable=bad-return-type
+    raise NotImplementedError()
 
   @abc.abstractmethod
   def destroy(self) -> None:
@@ -135,7 +135,7 @@ class ConstrainedSearcher(Searcher):
       `query_embeds` and whose second dimension is the lesser of
       `final_num_neighbors` and the total number of documents in the index.
     """
-    pass  # pytype: disable=bad-return-type
+    raise NotImplementedError()
 
 
 @dataclasses.dataclass

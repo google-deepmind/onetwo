@@ -33,7 +33,7 @@ Document = retrieval_data_structures.Document
 
 
 # Mock llm.embed to be async
-@executing.make_executable(copy_self=False)  # pytype: disable=wrong-arg-count
+@executing.make_executable(copy_self=False)
 async def mock_embed_fn(
     content: str | content_lib.ChunkList,
     task_type: str | None = None,
@@ -73,7 +73,7 @@ class NaiveIndexTest(absltest.TestCase):
           Document(doc_id='doc2', content='This is document two.'),
           Document(doc_id='doc3', content='This is document three.'),
       ]
-      ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+      ot.run(index.add_docs(docs))
       self.assertEqual(index.num_docs, 3)
 
     with self.subTest('AddMoreDocuments'):
@@ -81,12 +81,12 @@ class NaiveIndexTest(absltest.TestCase):
           Document(doc_id='doc4', content='This is document four.'),
           Document(doc_id='doc5', content='This is document five.'),
       ]
-      ot.run(index.add_docs(more_docs))  # pytype: disable=wrong-arg-count
+      ot.run(index.add_docs(more_docs))
       self.assertEqual(index.num_docs, 5)
 
     with self.subTest('RetrieveDocuments'):
       query = 'find document one'
-      retrieved_docs = ot.run(index(query, max_results=2))  # pytype: disable=wrong-arg-count
+      retrieved_docs = ot.run(index(query, max_results=2))
 
       retrieved_list = list(retrieved_docs)
       self.assertLen(retrieved_list, 2)
@@ -103,13 +103,13 @@ class NaiveIndexTest(absltest.TestCase):
         Document(doc_id='doc2', content='content2'),
         Document(doc_id='doc3', content='content3'),
     ]
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     with self.subTest('DeterministicShuffle'):
       query = 'some query'
       # We expect the same order for the same query.
-      res1 = list(ot.run(index(query)))  # pytype: disable=wrong-arg-count
-      res2 = list(ot.run(index(query)))  # pytype: disable=wrong-arg-count
+      res1 = list(ot.run(index(query)))
+      res2 = list(ot.run(index(query)))
       self.assertEqual(res1, res2)
       self.assertCountEqual(res1, docs)
 
@@ -117,7 +117,7 @@ class NaiveIndexTest(absltest.TestCase):
       # Check max_results behavior: takes first K then shuffles.
       # Since we added doc1, doc2, doc3 in order, max_results=2 should return
       # doc1 and doc2 (shuffled), but never doc3.
-      res_limited = list(ot.run(index('query', max_results=2)))  # pytype: disable=wrong-arg-count
+      res_limited = list(ot.run(index('query', max_results=2)))
       self.assertLen(res_limited, 2)
       expected_subset = {'doc1', 'doc2'}
       self.assertEqual({d.doc_id for d in res_limited}, expected_subset)
@@ -148,10 +148,10 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     mock_embed_fn.embeddings = [doc1_embed, doc2_embed, query_embed]  # pyrefly: ignore[missing-attribute]
 
     index = indexing.EmbeddingBasedIndex()
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     query = 'hello'
-    results = list(ot.run(index(query, max_results=1)))  # pytype: disable=wrong-arg-count
+    results = list(ot.run(index(query, max_results=1)))
     self.assertLen(results, 1)
     self.assertEqual(results[0].doc_id, 'doc1')
 
@@ -208,7 +208,7 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     )
 
     docs = [Document(doc_id='doc1', content='test')]
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     backend = index.embedder_backend
     self.assertIsInstance(backend, FakeEmbedderBackend)
@@ -263,11 +263,11 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
     ]
 
     # Add documents (triggers _build and the first 3 embed calls).
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     # Retrieve the top 2 documents (this triggers the 4th embed call).
     query = 'find document one'
-    retrieved_docs = ot.run(index(query, max_results=2))  # pytype: disable=wrong-arg-count
+    retrieved_docs = ot.run(index(query, max_results=2))
 
     retrieved_list = list(retrieved_docs)
     self.assertLen(retrieved_list, 2)
@@ -278,9 +278,9 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertEqual(mock_embed_fn.call_count, 4)  # pyrefly: ignore[missing-attribute]
 
     # Each of these will reembed the query
-    score_zero = ot.run(index.retrieve_doc_score(query, 0))  # pytype: disable=wrong-arg-count
-    score_one = ot.run(index.retrieve_doc_score(query, 1))  # pytype: disable=wrong-arg-count
-    score_two = ot.run(index.retrieve_doc_score(query, 2))  # pytype: disable=wrong-arg-count
+    score_zero = ot.run(index.retrieve_doc_score(query, 0))
+    score_one = ot.run(index.retrieve_doc_score(query, 1))
+    score_two = ot.run(index.retrieve_doc_score(query, 2))
 
     self.assertEqual(score_zero, 0.9)
     self.assertEqual(score_one, 0.8)
@@ -288,9 +288,7 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
 
     # Retrieve docs with scores
     docs_and_scores = list(
-        ot.run(
-            index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
-        )  # pytype: disable=wrong-arg-count
+        ot.run(index.retrieve_with_scores(query, max_results=2, min_score=0.9))
     )
     self.assertLen(docs_and_scores, 1)
     self.assertEqual(docs_and_scores[0][0].doc_id, 'doc1')
@@ -340,7 +338,7 @@ class RewritingEmbeddingBasedIndexTest(absltest.TestCase):
     index = indexing.RewritingEmbeddingBasedIndex(
         inner_index=inner_index, rewriter=HelloRewriter()
     )
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     chunks = list(index.get_docs())
     self.assertLen(chunks, 2)
@@ -395,10 +393,10 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         query_embed,
     ]
 
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     query = 'find document one'
-    retrieved_docs = ot.run(index(query, max_results=2))  # pytype: disable=wrong-arg-count
+    retrieved_docs = ot.run(index(query, max_results=2))
 
     retrieved_list = list(retrieved_docs)
     self.assertLen(retrieved_list, 2)
@@ -408,18 +406,16 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
 
     self.assertEqual(mock_embed_fn.call_count, 4)  # pyrefly: ignore[missing-attribute]
 
-    score_zero = ot.run(index.retrieve_doc_score(query, 0))  # pytype: disable=wrong-arg-count
-    score_one = ot.run(index.retrieve_doc_score(query, 1))  # pytype: disable=wrong-arg-count
-    score_two = ot.run(index.retrieve_doc_score(query, 2))  # pytype: disable=wrong-arg-count
+    score_zero = ot.run(index.retrieve_doc_score(query, 0))
+    score_one = ot.run(index.retrieve_doc_score(query, 1))
+    score_two = ot.run(index.retrieve_doc_score(query, 2))
 
     self.assertEqual(score_zero, 0.9)
     self.assertEqual(score_one, 0.8)
     self.assertEqual(score_two, 0.1)
 
     docs_and_scores = list(
-        ot.run(
-            index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
-        )
+        ot.run(index.retrieve_with_scores(query, max_results=2, min_score=0.9))
     )
     self.assertLen(docs_and_scores, 1)
     self.assertEqual(docs_and_scores[0][0].doc_id, 'doc1')
@@ -438,11 +434,9 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         chunker=chunking.ChunkByMaxTokens(max_tokens_per_chunk=5)
     )
     index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
-    ot.run(index.create_index(corpus_name='test_corpus', docs=docs))  # pytype: disable=wrong-keyword-args
+    ot.run(index.create_index(corpus_name='test_corpus', docs=docs))
     num_docs = len(list(index.get_docs()))
-    retrieved_docs = ot.run(
-        index('find document one', max_results=None)  # pytype: disable=wrong-arg-count
-    )
+    retrieved_docs = ot.run(index('find document one', max_results=None))
     with self.subTest('num_docs_and_retrieved_docs_match'):
       self.assertLen(retrieved_docs, num_docs)
 
@@ -484,11 +478,11 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         np.array([0.8, 0.2]),
     ]
 
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     index.save(self.temp_dir)
     new_index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
-    ot.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+    ot.run(new_index.load(self.temp_dir))
     self.assertEqual(new_index.inner_index._docs, index.inner_index._docs)
     self.assertEqual(
         len(new_index.inner_index._doc_embeddings),
@@ -521,16 +515,16 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     query_embed = np.array([1.0, 0.0])
 
     mock_embed_fn.embeddings = [doc1_embed, doc2_embed]  # pyrefly: ignore[missing-attribute]
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     index.save(self.temp_dir)
 
     new_index = indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=rewriter)
-    ot.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+    ot.run(new_index.load(self.temp_dir))
 
     mock_embed_fn.embeddings = [query_embed]  # pyrefly: ignore[missing-attribute]
     mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
-    retrieved_docs = ot.run(new_index('find document one', max_results=2))  # pytype: disable=wrong-arg-count
+    retrieved_docs = ot.run(new_index('find document one', max_results=2))
     retrieved_list = list(retrieved_docs)
     self.assertLen(retrieved_list, 2)
     self.assertEqual(retrieved_list[0].doc_id, 'doc1')
@@ -570,14 +564,14 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
         np.array([0.1, 0.2]),
         np.array([0.3, 0.4]),
     ]
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
     index.save(self.temp_dir)
 
     new_index = indexing.RewritingEmbeddingBasedDocumentIndex(
         rewriter=rewriter,
         inner_index=indexing.EmbeddingBasedDocumentIndex(),
     )
-    ot.run(new_index.load(self.temp_dir))  # pytype: disable=wrong-arg-count
+    ot.run(new_index.load(self.temp_dir))
 
     self.assertEqual(new_index.inner_index._docs, docs)
     self.assertLen(new_index.inner_index._doc_embeddings, 2)
@@ -610,7 +604,7 @@ class PickleabilityTest(absltest.TestCase):
     mock_embed_fn.embeddings = [doc1_embed, doc2_embed]  # pyrefly: ignore[missing-attribute]
 
     index = indexing.EmbeddingBasedIndex()
-    ot.run(index.add_docs(docs))  # pytype: disable=wrong-arg-count
+    ot.run(index.add_docs(docs))
 
     restored = pickle.loads(pickle.dumps(index))
     self.assertEqual(restored.num_docs, 2)

@@ -160,7 +160,7 @@ class CorpusRewritingTest(parameterized.TestCase):
   ])
   def testNoRewriting(self, corpus):
     chunker = corpus_rewriting.NoRewriting()
-    rewritten_corpus = ot.run(chunker(corpus))  # pytype: disable=wrong-arg-count
+    rewritten_corpus = ot.run(chunker(corpus))
 
     with self.subTest('same_corpus_in_and_out'):
       self.assertEqual(rewritten_corpus, corpus)
@@ -211,7 +211,7 @@ class CorpusRewritingTest(parameterized.TestCase):
   ])
   def testChunkingCorpusRewriter(self, chunker, corpus, expected_corpus):
     chunker = corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker)
-    rewritten_corpus = ot.run(chunker(corpus))  # pytype: disable=wrong-arg-count
+    rewritten_corpus = ot.run(chunker(corpus))
 
     with self.subTest('out_corpus_as_expected'):
       self.assertEqual(rewritten_corpus, expected_corpus)
@@ -301,7 +301,7 @@ class CorpusRewritingTest(parameterized.TestCase):
   ])
   def testFormattingCorpusRewriter(self, formatter, corpus, expected_corpus):
     rewriter = corpus_rewriting.FormattingCorpusRewriter(formatter=formatter)
-    rewritten_corpus = ot.run(rewriter(corpus))  # pytype: disable=wrong-arg-count
+    rewritten_corpus = ot.run(rewriter(corpus))
 
     with self.subTest('out_corpus_as_expected'):
       self.assertEqual(rewritten_corpus, expected_corpus)
@@ -434,7 +434,7 @@ class CorpusRewritingTest(parameterized.TestCase):
   ])
   def testSequentialCorpusRewriter(self, rewriters, corpus, expected_corpus):
     rewriter = corpus_rewriting.SequentialCorpusRewriter(rewriters=rewriters)
-    rewritten_corpus = ot.run(rewriter(corpus))  # pytype: disable=wrong-arg-count
+    rewritten_corpus = ot.run(rewriter(corpus))
 
     self.assertEqual(rewritten_corpus, expected_corpus)
 

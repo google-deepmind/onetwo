@@ -115,7 +115,7 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
     """Overridden from base class (CorpusRewriter)."""
     chunked_corpus = []
     for chunks in await ot.parallel(
-        *[self.chunker(document) for document in corpus]  # pytype: disable=wrong-arg-count
+        *[self.chunker(document) for document in corpus]
     ):
       chunked_corpus.extend(chunks)
     return chunked_corpus
@@ -146,9 +146,7 @@ class FormattingCorpusRewriter(CorpusRewriter[DocT]):
       corpus: Iterable[DocT],
   ) -> Iterable[DocT]:
     """Overridden from base class (CorpusRewriter)."""
-    return await ot.parallel(
-        *[self.formatter(document) for document in corpus]  # pytype: disable=wrong-arg-count
-    )
+    return await ot.parallel(*[self.formatter(document) for document in corpus])
 
 
 @dataclasses.dataclass(frozen=True)
@@ -186,5 +184,5 @@ class SequentialCorpusRewriter(CorpusRewriter[DocT]):
     """Overridden from base class (CorpusRewriter)."""
     rewritten_corpus = corpus
     for rewriter in self.rewriters:
-      rewritten_corpus = await rewriter(rewritten_corpus)  # pytype: disable=wrong-arg-count
+      rewritten_corpus = await rewriter(rewritten_corpus)
     return rewritten_corpus

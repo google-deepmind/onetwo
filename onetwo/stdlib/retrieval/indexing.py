@@ -159,7 +159,7 @@ class Index(  # pyrefly: ignore[invalid-type-var]
       )
 
     self.corpus_name = corpus_name
-    await self.add_docs(docs)  # pytype: disable=wrong-arg-count
+    await self.add_docs(docs)
 
   @abc.abstractmethod
   def destroy_index(self) -> None:
@@ -189,12 +189,12 @@ class IndexWrapper(
   @executing.make_executable(copy_self=False)
   async def add_docs(self, docs: Iterable[DocT]) -> None:
     """Overridden from base class (Index)."""
-    await self.inner_index.add_docs(docs=docs)  # pytype: disable=wrong-keyword-args
+    await self.inner_index.add_docs(docs=docs)
 
   @executing.make_executable(copy_self=False)
   async def create_index(self, corpus_name: str, docs: Iterable[DocT]) -> None:
     """Overridden from base class (Index)."""
-    await self.inner_index.create_index(corpus_name=corpus_name, docs=docs)  # pytype: disable=wrong-keyword-args
+    await self.inner_index.create_index(corpus_name=corpus_name, docs=docs)
 
   def destroy_index(self) -> None:
     """Overridden from base class (Index)."""
@@ -209,7 +209,9 @@ class IndexWrapper(
       **kwargs,
   ) -> Iterable[RetrievalResultT]:
     """Overridden from base class (Retriever)."""
-    return await self.inner_index.retrieve(query, max_results=max_results, **kwargs)  # pytype: disable=wrong-arg-count
+    return await self.inner_index.retrieve(
+        query, max_results=max_results, **kwargs
+    )
 
   @executing.make_executable(copy_self=False)
   async def retrieve_with_scores(
@@ -220,7 +222,7 @@ class IndexWrapper(
       **kwargs,
   ) -> Iterable[tuple[RetrievalResultT, float]]:
     """Overridden from base class (Retriever)."""
-    return await self.inner_index.retrieve_with_scores(  # pytype: disable=wrong-arg-count
+    return await self.inner_index.retrieve_with_scores(
         query, max_results=max_results, **kwargs
     )
 
@@ -276,14 +278,14 @@ class RewritingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):  # pyrefly: 
           f' num_docs_to_add={len(list(docs))}'
       )
 
-    self.inner_index.corpus_name = corpus_name  # pytype: disable=attribute-error
-    await self.add_docs(docs)  # pytype: disable=wrong-arg-count
+    self.inner_index.corpus_name = corpus_name
+    await self.add_docs(docs)
 
   @executing.make_executable(copy_self=False)
   async def add_docs(self, docs: Iterable[DocT]) -> None:
     """Overridden from base class (Index)."""
-    rewritten_docs = await self.rewriter(docs)  # pytype: disable=wrong-arg-count
-    await self.inner_index.add_docs(docs=rewritten_docs)  # pytype: disable=wrong-keyword-args
+    rewritten_docs = await self.rewriter(docs)
+    await self.inner_index.add_docs(docs=rewritten_docs)
 
 
 @dataclasses.dataclass
@@ -518,7 +520,7 @@ class AbstractEmbeddingBasedIndex(
     """Yields a context with the embedder backend registered if one is set."""
     if self.embedder_backend is not None:
       with routing.RegistryContext():
-        self.embedder_backend.register()  # pytype: disable=attribute-error
+        self.embedder_backend.register()
         yield
     else:
       yield
@@ -585,7 +587,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
   async def _calculate_query_embedding(self, query: QueryT) -> Sequence[float]:
     """Returns a newly-calculated embedding of the query."""
     with self._backend_routing_context():
-      query_embedding = await llm.embed(query, task_type=self.query_task_type)  # pytype: disable=wrong-arg-count
+      query_embedding = await llm.embed(query, task_type=self.query_task_type)
 
     return query_embedding
 
@@ -596,7 +598,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     """Returns newly-calculated embeddings of the documents."""
     with self._backend_routing_context():
       embed_executables = [
-          llm.embed(  # pytype: disable=wrong-arg-count
+          llm.embed(
               doc.content,
               task_type=self.document_task_type,
               title=doc.title,
@@ -625,10 +627,10 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       return
     _validate_docs(docs)
     self._docs.extend(docs)
-    embedded_results = await self._calculate_doc_embeddings(docs)  # pytype: disable=wrong-arg-count
+    embedded_results = await self._calculate_doc_embeddings(docs)
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])
     # Build the searcher index.
-    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
+    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.retrieve_doc_indices_and_scores')
@@ -654,14 +656,14 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     del kwargs  # Unused.
     if not self._docs:
       return []
-    query_embedding = await self._calculate_query_embedding(query)  # pytype: disable=wrong-arg-count
+    query_embedding = await self._calculate_query_embedding(query)
 
     if max_results is None:
       max_results = self.num_docs
 
     # For compatibility with search_batched, which expects a batch of queries.
     query_embeddings = np.array([query_embedding])
-    ranked_doc_indices, ranked_doc_scores = await self.searcher.search_batched(  # pytype: disable=wrong-keyword-args
+    ranked_doc_indices, ranked_doc_scores = await self.searcher.search_batched(
         query_embeds=query_embeddings, final_num_neighbors=max_results
     )
     if min_score is None:
@@ -679,7 +681,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     """Returns similarity score of the document at `doc_index` for a query."""
     if doc_index < 0 or doc_index >= len(self._doc_embeddings):
       return 0.0
-    query_embedding = await self._calculate_query_embedding(query)  # pytype: disable=wrong-arg-count
+    query_embedding = await self._calculate_query_embedding(query)
     query_embedding = np.array([query_embedding])
     doc_embedding = self._doc_embeddings[doc_index]
     return np.dot(query_embedding, doc_embedding)
@@ -695,7 +697,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       **kwargs,
   ) -> Iterable[tuple[DocT, float]]:
     """Overridden from base class (Retriever)."""
-    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(  # pytype: disable=wrong-keyword-args
+    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(
         query,
         max_results=max_results,
         min_score=min_score,
@@ -716,7 +718,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       **kwargs,
   ) -> Iterable[DocT]:
     """Overridden from base class (Retriever)."""
-    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(  # pytype: disable=wrong-keyword-args
+    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(
         query,
         max_results=max_results,
         min_score=min_score,
@@ -756,7 +758,7 @@ class RewritingEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
   @executing.make_executable(copy_self=False)
   async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
     """Delegates to the inner index."""
-    return await self.inner_index.retrieve_doc_score(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
+    return await self.inner_index.retrieve_doc_score(
         query, doc_index
     )
 
@@ -770,7 +772,7 @@ class RewritingEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       **kwargs,
   ) -> Sequence[tuple[int, float]]:
     """Delegates to the inner index."""
-    return await self.inner_index.retrieve_doc_indices_and_scores(  # pytype: disable=attribute-error,wrong-keyword-args,wrong-arg-count
+    return await self.inner_index.retrieve_doc_indices_and_scores(
         query,
         max_results=max_results,
         min_score=min_score,
@@ -798,14 +800,14 @@ class EmbeddingBasedDocumentIndex(
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
-    index_state_dto = await base_serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
+    index_state_dto = await base_serializer(Document).load(base_path)
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
       self.embed_backend_config = index_state_dto.embed_backend_config
       self._embedder_backend = None
     # Build the searcher index.
-    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
+    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -826,4 +828,4 @@ class RewritingEmbeddingBasedDocumentIndex(
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
-    await self.inner_index.load(base_path)  # pytype: disable=wrong-arg-count
+    await self.inner_index.load(base_path)

@@ -111,7 +111,8 @@ class TextChunker(Chunker):
 
     Args:
       text: The text to chunk.
-    """  #  pytype: disable=bad-return-type
+    """
+    raise NotImplementedError()
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
@@ -126,7 +127,7 @@ class TextChunker(Chunker):
     """
     document_text = document.text
     chunks = []
-    for i, chunk_text in enumerate(await self._chunk_text(document_text)):  # pytype: disable=wrong-arg-count
+    for i, chunk_text in enumerate(await self._chunk_text(document_text)):
       chunk = copy.deepcopy(document)
       chunk.content = chunk_text
       # Modify the doc_id of every chunk to produce a unique id for each chunk.
@@ -143,7 +144,7 @@ class TextChunker(Chunker):
     return chunks
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 @tracing.trace(skip=['tokenizer_backend', 'text', 'output'])
 async def truncate_string_to_max_tokens(
     text: str,
@@ -162,10 +163,10 @@ async def truncate_string_to_max_tokens(
   with ot.RegistryContext():
     if tokenizer_backend is not None:
       tokenizer_backend.register()
-    return await llm.detokenize((await llm.tokenize(text))[:max_tokens])  # pytype: disable=wrong-arg-count
+    return await llm.detokenize((await llm.tokenize(text))[:max_tokens])
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 @tracing.trace(skip=['tokenizer_backend', 'texts'])
 async def filter_by_max_tokens(
     texts: Iterable[str],
@@ -191,7 +192,7 @@ async def filter_by_max_tokens(
     total_tokens = 0
     filtered_texts = []
     for text in texts:
-      text_tokens = await llm.count_tokens(text)  # pytype: disable=wrong-arg-count
+      text_tokens = await llm.count_tokens(text)
       total_tokens += text_tokens
       if total_tokens < max_tokens:
         # Room to spare.
@@ -246,7 +247,7 @@ class ChunkByMaxTokens(TextChunker):
   strip_whitespace: bool = True
   overlap_window: int = 0
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def _chunk_text(self, text: str) -> Iterable[str]:  # pyrefly: ignore[bad-override]
     """Returns `text` broken into chunks of up to `max_tokens_per_chunk`.
@@ -268,15 +269,14 @@ class ChunkByMaxTokens(TextChunker):
           'overlap_window must be smaller than max_tokens_per_chunk, got'
           f' {self.overlap_window} >= {self.max_tokens_per_chunk}'
       )
-    all_tokens = await llm.tokenize(text)  # pytype: disable=wrong-arg-count
+    all_tokens = await llm.tokenize(text)
     step = self.max_tokens_per_chunk - self.overlap_window
     tokenized_chunks = [
         all_tokens[i : i + self.max_tokens_per_chunk]
         for i in range(0, len(all_tokens), step)
     ]
     chunks = await ot.parallel(*[
-        llm.detokenize(tokenized_chunk)  # pytype: disable=wrong-arg-count
-        for tokenized_chunk in tokenized_chunks
+        llm.detokenize(tokenized_chunk) for tokenized_chunk in tokenized_chunks
     ])
     if self.strip_whitespace:
       return [chunk.strip() for chunk in chunks]

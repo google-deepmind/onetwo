@@ -68,7 +68,7 @@ class SerializationTest(absltest.TestCase):
         os.path.exists(os.path.join(self.test_dir, 'discrete_indices.json'))
     )
 
-    new_state = ot.run(serializer.load(self.test_dir))  # pytype: disable=wrong-arg-count
+    new_state = ot.run(serializer.load(self.test_dir))
     self.assertLen(new_state.docs, 2)
     self.assertEqual(new_state.docs[0].doc_id, 'id1')
     self.assertEqual(new_state.docs[1].doc_id, 'id2')
@@ -104,7 +104,7 @@ class SerializationTest(absltest.TestCase):
         os.path.exists(os.path.join(self.test_dir, 'embed_backend_config.json'))
     )
 
-    new_state = ot.run(serializer.load(self.test_dir))  # pytype: disable=wrong-arg-count
+    new_state = ot.run(serializer.load(self.test_dir))
     self.assertIsNotNone(new_state.embed_backend_config)
     self.assertEqual(
         new_state.embed_backend_config.backend_class_name, 'MyBackend'

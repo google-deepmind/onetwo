@@ -111,7 +111,7 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
   async def add_docs(self, docs: Sequence[DocT]) -> None:
     """Overridden from base class (Index)."""
     num_existing_docs = len(self._docs)
-    await super().add_docs(docs)  # pytype: disable=wrong-arg-count
+    await super().add_docs(docs)
     self._update_doc_indices_by_discrete_value(docs, num_existing_docs)
 
   @executing.make_executable(copy_self=False)
@@ -132,11 +132,11 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     if not self._docs:
       return []
     if constraints is None:
-      return await super().retrieve_doc_indices_and_scores(  # pytype: disable=wrong-arg-count
+      return await super().retrieve_doc_indices_and_scores(
           query, max_results=max_results, min_score=min_score
       )
 
-    query_embedding = await self._calculate_query_embedding(query)  # pytype: disable=wrong-arg-count
+    query_embedding = await self._calculate_query_embedding(query)
     query_embeddings = np.array([query_embedding])
 
     candidate_indices_list = constrained_retrieval.get_candidate_indices(
@@ -145,12 +145,10 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     if not candidate_indices_list:
       return []
 
-    ranked_doc_indices, ranked_doc_scores = (
-        await self.searcher.search_batched(  # pytype: disable=wrong-keyword-args
-            query_embeds=query_embeddings,
-            final_num_neighbors=max_results,
-            doc_indices=candidate_indices_list,
-        )
+    ranked_doc_indices, ranked_doc_scores = await self.searcher.search_batched(
+        query_embeds=query_embeddings,
+        final_num_neighbors=max_results,
+        doc_indices=candidate_indices_list,
     )
     if min_score is None:
       return list(zip(ranked_doc_indices[0], ranked_doc_scores[0]))
@@ -174,7 +172,7 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       **kwargs,
   ) -> Iterable[tuple[DocT, float]]:
     """Overridden from base class (ConstrainedRetriever)."""
-    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(  # pytype: disable=wrong-keyword-args
+    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(
         query,
         max_results=max_results,
         min_score=min_score,
@@ -197,7 +195,7 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       **kwargs,
   ) -> Iterable[DocT]:
     """Overridden from base class (ConstrainedRetriever)."""
-    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(  # pytype: disable=wrong-keyword-args
+    doc_indices_and_scores = await self.retrieve_doc_indices_and_scores(
         query,
         max_results=max_results,
         min_score=min_score,
@@ -260,9 +258,10 @@ class RewritingConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-v
       self, field_name: str, old_key: str, new_key: str
   ) -> None:
     """Delegates to the inner index."""
-    self.inner_index.rename_discrete_field_key(  # pytype: disable=attribute-error
-        field_name, old_key, new_key
-    )
+    # TODO: Parameterize RewritingIndex with InnerIndexT to avoid
+    # this assertion.
+    assert isinstance(self.inner_index, ConstrainedEmbeddingBasedIndex)
+    self.inner_index.rename_discrete_field_key(field_name, old_key, new_key)
 
 
 from onetwo.stdlib.retrieval import serialization
@@ -291,7 +290,7 @@ class ConstrainedEmbeddingBasedDocumentIndex(
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
-    index_state_dto = await constrained_serializer(Document).load(base_path)  # pytype: disable=wrong-arg-count
+    index_state_dto = await constrained_serializer(Document).load(base_path)
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
@@ -304,7 +303,7 @@ class ConstrainedEmbeddingBasedDocumentIndex(
     else:
       self._doc_indices_by_discrete_value = {}
     # Build the searcher index.
-    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))  # pytype: disable=wrong-arg-count
+    await self.searcher.build(np.stack(self._doc_embeddings, axis=0))
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -320,9 +319,15 @@ class RewritingConstrainedEmbeddingBasedDocumentIndex(
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
-    self.inner_index.save(base_path)  # pytype: disable=attribute-error
+    # TODO: Parameterize RewritingIndex with InnerIndexT to avoid
+    # this assertion.
+    assert isinstance(self.inner_index, ConstrainedEmbeddingBasedDocumentIndex)
+    self.inner_index.save(base_path)
 
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
-    await self.inner_index.load(base_path)  # pytype: disable=wrong-arg-count,attribute-error
+    # TODO: Parameterize RewritingIndex with InnerIndexT to avoid
+    # this assertion.
+    assert isinstance(self.inner_index, ConstrainedEmbeddingBasedDocumentIndex)
+    await self.inner_index.load(base_path)

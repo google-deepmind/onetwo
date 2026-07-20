@@ -98,7 +98,9 @@ class Retriever(Protocol[QueryT, RetrievalResultT]):
       **kwargs,
   ) -> Iterable[tuple[RetrievalResultT, float]]:
     """Returns the results that are most relevant to the query, with scores."""
-    results = await self.retrieve(query=query, max_results=max_results, **kwargs)  # pytype: disable=wrong-keyword-args
+    results = await self.retrieve(
+        query=query, max_results=max_results, **kwargs
+    )
     # By default, we assign a score that is inversely proportional to the
     # position of the result in the list. This is a reasonable default for
     # cases where the `retrieve` method itself is already returning the results
@@ -131,4 +133,4 @@ class Retriever(Protocol[QueryT, RetrievalResultT]):
         subclass).
       **kwargs: Additional keyword arguments to pass to the `retrieve` method.
     """
-    return await self.retrieve(query=query, max_results=max_results, **kwargs)  # pytype: disable=wrong-keyword-args
+    return await self.retrieve(query=query, max_results=max_results, **kwargs)

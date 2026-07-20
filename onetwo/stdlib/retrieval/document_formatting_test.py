@@ -61,7 +61,7 @@ class DocumentFormattingTest(parameterized.TestCase):
   ])
   def testNoFormatting(self, document):
     formatter = document_formatting.NoFormatting()
-    result = ot.run(formatter(document))  # pytype: disable=wrong-arg-count
+    result = ot.run(formatter(document))
     with self.subTest('correct_content'):
       self.assertEqual(result.content, document.content)
 
@@ -112,7 +112,7 @@ class DocumentFormattingTest(parameterized.TestCase):
     formatter = document_formatting.TextDocumentFormatter(
         format_str=format_str,
     )
-    result = ot.run(formatter(document))  # pytype: disable=wrong-arg-count
+    result = ot.run(formatter(document))
 
     with self.subTest('correct_formatted_content'):
       self.assertEqual(result.content, expected_content)
@@ -134,7 +134,7 @@ class DocumentFormattingTest(parameterized.TestCase):
         doc_id='1',
     )
     formatter = document_formatting.TextDocumentFormatter()
-    result = ot.run(formatter(document))  # pytype: disable=wrong-arg-count
+    result = ot.run(formatter(document))
     self.assertEqual(result.content, 'hello world')
 
   def testTextDocumentFormatterDoesNotMutateInput(self):
@@ -148,7 +148,7 @@ class DocumentFormattingTest(parameterized.TestCase):
     formatter = document_formatting.TextDocumentFormatter(
         format_str='Title: {title}\nContent: {text}',
     )
-    ot.run(formatter(document))  # pytype: disable=wrong-arg-count
+    ot.run(formatter(document))
     self.assertEqual(document.content, 'hello world')
 
 
