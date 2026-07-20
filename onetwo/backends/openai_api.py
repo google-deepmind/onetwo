@@ -760,7 +760,7 @@ class OpenAIAPI(
       target_cls = cls
       is_wrapped = False
 
-    serializable_result = await self._generate_object_internal(  # pyrefly: ignore[bad-argument-type, not-async]
+    serializable_result = await self._generate_object_internal(  # pyrefly: ignore[bad-argument-type, not-async]  # pytype: disable=wrong-keyword-args
         prompt=prompt,  # pyrefly: ignore[unexpected-keyword]
         cls=target_cls,  # pyrefly: ignore[unexpected-keyword]
         temperature=temperature,  # pyrefly: ignore[unexpected-keyword]
@@ -788,7 +788,7 @@ class OpenAIAPI(
     # Remove kwargs that are not supported by the OpenAI API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Responses API via client.responses.create.
-    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.

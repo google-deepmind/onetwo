@@ -396,7 +396,7 @@ class CacheDecorationTest(parameterized.TestCase):
       # This will not read from the cache and thus return an Executable.
       e = await backend.method_which_returns_executable('it2').pre_execute()  # pyrefly: ignore[bad-argument-count, bad-argument-type, missing-attribute]  # pytype: disable=attribute-error
       result = None
-      async for result in e:
+      async for result in e:  # pytype: disable=attribute-error
         stream.append(result)
       return result
 

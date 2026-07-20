@@ -233,10 +233,10 @@ class _AppendNode(Composable):
   @executing.make_executable  # pytype: disable=wrong-arg-types
   async def iterate(
       self, context: Context, iteration_depth: int = 1
-  ) -> AsyncIterator[list[ChunkList]]:
+  ) -> AsyncIterator[ChunkList]:
     # Default implementation: single step execution.
     del iteration_depth
-    return (await self.execute(context))  # pyrefly: ignore[bad-argument-count, not-async]
+    yield (await self.execute(context))  # pyrefly: ignore[bad-argument-count, not-async]
 
   @override
   @executing.make_executable  # pytype: disable=wrong-arg-types
@@ -358,7 +358,7 @@ class _FunctionNode(Composable):
       self, context: Context, iteration_depth: int = 1
   ) -> AsyncIterator[ChunkList]:
     if iteration_depth == 0:
-      res = await self.execute(context)
+      res = await self.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
       yield res
     else:
       self._context = context

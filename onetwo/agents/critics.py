@@ -135,7 +135,7 @@ def ranker_from_scorer(
     )
     return [update[0] for update in sorted_updates]
 
-  return ranker  # pyrefly: ignore[bad-return]
+  return ranker  # pyrefly: ignore[bad-return]  # pytype: disable=bad-return-type
 
 
 async def _select_k_best(
@@ -179,7 +179,7 @@ def ranker_from_selector(
         states_and_updates, selector, len(states_and_updates)
     )
 
-  return ranker  # pyrefly: ignore[bad-return]
+  return ranker  # pyrefly: ignore[bad-return]  # pytype: disable=bad-return-type
 
 
 class ScoreFromUpdates(
@@ -233,4 +233,3 @@ class ScoreFromUpdateList(
     for s in updated_state.updates:
       score += s.score
     return score
-

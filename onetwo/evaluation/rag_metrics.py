@@ -159,7 +159,7 @@ def make_recall_at_k(
 
 def make_accuracy_critic(
     backend_config: backend_registry.GenerateBackendConfig | None = None,
-) -> Callable[..., tuple[float, dict[str, Any]]]:
+) -> Callable[..., executing.Executable[tuple[float, dict[str, Any]]]]:
   """Returns an AI-Rater critic that evaluates the generated answer.
 
   Args:
@@ -199,7 +199,7 @@ def make_accuracy_critic(
           example=example,  # pyrefly: ignore[unexpected-keyword]
       )
 
-  return accuracy_critic_fn
+  return accuracy_critic_fn  # pytype: disable=bad-return-type
 
 
 accuracy_critic = make_accuracy_critic()

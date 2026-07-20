@@ -551,15 +551,132 @@ def stream_with_callback(
 # TODO: This decorator has many arguments now, and the fact that
 # non_executed_args are passed positionally is a bit confusing. We should
 # replace this by a keyword argument taking in an Iterable of str.
-@utils.decorator_with_optional_args
-def make_executable(
-    function: Callable[_Args, Result],
+_Result = TypeVar('_Result')
+
+
+class MakeExecutableDecorator:
+  """Helper class to represent a make_executable decorator with arguments."""
+
+  def __init__(
+      self,
+      non_executed_args: Sequence[str],
+      non_copied_args: Iterable[str],
+      copy_self: bool,
+      execute_result: bool,
+      iterate_argument: str | None,
+  ):
+    self._non_executed_args = non_executed_args
+    self._non_copied_args = non_copied_args
+    self._copy_self = copy_self
+    self._execute_result = execute_result
+    self._iterate_argument = iterate_argument
+
+  @overload
+  def __call__(
+      self,
+      function: Callable[..., Awaitable[Executable[Any]]],
+  ) -> Callable[..., Any]:
+    ...
+
+  @overload
+  def __call__(
+      self,
+      function: Callable[..., Awaitable[Any]],
+  ) -> Callable[..., Any]:
+    ...
+
+  @overload
+  def __call__(
+      self,
+      function: Callable[..., AsyncIterator[Any]],
+  ) -> Callable[..., Any]:
+    ...
+
+  @overload
+  def __call__(
+      self,
+      function: Callable[..., Any],
+  ) -> Callable[..., Any]:
+    ...
+
+  def __call__(self, function: Any) -> Any:
+    return make_executable(
+        function,
+        *self._non_executed_args,
+        non_copied_args=self._non_copied_args,
+        copy_self=self._copy_self,
+        execute_result=self._execute_result,
+        iterate_argument=self._iterate_argument,
+    )
+
+
+@overload
+def make_executable(  # pyrefly: ignore[inconsistent-overload]
+    function: Callable[..., Awaitable[Executable[Any]]],
     *non_executed_args: str,
     non_copied_args: Iterable[str] = tuple(),
     copy_self: bool = True,
     execute_result: bool = True,
     iterate_argument: str | None = None,
-) -> Callable[_Args, Executable[Result]]:
+) -> Callable[..., Any]:
+  ...
+
+
+@overload
+def make_executable(  # pyrefly: ignore[inconsistent-overload]
+    function: Callable[..., Awaitable[Any]],
+    *non_executed_args: str,
+    non_copied_args: Iterable[str] = tuple(),
+    copy_self: bool = True,
+    execute_result: bool = True,
+    iterate_argument: str | None = None,
+) -> Callable[..., Any]:
+  ...
+
+
+@overload
+def make_executable(  # pyrefly: ignore[inconsistent-overload]
+    function: Callable[..., AsyncIterator[Any]],
+    *non_executed_args: str,
+    non_copied_args: Iterable[str] = tuple(),
+    copy_self: bool = True,
+    execute_result: bool = True,
+    iterate_argument: str | None = None,
+) -> Callable[..., Any]:
+  ...
+
+
+@overload
+def make_executable(  # pyrefly: ignore[inconsistent-overload]
+    function: Callable[..., Any],
+    *non_executed_args: str,
+    non_copied_args: Iterable[str] = tuple(),
+    copy_self: bool = True,
+    execute_result: bool = True,
+    iterate_argument: str | None = None,
+) -> Callable[..., Any]:
+  ...
+
+
+@overload
+def make_executable(  # pyrefly: ignore[inconsistent-overload]
+    *non_executed_args: str,
+    non_copied_args: Iterable[str] = tuple(),
+    copy_self: bool = True,
+    execute_result: bool = True,
+    iterate_argument: str | None = None,
+) -> MakeExecutableDecorator:
+  ...
+
+
+def make_executable(
+    function_or_arg: Callable[..., Any] | str | None = None,
+    *non_executed_args: str,
+    non_copied_args: Iterable[str] = tuple(),
+    copy_self: bool = True,
+    execute_result: bool = True,
+    iterate_argument: str | None = None,
+) -> Any:
   """Decorates a method or function by transforming it into an Executable.
 
   This decorator can be used with or without arguments.
@@ -599,7 +716,8 @@ def make_executable(
   no matter what `args2` are.
 
   Args:
-    function: Function or (bound) method to be decorated.
+    function_or_arg: Function or (bound) method to be decorated, or the first
+      positional argument of the decorator (if called with arguments).
     *non_executed_args: Strings containing the names of the parameters of the
       decorated function that we do not want the decorator to execute before
       calling the function.
@@ -641,77 +759,107 @@ def make_executable(
     decorated function.
   """
 
-  if (
-      hasattr(function, '__call__')
-      and not inspect.isfunction(function)
-      and not inspect.ismethod(function)
-  ):
-    function = function.__call__
+  local_non_executed_args = non_executed_args
+  local_non_copied_args = non_copied_args
 
-  if utils.is_decorated_with_make_executable(function):
-    return function  # pyrefly: ignore[bad-return]
+  def decorate(function: Callable[..., Any]) -> Any:
+    nonlocal local_non_executed_args, local_non_copied_args
+    if (
+        hasattr(function, '__call__')
+        and not inspect.isfunction(function)
+        and not inspect.ismethod(function)
+    ):
+      function = function.__call__
 
-  non_copied_args = list(non_copied_args)
-  if not copy_self and 'self' not in non_copied_args:
-    non_copied_args.append('self')
+    if utils.is_decorated_with_make_executable(function):
+      return function
 
-  @functools.wraps(function)
-  def inner_m(self, *args: _Args.args, **kwargs: _Args.kwargs):
-    nonlocal non_executed_args, non_copied_args
-    return FunctionExecWrapper(
-        function,
-        (self,) + args,
-        kwargs,
-        non_executed_args=non_executed_args,
-        non_copied_args=non_copied_args,
-        execute_result=execute_result,
-        iterate_argument=iterate_argument,
-    )
-
-  @functools.wraps(function)
-  def inner_f(*args: _Args.args, **kwargs: _Args.kwargs):
-    return FunctionExecWrapper(
-        function,
-        args,
-        kwargs,
-        non_executed_args=non_executed_args,
-        non_copied_args=non_copied_args,
-        execute_result=execute_result,
-        iterate_argument=iterate_argument,
-    )
-
-  utils.set_decorated_with_make_executable(inner_m)
-  utils.set_decorated_with_make_executable(inner_f)
-
-  if inspect.isfunction(function):
-    # Decorating a function or decorating a method with "@".
-    if utils.is_method(function):
-      return inner_m  # pyrefly: ignore[bad-return]
-    else:
-      return inner_f
-  elif inspect.ismethod(function):
-    # Decorating a bound method inline (as opposed to doing it with "@"")
-    # using `make_executable(class_instance.some_method)`.
-    unbound_function = function.__func__
-    obj = function.__self__
+    local_non_copied_args = list(local_non_copied_args)
+    if not copy_self and 'self' not in local_non_copied_args:
+      local_non_copied_args.append('self')
 
     @functools.wraps(function)
-    def inner_bound(*args: _Args.args, **kwargs: _Args.kwargs):
-      nonlocal non_executed_args, non_copied_args
+    def inner_m(self, *args: Any, **kwargs: Any) -> Any:
+      nonlocal local_non_executed_args, local_non_copied_args
       return FunctionExecWrapper(
-          unbound_function,
-          (obj,) + args,
+          function,
+          (self,) + args,
           kwargs,
-          non_executed_args=non_executed_args,
-          non_copied_args=non_copied_args,
+          non_executed_args=local_non_executed_args,
+          non_copied_args=local_non_copied_args,
           execute_result=execute_result,
           iterate_argument=iterate_argument,
       )
 
-    utils.set_decorated_with_make_executable(inner_bound)
-    return inner_bound
+    @functools.wraps(function)
+    def inner_f(*args: Any, **kwargs: Any) -> Any:
+      nonlocal local_non_executed_args, local_non_copied_args
+      return FunctionExecWrapper(
+          function,
+          args,
+          kwargs,
+          non_executed_args=local_non_executed_args,
+          non_copied_args=local_non_copied_args,
+          execute_result=execute_result,
+          iterate_argument=iterate_argument,
+      )
+
+    utils.set_decorated_with_make_executable(inner_m)
+    utils.set_decorated_with_make_executable(inner_f)
+
+    if inspect.isfunction(function):
+      # Decorating a function or decorating a method with "@".
+      if utils.is_method(function):
+        return inner_m
+      else:
+        return inner_f
+    elif inspect.ismethod(function):
+      # Decorating a bound method inline (as opposed to doing it with "@"")
+      # using `make_executable(class_instance.some_method)`.
+      unbound_function = function.__func__
+      obj = function.__self__
+
+      @functools.wraps(function)
+      def inner_bound(*args: Any, **kwargs: Any) -> Any:
+        nonlocal local_non_executed_args, local_non_copied_args
+        return FunctionExecWrapper(
+            unbound_function,
+            (obj,) + args,
+            kwargs,
+            non_executed_args=local_non_executed_args,
+            non_copied_args=local_non_copied_args,
+            execute_result=execute_result,
+            iterate_argument=iterate_argument,
+        )
+
+      utils.set_decorated_with_make_executable(inner_bound)
+      return inner_bound
+    else:
+      raise ValueError('Decorator must be applied to a method or function.')
+
+  if callable(function_or_arg):
+    return decorate(function_or_arg)
   else:
-    raise ValueError('Decorator must be applied to a method or function.')
+    if isinstance(function_or_arg, str):
+      local_non_executed_args = (function_or_arg,) + local_non_executed_args
+    elif function_or_arg is not None:
+      raise ValueError('First argument must be a function or a string.')
+
+    # We must cast to Any here because Pytype has a limitation where it requires
+    # the returned value of the implementation to be compatible with all
+    # overload return types, even if the implementation return type is Any.
+    # MakeExecutableDecorator is not compatible with the Callable return type
+    # of the other overloads, so this cast is required.
+    return cast(
+        Any,
+        MakeExecutableDecorator(
+            non_executed_args=local_non_executed_args,
+            non_copied_args=local_non_copied_args,
+            copy_self=copy_self,
+            execute_result=execute_result,
+            iterate_argument=iterate_argument,
+        ),
+    )
 
 
 # We use "Any" for `serial`, `ser_iter`, `parallel`, and `par_iter` below,

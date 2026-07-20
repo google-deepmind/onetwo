@@ -324,9 +324,10 @@ class EmptyIndex(DocumentIndex):
       query: str,
       *,
       max_results: int | None = None,
+      **kwargs,
   ) -> Iterable[Document]:
     """Overridden from base class (Retriever)."""
-    del query, max_results
+    del query, max_results, kwargs
     return []
 
 
@@ -374,8 +375,10 @@ class NaiveIndex(DocumentIndex):
       query: str,
       *,
       max_results: int | None = None,
+      **kwargs,
   ) -> Iterable[Document]:
     """Overridden from base class (Retriever)."""
+    del kwargs
     if max_results is None:
       max_results = len(self.docs)
     if not self.shuffle_results:
@@ -615,7 +618,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.add_docs')
-  async def add_docs(self, docs: Sequence[DocT]) -> None:
+  async def add_docs(self, docs: Iterable[DocT]) -> None:
     """Overridden from base class (Index)."""
     docs = list(docs)
     if not docs:

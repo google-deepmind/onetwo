@@ -15,11 +15,11 @@
 """Functions and classes for sampling from a conditional distribution."""
 
 import abc
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 import copy
 import dataclasses
 import itertools
-from typing import Generic, ParamSpec, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from onetwo.core import caching
 from onetwo.core import executing
@@ -29,9 +29,6 @@ from onetwo.core import utils
 
 Result = TypeVar('Result')
 Executable = executing.Executable[Result]
-
-# Type representing a strategy's arguments.
-_Args = ParamSpec('_Args')
 
 # Type representing a strategy's output.
 _O = TypeVar('_O')
@@ -45,7 +42,7 @@ SAMPLE_SIZE = 'sample_size'
 
 @executing.make_executable('update_result_fn')
 def _update_result_with_sample_id(
-    result: Result,
+    result: Any,
     update_result_fn: Callable[[Result, int], Result],
     sample_id: int,
 ) -> Result:
@@ -128,14 +125,14 @@ def repeat_and_execute(  # pytype: disable=invalid-annotation
 class Sampler(Generic[_O], Protocol):
   """Interface for generating samples from a conditional distribution."""
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @abc.abstractmethod
   async def __call__(
       self,
-      *args: _Args.args,  # pyrefly: ignore[not-a-type]
+      *args: Any,
       num_samples: int = 1,
       start_index: int = 0,
-      **kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
+      **kwargs: Any,
   ) -> Sequence[_O]:
     """Returns the specified number of samples of output for the given inputs.
 
@@ -165,20 +162,20 @@ class Repeated(Generic[_O], Sampler[_O]):
       distribution.
   """
 
-  inner: Callable[_Args, _O] | Callable[_Args, Awaitable[_O]]  # pyrefly: ignore[invalid-type-var]
+  inner: Callable[..., executing.Executable[_O]]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def __call__(
       self,
-      *args: _Args.args,  # pyrefly: ignore[not-a-type]
+      *args: Any,
       num_samples: int = 1,
       start_index: int = 0,
-      **kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
+      **kwargs: Any,
   ) -> Sequence[_O]:
     """Overridden from base class (Sampler)."""
     repeated_executable = repeat(
-        executable=self.inner(*args, **kwargs),  # pyrefly: ignore[bad-argument-type, invalid-param-spec]
+        executable=self.inner(*args, **kwargs),
         num_repeats=num_samples,
         start_index=start_index,
     )
@@ -205,10 +202,10 @@ class RoundRobin(Generic[_O], Sampler[_O]):
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def __call__(
       self,
-      *args: _Args.args,  # pyrefly: ignore[not-a-type]
+      *args: Any,
       num_samples: int = 1,
       start_index: int = 0,
-      **kwargs: _Args.kwargs,  # pyrefly: ignore[not-a-type]
+      **kwargs: Any,
   ) -> Sequence[_O]:
     """Overridden from base class (Sampler)."""
     num_samplers = len(self.inner)
@@ -220,7 +217,7 @@ class RoundRobin(Generic[_O], Sampler[_O]):
       sampler_id = sample_index % num_samplers
       sampler = self.inner[sampler_id]
       repeated_executable.append(
-          sampler(*args, num_samples=1, start_index=sample_index, **kwargs),  # pyrefly: ignore[unexpected-keyword]
+          sampler(*args, num_samples=1, start_index=sample_index, **kwargs),
       )
 
     # We execute the sampling as much as possible in parallel.

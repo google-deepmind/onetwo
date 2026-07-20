@@ -441,7 +441,7 @@ class OllamaAPI(
     # Remove kwargs that are not supported by the Ollama API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Chat API via client.chat.
-    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
   @caching.cache_method(  # Cache this stochastic method.

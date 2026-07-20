@@ -146,8 +146,8 @@ async def llm_callback(
   if space_healing and context.prefix.endswith(' '):
     # We may need to remove spaces from the beginning of the replies.
     reply = _heal_reply(reply)
-  details = reply[1] if samples is None else [r[1] for r in reply]
-  reply = reply[0] if samples is None else [r[0] for r in reply]
+  details = reply[1] if samples is None else [r[1] for r in reply]  # pyrefly: ignore[bad-index]
+  reply = reply[0] if samples is None else [r[0] for r in reply]  # pyrefly: ignore[bad-index]
 
   if isinstance(details, Mapping):
     tracing.execution_context.get().outputs.update(details)
@@ -292,7 +292,7 @@ async def generate_object(
   reply = await llm.generate_object(prompt, cls, **engine_param_overrides)  # pytype: disable=wrong-arg-count
 
   tracing.execution_context.get().outputs[results.MAIN_OUTPUT] = reply
-  return reply
+  return reply  # pytype: disable=bad-return-type
 
 
 @templating.add_mock_value

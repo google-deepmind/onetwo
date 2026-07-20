@@ -106,6 +106,9 @@ def get_backend(
   Returns:
     An instance of the requested backend.
   """
+  if config.backend_class_name is None:
+    raise ValueError('backend_class_name must be specified.')
+
   kwargs = dict(config.kwargs)
 
   if config.model_name:

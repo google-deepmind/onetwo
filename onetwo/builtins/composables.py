@@ -123,7 +123,7 @@ async def select(
   value, index, _ = await llm.select(  # pytype: disable=wrong-arg-count
       common_prefix, text_options, include_details=True
   )
-  return value, options[index][1]
+  return value, options[index][1]  # pyrefly: ignore[bad-index]
 
 
 @composing.make_composable  # pytype: disable=wrong-arg-types

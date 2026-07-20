@@ -95,7 +95,7 @@ class DistributionAgentTest(parameterized.TestCase):
 
     with self.subTest('distribution_is_uniform'):
       dist = executing.run(
-          agent.get_next_step_distribution(  # pytype: disable=wrong-keyword-args
+          agent.get_next_step_distribution(  # pytype: disable=wrong-keyword-args,wrong-arg-types
               state=agent.initialize_state(inputs='1')  # pytype: disable=wrong-keyword-args
           )
       )
@@ -105,7 +105,7 @@ class DistributionAgentTest(parameterized.TestCase):
 
     with self.subTest('samples_are_correct'):
       samples = executing.run(
-          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+          agent.sample_next_step(  # pytype: disable=wrong-keyword-args,wrong-arg-types
               state=agent.initialize_state(inputs='1'), num_candidates=5  # pytype: disable=wrong-keyword-args
           )
       )
@@ -114,7 +114,7 @@ class DistributionAgentTest(parameterized.TestCase):
 
     with self.subTest('samples_and_scores_are_correct'):
       samples_with_scores = executing.run(
-          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+          agent.sample_next_step(  # pytype: disable=wrong-keyword-args,wrong-arg-types
               state=agent.initialize_state(inputs='1'), num_candidates=5  # pytype: disable=wrong-keyword-args
           )
       )

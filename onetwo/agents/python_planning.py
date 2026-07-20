@@ -560,7 +560,7 @@ class PythonPlanningAgent(
   @tracing.trace(
       'PythonPlanningAgent._sample_single_next_step', skip=['environment']
   )
-  async def _sample_single_next_step(
+  async def _sample_single_next_step(  # pyrefly: ignore[bad-override]
       self,
       *,
       state: PythonPlanningState,

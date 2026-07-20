@@ -141,7 +141,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res[0], ollama_mock._DEFAULT_REPLY)
     with self.subTest('returns_correct_score'):
       # Ollama does not provide logprobs, so score should be 0.0.
-      self.assertEqual(res[1]['score'], 0.0)
+      self.assertEqual(res[1]['score'], 0.0)  # pytype: disable=bad-index
 
   def test_generate_texts(self):
     """Verifies that generate_texts returns multiple samples."""
@@ -223,7 +223,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res[0], 'Result text')
     with self.subTest('returns_correct_thoughts'):
       self.assertEqual(
-          res[1]['thoughts'],
+          res[1]['thoughts'],  # pytype: disable=bad-index
           content_lib.ChunkList([content_lib.Chunk('Thinking process')]),
       )
 

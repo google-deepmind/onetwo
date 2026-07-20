@@ -182,7 +182,7 @@ class BruteForceSearcher(Searcher):
       *,
       final_num_neighbors: int | None = None,
       **kwargs,
-  ) -> tuple[Sequence[int], Sequence[float]]:
+  ) -> tuple[np.ndarray, np.ndarray]:
     """Returns ranked indices of the most relevant docs for the query."""
     if self._doc_embeds is None:
       raise ValueError('Need to call `build()` before `search_batched()`.')
@@ -236,8 +236,10 @@ class ConstrainedBruteForceSearcher(BruteForceSearcher, ConstrainedSearcher):
       *,
       final_num_neighbors: int | None = None,
       doc_indices: Sequence[int] | None = None,
+      **kwargs,
   ) -> tuple[np.ndarray, np.ndarray]:
     """Overridden from base class (ConstrainedSearcher)."""
+    del kwargs
 
     if self._doc_embeds is None:
       raise ValueError('Need to call `build()` before `search_batched()`.')

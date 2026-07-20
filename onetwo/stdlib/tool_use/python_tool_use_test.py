@@ -161,6 +161,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     )
 
     with self.subTest('should_return_correct_final_result'):
+      assert final_result is not None
       self.assertRunCodeResultEqualIgnoringTiming(
           expected_final_result, final_result
       )
@@ -176,13 +177,13 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     class StepForTest:
       sandbox_state: tuple[str, ...]
       code: str
-      expected_result: python_tool_use.RunCodeResult | None
+      expected_result: python_tool_use.RunCodeResult
       expected_num_sandboxes: int
 
     # Simple class for storing results, which we will later assert on.
     @dataclasses.dataclass
     class StepResult:
-      result: python_tool_use.RunCodeResult | None
+      result: python_tool_use.RunCodeResult
       num_sandboxes: int
 
     # Steps to perform (like in a parameterized test).
@@ -283,10 +284,12 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     for i, step_result in enumerate(step_results):
       with self.subTest(f'step_{i}_result'):
         self.assertRunCodeResultEqualIgnoringTiming(
-            step_result.result, step_result.result
+            steps[i].expected_result, step_result.result
         )
       with self.subTest(f'step_{i}_num_sandboxes'):
-        self.assertEqual(step_result.num_sandboxes, step_result.num_sandboxes)
+        self.assertEqual(
+            steps[i].expected_num_sandboxes, step_result.num_sandboxes
+        )
 
   @parameterized.named_parameters(
       dict(

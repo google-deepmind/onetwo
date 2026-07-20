@@ -401,7 +401,7 @@ def _update_trace_info_from_usage_metadata(
             1 for part in content.parts if part.function_call
         )
   else:
-    for candidate in response.candidates:
+    for candidate in response.candidates or []:
       if candidate.content and candidate.content.parts:
         tool_call_count += sum(
             1 for part in candidate.content.parts if part.function_call

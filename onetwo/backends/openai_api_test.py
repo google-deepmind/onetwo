@@ -198,7 +198,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with self.subTest('returns_correct_result'):
       self.assertEqual(res[0], openai_mock._DEFAULT_REPLY)
     with self.subTest('returns_correct_score'):
-      self.assertEqual(res[1]['score'], -0.5)
+      self.assertEqual(res[1]['score'], -0.5)  # pyrefly: ignore[bad-index]
 
   def test_generate_text_prepends_prefix(self):
     """Verifies that generate_text prepends the completion prefix."""

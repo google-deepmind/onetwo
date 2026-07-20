@@ -468,7 +468,7 @@ class RoutingTest(parameterized.TestCase):
 
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def f_call(i: int) -> str:
-      return routing.function_registry('f', i=i)  # pyrefly: ignore[bad-argument-count, bad-return, unexpected-keyword]
+      return routing.function_registry('f', i=i)  # pyrefly: ignore[bad-argument-count, bad-return, unexpected-keyword]  # pytype: disable=bad-return-type
 
     @executing.make_executable  # pytype: disable=wrong-arg-types
     async def wrapper():

@@ -184,7 +184,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res[0], claude_mock._DEFAULT_REPLY)
     with self.subTest('returns_correct_score'):
       # Claude does not provide logprobs, so score should be 0.0.
-      self.assertEqual(res[1]['score'], 0.0)
+      self.assertEqual(res[1]['score'], 0.0)  # pyrefly: ignore[bad-index]
 
   def test_chat_with_system_message(self):
     """Verifies that system messages are extracted to the system param."""
@@ -304,7 +304,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res[0], claude_mock._DEFAULT_REPLY)
     with self.subTest('returns_thinking'):
       self.assertIn('thinking_output', res[1])
-      self.assertEqual(res[1]['thinking_output'], claude_mock._DEFAULT_THINKING)
+      self.assertEqual(res[1]['thinking_output'], claude_mock._DEFAULT_THINKING)  # pyrefly: ignore[bad-index]
 
   def test_generate_without_thinking(self):
     """Verifies that thinking is absent from details when not enabled."""

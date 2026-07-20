@@ -151,7 +151,7 @@ class AgentTest(parameterized.TestCase):
     )
 
     # To get the final state, we can simply sum the updates.
-    state_2 = sum(updates, state_0)
+    state_2 = sum(updates, state_0)  # pytype: disable=wrong-arg-types
 
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
@@ -159,7 +159,7 @@ class AgentTest(parameterized.TestCase):
             agent.stream_updates(initial_state=state_2, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
-    state_4 = sum(second_round_of_updates, state_2)
+    state_4 = sum(second_round_of_updates, state_2)  # pytype: disable=wrong-arg-types
 
     # Now we'll request it to run for another 2 steps, but we expect it to only
     # run for 1 more step, because we will have then reached the max_length
@@ -169,7 +169,7 @@ class AgentTest(parameterized.TestCase):
             agent.stream_updates(initial_state=state_4, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
-    state_5 = sum(third_round_of_updates, state_4)
+    state_5 = sum(third_round_of_updates, state_4)  # pytype: disable=wrong-arg-types
 
     with self.subTest('should_run_for_the_specified_max_steps'):
       self.assertLen(updates, max_steps)
@@ -184,7 +184,7 @@ class AgentTest(parameterized.TestCase):
 
     with self.subTest('should_do_an_additional_max_steps_in_second_call'):
       self.assertLen(second_round_of_updates, max_steps)
-      self.assertLen(state_4.updates, 2 * max_steps)  # pyrefly: ignore[missing-attribute]
+      self.assertLen(state_4.updates, 2 * max_steps)  # pyrefly: ignore[missing-attribute]  # pytype: disable=attribute-error
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -200,7 +200,7 @@ class AgentTest(parameterized.TestCase):
 
     with self.subTest('should_stop_once_is_finished_is_true'):
       self.assertLen(third_round_of_updates, 1)
-      self.assertLen(state_5.updates, 5)  # pyrefly: ignore[missing-attribute]
+      self.assertLen(state_5.updates, 5)  # pyrefly: ignore[missing-attribute]  # pytype: disable=attribute-error
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -242,8 +242,8 @@ class AgentTest(parameterized.TestCase):
     state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
     max_steps = 2
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
-    async def wrapper() -> tuple[list[str], list[str], list[str]]:
+    @executing.make_executable  # pyrefly: ignore[wrong-arg-types]
+    async def wrapper():
       async with agent.start_environment() as env:
         # Here we call `stream_states` twice with the same environment and then
         # inspect the environment at the end to illustrate how the environment
@@ -328,7 +328,7 @@ class AgentTest(parameterized.TestCase):
 
   def test_execute_return_final_state(self):
     agent = StringAgent()
-    output, final_state = executing.run(
+    output, final_state = executing.run(  # pyrefly: ignore[not-iterable]
         agent(inputs='q', max_steps=3, return_final_state=True)  # pytype: disable=wrong-keyword-args
     )
 

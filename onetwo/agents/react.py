@@ -849,7 +849,7 @@ class ReActAgent(
       self,
       *,
       state: ReActState,
-      environment: python_tool_use.PythonToolUseEnvironment,
+      environment: python_tool_use.PythonToolUseEnvironment | None = None,
   ) -> ReActStep:
     """Runs one step of the strategy and returns a new resulting state.
 
@@ -877,7 +877,7 @@ class ReActAgent(
     # done, it may just start hallucinating a next '[Question]' rathering than
     # outputting an '[Action]' or '[Finish]' step, which, due to the use of
     # '[Question]' as a stop sequence, can show up as an empty response.
-    got_empty_reply = state.updates and (
+    got_empty_reply = bool(state.updates) and (
         not state.updates[-1].action
         and not state.updates[-1].thought
         and not state.updates[-1].is_finished

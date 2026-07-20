@@ -137,9 +137,9 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     if os.path.exists(config_path):
       with open(config_path, 'r') as f:
         json_str = f.read()
-      embed_backend_config = backend_registry.EmbedBackendConfig.from_json(
+      embed_backend_config = backend_registry.EmbedBackendConfig.from_json(  # pyrefly: ignore[missing-attribute]
           json_str
-      )  # pyrefly: ignore[missing-attribute]
+      )
 
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
@@ -178,7 +178,7 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
         json.dump(state.doc_indices_by_discrete_value, f)
 
   @executing.make_executable(copy_self=False)
-  async def load(
+  async def load(  # pyrefly: ignore[bad-override]
       self,
       base_path: str | None = None,
   ) -> index_state.ConstrainedEmbeddingBasedIndexState[DocT]:

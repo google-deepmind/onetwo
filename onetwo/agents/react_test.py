@@ -614,7 +614,7 @@ class ReactTest(parameterized.TestCase):
         stop_prefix='',
     )
 
-    (output, final_state), execution_result = executing.run(
+    (output, final_state), execution_result = executing.run(  # pyrefly: ignore[not-iterable]
         agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
         enable_tracing=True,
     )
@@ -727,7 +727,7 @@ class ReactTest(parameterized.TestCase):
         stop_prefix='',
     )
 
-    (output, final_state), execution_result = executing.run(
+    (output, final_state), execution_result = executing.run(  # pyrefly: ignore[not-iterable]
         agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
         enable_tracing=True,
     )
@@ -754,7 +754,7 @@ class ReactTest(parameterized.TestCase):
       self.assertEqual(leaf_name, leaf_results[2].stage_name)
 
     with self.subTest('should_end_in_finished_state'):
-      self.assertTrue(final_state.updates[-1].is_finished)
+      self.assertTrue(final_state.updates[-1].is_finished)  # pyrefly: ignore[missing-attribute]
 
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)
@@ -798,7 +798,7 @@ class ReactTest(parameterized.TestCase):
         stop_prefix='',
     )
 
-    (output, final_state), execution_result = executing.run(
+    (output, final_state), execution_result = executing.run(  # pyrefly: ignore[not-iterable]
         agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
         enable_tracing=True,
     )
@@ -828,7 +828,7 @@ class ReactTest(parameterized.TestCase):
       self.assertEqual(leaf_name, leaf_results[3].stage_name)
 
     with self.subTest('should_end_in_finished_state'):
-      self.assertTrue(final_state.updates[-1].is_finished)
+      self.assertTrue(final_state.updates[-1].is_finished)  # pyrefly: ignore[missing-attribute]
 
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)

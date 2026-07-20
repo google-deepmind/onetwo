@@ -161,7 +161,7 @@ class MetricsLibTest(parameterized.TestCase):
           **kwargs,
       ) -> _T:
         self.called_generate_object = True
-        return rag_metrics.evaluation.NaiveCriticDecision(
+        return rag_metrics.evaluation.NaiveCriticDecision(  # pytype: disable=bad-return
             agree=True, reason='fake_reason'
         )
 

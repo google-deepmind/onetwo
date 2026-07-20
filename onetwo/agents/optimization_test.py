@@ -276,15 +276,15 @@ class BeamSearchTest(parameterized.TestCase):
         wrapper, ranker, beam_size=beam_size, max_candidates=max_candidates,
         diversify_beam=True  # Useful for deterministic sampling.
     )
-    result, final_state = executing.run(
+    result, final_state = executing.run(  # pyrefly: ignore[not-iterable]
         agent(inputs='', return_final_state=True)  # pytype: disable=wrong-keyword-args
     )
     with self.subTest('produces_expected_result'):
       self.assertEqual(expected_result, result)
     with self.subTest('produces_expected_final_state'):
-      self.assertLen(final_state.states, beam_size)
+      self.assertLen(final_state.states, beam_size)  # pytype: disable=attribute-error
       outputs = [
-          wrapper.extract_output(state) for state in final_state.states
+          wrapper.extract_output(state) for state in final_state.states  # pytype: disable=attribute-error
       ]
       self.assertEqual(expected_final_states, outputs)
 

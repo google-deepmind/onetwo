@@ -788,6 +788,7 @@ def main(argv: Sequence[str]) -> None:
       result = executing.run(
           llm.generate_object(prompt=prompt, cls=CityInfo)  # pytype: disable=wrong-keyword-args
       )
+      assert isinstance(result, CityInfo)
 
       if _PRINT_DEBUG.value:
         print('Returned value:')
@@ -941,6 +942,7 @@ def main(argv: Sequence[str]) -> None:
               tools=[api_tool],
           )
       )
+      assert isinstance(res, content_lib.ChunkList)
 
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
@@ -1020,6 +1022,7 @@ def main(argv: Sequence[str]) -> None:
               tools=[api_tool],
           )
       )
+      assert isinstance(res, content_lib.ChunkList)
 
       if _PRINT_DEBUG.value:
         print('Returned value(s):')

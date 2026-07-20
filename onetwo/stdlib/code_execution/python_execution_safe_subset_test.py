@@ -1052,6 +1052,7 @@ class PythonSandboxSafeSubsetMultiProcessTest(parameterized.TestCase):
     self.assertEqual(result.execution_status, _ExecutionStatus.EXECUTION_ERROR)
     self.assertIn('ValueError', result.status_message)
     self.assertIn('Hook Failed', result.status_message)
+    assert result.failure_details is not None
     self.assertEqual(result.failure_details.hook_name, 'raising_hook')
 
   def test_set_get_variables(self):

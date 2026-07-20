@@ -379,11 +379,11 @@ def main(argv: Sequence[str]) -> None:
   if not isinstance(res, tuple) or 'text' not in res[1]:
     success = False
     print('FAILURE: include_details did not return expected format.')
-  elif 'thinking' not in res[1]:
+  elif 'thinking' not in res[1]:  # pyrefly: ignore[not-iterable]
     success = False
     print('FAILURE: thinking not found in details.')
   elif _PRINT_DEBUG.value:
-    print('  Thinking content:', res[1]['thinking'][:200], '...')
+    print('  Thinking content:', res[1]['thinking'][:200], '...')  # pyrefly: ignore[bad-index]
     print('  Answer:', res[0][:200])
 
   print(f'10.1 Chat with thinking enabled on {thinking_model}.')

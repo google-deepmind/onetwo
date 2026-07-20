@@ -1254,7 +1254,7 @@ class BatchingTest(parameterized.TestCase):
           self, x: int | Exception
       ) -> int | str:
         try:
-          return await self.process(x)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+          return await self.process(x)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
         except Exception as e:  # pylint: disable=broad-except
           return str(e)
 
@@ -1262,7 +1262,7 @@ class BatchingTest(parameterized.TestCase):
         inputs: Sequence[int | Exception],
     ) -> Sequence[int]:
       c = C()
-      executables = [c.process(x) for x in inputs]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+      executables = [c.process(x) for x in inputs]  # pyrefly: ignore[bad-argument-count, bad-argument-type]  # pytype: disable=wrong-arg-count
       return await executing.parallel(*executables)  # pyrefly: ignore[bad-argument-type]
 
     async def process_all_with_error_handling(
@@ -1435,7 +1435,7 @@ class BatchingTest(parameterized.TestCase):
           self, x: int | Exception
       ) -> int | str:
         try:
-          return await self.process(x)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+          return await self.process(x)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
         except Exception as e:  # pylint: disable=broad-except
           return str(e)
 
@@ -1443,7 +1443,7 @@ class BatchingTest(parameterized.TestCase):
         inputs: Sequence[int | Exception],
     ) -> Sequence[int]:
       c = C()
-      executables = [c.process(x) for x in inputs]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+      executables = [c.process(x) for x in inputs]  # pyrefly: ignore[bad-argument-count, bad-argument-type]  # pytype: disable=wrong-arg-count
       return await executing.parallel(*executables)  # pyrefly: ignore[bad-argument-type]
 
     async def process_all_with_error_handling(
@@ -1590,7 +1590,7 @@ class BatchingTest(parameterized.TestCase):
           return request
 
     c = C()
-    executables = [c.process(x) for x in [1, 2, 3]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+    executables = [c.process(x) for x in [1, 2, 3]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]  # pytype: disable=wrong-arg-count
     if return_exceptions:
       results = batching.run(
           executing.parallel(*executables, return_exceptions=return_exceptions)  # pyrefly: ignore[bad-argument-type]
@@ -1689,7 +1689,7 @@ class BatchingTest(parameterized.TestCase):
           return request
 
     c = C()
-    executables = [c.process(x) for x in [1, 2, 3]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+    executables = [c.process(x) for x in [1, 2, 3]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]  # pytype: disable=wrong-arg-count
     if return_exceptions:
       results = batching.run(
           executing.parallel(*executables, return_exceptions=return_exceptions)  # pyrefly: ignore[bad-argument-type]

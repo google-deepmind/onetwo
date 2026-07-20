@@ -115,20 +115,20 @@ class SingleStepSerialExecutableWithContextForTest(
 
   @override
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  def execute(self, context: ContextForTest) -> list[str]:
+  def execute(self, context: SerialContextForTest) -> list[str]:
     # Add the content of this node to the context.
-    context.content += self.content
+    context.content.append(self.content)
     # Return the content between quotes.
     return [f'"{self.content}"']
 
   @override
   @executing.make_executable  # pytype: disable=wrong-arg-types
   def iterate(
-      self, context: ContextForTest, iteration_depth: int = 1
+      self, context: SerialContextForTest, iteration_depth: int = 1
   ) -> list[str]:
     del iteration_depth
     # Add the content of this node to the context.
-    context.content += self.content
+    context.content.append(self.content)
     # Return the content between quotes.
     return [f'"{self.content}"']
 

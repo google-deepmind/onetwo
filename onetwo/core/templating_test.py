@@ -350,7 +350,7 @@ class TemplatingTest(parameterized.TestCase):
           prompt.render_stream(question=question)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
       ) as iterator:
         for r in iterator:
-          result.append(copy.deepcopy(r[PROMPT_PREFIX]))
+          result.append(copy.deepcopy(r[PROMPT_PREFIX]))  # pytype: disable=unsupported-operands
 
     with self.subTest('produces_correct_filled_template'):
       if not incremental:

@@ -76,7 +76,7 @@ class ModelServer:
         res = await llm.tokenize(content)  # pytype: disable=wrong-arg-count
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
-      return res
+      return res  # pytype: disable=bad-return-type
 
     @self._app.post('/generate_text')
     async def _generate_text(
@@ -101,9 +101,9 @@ class ModelServer:
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
       if include_details:
-        return res
+        return res  # pytype: disable=bad-return-type
       else:
-        return res, {}
+        return res, {}  # pytype: disable=bad-return-type
 
     @self._app.post('/count_tokens')
     async def _count_tokens(

@@ -250,9 +250,12 @@ async def _evaluate_example(
     *,
     inputs_extractor: Callable[
         [_Example], tuple[Sequence[Any], Mapping[str, Any]]
-    ] = lambda x: ([x['question']], {}),  # pyrefly: ignore[bad-index]
+    ] = lambda x: (
+        [x['question']],  # pyrefly: ignore[bad-index]
+        {},
+    ),
     target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],  # pyrefly: ignore[bad-index]
-    metric_functions: dict[str, MetricFunction] | None = None,
+    metric_functions: Mapping[str, MetricFunction] | None = None,
     output_final_states: bool = False,
     enable_tracing: bool = True,
 ) -> tuple[_Example, results.EvaluationSummary]:
@@ -306,7 +309,7 @@ async def _evaluate_example(
             )
         )
       else:
-        prediction, execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async]
+        prediction, execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async, invalid-param-spec]
             strategy, *args, **kwargs
         )
     else:
@@ -1248,7 +1251,10 @@ async def structured_evaluation_critic(
       question, target, prediction
   )
 
-  decision = await llm.generate_object(prompt=messages, cls=NaiveCriticDecision)  # pytype: disable=wrong-keyword-args
+  decision = cast(
+      NaiveCriticDecision,
+      await llm.generate_object(prompt=messages, cls=NaiveCriticDecision),  # pytype: disable=wrong-keyword-args
+  )
 
   is_correct = 1.0 if decision.agree else 0.0
   reason = decision.reason

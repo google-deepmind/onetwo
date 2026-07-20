@@ -676,7 +676,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     mock_tfds.as_numpy.return_value = iter(rows)
 
     loader = datasets.NarrativeQADatasetLoader(doc_ids=['D1'])
-    examples = ot.run(loader.load_examples())
+    examples = list(ot.run(loader.load_examples()))
 
     self.assertLen(examples, 2)
     self.assertEqual(examples[0]['question'], 'Q1')
@@ -712,7 +712,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     loader = datasets.NarrativeQADatasetLoader(
         doc_ids=['D1'], max_number_of_examples=2
     )
-    examples = ot.run(loader.load_examples())
+    examples = list(ot.run(loader.load_examples()))
 
     self.assertLen(examples, 2)
     self.assertEqual(examples[0]['question'], 'Q1')

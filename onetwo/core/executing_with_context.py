@@ -97,7 +97,7 @@ class ExecutableWithContext(
   ) -> AsyncIterator[_T]:
     if isinstance(content, ExecutableWithContext):
       async for res in content.iterate(context, iteration_depth):  # pyrefly: ignore[bad-argument-count, not-iterable]
-        yield res
+        yield res  # pyrefly: ignore[invalid-yield]
     else:
       yield (await cls.maybe_execute(content, context))
 
@@ -214,10 +214,10 @@ class SerialExecutableWithContext(
         node_result = None
         async for update in node.iterate(context, iteration_depth - 1):  # pyrefly: ignore[bad-argument-count, not-iterable]
           node_result = update
-          yield current_result + update
+          yield current_result + update  # pyrefly: ignore[invalid-yield]
         if node_result is not None:
           current_result += node_result
-      self._result = current_result
+      self._result = current_result  # pyrefly: ignore[bad-assignment]
       self._final_context = copy.deepcopy(context)
       self._executed = True
 
@@ -242,4 +242,3 @@ class SerialExecutableWithContext(
   def __radd__(self, other: Any) -> SerialExecutableWithContext:
     return self.__class__([self.wrap(other)] + self.nodes)
   # pytype: enable=not-instantiable
-

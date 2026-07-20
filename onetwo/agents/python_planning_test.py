@@ -543,7 +543,7 @@ print('Zuerich population: %s' % population)
         max_steps=1,
     )
 
-    output = executing.run(agent(inputs=question))  # pytype: disable=wrong-keyword-args
+    output = executing.run(agent(inputs=question))  # pytype: disable=wrong-keyword-args,wrong-arg-types
 
     with self.subTest('should_generate_only_the_expected_requests'):
       self.assertEmpty(llm_backend.unexpected_prompts)

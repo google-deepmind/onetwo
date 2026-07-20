@@ -287,9 +287,11 @@ class EmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertEqual(score_two, 0.1)
 
     # Retrieve docs with scores
-    docs_and_scores = ot.run(
-        index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
-    )  # pytype: disable=wrong-arg-count
+    docs_and_scores = list(
+        ot.run(
+            index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
+        )  # pytype: disable=wrong-arg-count
+    )
     self.assertLen(docs_and_scores, 1)
     self.assertEqual(docs_and_scores[0][0].doc_id, 'doc1')
     self.assertEqual(docs_and_scores[0][1], 0.9)
@@ -414,8 +416,10 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertEqual(score_one, 0.8)
     self.assertEqual(score_two, 0.1)
 
-    docs_and_scores = ot.run(
-        index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
+    docs_and_scores = list(
+        ot.run(
+            index.retrieve_with_scores(query, max_results=2, min_score=0.9)  # pytype: disable=wrong-arg-count
+        )
     )
     self.assertLen(docs_and_scores, 1)
     self.assertEqual(docs_and_scores[0][0].doc_id, 'doc1')

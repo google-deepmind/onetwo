@@ -74,7 +74,7 @@ class ChunkingTest(parameterized.TestCase):
   ])
   def testNoChunking(self, document):
     chunker = chunking.NoChunking()
-    chunks = ot.run(chunker(document))  # pytype: disable=wrong-arg-count
+    chunks = list(ot.run(chunker(document)))  # pytype: disable=wrong-arg-count
     with self.subTest('correct_number_of_chunks'):
       self.assertLen(chunks, 1)
 

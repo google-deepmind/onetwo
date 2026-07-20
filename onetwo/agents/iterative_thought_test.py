@@ -140,7 +140,7 @@ Input: qN
     )
 
     # To get the final state, we can simply sum the updates.
-    state_2 = sum(updates, state_0)
+    state_2 = sum(updates, state_0)  # pytype: disable=wrong-arg-types
 
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
@@ -148,7 +148,7 @@ Input: qN
             agent.stream_updates(initial_state=state_2, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
         )
     )
-    state_4 = sum(second_round_of_updates, state_2)
+    state_4 = sum(second_round_of_updates, state_2)  # pytype: disable=wrong-arg-types
 
     with self.subTest('should_stop_when_reaching_max_steps'):
       self.assertLen(updates, max_steps)
@@ -167,7 +167,7 @@ Input: qN
 
     with self.subTest('should_do_an_additional_max_steps_in_second_call'):
       self.assertLen(second_round_of_updates, max_steps)
-      self.assertLen(state_4.updates, 2 * max_steps)  # pyrefly: ignore[missing-attribute]
+      self.assertLen(state_4.updates, 2 * max_steps)  # pytype: disable=attribute-error
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -302,7 +302,7 @@ Input: qN
         description=description, few_shots=few_shots
     )
 
-    output, final_state = executing.run(
+    output, final_state = executing.run(  # pyrefly: ignore[not-iterable]
         agent(inputs=inputs, max_steps=max_steps, return_final_state=True)  # pytype: disable=wrong-keyword-args
     )
 
