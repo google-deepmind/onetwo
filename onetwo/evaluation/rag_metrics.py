@@ -170,7 +170,7 @@ def make_accuracy_critic(
   if backend_config is not None:
     backend = backend_registry.get_backend(backend_config)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def accuracy_critic_fn(
       target: str,
       prediction: StrategyResult,
@@ -199,7 +199,7 @@ def make_accuracy_critic(
           example=example,  # pyrefly: ignore[unexpected-keyword]
       )
 
-  return accuracy_critic_fn  # pytype: disable=bad-return-type
+  return accuracy_critic_fn
 
 
 accuracy_critic = make_accuracy_critic()

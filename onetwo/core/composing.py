@@ -46,7 +46,7 @@ import copy
 import dataclasses
 import functools
 import inspect
-from typing import Any, TypeAlias, TypeVar
+from typing import Any, TypeAlias, TypeVar, cast
 
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -230,7 +230,7 @@ class _AppendNode(Composable):
   content: str | Chunk | ChunkList | None = None
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def iterate(
       self, context: Context, iteration_depth: int = 1
   ) -> AsyncIterator[ChunkList]:
@@ -239,7 +239,7 @@ class _AppendNode(Composable):
     yield (await self.execute(context))  # pyrefly: ignore[bad-argument-count, not-async]
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def execute(
       self, context: Context
   ) -> Any:
@@ -270,7 +270,7 @@ class _AppendNode(Composable):
     return str(self)
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def _noop():
   pass
 
@@ -309,7 +309,7 @@ class _FunctionNode(Composable):
   # # pylint: enable=protected-access
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def execute(self, context: Context) -> ChunkList:  # pyrefly: ignore[bad-override]
     self._context = context
     # We execute the wrapped Executable.
@@ -354,7 +354,8 @@ class _FunctionNode(Composable):
       context.replace(updated_context)
 
   @override
-  async def iterate(  # pytype: disable=signature-mismatch
+  @executing.make_executable
+  async def iterate(
       self, context: Context, iteration_depth: int = 1
   ) -> AsyncIterator[ChunkList]:
     if iteration_depth == 0:
@@ -638,14 +639,14 @@ async def _fork(
     The result of calling (or awaiting) fn on the executed options.
   """
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def run_all(
       *to_be_executed: ChunkList | executing.Executable,
   ) -> Sequence[ChunkList]:
     # We use this function with a make_executable decorator to automatically
     # execute all arguments in parallel.
     # The type after execution is indeed ChunkList.
-    return to_be_executed  # pytype: disable=bad-return-type
+    return cast(Sequence[ChunkList], to_be_executed)
 
   # Make a copy of the context for each branch.
   # The prefix is already executed, we can't use it to pass context, so

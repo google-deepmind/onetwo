@@ -143,7 +143,7 @@ async def async_identity_function(x):
   return x
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def executable_identity_function(x):
   return x
 
@@ -153,7 +153,7 @@ def traced_ordinary_identity_function(x):
   return x
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 @tracing.trace()
 async def executable_traced_identity_function(x):
   return x
@@ -167,12 +167,12 @@ async def async_accuracy_function(target: str, prediction: str):
   return float(target == prediction)
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def executable_accuracy_function(target: str, prediction: str):
   return float(target == prediction)
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def executable_accuracy_function_taking_example_as_arg(
     target: str, prediction: str, example: _Example
 ):
@@ -191,12 +191,12 @@ def metric_taking_execution_result(
   return 1.0, {'trace_stage_name': stage_name}
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def strategy_taking_question_and_option_and_calling_llm(
     question: str, option: int, **kwargs
 ) -> str:
   """Simple strategy that requires `question` and `option` args."""
-  result = await llm.generate_text(prompt=question)  # pytype: disable=wrong-keyword-args
+  result = await llm.generate_text(prompt=question)
   another_option = kwargs.get('another_option', None)
   if another_option is not None:
     return f'{result} option={option} another_option={another_option}'
@@ -217,14 +217,14 @@ class AsyncAccuracyCallable:
 
 class ExecutableAccuracyCallable:
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def __call__(self, target: str, prediction: str):
     return float(target == prediction)
 
 
 class ExecutableAccuracyCallableTakingExampleAsArg:
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def __call__(self, target: str, prediction: str, example: _Example):
     del example
     return float(target == prediction)
@@ -651,7 +651,7 @@ class EvaluationTest(parameterized.TestCase):
     ]
     now = datetime.datetime(2024, 5, 9, 12, 0, 0)
     with freezegun.freeze_time(now):
-      summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
+      summary = evaluation.evaluate(
           strategy=strategy,
           examples=examples,
           metric_functions={'accuracy': ordinary_accuracy_function},
@@ -697,7 +697,7 @@ class EvaluationTest(parameterized.TestCase):
         max_length=3, sequence=list(string.ascii_lowercase)
     )
     examples = [{'q': 'q1', 'context': 'context1', 'golden': 'b'}]
-    summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
+    summary = evaluation.evaluate(
         strategy=strategy,
         examples=examples,
         inputs_extractor=lambda x: ([x['context'] + x['q']], {}),
@@ -761,7 +761,7 @@ class EvaluationTest(parameterized.TestCase):
         max_length=3, sequence=list(string.ascii_lowercase)
     )
     examples = [{'question': 'q1', 'answer': 'b'}]
-    summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
+    summary = evaluation.evaluate(
         strategy=strategy,
         examples=examples,
         output_results=output_results,
@@ -840,7 +840,7 @@ class EvaluationTest(parameterized.TestCase):
         {'question': 'q1', 'answer': 'b'},
         {'question': 'q2', 'answer': 'c'},
     ]
-    summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
+    summary = evaluation.evaluate(
         strategy=strategy,
         examples=examples,
         example_key_function=lambda index, example: str(example['question']),
@@ -1163,11 +1163,11 @@ class EvaluationTest(parameterized.TestCase):
         {'processed_id': prediction},
     )
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def _strategy(example_id: int, **kwargs) -> str:
       del kwargs  # Not used.
       # Receives f'{example_id}_generated'.
-      result = await llm.generate_text(prompt=str(example_id))  # pytype: disable=wrong-keyword-args
+      result = await llm.generate_text(prompt=str(example_id))
       return cast(str, result).replace('_generated', '')
 
     def _fake_generate_text_with_random_wait(
@@ -1225,7 +1225,7 @@ class EvaluationTest(parameterized.TestCase):
           f" {summary.metrics['accuracy']}"
       )
 
-    _ = evaluation.evaluate(  # pytype: disable=wrong-arg-types
+    _ = evaluation.evaluate(
         strategy=strategy,
         examples=examples,
         metric_functions={'accuracy': ordinary_accuracy_function},
@@ -1253,7 +1253,7 @@ class EvaluationTest(parameterized.TestCase):
     ]
     now = datetime.datetime(2024, 5, 9, 12, 0, 0)
     with freezegun.freeze_time(now):
-      summary = evaluation.evaluate(  # pytype: disable=wrong-arg-types
+      summary = evaluation.evaluate(
           strategy=strategy,
           examples=examples,
           metric_functions={'accuracy': ordinary_accuracy_function},
@@ -1638,14 +1638,16 @@ Score prediction against target in [0.0, 1.0]: """
 
     _T = TypeVar('_T')
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     def fake_generate_object(
         prompt: str | content_lib.ChunkList,
         cls: type[_T],
         **kwargs,
     ) -> _T:
       del prompt, cls, kwargs
-      return evaluation.NaiveCriticDecision(agree=True, reason='because')  # pytype: disable=bad-return-type
+      return cast(
+          _T, evaluation.NaiveCriticDecision(agree=True, reason='because')
+      )
 
     llm.generate_object.configure(fake_generate_object)
 

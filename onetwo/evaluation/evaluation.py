@@ -161,7 +161,7 @@ class AggregationFunction(Protocol):
     ...
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def _execute_with_tracing(
     strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
     *args: _Args.args,
@@ -210,16 +210,18 @@ async def _execute_with_tracing(
   async def wrapper(*args: _Args.args, **kwargs: _Args.kwargs) -> _O:
     return await utils.call_and_maybe_await(strategy, *args, **kwargs)
 
-  prediction = await wrapper(*args, **kwargs)  # pytype: disable=bad-return-type
+  prediction = await wrapper(*args, **kwargs)
 
   # Harvest the trace that was defined in the wrapper function above.
   trace = copy.deepcopy(tracing.execution_context.get(None))
-  if len(trace.stages) != 1:  # pytype: disable=attribute-error
+  if trace is None:
+    raise ValueError('Trace is not defined.')
+  if len(trace.stages) != 1:
     raise ValueError(
         'Expected exactly one stage in the trace:'
         f' {pprint.pformat(trace, width=160)}'
     )
-  trace = trace.stages[0]  # pytype: disable=attribute-error
+  trace = trace.stages[0]
 
   # If the underlying function was already being traced, then the outer trace
   # layer defined via the wrapper will be redundant, and we can omit it.
@@ -243,7 +245,7 @@ async def _execute_with_tracing(
   return prediction, trace
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def _evaluate_example(
     strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
     example: _Example,
@@ -794,7 +796,7 @@ def write_evaluation_summary_as_json(
     _stream_results_to_json(f, summary.results_debug)
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def naive_evaluation_critic(
     target: str,
     prediction: str | content_lib.ChunkList,
@@ -873,7 +875,7 @@ Prediction: {prediction}
 {_NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
   ]
-  res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
+  res = await llm.chat(messages=messages, stop=['Question:'])
   res = cast(str, res).strip()
   # Defaults in case no reason is provided.
   rating = res
@@ -930,7 +932,7 @@ Prediction: {prediction}
   return float(is_correct), extra_evaluation_info
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def naive_fuzzy_evaluation_critic(
     target: str,
     prediction: str | content_lib.ChunkList,
@@ -1054,7 +1056,7 @@ Prediction: {prediction}
 {_NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX} """,
       ),
   ]
-  res = await llm.chat(messages=messages, stop=['Question:'])  # pytype: disable=wrong-keyword-args
+  res = await llm.chat(messages=messages, stop=['Question:'])
   res = cast(str, res).strip()
 
   # Defaults in case no reason is provided.
@@ -1213,7 +1215,7 @@ class NaiveCriticDecision(pydantic.BaseModel):
   )
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def structured_evaluation_critic(
     target: str,
     prediction: str | content_lib.ChunkList,
@@ -1253,7 +1255,7 @@ async def structured_evaluation_critic(
 
   decision = cast(
       NaiveCriticDecision,
-      await llm.generate_object(prompt=messages, cls=NaiveCriticDecision),  # pytype: disable=wrong-keyword-args
+      await llm.generate_object(prompt=messages, cls=NaiveCriticDecision),
   )
 
   is_correct = 1.0 if decision.agree else 0.0

@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TypeVar
+from typing import TypeVar, cast
 from absl.testing import absltest
 from absl.testing import parameterized
-
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
@@ -161,8 +160,11 @@ class MetricsLibTest(parameterized.TestCase):
           **kwargs,
       ) -> _T:
         self.called_generate_object = True
-        return rag_metrics.evaluation.NaiveCriticDecision(  # pytype: disable=bad-return
-            agree=True, reason='fake_reason'
+        return cast(
+            _T,
+            rag_metrics.evaluation.NaiveCriticDecision(
+                agree=True, reason='fake_reason'
+            ),
         )
 
     backend_registry.BACKEND_REGISTRY['FakeBackend'] = FakeBackend
@@ -176,7 +178,7 @@ class MetricsLibTest(parameterized.TestCase):
 
     accuracy_critic_fn = rag_metrics.make_accuracy_critic(backend_config=config)
 
-    rating, extra_info = executing.run(  # pytype: disable=wrong-arg-types
+    rating, extra_info = executing.run(
         accuracy_critic_fn(
             target='bla',
             prediction=prediction,

@@ -1566,7 +1566,7 @@ class BatchingTest(parameterized.TestCase):
         return request
 
     c = C()
-    executables = [c.process(*x) for x in [(1, 1), (2, 0), (3, 0), (4, 2)]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+    executables = [c.process(*x) for x in [(1, 1), (2, 0), (3, 0), (4, 2)]]  # pyrefly: ignore[bad-argument-count, bad-argument-type]  # pytype: disable=wrong-arg-count
     results = batching.run(executing.parallel(*executables))  # pyrefly: ignore[bad-argument-type]
     with self.subTest('results_are_correct'):
       self.assertSequenceEqual([1, 2, 3, 4], results)
