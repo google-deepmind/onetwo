@@ -130,7 +130,7 @@ class StatefulObjectCache(Generic[_Obj, _ObjState]):
       create_object_function = self.create_object_function
       obj = await utils.call_and_maybe_await(create_object_function, state)
       self._objects.append(obj)
-      return obj  # pytype: disable=bad-return-type
+      return obj
 
   def cache_object(self, state: _ObjState, obj: _Obj) -> None:
     """Caches the object for the given state. Caller relinquishes control.

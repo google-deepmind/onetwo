@@ -66,7 +66,7 @@ class MCPStrategyTest(parameterized.TestCase):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
         mcp_server_url='http://localhost:8000/mcp'
     )
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertEqual(result.answer, 'mcp answer')
     self.assertEmpty(result.doc_ids)
@@ -80,7 +80,7 @@ class MCPStrategyTest(parameterized.TestCase):
         mcp_server_url='http://localhost:8000/mcp',
         query_template='Prompt: {question}{additional_instructions}',
     )
-    result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question='What?'))
     self.assertEqual(result.answer, 'mcp answer')
     self.assertLen(self.llm_backend.prompts, 1)
     self.assertEqual(self.llm_backend.prompts[0], 'Prompt: What?')
@@ -106,7 +106,7 @@ class MCPStrategyTest(parameterized.TestCase):
         query_template='Preamble. {additional_instructions}\nQ: {question}',
     )
     result = ot.run(
-        strategy(  # pytype: disable=wrong-keyword-args
+        strategy(
             question='What?',
             additional_instructions='Answer briefly.',
         )
@@ -123,7 +123,7 @@ class MCPStrategyTest(parameterized.TestCase):
         mcp_server_url='http://localhost:8000/mcp',
         query_template='Preamble. {additional_instructions}\nQ: {question}',
     )
-    result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question='What?'))
     self.assertEqual(result.answer, 'mcp answer')
     self.assertLen(self.llm_backend.prompts, 1)
     prompt = self.llm_backend.prompts[0]
@@ -136,7 +136,7 @@ class MCPStrategyTest(parameterized.TestCase):
         query_template='Preamble. {additional_instructions}\nQ: {question}',
     )
     result = ot.run(
-        strategy(  # pytype: disable=wrong-keyword-args
+        strategy(
             question=_MULTIMODAL_QUESTION,
             additional_instructions='Be concise.',
         )
@@ -152,7 +152,7 @@ class MCPStrategyTest(parameterized.TestCase):
         mcp_server_url='http://localhost:8000/mcp',
     )
     result = ot.run(
-        strategy(  # pytype: disable=wrong-keyword-args
+        strategy(
             question='What is AI?',
             additional_instructions='Use only peer-reviewed sources.',
         )
@@ -348,7 +348,7 @@ class CrossStrategyTest(parameterized.TestCase):
       ),
   )
   def test_result_is_strategy_result(self, strategy, question):
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertIsInstance(result.answer, str)
     self.assertIsInstance(result.doc_ids, list)
@@ -363,7 +363,7 @@ class CrossStrategyTest(parameterized.TestCase):
       ),
   )
   def test_multimodal_inputs_produce_valid_result(self, strategy, question):
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertEqual(result.answer, 'cross answer')
 

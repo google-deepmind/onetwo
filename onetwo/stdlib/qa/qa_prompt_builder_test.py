@@ -86,7 +86,7 @@ Answer:"""
     builder = qa_prompt_builder.QAPromptBuilder[_Document, str](
         doc_to_content=mock_formatter, delimiter='\n\n===========\n\n'
     )
-    composable_prompt = ot.run(builder.compile_prompt(docs, question))  # pytype: disable=wrong-arg-count
+    composable_prompt = ot.run(builder.compile_prompt(docs, question))
     self.assertEqual(str(composable_prompt), expected_prompt)
 
   def test_qa_document_prompt_builder(self):
@@ -97,7 +97,7 @@ Answer:"""
     question = 'my question'
 
     builder = qa_prompt_builder.QADocumentPromptBuilder()
-    composable_prompt = ot.run(builder.compile_prompt(docs, question))  # pytype: disable=wrong-arg-count
+    composable_prompt = ot.run(builder.compile_prompt(docs, question))
 
     expected_prompt = """Use the following pieces of context to answer the question at
 the end. If you don't know the answer, just say that you don't know,
@@ -122,7 +122,7 @@ Answer:"""
     question = 'my question'
 
     builder = qa_prompt_builder.QADocumentPromptBuilder()
-    context = ot.run(builder(docs, question))  # pytype: disable=wrong-arg-count
+    context = ot.run(builder(docs, question))
 
     expected_prompt = """Use the following pieces of context to answer the question at
 the end. If you don't know the answer, just say that you don't know,

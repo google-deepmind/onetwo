@@ -204,7 +204,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
         )
     ]
     try:
-      answer = await llm.chat(messages, **kwargs)  # pytype: disable=wrong-arg-count
+      answer = await llm.chat(messages, **kwargs)
       answer_str = str(answer)
       return StrategyResult(
           answer=answer_str,

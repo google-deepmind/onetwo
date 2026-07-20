@@ -130,10 +130,8 @@ class ClosedBookStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   ) -> _StrategyResult:
     """Returns an answer with no context."""
     dummy_doc = _Document(doc_id='none', content='None')
-    context = await self.prompt_builder(
-        [dummy_doc], question
-    )  # pytype: disable=wrong-arg-count
-    answer = await llm.chat(context.to_messages())  # pytype: disable=wrong-arg-count
+    context = await self.prompt_builder([dummy_doc], question)
+    answer = await llm.chat(context.to_messages())
     return _StrategyResult(answer=str(answer), doc_ids=[])
 
 
@@ -166,10 +164,8 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         if self.documents
         else [_Document(doc_id='none', content='None')]
     )
-    context = await self.prompt_builder(
-        docs, question
-    )  # pytype: disable=wrong-arg-count
-    answer = await llm.chat(context.to_messages())  # pytype: disable=wrong-arg-count
+    context = await self.prompt_builder(docs, question)
+    answer = await llm.chat(context.to_messages())
     doc_ids = [doc.doc_id for doc in self.documents]
     return _StrategyResult(answer=str(answer), doc_ids=doc_ids)
 
@@ -204,7 +200,7 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
       )
 
     # Retrieve relevant documents.
-    retrieved_docs = await self.retriever.retrieve(  # pytype: disable=wrong-keyword-args
+    retrieved_docs = await self.retriever.retrieve(
         query=question,
         **query_time_kwargs,
     )
@@ -215,10 +211,8 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         if retrieved_docs
         else [_Document(doc_id='none', content='None')]
     )
-    context = await self.prompt_builder(
-        docs, question
-    )  # pytype: disable=wrong-arg-count
-    answer = await llm.chat(context.to_messages())  # pytype: disable=wrong-arg-count
+    context = await self.prompt_builder(docs, question)
+    answer = await llm.chat(context.to_messages())
     doc_ids = [doc.doc_id for doc in retrieved_docs]
     return _StrategyResult(answer=str(answer), doc_ids=doc_ids)
 
@@ -247,7 +241,7 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
       )
 
     # Retrieve relevant documents.
-    retrieved_docs = await self.retriever.retrieve(  # pytype: disable=wrong-keyword-args
+    retrieved_docs = await self.retriever.retrieve(
         query=question,
         **query_time_kwargs,
     )

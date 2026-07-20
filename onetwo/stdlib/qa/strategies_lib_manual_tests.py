@@ -254,7 +254,7 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       strategy = strategies_lib.ClosedBookStrategy()
       result = executing.run(
-          strategy(question='What is the capital of France?')  # pytype: disable=wrong-keyword-args
+          strategy(question='What is the capital of France?')
       )
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
@@ -273,9 +273,7 @@ def main(argv: Sequence[str]) -> None:
         2, 'LongContextStrategy: text docs, capital question', test_results
     ) as tc:
       strategy = strategies_lib.LongContextStrategy(documents=_CAPITAL_DOCS)
-      result = executing.run(
-          strategy(question='What is the capital of Japan?')  # pytype: disable=wrong-keyword-args
-      )
+      result = executing.run(strategy(question='What is the capital of Japan?'))
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
       if 'tokyo' not in result.answer.lower():
@@ -297,13 +295,13 @@ def main(argv: Sequence[str]) -> None:
       # Build an embedding-based index.
       emb_index = indexing.EmbeddingBasedDocumentIndex()
       executing.run(
-          emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)  # pytype: disable=wrong-keyword-args
+          emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)
       )
       print(f'  Index built with {emb_index.num_docs} docs.')
 
       strategy = strategies_lib.RAGStrategy(retriever=emb_index)
       result = executing.run(
-          strategy(question='What is the capital of Spain?', max_results=2)  # pytype: disable=wrong-keyword-args
+          strategy(question='What is the capital of Spain?', max_results=2)
       )
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
@@ -327,11 +325,14 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       emb_index = indexing.EmbeddingBasedDocumentIndex()
       executing.run(
-          emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)  # pytype: disable=wrong-keyword-args
+          emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)
       )
       strategy = strategies_lib.RAGStrategy(retriever=emb_index)
       result = executing.run(
-          strategy(question='Tell me about the Brandenburg Gate in Germany.', max_results=1)  # pytype: disable=wrong-keyword-args
+          strategy(
+              question='Tell me about the Brandenburg Gate in Germany.',
+              max_results=1,
+          )
       )
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
@@ -353,7 +354,7 @@ def main(argv: Sequence[str]) -> None:
       mm_docs = _load_multimodal_docs()
       strategy = strategies_lib.LongContextStrategy(documents=mm_docs)
       result = executing.run(
-          strategy(question='What kind of bird is in the photo?')  # pytype: disable=wrong-keyword-args
+          strategy(question='What kind of bird is in the photo?')
       )
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
@@ -374,12 +375,12 @@ def main(argv: Sequence[str]) -> None:
       mm_docs = _load_multimodal_docs()
       emb_index = indexing.EmbeddingBasedDocumentIndex()
       executing.run(
-          emb_index.create_index(corpus_name='multimodal', docs=mm_docs)  # pytype: disable=wrong-keyword-args
+          emb_index.create_index(corpus_name='multimodal', docs=mm_docs)
       )
       print(f'  Index built with {emb_index.num_docs} docs.')
       strategy = strategies_lib.RAGStrategy(retriever=emb_index)
       result = executing.run(
-          strategy(question='What kind of bird is in the photo?', max_results=1)  # pytype: disable=wrong-keyword-args
+          strategy(question='What kind of bird is in the photo?', max_results=1)
       )
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
@@ -399,7 +400,7 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       strategy = strategies_lib.get_strategy('closed_book')
       result = executing.run(
-          strategy(question='What color is the sky on a clear day?')  # pytype: disable=wrong-keyword-args
+          strategy(question='What color is the sky on a clear day?')
       )
       print(f'  Answer: {result.answer}')
       if 'blue' not in result.answer.lower():
@@ -416,7 +417,7 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       emb_index = indexing.EmbeddingBasedDocumentIndex()
       executing.run(
-          emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)  # pytype: disable=wrong-keyword-args
+          emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)
       )
       # Use a ChunkList question (text-only, but wrapped as multimodal).
       mm_question = _ChunkList([
@@ -424,9 +425,7 @@ def main(argv: Sequence[str]) -> None:
           _Chunk('Eiffel Tower. Which country is it in?'),
       ])
       strategy = strategies_lib.RAGStrategy(retriever=emb_index)
-      result = executing.run(
-          strategy(question=mm_question, max_results=2)  # pytype: disable=wrong-keyword-args
-      )
+      result = executing.run(strategy(question=mm_question, max_results=2))
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
       if 'france' not in result.answer.lower():
@@ -443,9 +442,7 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       strategy = strategies_lib.ClosedBookStrategy()
       result = executing.run(
-          strategy(  # pytype: disable=wrong-keyword-args
-              question='What is the approximate speed of light in km/s?'
-          )
+          strategy(question='What is the approximate speed of light in km/s?')
       )
       print(f'  Answer: {result.answer}')
       # Speed of light ≈ 300,000 km/s.
@@ -471,9 +468,7 @@ def main(argv: Sequence[str]) -> None:
           prompt_builder=prompt_builder,
       )
       result = executing.run(
-          strategy(  # pytype: disable=wrong-keyword-args
-              question='What is the capital of Morocco?'
-          )
+          strategy(question='What is the capital of Morocco?')
       )
       print(f'  Answer: {result.answer}')
       expected_phrase = "i don't have enough context"

@@ -45,7 +45,7 @@ class MockRetriever(retrieval.Retriever[str, _Document]):
   def __init__(self, documents: list[_Document]):
     self._documents = documents
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def retrieve(self, query: str, **kwargs) -> Iterable[_Document]:  # pyrefly: ignore[bad-override]
     max_results = kwargs.get('max_results')
     if max_results is not None:
@@ -191,14 +191,14 @@ class DefaultPromptBuilderTest(parameterized.TestCase):
       self, docs, question, expected_context
   ):
     builder = qa_prompt_builder.QADocumentPromptBuilder()
-    composable_prompt = ot.run(builder.compile_prompt(docs, question))  # pytype: disable=wrong-arg-count
+    composable_prompt = ot.run(builder.compile_prompt(docs, question))
     content_str = str(composable_prompt)
     self.assertIn(expected_context, content_str)
 
   def test_template_text_content_structure(self):
     builder = qa_prompt_builder.QADocumentPromptBuilder()
     docs = [_Document(content='my context')]
-    prompt_content = ot.run(builder.compile_prompt(docs, 'my question'))  # pytype: disable=wrong-arg-count
+    prompt_content = ot.run(builder.compile_prompt(docs, 'my question'))
     content_str = str(prompt_content)
     self.assertIn('Use the following pieces of context', content_str)
     self.assertIn('Question: my question', content_str)
@@ -233,7 +233,7 @@ class ClosedBookStrategyTest(parameterized.TestCase):
   )
   def test_returns_answer_with_no_docs(self, question):
     strategy = strategies_lib.ClosedBookStrategy()
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'mock answer')
     self.assertEmpty(result.doc_ids)
@@ -241,7 +241,7 @@ class ClosedBookStrategyTest(parameterized.TestCase):
   def test_prompt_contains_none_context(self):
     """The prompt sent to the LLM should contain 'None' as context."""
     strategy = strategies_lib.ClosedBookStrategy()
-    _ = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    _ = ot.run(strategy(question='What?'))
     # LLMForTest records the prompts it receives.
     self.assertLen(self.llm_backend.prompts, 1)
     self.assertIn('None', self.llm_backend.prompts[0])
@@ -289,19 +289,19 @@ class LongContextStrategyTest(parameterized.TestCase):
       self, documents, question, expected_doc_ids
   ):
     strategy = strategies_lib.LongContextStrategy(documents=documents)
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'long context answer')
     self.assertEqual(result.doc_ids, expected_doc_ids)
 
   def test_empty_documents_returns_empty_doc_ids(self):
     strategy = strategies_lib.LongContextStrategy(documents=[])
-    result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question='What?'))
     self.assertEmpty(result.doc_ids)
 
   def test_prompt_contains_document_content(self):
     strategy = strategies_lib.LongContextStrategy(documents=_TEXT_DOCS[:1])
-    _ = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    _ = ot.run(strategy(question='What?'))
     self.assertLen(self.llm_backend.prompts, 1)
     self.assertIn('Paris is the capital of France', self.llm_backend.prompts[0])
 
@@ -352,7 +352,7 @@ class RAGStrategyTest(parameterized.TestCase):
     kwargs = {}
     if max_results is not None:
       kwargs['max_results'] = max_results
-    result = ot.run(strategy(question=question, **kwargs))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question, **kwargs))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'rag answer')
     self.assertEqual(result.doc_ids, expected_doc_ids)
@@ -360,18 +360,18 @@ class RAGStrategyTest(parameterized.TestCase):
   def test_no_retriever_raises(self):
     strategy = strategies_lib.RAGStrategy(retriever=None)
     with self.assertRaises(ValueError):
-      ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+      ot.run(strategy(question='What?'))
 
   def test_empty_retrieval_returns_empty_doc_ids(self):
     retriever = MockRetriever([])
     strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
-    result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question='What?'))
     self.assertEmpty(result.doc_ids)
 
   def test_max_results_limits_retrieval(self):
     retriever = MockRetriever(_TEXT_DOCS)
     strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
-    result = ot.run(strategy(question='What?', max_results=1))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question='What?', max_results=1))
     self.assertLen(result.doc_ids, 1)
     self.assertEqual(result.doc_ids[0], 'd1')
 
@@ -422,7 +422,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
     kwargs = {}
     if max_results is not None:
       kwargs['max_results'] = max_results
-    result = ot.run(strategy(question=question, **kwargs))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question, **kwargs))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, '')
     self.assertEqual(result.doc_ids, expected_doc_ids)
@@ -432,12 +432,12 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
   def test_no_retriever_raises(self):
     strategy = strategies_lib.RetrievalOnlyStrategy(retriever=None)
     with self.assertRaises(ValueError):
-      ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+      ot.run(strategy(question='What?'))
 
   def test_empty_retrieval_returns_empty_doc_ids(self):
     retriever = MockRetriever([])
     strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
-    result = ot.run(strategy(question='What?'))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question='What?'))
     self.assertEmpty(result.doc_ids)
     self.assertEqual(result.answer, '')
     self.assertEmpty(self.llm_backend.prompts)
@@ -493,7 +493,7 @@ class CrossStrategyTest(parameterized.TestCase):
       ),
   )
   def test_result_is_strategy_result(self, strategy, question):
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertIsInstance(result.answer, str)
     self.assertIsInstance(result.doc_ids, list)
@@ -527,7 +527,7 @@ class CrossStrategyTest(parameterized.TestCase):
       ),
   )
   def test_multimodal_inputs_produce_valid_result(self, strategy, question):
-    result = ot.run(strategy(question=question))  # pytype: disable=wrong-keyword-args
+    result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'cross answer')
 

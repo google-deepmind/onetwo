@@ -177,5 +177,5 @@ class QADocumentPromptBuilder(QAPromptBuilder[_Document, PromptContent]):
 
   @executing.make_executable(copy_self=False)
   async def _format_and_extract(self, doc: _Document) -> PromptContent:
-    formatted_doc: _Document = await self.document_formatter(doc)  # pytype: disable=wrong-arg-count
+    formatted_doc: _Document = await self.document_formatter(doc)
     return formatted_doc.content
