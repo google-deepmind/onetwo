@@ -2724,6 +2724,59 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
     self.assertEqual(result_kwargs.get('task_type'), expected_task_type)
 
 
+def _make_fc_part(name: str, args: dict[str, Any]):
+  fc = mock.Mock()
+  fc.name = name
+  fc.args = args
+  return mock.Mock(function_call=fc, thought=None, text=None)
+
+
+class ExtractToolCallsFromPartsTest(parameterized.TestCase):
+  """Tests for _extract_tool_calls_from_parts."""
+
+  @parameterized.named_parameters(
+      ('none_parts', None, 0, []),
+      ('empty_parts', [], 0, []),
+      (
+          'function_call_only',
+          [_make_fc_part('foo', {'a': 1})],
+          1,
+          [{'type': 'function_call', 'name': 'foo', 'args': {'a': 1}}],
+      ),
+      (
+          'thought_only',
+          [mock.Mock(function_call=None, thought=True, text='Thinking...')],
+          0,
+          [{'type': 'thought', 'text': 'Thinking...'}],
+      ),
+      (
+          'text_only',
+          [mock.Mock(function_call=None, thought=False, text='Hello')],
+          0,
+          [],
+      ),
+      (
+          'mixed_parts',
+          [
+              mock.Mock(function_call=None, thought=True, text='Thinking...'),
+              _make_fc_part('bar', {'x': 2}),
+              mock.Mock(function_call=None, thought=False, text='Final answer'),
+          ],
+          1,
+          [
+              {'type': 'thought', 'text': 'Thinking...'},
+              {'type': 'function_call', 'name': 'bar', 'args': {'x': 2}},
+          ],
+      ),
+  )
+  def test_extract_tool_calls_from_parts(
+      self, parts, expected_count, expected_details
+  ):
+    count, details = google_genai_api._extract_tool_calls_from_parts(parts)
+    self.assertEqual(count, expected_count)
+    self.assertEqual(details, expected_details)
+
+
 class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
   """Tests for _update_trace_info_from_usage_metadata."""
 
@@ -2743,9 +2796,18 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
         tool_use_prompt_token_count=tool_use_prompt_token_count,
     )
 
-  def _make_part(self, has_function_call=False):
+  def _make_part(self, has_function_call=False, thought=None, text=None,
+                 function_response=None):
     part = mock.Mock()
-    part.function_call = mock.Mock() if has_function_call else None
+    part.thought = thought
+    part.text = text
+    part.function_response = function_response
+    if has_function_call:
+      part.function_call = mock.Mock()
+      part.function_call.name = 'test_func'
+      part.function_call.args = {'arg': 'val'}
+    else:
+      part.function_call = None
     return part
 
   def _make_candidate(self, parts):
@@ -2800,6 +2862,21 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
 
     call_args = mock_update_info.call_args[0][0]
     self.assertEqual(call_args['llm.tools.calls'], 2)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'test_func',
+                'args': {'arg': 'val'},
+            },
+            {
+                'type': 'function_call',
+                'name': 'test_func',
+                'args': {'arg': 'val'},
+            },
+        ],
+    )
 
   @mock.patch.object(google_genai_api.tracing, 'update_info')
   def test_tool_calls_from_automatic_function_calling_history(
@@ -2827,6 +2904,26 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
 
     call_args = mock_update_info.call_args[0][0]
     self.assertEqual(call_args['llm.tools.calls'], 3)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'test_func',
+                'args': {'arg': 'val'},
+            },
+            {
+                'type': 'function_call',
+                'name': 'test_func',
+                'args': {'arg': 'val'},
+            },
+            {
+                'type': 'function_call',
+                'name': 'test_func',
+                'args': {'arg': 'val'},
+            },
+        ],
+    )
 
   @mock.patch.object(google_genai_api.tracing, 'update_info')
   def test_afc_history_with_no_parts(self, mock_update_info):

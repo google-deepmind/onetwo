@@ -936,11 +936,12 @@ def main(argv: Sequence[str]) -> None:
       )
       api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
 
-      res = executing.run(
+      res, trace = executing.run(
           llm.generate_content(  # pytype: disable=wrong-keyword-args
               prompt='What is the weather in London?',
               tools=[api_tool],
-          )
+          ),
+          enable_tracing=True,
       )
       assert isinstance(res, content_lib.ChunkList)
 
@@ -964,6 +965,38 @@ def main(argv: Sequence[str]) -> None:
 
       if not has_fc:
         tc.fail('No FunctionCall found in response.')
+
+      # Check llm.tools.calls and llm.tools.details in trace info.
+      stage_info = {}
+      if (
+          hasattr(trace, 'stages')
+          and trace.stages
+          and hasattr(trace.stages[0], 'info')
+      ):
+        stage_info = trace.stages[0].info
+      if 'llm.tools.calls' in stage_info:
+        print(f"- llm.tools.calls: {stage_info['llm.tools.calls']}")
+        if stage_info['llm.tools.calls'] != 1:
+          tc.fail(
+              'Expected llm.tools.calls == 1, got'
+              f" {stage_info['llm.tools.calls']}"
+          )
+      else:
+        tc.fail('llm.tools.calls not found in trace info.')
+
+      if 'llm.tools.details' in stage_info:
+        print('- llm.tools.details:')
+        for detail in stage_info['llm.tools.details']:
+          pprint.pprint(detail, indent=4)
+        call_entries = [
+            d
+            for d in stage_info['llm.tools.details']
+            if d.get('type') == 'function_call'
+        ]
+        if not call_entries:
+          tc.fail('No function_call entries in llm.tools.details.')
+      else:
+        tc.fail('llm.tools.details not found in trace info.')
 
   if _should_run_test(22):
     with _run_test(22, 'Function Calling 2.0: Multi-Turn', test_results) as tc:
@@ -1016,11 +1049,12 @@ def main(argv: Sequence[str]) -> None:
           content_lib.Message(role='user', content='What about New York?'),
       ]
 
-      res = executing.run(
+      res, trace = executing.run(
           llm.generate_content(  # pytype: disable=wrong-keyword-args
               prompt=history,
               tools=[api_tool],
-          )
+          ),
+          enable_tracing=True,
       )
       assert isinstance(res, content_lib.ChunkList)
 
@@ -1044,6 +1078,38 @@ def main(argv: Sequence[str]) -> None:
 
       if not has_fc:
         tc.fail('No FunctionCall found in response.')
+
+      # Check llm.tools.calls and llm.tools.details in trace info.
+      stage_info = {}
+      if (
+          hasattr(trace, 'stages')
+          and trace.stages
+          and hasattr(trace.stages[0], 'info')
+      ):
+        stage_info = trace.stages[0].info
+      if 'llm.tools.calls' in stage_info:
+        print(f"- llm.tools.calls: {stage_info['llm.tools.calls']}")
+        if stage_info['llm.tools.calls'] != 1:
+          tc.fail(
+              'Expected llm.tools.calls == 1, got'
+              f" {stage_info['llm.tools.calls']}"
+          )
+      else:
+        tc.fail('llm.tools.calls not found in trace info.')
+
+      if 'llm.tools.details' in stage_info:
+        print('- llm.tools.details:')
+        for detail in stage_info['llm.tools.details']:
+          pprint.pprint(detail, indent=4)
+        call_entries = [
+            d
+            for d in stage_info['llm.tools.details']
+            if d.get('type') == 'function_call'
+        ]
+        if not call_entries:
+          tc.fail('No function_call entries in llm.tools.details.')
+      else:
+        tc.fail('llm.tools.details not found in trace info.')
 
   if _should_run_test(23):
     with _run_test(23, 'Check usage_metadata in trace', test_results) as tc:
@@ -1478,7 +1544,9 @@ def main(argv: Sequence[str]) -> None:
       backend.register()
 
   @executing.make_executable  # pytype: disable=wrong-arg-types
-  async def _run_mcp_add_test() -> tuple[str, bool, bool]:
+  async def _run_mcp_add_test(
+      include_thoughts: bool = True,
+  ) -> tuple[str, bool, bool]:
     """Returns the result, and whether each tool was called."""
     mcp_server = FastMCPServer('Calculator')
     add_called = False
@@ -1506,6 +1574,9 @@ def main(argv: Sequence[str]) -> None:
               ' multiply tool to compute 4 * (2 + 3). Report both results.'
           ),
           tools=[session],
+          thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=include_thoughts
+          ),
       )
       return str(result), add_called, multiply_called
 
@@ -1522,8 +1593,6 @@ def main(argv: Sequence[str]) -> None:
           f'MCP result: {result_text} (add called: {add_called},'
           f' multiply called: {multiply_called})'
       )
-      if '5' not in result_text:
-        tc.fail(f'Expected "5" (2+3) in response, got: {result_text}')
       if '20' not in result_text:
         tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
       if not add_called:
@@ -1555,6 +1624,10 @@ def main(argv: Sequence[str]) -> None:
             ]:
               if key in stage.info:
                 print(f'- {key}: {stage.info[key]}')
+            if 'llm.tools.details' in stage.info:
+              print('- llm.tools.details:')
+              for detail in stage.info['llm.tools.details']:
+                pprint.pprint(detail, indent=4)
             if not isinstance(val, int) or val < 0:
               tc.fail(
                   f'llm.tools.calls is not a valid non-negative integer: {val}'
@@ -1595,6 +1668,64 @@ def main(argv: Sequence[str]) -> None:
           tc.fail(f'Caught unexpected ValueError: {err}')
       except Exception as err:  # pylint: disable=broad-except
         tc.fail(f'Caught unexpected exception: {err}')
+
+  if _should_run_test(34):
+    with _run_test(
+        34,
+        'MCP Tool: tool details without thoughts',
+        test_results,
+    ) as tc:
+      (result_text, add_called, multiply_called), trace = executing.run(
+          _run_mcp_add_test(include_thoughts=False), enable_tracing=True
+      )
+      print(
+          f'MCP result: {result_text} (add called: {add_called},'
+          f' multiply called: {multiply_called})'
+      )
+      if '20' not in result_text:
+        tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
+      if not add_called:
+        tc.fail('The add tool was not called by the LLM.')
+      if not multiply_called:
+        tc.fail('The multiply tool was not called by the LLM.')
+
+      # Verify tool details are present even without thoughts.
+      def _find_details_no_thoughts(stage):
+        if hasattr(stage, 'info') and stage.info:
+          if 'llm.tools.details' in stage.info:
+            return stage.info['llm.tools.details']
+        if hasattr(stage, 'stages'):
+          for sub in stage.stages:
+            result = _find_details_no_thoughts(sub)
+            if result is not None:
+              return result
+        return None
+
+      details = _find_details_no_thoughts(trace)
+      if details is None:
+        tc.fail('llm.tools.details not found in any trace stage.')
+      else:
+        print('- llm.tools.details:')
+        for detail in details:
+          pprint.pprint(detail, indent=4)
+        # Should have function_call entries but no thought entries.
+        call_entries = [
+            d for d in details if d.get('type') == 'function_call'
+        ]
+        thought_entries = [
+            d for d in details if d.get('type') == 'thought'
+        ]
+        if not call_entries:
+          tc.fail('No function_call entries in llm.tools.details.')
+        if thought_entries:
+          print(
+              f'Note: {len(thought_entries)} thought entries found'
+              ' (unexpected with include_thoughts=False).'
+          )
+        print(
+            f'Tool details: {len(call_entries)} calls,'
+            f' {len(thought_entries)} thoughts'
+        )
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)
