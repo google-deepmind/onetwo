@@ -173,9 +173,6 @@ class BruteForceSearcher(Searcher):
       self._doc_embeds = doc_embeds
 
   @executing.make_executable(copy_self=False)
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size')
-  )
   async def search_batched(
       self,
       query_embeds: np.ndarray,
@@ -184,6 +181,22 @@ class BruteForceSearcher(Searcher):
       **kwargs,
   ) -> tuple[np.ndarray, np.ndarray]:
     """Returns ranked indices of the most relevant docs for the query."""
+    return await self._search_batched(
+        query_embeds, final_num_neighbors=final_num_neighbors, **kwargs
+    )
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size')
+  )
+  def _search_batched(
+      self,
+      query_embeds: np.ndarray,
+      *,
+      final_num_neighbors: int | None = None,
+      **kwargs,
+  ) -> tuple[np.ndarray, np.ndarray]:
+    """Returns ranked indices of the most relevant docs for the query."""
+    del kwargs  # Unused.
     if self._doc_embeds is None:
       raise ValueError('Need to call `build()` before `search_batched()`.')
     if self.normalize_embeds:
@@ -206,7 +219,7 @@ class BruteForceSearcher(Searcher):
           top_k_indices_unsorted, sorted_order_in_top_k, axis=1
       )
     top_scores = np.take_along_axis(scores, top_ids, axis=1)
-    return top_ids, top_scores  # (Q x top_k, Q x top_k)  # pyrefly: ignore[bad-return]
+    return top_ids, top_scores  # (Q x top_k, Q x top_k)
 
   def destroy(self) -> None:
     """Overridden from base class (Searcher)."""

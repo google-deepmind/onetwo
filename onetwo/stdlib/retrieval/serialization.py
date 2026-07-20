@@ -183,7 +183,7 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
       base_path: str | None = None,
   ) -> index_state.ConstrainedEmbeddingBasedIndexState[DocT]:
     """Loads the index state from the given base path."""
-    base_state = await super().load(base_path)  # pytype: disable=wrong-arg-count
+    base_state = await super().load(base_path)
 
     path = base_path or self.base_path
     indices_path = os.path.join(path, self.discrete_indices_json_name)  # pyrefly: ignore[no-matching-overload]

@@ -29,10 +29,10 @@ class SearchersTest(parameterized.TestCase):
         [0.1, 0.8, 0.1],  # doc 2
     ])
     searcher = searchers.BruteForceSearcher()
-    ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+    ot.run(searcher.build(doc_embeds))
 
     with self.subTest('all_neighbors'):
-      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))
       np.testing.assert_array_equal(top_ids, [[1, 2, 0]])
       np.testing.assert_array_almost_equal(
           top_scores, [[0.59, 0.24, 0.17]], decimal=6
@@ -40,7 +40,7 @@ class SearchersTest(parameterized.TestCase):
 
     with self.subTest('with_k'):
       top_ids, top_scores = ot.run(
-          searcher.search_batched(query_embeds, final_num_neighbors=2)  # pytype: disable=wrong-arg-count
+          searcher.search_batched(query_embeds, final_num_neighbors=2)
       )
       np.testing.assert_array_equal(top_ids, [[1, 2]])
       np.testing.assert_array_almost_equal(
@@ -58,16 +58,16 @@ class SearchersTest(parameterized.TestCase):
       searcher = searchers.BruteForceSearcher()
       query_embeds = np.array([[0.7, 0.2, 0.1]])
       with self.assertRaisesRegex(ValueError, 'Need to call `build'):
-        ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+        ot.run(searcher.search_batched(query_embeds))
 
     with self.subTest('multiple_queries'):
       searcher = searchers.BruteForceSearcher()
-      ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.build(doc_embeds))
       query_embeds = np.array([
           [0.7, 0.2, 0.1],  # query 0 -> 1, 2, 0
           [0.1, 0.9, 0.2],  # query 1 -> 2, 0, 1
       ])
-      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))
       np.testing.assert_array_equal(top_ids, [[1, 2, 0], [2, 0, 1]])
       np.testing.assert_array_almost_equal(
           top_scores, [[0.59, 0.24, 0.17], [0.75, 0.26, 0.19]], decimal=6
@@ -75,10 +75,10 @@ class SearchersTest(parameterized.TestCase):
 
     with self.subTest('k_greater_than_num_docs'):
       searcher = searchers.BruteForceSearcher()
-      ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.build(doc_embeds))
       query_embeds = np.array([[0.7, 0.2, 0.1]])
       top_ids, top_scores = ot.run(
-          searcher.search_batched(query_embeds, final_num_neighbors=5)  # pytype: disable=wrong-arg-count
+          searcher.search_batched(query_embeds, final_num_neighbors=5)
       )
       np.testing.assert_array_equal(top_ids, [[1, 2, 0]])
       np.testing.assert_array_almost_equal(
@@ -88,17 +88,17 @@ class SearchersTest(parameterized.TestCase):
     with self.subTest('empty_docs'):
       searcher = searchers.BruteForceSearcher()
       empty_doc_embeds = np.empty((0, 3))
-      ot.run(searcher.build(empty_doc_embeds))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.build(empty_doc_embeds))
       query_embeds = np.array([[0.7, 0.2, 0.1]])
 
       with self.subTest('all_neighbors'):
-        top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+        top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))
         self.assertEqual(top_ids.shape, (1, 0))
         self.assertEqual(top_scores.shape, (1, 0))
 
       with self.subTest('with_k'):
         top_ids_k, top_scores_k = ot.run(
-            searcher.search_batched(query_embeds, final_num_neighbors=2)  # pytype: disable=wrong-arg-count
+            searcher.search_batched(query_embeds, final_num_neighbors=2)
         )
         self.assertEqual(top_ids_k.shape, (1, 0))
         self.assertEqual(top_scores_k.shape, (1, 0))
@@ -112,15 +112,15 @@ class SearchersTest(parameterized.TestCase):
 
     with self.subTest('without_normalization'):
       searcher = searchers.BruteForceSearcher(normalize_embeds=False)
-      ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
-      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.build(doc_embeds))
+      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))
       np.testing.assert_array_equal(top_ids, [[0, 1]])
       np.testing.assert_array_almost_equal(top_scores, [[10.0, 0.9]])
 
     with self.subTest('with_normalization'):
       searcher = searchers.BruteForceSearcher(normalize_embeds=True)
-      ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
-      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.build(doc_embeds))
+      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))
       np.testing.assert_array_equal(top_ids, [[0, 1]])
       self.assertAlmostEqual(top_scores[0][0], 1.0, places=6)
       self.assertLess(top_scores[0][1], 1.0)
@@ -131,12 +131,12 @@ class SearchersTest(parameterized.TestCase):
     searcher1 = searchers.BruteForceSearcher(normalize_embeds=True)
     searcher2 = searchers.BruteForceSearcher(normalize_embeds=False)
 
-    ot.run(searcher1.build(doc_embeds))  # pytype: disable=wrong-arg-count
-    ot.run(searcher2.build(doc_embeds))  # pytype: disable=wrong-arg-count
+    ot.run(searcher1.build(doc_embeds))
+    ot.run(searcher2.build(doc_embeds))
     self.assertNotEqual(searcher1, searcher2)
 
     searcher3 = searchers.BruteForceSearcher(normalize_embeds=True)
-    ot.run(searcher3.build(doc_embeds))  # pytype: disable=wrong-arg-count
+    ot.run(searcher3.build(doc_embeds))
     self.assertEqual(searcher1, searcher3)
 
   def test_brute_force_searcher_threadpool(self):
@@ -147,17 +147,17 @@ class SearchersTest(parameterized.TestCase):
         [0.1, 0.8, 0.1],  # doc 2
     ])
     searcher = searchers.BruteForceSearcher(threadpool_size=2)
-    ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+    ot.run(searcher.build(doc_embeds))
 
     with self.subTest('single_search'):
-      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))  # pytype: disable=wrong-arg-count
+      top_ids, top_scores = ot.run(searcher.search_batched(query_embeds))
       np.testing.assert_array_equal(top_ids, [[1, 2, 0]])
       np.testing.assert_array_almost_equal(
           top_scores, [[0.59, 0.24, 0.17]], decimal=6
       )
       threadpools = getattr(searcher, 'threadpools', {})
-      self.assertIn('search_batched', threadpools)
-      self.assertEqual(threadpools['search_batched']._max_workers, 2)
+      self.assertIn('_search_batched', threadpools)
+      self.assertEqual(threadpools['_search_batched']._max_workers, 2)
 
 
 class ConstrainedBruteForceSearcherTest(parameterized.TestCase):
@@ -171,12 +171,12 @@ class ConstrainedBruteForceSearcherTest(parameterized.TestCase):
         [0.75, 0.15, 0.1],  # doc 3
     ])
     searcher = searchers.ConstrainedBruteForceSearcher()
-    ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+    ot.run(searcher.build(doc_embeds))
 
     with self.subTest('search_with_empty_indices'):
       top_ids, top_scores = ot.run(
           searcher.search_batched(
-              query_embeds, doc_indices=[], final_num_neighbors=2  # pytype: disable=wrong-arg-count
+              query_embeds, doc_indices=[], final_num_neighbors=2
           )
       )
       np.testing.assert_array_equal(top_ids, [[1, 3]])
@@ -188,7 +188,7 @@ class ConstrainedBruteForceSearcherTest(parameterized.TestCase):
       # Expected order: doc 3, doc 2.
       top_ids, top_scores = ot.run(
           searcher.search_batched(
-              query_embeds, doc_indices=doc_indices, final_num_neighbors=2  # pytype: disable=wrong-arg-count
+              query_embeds, doc_indices=doc_indices, final_num_neighbors=2
           )
       )
       np.testing.assert_array_equal(top_ids, [[3, 2]])
@@ -198,13 +198,13 @@ class ConstrainedBruteForceSearcherTest(parameterized.TestCase):
     query_embeds = np.array([[0.7, 0.2, 0.1]])
     doc_embeds = np.array([[0.1, 0.1, 0.8]])
     searcher = searchers.ConstrainedBruteForceSearcher()
-    ot.run(searcher.build(doc_embeds))  # pytype: disable=wrong-arg-count
+    ot.run(searcher.build(doc_embeds))
 
     with self.assertRaisesRegex(ValueError, '`doc_indices` are out of bounds'):
-      ot.run(searcher.search_batched(query_embeds, doc_indices=[0, 1]))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.search_batched(query_embeds, doc_indices=[0, 1]))
 
     with self.assertRaisesRegex(ValueError, '`doc_indices` are out of bounds'):
-      ot.run(searcher.search_batched(query_embeds, doc_indices=[-1]))  # pytype: disable=wrong-arg-count
+      ot.run(searcher.search_batched(query_embeds, doc_indices=[-1]))
 
 
 if __name__ == '__main__':
