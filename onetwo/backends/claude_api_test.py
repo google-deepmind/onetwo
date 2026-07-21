@@ -80,7 +80,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
     prompt = 'Task: Answer the question.\nQuestion:Why?\nAnswer:'
     try:
-      _ = executing.run(llm.instruct(prompt=prompt))  # pytype: disable=wrong-keyword-args
+      _ = executing.run(llm.instruct(prompt=prompt))
     except ValueError as e:
       self.fail(f'Instruct raised an error. Maybe due to wrong formatter?\n{e}')
 
@@ -89,7 +89,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[_Message(content=prompt_text, role=_PredefinedRole.USER)],
             max_tokens=512,
         )
@@ -109,7 +109,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
         )
@@ -134,7 +134,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     # Same query to see if it has been cached.
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
         )
@@ -153,7 +153,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     # temperature is deprecated by Claude and dropped from the cache key,
     # this should still be a cache hit.
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
             temperature=0.0,
@@ -174,7 +174,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
             include_details=True,
@@ -190,7 +190,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     """Verifies that system messages are extracted to the system param."""
     backend = _get_and_register_backend()
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 _Message(
                     content='You are helpful.',
@@ -260,20 +260,16 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
           ValueError,
           'Claude API does not support multimodal content in system messages',
       ):
-        executing.run(
-            llm.chat(messages=messages, max_tokens=50)  # pytype: disable=wrong-keyword-args
-        )
+        executing.run(llm.chat(messages=messages, max_tokens=50))
     else:
-      res = executing.run(
-          llm.chat(messages=messages, max_tokens=50)  # pytype: disable=wrong-keyword-args
-      )
+      res = executing.run(llm.chat(messages=messages, max_tokens=50))
       self.assertEqual(res, claude_mock._DEFAULT_REPLY)
 
   def test_generate_texts(self):
     """Verifies that generate_texts returns multiple samples."""
     _get_and_register_backend()
     res = executing.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(
             prompt='Hello',
             samples=3,
             max_tokens=25,

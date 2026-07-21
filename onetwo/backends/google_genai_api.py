@@ -749,7 +749,7 @@ class GoogleGenAIAPI(
     if self.enable_model_verification:
       self._verify_available_models()
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.generate_text')
   async def generate_text(
       self,
@@ -798,7 +798,7 @@ class GoogleGenAIAPI(
     else:
       return unwrap_text(res[0]), res[1]
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def generate_content(self, prompt: llm.Prompt, **kwargs) -> llm.Content:
     """See builtins.llm.generate_content."""
     return (await self._generate_contents(prompt, samples=1, **kwargs))[0]  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async, unexpected-keyword]
@@ -909,7 +909,7 @@ class GoogleGenAIAPI(
     return results
 
   # TODO: b/532970232 - Consider using only _generate_contents_inner_async.
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.generate_contents')
   @caching.cache_method(  # Cache this method.
       name='generate_contents',
@@ -1166,7 +1166,7 @@ class GoogleGenAIAPI(
         include_details=include_details,
     )
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.generate_object')
   async def generate_object(
       self,
@@ -1239,7 +1239,7 @@ class GoogleGenAIAPI(
     adapter = TypeAdapter(cls)
     return adapter.validate_json(str(result))
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.chat')
   async def chat(
       self,
@@ -1258,7 +1258,7 @@ class GoogleGenAIAPI(
           m.role = _normalize_role(m.role)
       return await llm.default_chat(messages, formatter, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.embed', skip=['output'])
   async def embed(
       self,
@@ -1294,7 +1294,7 @@ class GoogleGenAIAPI(
     else:
       kwargs['task_type'] = None
 
-    return await self._cached_embed(content, **kwargs)  # pytype: disable=bad-return-type
+    return await self._cached_embed(content, **kwargs)
 
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -1371,7 +1371,7 @@ class GoogleGenAIAPI(
         values = [v / norm for v in values]
     return values
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',
@@ -1406,7 +1406,7 @@ class GoogleGenAIAPI(
       )
     return response.total_tokens
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.tokenize')
   @caching.cache_method(  # Cache this deterministic method.
       name='tokenize',

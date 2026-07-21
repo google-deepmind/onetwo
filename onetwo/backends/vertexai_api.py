@@ -294,7 +294,7 @@ class VertexAIAPI(
       )
     return response
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='VertexAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -329,7 +329,7 @@ class VertexAIAPI(
         healing_option=healing_option,
     )
 
-    response = self._generate_content(  # pytype: disable=wrong-keyword-args
+    response = self._generate_content(
         prompt=healed_prompt,
         samples=1,
         temperature=temperature,
@@ -346,7 +346,7 @@ class VertexAIAPI(
       )
     return response.text
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -381,7 +381,7 @@ class VertexAIAPI(
         healing_option=healing_option,
     )
 
-    response = self._generate_content(  # pytype: disable=wrong-keyword-args
+    response = self._generate_content(
         prompt=healed_prompt,
         samples=samples,
         temperature=temperature,
@@ -414,7 +414,7 @@ class VertexAIAPI(
     else:
       return await llm.default_chat(messages, formatter, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -519,7 +519,7 @@ class VertexAIAPI(
     )
     return reply
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='VertexAIAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -558,7 +558,7 @@ class VertexAIAPI(
     responses = self._embed_model.get_embeddings([input_content])  # pyrefly: ignore[missing-attribute]
     return responses[0].values
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='VertexAIAPI.count_tokens')
   @caching.cache_method(  # Cache this method.
       name='count_tokens',

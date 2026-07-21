@@ -219,7 +219,7 @@ class LLMForTest(backends_base.Backend):
           f'(type {type(self.default_reply)!r})'
       )
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
   )
@@ -229,7 +229,11 @@ class LLMForTest(backends_base.Backend):
       stop: Sequence[str] | None = None,
       include_details: bool = False,
       **kwargs,
-  ) -> str | tuple[str, Mapping[str, Any]]:
+  ) -> (
+      str
+      | tuple[str, Mapping[str, Any]]
+      | executing.FunctionExecWrapper[str | tuple[str, Mapping[str, Any]]]
+  ):
     del kwargs
     reply = self._get_generate_text_reply(prompt)
 
@@ -252,16 +256,16 @@ class LLMForTest(backends_base.Backend):
       return produce_reply(reply)
     else:
 
-      @executing.make_executable  # pytype: disable=wrong-arg-types
+      @executing.make_executable
       async def iterate(
           reply,
       ) -> AsyncIterator[str | tuple[str, Mapping[str, Any]]]:
         for i in range(1, len(reply) + 1):
           yield produce_reply(reply[:i])
 
-      return iterate(reply)  # pyrefly: ignore[bad-argument-type, bad-return]  # pytype: disable=bad-return-type
+      return iterate(reply)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
   )
@@ -293,12 +297,14 @@ class LLMForTest(backends_base.Backend):
   def detokenize(self, tokens: Sequence[int]) -> str | content_lib.ChunkList:
     return ''.join([chr(token) for token in tokens])
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def generate_object(
       self, prompt: str | content_lib.ChunkList, cls: Type[_T]
   ) -> _T:
-    reply = await llm.generate_text(prompt, include_details=False)  # pytype: disable=wrong-arg-count
-    result = ast.literal_eval(reply)  # pytype: disable=wrong-arg-types
+    reply = await llm.generate_text(prompt, include_details=False)
+    if not isinstance(reply, str):
+      raise TypeError(f'Expected str, got {type(reply)}')
+    result = ast.literal_eval(reply)
     if isinstance(result, dict):
       return cls(**result)
     else:
@@ -380,9 +386,7 @@ class EmbedderForTest(backends_base.Backend):
     self.unexpected_contents.append(content)
     return self.default_embedding
 
-  # TODO: Remove the pytype disable once the bug is fixed.
-  # (Here and elsewhere in this file, and throughout the OneTwo codebase.)
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
   )

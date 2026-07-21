@@ -341,7 +341,7 @@ class OllamaAPI(
             role=content_lib.PredefinedRole.USER,
         ),
     ]
-    return self._chat_create(  # pytype: disable=wrong-keyword-args
+    return self._chat_create(
         messages=messages,
         **kwargs,
     )
@@ -357,7 +357,7 @@ class OllamaAPI(
     """
     return response.message.content
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='OllamaAPI.generate_text')
   async def generate_text(
       self,
@@ -443,7 +443,7 @@ class OllamaAPI(
     # Use native Chat API via client.chat.
     return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -461,10 +461,10 @@ class OllamaAPI(
   ) -> str:
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
-    response = self._chat_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
+    response = self._chat_create(messages=messages, **kwargs)
     return self._extract_text_from_response(response)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='OllamaAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',

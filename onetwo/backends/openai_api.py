@@ -511,12 +511,12 @@ class OpenAIAPI(
             role=content_lib.PredefinedRole.USER,
         ),
     ]
-    return self._responses_create(  # pytype: disable=wrong-keyword-args
+    return self._responses_create(
         messages=messages,
         **kwargs,
     )
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='OpenAIAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -577,7 +577,7 @@ class OpenAIAPI(
         pass
     return (text, {'text': text, 'score': score}) if include_details else text
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='OpenAIAPI.generate_texts')
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
@@ -645,7 +645,7 @@ class OpenAIAPI(
 
     return results
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @caching.cache_method(
       name='generate_object',
       is_sampled=True,  # Two calls with same args may return different replies.
@@ -688,7 +688,7 @@ class OpenAIAPI(
     if top_p is not None:
       kwargs['top_p'] = top_p
 
-    response = self._responses_parse(  # pytype: disable=wrong-keyword-args
+    response = self._responses_parse(
         messages=messages,  # pyrefly: ignore[bad-argument-type]
         cls=cls,
         **kwargs,
@@ -790,7 +790,7 @@ class OpenAIAPI(
     # Use native Responses API via client.responses.create.
     return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -808,10 +808,10 @@ class OpenAIAPI(
   ) -> str:
     """See builtins.llm.chat."""
     self._counters['chat'] += 1
-    response = self._responses_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
+    response = self._responses_create(messages=messages, **kwargs)
     return response.output_text
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='OpenAIAPI.embed')
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',

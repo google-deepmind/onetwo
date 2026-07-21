@@ -88,7 +88,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
     prompt = 'Task: Answer the question.\nQuestion:Why?\nAnswer:'
     try:
-      _ = executing.run(llm.instruct(prompt=prompt))  # pytype: disable=wrong-keyword-args
+      _ = executing.run(llm.instruct(prompt=prompt))
     except ValueError as e:
       # If llm.instruct inadvertently uses the default formatter rather than the
       # API formatter, the above prompt will raise an error due to the phrases
@@ -100,7 +100,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[_Message(content=prompt_text, role=_PredefinedRole.USER)],
             max_tokens=512,
         )
@@ -120,7 +120,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
         )
@@ -145,7 +145,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     # Same query to see if it has been cached.
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
         )
@@ -162,7 +162,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     # Same query but different parameters, run generate request again.
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
             temperature=0.0,
@@ -189,7 +189,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             max_tokens=512,
             include_details=True,
@@ -212,7 +212,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         return_value=mock.MagicMock(output_text='ignored'),
     ) as mock_create:
       _ = executing.run(
-          llm.generate_text(  # pytype: disable=wrong-keyword-args
+          llm.generate_text(
               prompt=prompt_text,
           )
       )
@@ -240,7 +240,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     prompt_text = 'Create an object representing a city.'
 
     res = executing.run(
-        llm.generate_object(  # pytype: disable=wrong-keyword-args
+        llm.generate_object(
             prompt=prompt_text,
             cls=MyTestSchema,
         )
@@ -274,7 +274,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
           r'The `cls` argument must be a subclass of `pydantic.BaseModel`\.',
       ):
         executing.run(
-            llm.generate_object(  # pytype: disable=wrong-keyword-args
+            llm.generate_object(
                 prompt='test prompt',
                 cls=NotPydantic,
             )
@@ -290,7 +290,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
           r'The `cls` argument must be a subclass of `pydantic.BaseModel`\.',
       ):
         executing.run(
-            llm.generate_object(  # pytype: disable=wrong-keyword-args
+            llm.generate_object(
                 prompt='yet another prompt',
                 cls=MyTestSchema(test='instance'),
             )

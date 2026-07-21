@@ -60,7 +60,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
     prompt = 'Task: Answer the question.\nQuestion:Why?\nAnswer:'
     try:
-      _ = executing.run(llm.instruct(prompt=prompt))  # pytype: disable=wrong-keyword-args
+      _ = executing.run(llm.instruct(prompt=prompt))
     except ValueError as e:
       self.fail(f'Instruct raised an error. Maybe due to wrong formatter?\n{e}')
 
@@ -69,7 +69,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[_Message(content=prompt_text, role=_PredefinedRole.USER)],
         )
     )
@@ -88,7 +88,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
         )
     )
@@ -112,7 +112,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     # Same query to see if it has been cached.
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
         )
     )
@@ -132,22 +132,24 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _get_and_register_backend()
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             include_details=True,
         )
     )
-    with self.subTest('returns_correct_result'):
-      self.assertEqual(res[0], ollama_mock._DEFAULT_REPLY)
-    with self.subTest('returns_correct_score'):
-      # Ollama does not provide logprobs, so score should be 0.0.
-      self.assertEqual(res[1]['score'], 0.0)  # pytype: disable=bad-index
+    self.assertIsInstance(res, tuple)
+    if isinstance(res, tuple):
+      with self.subTest('returns_correct_result'):
+        self.assertEqual(res[0], ollama_mock._DEFAULT_REPLY)
+      with self.subTest('returns_correct_score'):
+        # Ollama does not provide logprobs, so score should be 0.0.
+        self.assertEqual(res[1]['score'], 0.0)
 
   def test_generate_texts(self):
     """Verifies that generate_texts returns multiple samples."""
     _get_and_register_backend()
     res = executing.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(
             prompt='Hello',
             samples=3,
         )
@@ -173,7 +175,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     """Verifies that generate_text works with different prompt types."""
     _get_and_register_backend()
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
         )
     )
@@ -183,7 +185,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     """Verifies that system messages are passed inline to Ollama."""
     backend = _get_and_register_backend()
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 _Message(
                     content='You are helpful.',
@@ -214,18 +216,20 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
     prompt_text = 'Something'
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt_text,
             include_details=True,
         )
     )
-    with self.subTest('returns_correct_result'):
-      self.assertEqual(res[0], 'Result text')
-    with self.subTest('returns_correct_thoughts'):
-      self.assertEqual(
-          res[1]['thoughts'],  # pytype: disable=bad-index
-          content_lib.ChunkList([content_lib.Chunk('Thinking process')]),
-      )
+    self.assertIsInstance(res, tuple)
+    if isinstance(res, tuple):
+      with self.subTest('returns_correct_result'):
+        self.assertEqual(res[0], 'Result text')
+      with self.subTest('returns_correct_thoughts'):
+        self.assertEqual(
+            res[1]['thoughts'],
+            content_lib.ChunkList([content_lib.Chunk('Thinking process')]),
+        )
 
   @parameterized.named_parameters(
       dict(

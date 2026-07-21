@@ -137,11 +137,11 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     """
     return len(self._model.EncodeAsIds(text))
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(
       name='SentencePieceTokenizer.tokenize', skip=['content', 'output']
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   async def tokenize(
       self, content: str | content_lib.ChunkList
   ) -> Sequence[int]:
@@ -149,31 +149,25 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     self._counters['tokenize'] += 1
     if not isinstance(content, str):
       raise ValueError('Tokenizing non-string content is not yet supported.')
-    return await self._batchable_tokenize(content)  # pytype: disable=bad-return-type
+    return await self._batchable_tokenize(content)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(
       name='SentencePieceTokenizer.detokenize', skip=['tokens', 'output']
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))  # pytype: disable=wrong-arg-types
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   async def detokenize(self, tokens: Sequence[int]) -> Sequence[str]:
     """See builtins.llm.detokenize."""
     self._counters['detokenize'] += 1
     if not all(isinstance(item, int) for item in tokens):
       raise ValueError('Input is not a sequence of integers.')
-    return await self._batchable_detokenize(tokens)  # pytype: disable=bad-return-type
-
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size')
-  )
-  def _tokenize_with_threadpool(self, content: str) -> Sequence[Sequence[int]]:
-    return self._batchable_tokenize(content)  # pytype: disable=bad-return-type
+    return await self._batchable_detokenize(tokens)
 
   @batching.batchable_method(
       implementation=utils.FromInstance('_batch_tokenize'),
   )
   def _batchable_tokenize(self, content: str) -> Sequence[int]:  # pyrefly: ignore[bad-return]
-    pass  # pytype: disable=bad-return-type
+    return []
 
   @batching.batch_method(batch_size=utils.FromInstance('batch_size'))
   def _batch_tokenize(
@@ -185,17 +179,11 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     tokenized_result = [self._model.EncodeAsIds(c) for c in contents]
     return tokenized_result
 
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size')
-  )
-  def _detokenize_with_threadpool(self, tokens: Sequence[int]) -> Sequence[str]:
-    return self._batchable_detokenize(tokens)  # pytype: disable=bad-return-type
-
   @batching.batchable_method(
       implementation=utils.FromInstance('_batch_detokenize'),
   )
   def _batchable_detokenize(self, tokens: Sequence[int]) -> Sequence[str]:  # pyrefly: ignore[bad-return]
-    pass  # pytype: disable=bad-return-type
+    return []
 
   @batching.batch_method(batch_size=utils.FromInstance('batch_size'))
   def _batch_detokenize(

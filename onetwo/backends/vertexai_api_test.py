@@ -90,16 +90,16 @@ def _create_fake_detailed_response(
   )
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def check_length_and_generate(
     prompt_text: str,
     max_token_count: int = _MOCK_COUNT_TOKENS_RETURN + 1,
     **other_args,
 ) -> Any:
-  token_count = await llm.count_tokens(content=prompt_text)  # pytype: disable=wrong-keyword-args
+  token_count = await llm.count_tokens(content=prompt_text)
   if token_count > max_token_count:
     raise ValueError('Prompt has too many tokens!')
-  res = await llm.generate_text(prompt=prompt_text, **other_args)  # pytype: disable=wrong-keyword-args
+  res = await llm.generate_text(prompt=prompt_text, **other_args)
   return res
 
 
@@ -430,7 +430,7 @@ class VertexAIAPITest(
     prompt = 'Something'
     llm.generate_text.update(safety_settings=vertexai_api.SAFETY_DISABLED)
 
-    executing.run(llm.generate_text(prompt=prompt))  # pytype: disable=wrong-keyword-args
+    executing.run(llm.generate_text(prompt=prompt))
     self._mock_generate_model.generate_content.assert_called_once_with(
         mock.ANY,  # prompt
         generation_config=mock.ANY,
@@ -442,7 +442,7 @@ class VertexAIAPITest(
     prompt = 'Something'
 
     result = executing.run(
-        llm.generate_text(prompt=prompt, include_details=True)  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt=prompt, include_details=True)
     )
 
     self.assertEqual(
@@ -462,7 +462,7 @@ class VertexAIAPITest(
     prompt = 'Something'
 
     results = executing.run(
-        llm.generate_texts(prompt=prompt, samples=3, include_details=True)  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(prompt=prompt, samples=3, include_details=True)
     )
 
     self.assertEqual(
@@ -498,7 +498,7 @@ class VertexAIAPITest(
   def test_generate_texts(self, *args, **kwargs):
     _ = _get_and_register_backend()
     prompt = 'Something'
-    results = executing.run(llm.generate_texts(prompt=prompt, samples=3))  # pytype: disable=wrong-keyword-args
+    results = executing.run(llm.generate_texts(prompt=prompt, samples=3))
     self.assertLen(results, 3)
     self.assertListEqual(list(results), ['a' * 10, 'b' * 10, 'c' * 10])
 
@@ -506,7 +506,7 @@ class VertexAIAPITest(
     backend = _get_and_register_backend()
     msg_user = Message(role=PredefinedRole.USER, content='Hello model')
     msg_model = Message(role=PredefinedRole.MODEL, content='Hello user')
-    result = executing.run(llm.chat(messages=[msg_user]))  # pytype: disable=wrong-keyword-args
+    result = executing.run(llm.chat(messages=[msg_user]))
 
     with self.subTest('single_msg_returns_correct_result'):
       self.assertEqual(result, 'a' * 10)
@@ -519,7 +519,7 @@ class VertexAIAPITest(
     with self.subTest('single_msg_sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
 
-    result = executing.run(llm.chat(messages=[msg_model, msg_user]))  # pytype: disable=wrong-keyword-args
+    result = executing.run(llm.chat(messages=[msg_model, msg_user]))
 
     with self.subTest('multiple_msg_returns_correct_result'):
       self.assertEqual(result, 'a' * 10)
@@ -537,7 +537,7 @@ class VertexAIAPITest(
     llm.chat.update(safety_settings=vertexai_api.SAFETY_DISABLED)
 
     msg_user = Message(role=PredefinedRole.USER, content='Hello model')
-    executing.run(llm.chat(messages=[msg_user]))  # pytype: disable=wrong-keyword-args
+    executing.run(llm.chat(messages=[msg_user]))
 
     self._mock_generate_model.start_chat().send_message.assert_called_once_with(
         content=mock.ANY,

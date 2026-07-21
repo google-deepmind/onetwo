@@ -477,7 +477,7 @@ class ClaudeAPI(
             role=content_lib.PredefinedRole.USER,
         ),
     ]
-    return self._messages_create(  # pytype: disable=wrong-keyword-args
+    return self._messages_create(
         messages=messages,
         **kwargs,
     )
@@ -515,7 +515,7 @@ class ClaudeAPI(
     thinking_output = ''.join(thinking_parts) if thinking_parts else None
     return text, thinking_output, tool_calls
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='ClaudeAPI.generate_text')
   @caching.cache_method(  # Cache this method.
       name='generate_text',
@@ -588,7 +588,7 @@ class ClaudeAPI(
       return (text, details)
     return text
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='ClaudeAPI.generate_texts')
   @caching.cache_method(  # Cache this method.
       name='generate_texts',
@@ -682,7 +682,7 @@ class ClaudeAPI(
     # Use native Messages API via client.messages.create.
     return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
       name='chat',
       is_sampled=True,
@@ -711,11 +711,11 @@ class ClaudeAPI(
           str(messages[-1].content)[:100],
       )
       messages.pop()
-    response = self._messages_create(messages=messages, **kwargs)  # pytype: disable=wrong-keyword-args,wrong-arg-count
+    response = self._messages_create(messages=messages, **kwargs)
     text, _, _ = self._extract_response(response)
     return text
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='ClaudeAPI.count_tokens')
   @caching.cache_method(  # Cache this deterministic method.
       name='count_tokens',
