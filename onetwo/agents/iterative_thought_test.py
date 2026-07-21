@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import iterative_thought
@@ -113,7 +114,7 @@ Input: qN
         description=description, few_shots=few_shots
     )
 
-    state_0 = executing.run(agent.initialize_state(inputs=inputs))  # pytype: disable=wrong-keyword-args
+    state_0 = executing.run(agent.initialize_state(inputs=inputs))
 
     with self.subTest('state_should_initially_contain_just_the_inputs'):
       self.assertEqual(
@@ -135,20 +136,22 @@ Input: qN
     max_steps = 2
     updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+            agent.stream_updates(initial_state=state_0, max_steps=max_steps)
         )
     )
 
     # To get the final state, we can simply sum the updates.
-    state_2 = sum(updates, state_0)  # pytype: disable=wrong-arg-types
+    state_2 = functools.reduce(lambda s, u: s + u, updates, state_0)
 
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_2, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+            agent.stream_updates(initial_state=state_2, max_steps=max_steps)
         )
     )
-    state_4 = sum(second_round_of_updates, state_2)  # pytype: disable=wrong-arg-types
+    state_4 = functools.reduce(
+        lambda s, u: s + u, second_round_of_updates, state_2
+    )
 
     with self.subTest('should_stop_when_reaching_max_steps'):
       self.assertLen(updates, max_steps)
@@ -167,7 +170,7 @@ Input: qN
 
     with self.subTest('should_do_an_additional_max_steps_in_second_call'):
       self.assertLen(second_round_of_updates, max_steps)
-      self.assertLen(state_4.updates, 2 * max_steps)  # pytype: disable=attribute-error
+      self.assertLen(state_4.updates, 2 * max_steps)
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -216,7 +219,7 @@ Input: qN
     )
 
     next_step_candidates = executing.run(
-        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)  # pytype: disable=wrong-keyword-args
+        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)
     )
 
     with self.subTest('should_return_the_expected_next_step_candidates'):
@@ -268,7 +271,7 @@ Input: qN
     )
 
     output = executing.run(
-        agent(inputs=inputs, max_steps=max_steps, stop_condition=stop_condition)  # pytype: disable=wrong-keyword-args
+        agent(inputs=inputs, max_steps=max_steps, stop_condition=stop_condition)
     )
 
     with self.subTest('correct_output'):
@@ -303,7 +306,7 @@ Input: qN
     )
 
     output, final_state = executing.run(  # pyrefly: ignore[not-iterable]
-        agent(inputs=inputs, max_steps=max_steps, return_final_state=True)  # pytype: disable=wrong-keyword-args
+        agent(inputs=inputs, max_steps=max_steps, return_final_state=True)
     )
 
     with self.subTest('correct_output'):
@@ -458,7 +461,7 @@ tb\
     )
 
     next_step_candidates = executing.run(
-        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)  # pytype: disable=wrong-keyword-args
+        agent.sample_next_step(state=prev_state, num_candidates=num_candidates)
     )
 
     with self.subTest('should_return_the_expected_next_step_candidates'):

@@ -94,29 +94,24 @@ class DistributionAgentTest(parameterized.TestCase):
     agent = StringDistributionAgent(vocab_size=10)
 
     with self.subTest('distribution_is_uniform'):
-      dist = executing.run(
-          agent.get_next_step_distribution(  # pytype: disable=wrong-keyword-args,wrong-arg-types
-              state=agent.initialize_state(inputs='1')  # pytype: disable=wrong-keyword-args
-          )
-      )
+      state = executing.run(agent.initialize_state(inputs='1'))
+      dist = executing.run(agent.get_next_step_distribution(state=state))
       self.assertSequenceEqual(
           [(str(i), 0.1) for i in range(10)], _scored_updates_to_tuples(dist)
       )
 
     with self.subTest('samples_are_correct'):
+      state = executing.run(agent.initialize_state(inputs='1'))
       samples = executing.run(
-          agent.sample_next_step(  # pytype: disable=wrong-keyword-args,wrong-arg-types
-              state=agent.initialize_state(inputs='1'), num_candidates=5  # pytype: disable=wrong-keyword-args
-          )
+          agent.sample_next_step(state=state, num_candidates=5)
       )
       samples = [s.update for s in samples]
       self.assertContainsSubset(set(samples), set(str(i) for i in range(10)))
 
     with self.subTest('samples_and_scores_are_correct'):
+      state = executing.run(agent.initialize_state(inputs='1'))
       samples_with_scores = executing.run(
-          agent.sample_next_step(  # pytype: disable=wrong-keyword-args,wrong-arg-types
-              state=agent.initialize_state(inputs='1'), num_candidates=5  # pytype: disable=wrong-keyword-args
-          )
+          agent.sample_next_step(state=state, num_candidates=5)
       )
       self.assertContainsSubset(
           set(_scored_updates_to_tuples(samples_with_scores)),
@@ -160,8 +155,8 @@ class ReweightedDistributionAgentTest(parameterized.TestCase):
         top_p=top_p,
         top_k=top_k,
     )
-    state = outer_agent.initialize_state('test')  # pytype: disable=wrong-arg-count
-    result = executing.run(outer_agent.get_next_step_distribution(state=state))  # pytype: disable=wrong-keyword-args
+    state = outer_agent.initialize_state('test')
+    result = executing.run(outer_agent.get_next_step_distribution(state=state))
     # We round off the distribution to make the comparison easier.
     result = [(s.update, round(s.score, 2)) for s in result]
     # Also to avoid issues when comparing floats, we convert everything to

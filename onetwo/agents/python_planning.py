@@ -86,7 +86,9 @@ class PythonPlanningStep:
 # In the Python Planning strategy, the state consists of a monotonically
 # increasing sequence of steps (each of which involve generation and execution
 # of a Python program).
-PythonPlanningState = agents_base.UpdateListState[str, PythonPlanningStep]
+PythonPlanningState = agents_base.UpdateListState[
+    str | content_lib.ChunkList, PythonPlanningStep
+]
 
 
 def _get_result_str(
@@ -286,7 +288,7 @@ exit()""",
 class PythonPlanningPromptProtocol(Protocol):
   """Interface for prompt usable with PythonPlanningAgent.prompt."""
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @abc.abstractmethod
   async def __call__(
       self,
@@ -328,7 +330,7 @@ class PythonPlanningPromptJ2(
 
   instruction: str = DEFAULT_PYTHON_PLANNING_INSTRUCTION
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def __call__(
       self,
       exemplars: list[PythonPlanningState],
@@ -443,7 +445,7 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
       e += self._render_state(exemplar)
     return e  # pyrefly: ignore[bad-return]
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def __call__(
       self,
       exemplars: list[PythonPlanningState],
@@ -477,7 +479,7 @@ class PythonPlanningPromptComposable(PythonPlanningPromptProtocol):
 @dataclasses.dataclass
 class PythonPlanningAgent(
     agents_base.SingleSampleAgent[
-        str,  # _I (inputs)
+        str | content_lib.ChunkList,  # _I (inputs)
         str,  # _O (outputs)
         PythonPlanningState,  # _S (state)
         PythonPlanningStep,  # _U (update)
@@ -589,7 +591,7 @@ class PythonPlanningAgent(
     )
 
     sandbox_state = _sandbox_state_from_agent_state(state)
-    result = await environment.run_code(  # pytype: disable=wrong-keyword-args
+    result = await environment.run_code(
         sandbox_state=sandbox_state, code=_parse_llm_reply_code(llm_reply)
     )
 

@@ -108,8 +108,8 @@ class CriticsTest(parameterized.TestCase):
         ('d', 4.0),
         ('e', 5.0),
     ]
-    res = executing.run(ranker(states_and_updates))  # pytype: disable=wrong-arg-count
-    res2 = executing.run(converted_ranker(states_and_updates))  # pytype: disable=wrong-arg-count
+    res = executing.run(ranker(states_and_updates))
+    res2 = executing.run(converted_ranker(states_and_updates))
     self.assertEqual(res, res2)
     self.assertEqual(res, [4, 3, 2, 1, 0])
 
@@ -124,8 +124,8 @@ class CriticsTest(parameterized.TestCase):
         ('d', 4.0),
         ('e', 5.0),
     ]
-    res = executing.run(ranker(states_and_updates))  # pytype: disable=wrong-arg-count
-    res2 = executing.run(converted_ranker(states_and_updates))  # pytype: disable=wrong-arg-count
+    res = executing.run(ranker(states_and_updates))
+    res2 = executing.run(converted_ranker(states_and_updates))
     self.assertEqual(res, res2)
     self.assertEqual(res, [4, 3, 2, 1, 0])
 
@@ -141,7 +141,7 @@ class CriticsTest(parameterized.TestCase):
 
     async def wrapper():
       nonlocal scores
-      updates = await dist_agent.sample_next_step(state=state, num_candidates=3)  # pytype: disable=wrong-keyword-args
+      updates = await dist_agent.sample_next_step(state=state, num_candidates=3)
       for update in updates:
         scores.append(
             await scoring_function(state, update)  # pyrefly: ignore[bad-argument-count, not-async]

@@ -15,6 +15,7 @@
 from collections.abc import AsyncIterator
 import contextlib
 import dataclasses
+import functools
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -130,7 +131,7 @@ class AgentTest(parameterized.TestCase):
     agent = StringAgent(max_length=5)
 
     # First we construct an initial state from the inputs.
-    state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
+    state_0 = executing.run(agent.initialize_state(inputs='q'))
 
     with self.subTest('state_should_initially_contain_just_the_inputs'):
       self.assertEqual(StringAgentState(inputs='q', updates=[]), state_0)
@@ -146,30 +147,34 @@ class AgentTest(parameterized.TestCase):
     max_steps = 2
     updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+            agent.stream_updates(initial_state=state_0, max_steps=max_steps)
         )
     )
 
     # To get the final state, we can simply sum the updates.
-    state_2 = sum(updates, state_0)  # pytype: disable=wrong-arg-types
+    state_2 = functools.reduce(lambda s, u: s + u, updates, state_0)
 
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_2, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+            agent.stream_updates(initial_state=state_2, max_steps=max_steps)
         )
     )
-    state_4 = sum(second_round_of_updates, state_2)  # pytype: disable=wrong-arg-types
+    state_4 = functools.reduce(
+        lambda s, u: s + u, second_round_of_updates, state_2
+    )
 
     # Now we'll request it to run for another 2 steps, but we expect it to only
     # run for 1 more step, because we will have then reached the max_length
     # configured within the agent itself.
     third_round_of_updates = list(
         executing.stream(
-            agent.stream_updates(initial_state=state_4, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+            agent.stream_updates(initial_state=state_4, max_steps=max_steps)
         )
     )
-    state_5 = sum(third_round_of_updates, state_4)  # pytype: disable=wrong-arg-types
+    state_5 = functools.reduce(
+        lambda s, u: s + u, third_round_of_updates, state_4
+    )
 
     with self.subTest('should_run_for_the_specified_max_steps'):
       self.assertLen(updates, max_steps)
@@ -184,7 +189,7 @@ class AgentTest(parameterized.TestCase):
 
     with self.subTest('should_do_an_additional_max_steps_in_second_call'):
       self.assertLen(second_round_of_updates, max_steps)
-      self.assertLen(state_4.updates, 2 * max_steps)  # pyrefly: ignore[missing-attribute]  # pytype: disable=attribute-error
+      self.assertLen(state_4.updates, 2 * max_steps)
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -200,7 +205,7 @@ class AgentTest(parameterized.TestCase):
 
     with self.subTest('should_stop_once_is_finished_is_true'):
       self.assertLen(third_round_of_updates, 1)
-      self.assertLen(state_5.updates, 5)  # pyrefly: ignore[missing-attribute]  # pytype: disable=attribute-error
+      self.assertLen(state_5.updates, 5)
 
     with self.subTest('correct_final_state_after_second_round_of_updates'):
       self.assertEqual(
@@ -211,11 +216,11 @@ class AgentTest(parameterized.TestCase):
   def test_stream_states(self):
     # Here we show how to stream the intermediate states of an agent.
     agent = StringAgent(max_length=5)
-    state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
+    state_0 = executing.run(agent.initialize_state(inputs='q'))
     max_steps = 2
     states = list(
         executing.stream(
-            agent.stream_states(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+            agent.stream_states(initial_state=state_0, max_steps=max_steps)
         )
     )
 

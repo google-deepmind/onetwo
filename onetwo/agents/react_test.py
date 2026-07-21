@@ -433,7 +433,7 @@ class ReactTest(parameterized.TestCase):
     num_candidates = 2
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       next_step_candidates = executing.run(
-          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+          agent.sample_next_step(
               state=prev_state, num_candidates=num_candidates, environment=env
           )
       )
@@ -489,9 +489,7 @@ class ReactTest(parameterized.TestCase):
 
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       next_step = executing.run(
-          agent._sample_single_next_step(  # pytype: disable=wrong-keyword-args
-              state=prev_state, environment=env
-          )
+          agent._sample_single_next_step(state=prev_state, environment=env)
       )
 
     # With retry_on_parsing_error=False, we expect react_parse to raise an
@@ -558,7 +556,7 @@ class ReactTest(parameterized.TestCase):
     num_candidates = 1
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       next_step_candidates = executing.run(
-          agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+          agent.sample_next_step(
               state=prev_state, num_candidates=num_candidates, environment=env
           )
       )
@@ -615,7 +613,7 @@ class ReactTest(parameterized.TestCase):
     )
 
     (output, final_state), execution_result = executing.run(  # pyrefly: ignore[not-iterable]
-        agent(inputs=question, return_final_state=True),  # pytype: disable=wrong-keyword-args
+        agent(inputs=question, return_final_state=True),
         enable_tracing=True,
     )
     leaf_results = execution_result.get_leaf_results()

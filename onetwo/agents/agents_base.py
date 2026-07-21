@@ -300,13 +300,13 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
         break
       if stop_condition is not None and stop_condition(state):
         break
-      candidate_updates = await self.sample_next_step(  # pytype: disable=wrong-keyword-args
+      candidate_updates = await self.sample_next_step(
           state=state, num_candidates=1, environment=environment
       )
       if not candidate_updates:
         break
       update = candidate_updates[0]
-      state += update  # pytype: disable=unsupported-operands
+      state += update
       step += 1
       yield update
 
@@ -337,7 +337,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
         given condition (if it doesn't already stop earlier).
     """
     state = copy.deepcopy(initial_state)
-    async for update in self.stream_updates(  # pytype: disable=wrong-keyword-args
+    async for update in self.stream_updates(
         initial_state=state,
         environment=environment,
         max_steps=max_steps,
@@ -391,8 +391,8 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
       if initial_state is not None:
         state = copy.deepcopy(initial_state)
       else:
-        state = await self.initialize_state(inputs, environment=env)  # pytype: disable=wrong-keyword-args
-      async for update in self.stream_updates(  # pytype: disable=wrong-keyword-args
+        state = await self.initialize_state(inputs, environment=env)
+      async for update in self.stream_updates(
           initial_state=state,
           environment=env,
           max_steps=max_steps,
@@ -412,7 +412,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   ) -> list[_U]:
     """Starts a new environment and executes `sample_next_step`."""
     async with self.start_environment() as env:
-      return await self.sample_next_step(  # pytype: disable=wrong-keyword-args
+      return await self.sample_next_step(
           state=state, num_candidates=num_candidates, environment=env
       )
 
@@ -427,7 +427,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   ) -> AsyncIterator[_U]:
     """Starts a new environment and executes `stream_updates`."""
     async with self.start_environment() as env:
-      async for update in self.stream_updates(  # pytype: disable=wrong-keyword-args
+      async for update in self.stream_updates(
           initial_state=initial_state,
           environment=env,
           max_steps=max_steps,
@@ -446,7 +446,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
   ) -> AsyncIterator[_S]:
     """Starts a new environment and executes `stream_states`."""
     async with self.start_environment() as env:
-      async for state in self.stream_states(  # pytype: disable=wrong-keyword-args
+      async for state in self.stream_states(
           initial_state=initial_state,
           environment=env,
           max_steps=max_steps,
@@ -508,7 +508,7 @@ class SingleSampleAgent(Agent[_I, _O, _S, _U, _E]):
     if num_candidates == 1:
       # We can omit the `sampling.repeat` when num_candidates == 1, to avoid
       # unnecessary deep-copying of the executable.
-      next_step = await self._sample_single_next_step(  # pytype: disable=wrong-keyword-args
+      next_step = await self._sample_single_next_step(
           state=state, environment=environment
       )
       return [next_step]
@@ -516,7 +516,7 @@ class SingleSampleAgent(Agent[_I, _O, _S, _U, _E]):
       return list(
           await executing.par_iter(
               sampling.repeat(
-                  self._sample_single_next_step(  # pytype: disable=wrong-keyword-args
+                  self._sample_single_next_step(
                       state=state, environment=environment
                   ),
                   num_repeats=num_candidates,
