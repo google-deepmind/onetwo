@@ -55,7 +55,7 @@ def run_tool(
   )
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def default_run_tool(
     tool_name: str,
     tool_args: Sequence[Any],

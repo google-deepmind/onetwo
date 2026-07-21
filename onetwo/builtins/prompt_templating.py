@@ -66,7 +66,7 @@ class JinjaTemplateWithCallbacks(templating.JinjaTemplate):
     else:
       return super()._postprocess_iterable_reply(iterable_reply)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def dry_run(
       self,
       inputs: Mapping[str, Any],

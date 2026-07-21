@@ -673,7 +673,8 @@ async def _fork(
 
 def make_join_composable(
     joiner: Callable[
-        [_Bundle, Sequence[_Bundle]], _Bundle | Coroutine[Any, Any, _Bundle]
+        [Context, Sequence[_Bundle]],
+        tuple[Any, Context] | Coroutine[Any, Any, tuple[Any, Context]],
     ],
 ) -> Callable[..., Composable]:
   """Decorator that creates a composable that runs branches and joins them.

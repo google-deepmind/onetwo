@@ -15,7 +15,7 @@
 """Formatting tools for instruction tuned models."""
 
 import abc
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import copy
 import pprint
 from typing import Any, Final, TypeAlias, final
@@ -325,7 +325,7 @@ class ConcatFormatter(Formatter):
     return result
 
 
-FORMATTER_CLASS_BY_NAME: dict[FormatterName, type[Formatter]] = {
+FORMATTER_CLASS_BY_NAME: dict[FormatterName, Callable[..., Formatter]] = {
     FormatterName.DEFAULT: DefaultFormatter,
     FormatterName.CONCAT: ConcatFormatter,
 }

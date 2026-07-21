@@ -86,7 +86,7 @@ async def j(
 @composing.make_composable  # pytype: disable=wrong-arg-types
 def generate_text(context: composing.Context, **kwargs):
   """Composable version of the llm.generate_text function."""
-  return llm.generate_text(context.prefix, **kwargs)  # pytype: disable=wrong-arg-count
+  return llm.generate_text(context.prefix, **kwargs)
 
 
 @composing.make_composable  # pytype: disable=wrong-arg-types
@@ -97,16 +97,16 @@ async def chat(
   """Composable version of the llm.chat function."""
   return content_lib.ChunkList([
       content_lib.Chunk(
-          await llm.chat(context.to_messages(), **kwargs),  # pytype: disable=wrong-arg-count
+          await llm.chat(context.to_messages(), **kwargs),
           role=content_lib.PredefinedRole.MODEL,
       )
   ])
 
 
-@composing.make_join_composable  # pytype: disable=wrong-arg-types
+@composing.make_join_composable
 async def select(
     context: composing.Context,
-    options: Sequence[tuple[str, composing.Context]],
+    options: Sequence[tuple[content_lib.ChunkList, composing.Context]],
 ) -> tuple[str, composing.Context]:
   """Composable select function.
 
@@ -120,7 +120,7 @@ async def select(
   """
   common_prefix = context.prefix
   text_options = [text for text, _ in options]
-  value, index, _ = await llm.select(  # pytype: disable=wrong-arg-count
+  value, index, _ = await llm.select(
       common_prefix, text_options, include_details=True
   )
   return value, options[index][1]  # pyrefly: ignore[bad-index]
@@ -129,7 +129,7 @@ async def select(
 @composing.make_composable  # pytype: disable=wrong-arg-types
 def generate_object(context: composing.Context, cls: type[Any], **kwargs):
   """Composable version of the llm.generate_object function."""
-  return llm.generate_object(context.prefix, cls, **kwargs)  # pytype: disable=wrong-arg-count
+  return llm.generate_object(context.prefix, cls, **kwargs)
 
 
 @composing.make_composable  # pytype: disable=wrong-arg-types
@@ -142,7 +142,7 @@ async def instruct(
   # wrap this into an ExecutableWithPostprocessing which adds the
   # assistant_prefix, or change the prefix directly and call instruct with
   # the unchanged prefix (requires to deep-copy the prefix).
-  result = await llm.instruct(context.prefix, assistant_prefix, **kwargs)  # pytype: disable=wrong-arg-count
+  result = await llm.instruct(context.prefix, assistant_prefix, **kwargs)
   if assistant_prefix is None:
     return result
   else:

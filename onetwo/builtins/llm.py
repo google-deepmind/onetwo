@@ -495,7 +495,7 @@ async def default_chat(
     formatter_class = formatting.FORMATTER_CLASS_BY_NAME.get(formatter, None)
     if formatter_class is None:
       raise ValueError(f'Formatter {formatter.value} is not supported.')
-    formatter_instance = formatter_class(formatter_kwargs)  # pytype: disable=not-instantiable
+    formatter_instance = formatter_class(formatter_kwargs)
     prompt = formatter_instance.format(messages)
     stop_sequences = formatter_instance.extra_stop_sequences()
     defaults = routing.function_registry[generate_text.name].defaults

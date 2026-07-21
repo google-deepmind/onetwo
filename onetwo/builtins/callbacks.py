@@ -106,7 +106,7 @@ async def llm_callback(
   tracing.execution_context.get().inputs['request'] = prompt
 
   if samples is None:
-    executable = llm.generate_text(  # pytype: disable=wrong-arg-count
+    executable = llm.generate_text(
         prompt, include_details=True, **engine_param_overrides
     )
     assert isinstance(executable, executing.FunctionExecWrapper), (
@@ -132,8 +132,11 @@ async def llm_callback(
       reply = context.iterated_reply
 
   else:
-    replies = await llm.generate_texts(  # pytype: disable=wrong-arg-count
-        prompt, samples, include_details=True, **engine_param_overrides,
+    replies = await llm.generate_texts(
+        prompt,
+        samples,
+        include_details=True,
+        **engine_param_overrides,
     )
     replies = list(replies)
     # In the repeat mode we don't stream the requests back so we execute them
@@ -181,7 +184,7 @@ async def generate_text(
   # a parameter of the choose function.
   tracing.execution_context.get().inputs['request'] = prefix
 
-  reply = await llm.generate_text(  # pytype: disable=wrong-arg-count
+  reply = await llm.generate_text(
       prefix,
       temperature=temperature,
       max_tokens=max_tokens,
@@ -221,7 +224,7 @@ async def generate_texts(
   # a parameter of the choose function.
   tracing.execution_context.get().inputs['request'] = prefix
 
-  reply = await llm.generate_texts(  # pytype: disable=wrong-arg-count
+  reply = await llm.generate_texts(
       prefix,
       samples=samples,
       temperature=temperature,
@@ -233,7 +236,7 @@ async def generate_texts(
       include_details=False,  # We just want the string, no details.
   )
   tracing.execution_context.get().outputs[results.MAIN_OUTPUT] = reply
-  return reply  # pytype: disable=bad-return-type
+  return cast(Sequence[str], reply)
 
 
 # TODO: Add tracing for cls using a serializable type
@@ -289,10 +292,10 @@ async def generate_object(
   # We manually add the prefix as an input even though it is not technically
   # a parameter of the llm function.
   tracing.execution_context.get().inputs['request'] = prompt
-  reply = await llm.generate_object(prompt, cls, **engine_param_overrides)  # pytype: disable=wrong-arg-count
+  reply = await llm.generate_object(prompt, cls, **engine_param_overrides)
 
   tracing.execution_context.get().outputs[results.MAIN_OUTPUT] = reply
-  return reply  # pytype: disable=bad-return-type
+  return cast(_T, reply)
 
 
 @templating.add_mock_value
@@ -351,7 +354,7 @@ async def choose(
   # a parameter of the choose function.
   tracing.execution_context.get().inputs['request'] = prefix
 
-  choices, scores = await llm.rank(  # pytype: disable=wrong-arg-count
+  choices, scores = await llm.rank(
       prefix, candidates, top_k=top_k, include_details=True
   )
 

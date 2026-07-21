@@ -29,7 +29,7 @@ async def _add_async(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def _add_executable(arg1: Any, arg2: Any) -> Any:
   return arg1 + arg2
 
@@ -59,9 +59,7 @@ class ToolUseTest(parameterized.TestCase):
   def test_default_run_tool_function_types(self, add_function):
     routing.function_registry['add'] = add_function
     result = executing.run(
-        tool_use.run_tool(  # pytype: disable=wrong-keyword-args
-            tool_name='add', tool_args=['a', 'b'], tool_kwargs={}
-        )
+        tool_use.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
     )
     self.assertEqual('ab', result)
 
@@ -76,9 +74,7 @@ class ToolUseTest(parameterized.TestCase):
 
     routing.function_registry['add'] = add
     result = executing.run(
-        tool_use.run_tool(  # pytype: disable=wrong-keyword-args
-            tool_name='add', tool_args=args, tool_kwargs=kwargs
-        )
+        tool_use.run_tool(tool_name='add', tool_args=args, tool_kwargs=kwargs)
     )
     self.assertEqual(expected_result, result)
 

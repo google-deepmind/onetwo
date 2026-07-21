@@ -651,7 +651,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
     coroutines = [prompt.dry_run({'begin': letter}) for letter in letters]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def multiple_dry_runs():
       return await asyncio.gather(*coroutines)  # pyrefly: ignore[no-matching-overload]
 
