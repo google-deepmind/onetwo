@@ -49,7 +49,7 @@ import collections
 import contextlib
 import dataclasses
 import random
-from typing import Any, Generic, Iterable, Iterator, Sequence
+from typing import Any, Generic, Iterable, Iterator, Sequence, TypeVar
 
 import numpy as np
 from onetwo.backends import backends_base
@@ -67,13 +67,13 @@ from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import serialization
 base_serializer = serialization.SimpleEmbeddingBasedIndexSerializer
 
-QueryT = retrieval.QueryT
-RetrievalResultT = retrieval.RetrievalResultT
-DocT = retrieval.DocT
+QueryT = TypeVar('QueryT')
+RetrievalResultT = TypeVar('RetrievalResultT')
+DocT = TypeVar('DocT')
 Document = retrieval_data_structures.Document
 
 
-class Index(  # pyrefly: ignore[invalid-type-var]
+class Index(
     retrieval.Retriever[QueryT, RetrievalResultT],
     Generic[QueryT, RetrievalResultT, DocT],
     metaclass=abc.ABCMeta,
