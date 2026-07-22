@@ -16,9 +16,12 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from google.genai import types as genai_types
 from onetwo import ot
 from onetwo.backends import backends_test_utils
+from onetwo.builtins import llm
 from onetwo.core import content as content_lib
+from onetwo.core import routing
 from onetwo.stdlib.qa import mcp_strategies
 from onetwo.stdlib.qa import qa
 
@@ -366,6 +369,165 @@ class CrossStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertEqual(result.answer, 'cross answer')
+
+
+class ThinkingConfigMergingTest(parameterized.TestCase):
+  """Tests that the MCP strategy merges thinking_config with existing defaults."""
+
+  def setUp(self):
+    super().setUp()
+    self.llm_backend = backends_test_utils.LLMForTest(
+        default_reply='thinking answer',
+    )
+    self.llm_backend.register()
+
+    # Mock fastmcp Client and transport to avoid network requests.
+    self.mock_client_class = self.enter_context(
+        mock.patch.object(mcp_strategies.fastmcp, 'Client', autospec=True)
+    )
+    self.mock_client = self.mock_client_class.return_value
+    self.mock_client.__aenter__ = mock.AsyncMock(return_value=self.mock_client)
+    self.mock_client.session = mock.MagicMock()
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='no_existing_thinking_config',
+          default_thinking_config=None,
+          expected_include_thoughts=True,
+          expected_thinking_budget=None,
+          expected_thinking_level=None,
+      ),
+      dict(
+          testcase_name='existing_config_with_budget_and_thoughts_disabled',
+          default_thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=False,
+              thinking_budget=1024,
+          ),
+          expected_include_thoughts=True,
+          expected_thinking_budget=1024,
+          expected_thinking_level=None,
+      ),
+      dict(
+          testcase_name='existing_config_with_budget_only',
+          default_thinking_config=genai_types.ThinkingConfig(
+              thinking_budget=2048,
+          ),
+          expected_include_thoughts=True,
+          expected_thinking_budget=2048,
+          expected_thinking_level=None,
+      ),
+      dict(
+          testcase_name='existing_config_with_zero_budget',
+          default_thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=False,
+              thinking_budget=0,
+          ),
+          expected_include_thoughts=True,
+          expected_thinking_budget=0,
+          expected_thinking_level=None,
+      ),
+      dict(
+          testcase_name='existing_config_with_thinking_level',
+          default_thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=False,
+              thinking_level=genai_types.ThinkingLevel.LOW,
+          ),
+          expected_include_thoughts=True,
+          expected_thinking_budget=None,
+          expected_thinking_level=genai_types.ThinkingLevel.LOW,
+      ),
+      dict(
+          testcase_name='existing_config_with_all_fields',
+          default_thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=False,
+              thinking_budget=4096,
+              thinking_level=genai_types.ThinkingLevel.HIGH,
+          ),
+          expected_include_thoughts=True,
+          expected_thinking_budget=4096,
+          expected_thinking_level=genai_types.ThinkingLevel.HIGH,
+      ),
+      dict(
+          testcase_name='existing_config_with_thoughts_already_enabled',
+          default_thinking_config=genai_types.ThinkingConfig(
+              include_thoughts=True,
+              thinking_budget=512,
+          ),
+          expected_include_thoughts=True,
+          expected_thinking_budget=512,
+          expected_thinking_level=None,
+      ),
+      dict(
+          testcase_name='strategy_include_thoughts_false',
+          default_thinking_config=genai_types.ThinkingConfig(
+              thinking_budget=1024,
+          ),
+          strategy_include_thoughts=False,
+          expected_include_thoughts=False,
+          expected_thinking_budget=1024,
+          expected_thinking_level=None,
+      ),
+  )
+  def test_thinking_config_merging(
+      self,
+      default_thinking_config,
+      expected_include_thoughts,
+      expected_thinking_budget,
+      expected_thinking_level,
+      strategy_include_thoughts=True,
+  ):
+    # Set the default thinking_config in the backend's chat defaults.
+    if default_thinking_config is not None:
+      llm.chat.update(thinking_config=default_thinking_config)
+
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+        include_thoughts=strategy_include_thoughts,
+    )
+
+    # Capture the kwargs passed to llm.chat by temporarily swapping the
+    # chat wrapper's _registered_function with a spy. This works because
+    # _BuiltinWrapper.__call__ delegates to self._registered_function().
+    captured_kwargs = {}
+    chat_wrapper = routing.function_registry[llm.chat.name]
+    original_fn = chat_wrapper._registered_function
+
+    def capturing_fn(*args, **kwargs):
+      captured_kwargs.update(kwargs)
+      return original_fn(*args, **kwargs)
+
+    chat_wrapper._registered_function = capturing_fn
+    try:
+      ot.run(strategy(question='Test question'))
+    finally:
+      chat_wrapper._registered_function = original_fn
+
+    actual_config = captured_kwargs['thinking_config']
+    with self.subTest('include_thoughts'):
+      self.assertEqual(
+          actual_config.include_thoughts, expected_include_thoughts
+      )
+    with self.subTest('thinking_budget'):
+      self.assertEqual(actual_config.thinking_budget, expected_thinking_budget)
+    with self.subTest('thinking_level'):
+      self.assertEqual(actual_config.thinking_level, expected_thinking_level)
+
+  def test_original_default_thinking_config_not_mutated(self):
+    """Verifies the original default ThinkingConfig is not mutated in place."""
+    original_config = genai_types.ThinkingConfig(
+        include_thoughts=False,
+        thinking_budget=1024,
+    )
+    llm.chat.update(thinking_config=original_config)
+
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+    )
+    ot.run(strategy(question='Test question'))
+
+    # The original config should still have include_thoughts=False.
+    self.assertFalse(original_config.include_thoughts)
+    self.assertEqual(original_config.thinking_budget, 1024)
 
 
 if __name__ == '__main__':

@@ -26,6 +26,7 @@ from google.genai import types as genai_types
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import strategies_lib
 
@@ -99,10 +100,14 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     query_template: A format string used to wrap the question before sending it
       to the LLM. Must contain both ``{question}`` and
       ``{additional_instructions}`` placeholders.
+    include_thoughts: Whether to include thoughts in the backend response.
+      Defaults to True. Useful to analyze the thought process of the model in
+      between tool calls.
   """
 
   mcp_server_url: str = ''
   query_template: str = default_qa_template_mcp
+  include_thoughts: bool = True
   _client: Any = dataclasses.field(default=None, init=False)
   _client_lock: asyncio.Lock = dataclasses.field(
       default_factory=asyncio.Lock, init=False
@@ -190,11 +195,26 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
         client.session.__deepcopy__ = lambda memo: client.session
         self._client = client
 
+    # Build a thinking_config that preserves any existing settings (e.g.,
+    # thinking_budget) from the backend's configured defaults, and only
+    # sets include_thoughts=True on top of them.
+    chat_defaults = routing.function_registry[llm.chat.name].defaults
+    existing_thinking_config = chat_defaults.get('thinking_config')
+    if existing_thinking_config is not None:
+      thinking_config = existing_thinking_config.model_copy(
+          update={'include_thoughts': self.include_thoughts}
+      )
+    else:
+      thinking_config = genai_types.ThinkingConfig(
+          include_thoughts=self.include_thoughts
+      )
+
     kwargs = {
         'tools': [self._client.session],
         'automatic_function_calling': (
             genai_types.AutomaticFunctionCallingConfig(maximum_remote_calls=100)
         ),
+        'thinking_config': thinking_config,
     }
 
     messages = [
