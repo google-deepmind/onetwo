@@ -390,27 +390,6 @@ class NaiveIndex(DocumentIndex):
     return result
 
 
-# TODO: remove these functions as they are unused in this file
-# and fix calling places.
-def default_prepare_query(query: Any) -> str:
-  """Returns an appropriately formatted query string for embeddings."""
-  return f'task: search result | query: {str(query)}'
-
-
-# TODO: Determine the most effective default formatting strategy.
-def default_prepare_document(doc: Any) -> str:
-  """Returns an appropriately formatted doc string for embeddings."""
-  if not isinstance(doc, retrieval_data_structures.Document):
-    return str(doc)
-  # TODO: Implement proper support for multimodal content.
-  # Currently when formatting the document contents for passing to the
-  # embedding model, we are implicitly converting it to a string, which
-  # ignores any multimodal portions.
-  title = doc.title or 'none'
-  text = doc.content or 'none'
-  return f'title: {title} | text: {text}'
-
-
 # fmt: off
 @dataclasses.dataclass(kw_only=True)
 class AbstractEmbeddingBasedIndex(
