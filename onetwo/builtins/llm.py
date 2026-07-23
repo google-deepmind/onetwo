@@ -32,12 +32,17 @@ from typing import Any, TypeAlias, TypeVar
 
 from onetwo.builtins import builtins_base
 from onetwo.builtins import formatting
+from onetwo.builtins import legacy_llm_builtins
 from onetwo.builtins import llm_utils
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import routing
-from onetwo.core import sampling
 from onetwo.core import tracing
+
+# For backward compatibility.
+# New code should use llm.chat or llm.generate_content.
+generate_texts = legacy_llm_builtins.generate_texts
+generate_text = legacy_llm_builtins.generate_text
 
 _T = TypeVar('_T')
 
@@ -66,59 +71,6 @@ _UNIMPLEMENTED_ERROR = NotImplementedError(
 
 # A key for the `include_details` where thoughts can be found
 THOUGHTS = 'thoughts'
-
-
-@builtins_base.Builtin[str | tuple[str, Mapping[str, Any]]]
-async def generate_text(
-    prompt: str | _ChunkList,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    stop: Sequence[str] | None = None,
-    top_k: int | None = None,
-    top_p: float | None = None,
-    decoding_constraint: str | None = None,
-    include_details: bool = False,
-    healing_option: TokenHealingOption = TokenHealingOption.NONE,
-) -> str | tuple[str, Mapping[str, Any]]:
-  """Interface of the generate_text built-in function.
-
-  Completes the provided prompt with the LLM and return the completion. This is
-  intended to be the "purest" form of completion, where "what you specify is
-  what the LLM will see", i.e., little to no modification is applied to your
-  prompt before it is sent to the model. See `instruct` and `chat` for the
-  higher level builtin functions.
-
-  Args:
-    prompt: A string (which will have to be parsed into a _ChunkList) or a
-      _ChunkList.
-    temperature: Optional temperature parameter (float).
-    max_tokens: Optional maximum number of tokens to generate (int).
-    stop: Optional Sequence of strings on which to stop the generation.
-    top_k: Optional top_k parameter (int).
-    top_p: Optional top_p parameter (float).
-    decoding_constraint: Optional decoding constraint regex (str).
-    include_details: If True, the result will be a tuple with a string and a
-      Mapping containing additional information (backend-specific).
-    healing_option: Type of token healing applied to the prompt (`NONE` by
-      default).
-
-  Returns:
-    The answer from the calling the LLM text generation function
-    on the provided chunks.
-  """
-  del (
-      prompt,
-      temperature,
-      max_tokens,
-      stop,
-      top_k,
-      top_p,
-      decoding_constraint,
-      include_details,
-      healing_option,
-  )
-  raise _UNIMPLEMENTED_ERROR
 
 
 Prompt = str | Sequence[_Chunk] | _ChunkList | Sequence[_Message]
@@ -167,114 +119,6 @@ def echo_generate_text(
   if isinstance(prompt, str):
     return prompt
   return '', {'prompt': prompt, 'kwargs': kwargs}
-
-
-@builtins_base.Builtin
-def generate_texts(
-    prompt: str | _ChunkList,
-    samples: int = 1,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    stop: Sequence[str] | None = None,
-    top_k: int | None = None,
-    top_p: float | None = None,
-    decoding_constraint: str | None = None,
-    include_details: bool = False,
-    healing_option: TokenHealingOption = TokenHealingOption.NONE,
-) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
-  """Interface of the generate_texts built-in function.
-
-  Version of `generate_text` that generates multiple samples.
-
-  Args:
-    prompt: A string (which will have to be parsed into a _ChunkList) or a
-      _ChunkList.
-    samples: Number of samples to generate for this prompt.
-    temperature: Optional temperature parameter (float).
-    max_tokens: Optional maximum number of tokens to generate (int).
-    stop: Optional Sequence of strings on which to stop the generation.
-    top_k: Optional top_k parameter (int).
-    top_p: Optional top_p parameter (float).
-    decoding_constraint: Optional decoding constraint regex (str).
-    include_details: If True, the result will be a Sequence of tuples instead of
-      a sequence of strings (see include_details in generate_text).
-    healing_option: Type of token healing applied to the prompt (`NONE` by
-      default).
-
-  Returns:
-    A Sequence of samples from the LLM.
-  """
-  del (
-      prompt,
-      samples,
-      temperature,
-      max_tokens,
-      stop,
-      top_k,
-      top_p,
-      decoding_constraint,
-      include_details,
-      healing_option,
-  )
-  raise _UNIMPLEMENTED_ERROR
-
-
-@executing.make_executable
-def _default_generate_texts(
-    prompt: str | _ChunkList,
-    samples: int = 1,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    stop: Sequence[str] | None = None,
-    top_k: int | None = None,
-    top_p: float | None = None,
-    decoding_constraint: str | None = None,
-    include_details: bool = False,
-    healing_option: TokenHealingOption = TokenHealingOption.NONE,
-) -> Sequence[str | tuple[str, Mapping[str, Any]]]:
-  """Default implementation via repeatedly calling generate_text(_with_details).
-
-  Args:
-    prompt: The text prompt as a string.
-    samples: Number of samples to generate for this prompt.
-    temperature: Optional temperature parameter (float).
-    max_tokens: Optional maximum number of tokens to generate (int).
-    stop: Optional Sequence of strings on which to stop the generation.
-    top_k: Optional top_k parameter (int).
-    top_p: Optional top_p parameter (float).
-    decoding_constraint: Optional decoding constraint regex (str).
-    include_details: If True, the result will be a Sequence of tuples instead of
-      a sequence of strings (see include_details in generate_text).
-    healing_option: Type of token healing applied to the prompt (`NONE` by
-      default).
-
-  Returns:
-    A Sequence of samples from the LLM.
-  """
-  executable = generate_text(
-      prompt,
-      temperature=temperature,
-      max_tokens=max_tokens,
-      stop=stop,
-      top_k=top_k,
-      top_p=top_p,
-      decoding_constraint=decoding_constraint,
-      include_details=include_details,
-      healing_option=healing_option,
-  )
-  if not isinstance(executable, executing.Executable):
-    raise ValueError(
-        'The implementation of generate_text should return an Executable.'
-    )
-  executables = sampling.repeat(executable, samples)
-  # Note that we return an executable and thus the make_executable decorator
-  # will ensure that the returned value can be executed or streamed
-  # transparently.
-  # In particular we disable the bad-return-type check because of this
-  # conversion done dynamically.
-  return executing.par_iter(executables)  # pytype: disable=bad-return-type
 
 
 @builtins_base.Builtin
@@ -668,8 +512,7 @@ def reset_defaults(
   """
   # Keep all module level `some_builtin.configure(...)` commands in this method.
   if reset_generate:
-    # Default `generate_texts` uses `generate_text`.
-    generate_texts.configure(_default_generate_texts)
+    legacy_llm_builtins.reset_defaults()
     # Default `instruct` uses `chat`.
     instruct.configure(default_instruct)
     # Default `chat` uses `generate_text`.
