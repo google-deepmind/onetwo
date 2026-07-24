@@ -29,9 +29,9 @@ from collections.abc import Iterable
 import copy
 import dataclasses
 from typing import Any, Protocol, Sequence
-from onetwo import ot
 from onetwo.builtins import llm
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.core import tracing
 from onetwo.core import utils
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -160,7 +160,7 @@ async def truncate_string_to_max_tokens(
       specified, then will default to the currently-registered backend.
   """
 
-  with ot.RegistryContext():
+  with routing.RegistryContext():
     if tokenizer_backend is not None:
       tokenizer_backend.register()
     return await llm.detokenize((await llm.tokenize(text))[:max_tokens])
@@ -186,7 +186,7 @@ async def filter_by_max_tokens(
     tokenizer_backend: The LLM backend to use for tokenization. If not
       specified, then will default to the currently-registered backend.
   """
-  with ot.RegistryContext():
+  with routing.RegistryContext():
     if tokenizer_backend is not None:
       tokenizer_backend.register()
     total_tokens = 0
@@ -275,7 +275,7 @@ class ChunkByMaxTokens(TextChunker):
         all_tokens[i : i + self.max_tokens_per_chunk]
         for i in range(0, len(all_tokens), step)
     ]
-    chunks = await ot.parallel(*[
+    chunks = await executing.parallel(*[
         llm.detokenize(tokenized_chunk) for tokenized_chunk in tokenized_chunks
     ])
     if self.strip_whitespace:

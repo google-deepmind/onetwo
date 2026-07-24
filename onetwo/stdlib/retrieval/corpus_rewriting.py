@@ -37,7 +37,6 @@ from collections.abc import Iterable
 import dataclasses
 from typing import Protocol, Sequence, TypeVar
 
-from onetwo import ot
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
@@ -114,7 +113,7 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
   ) -> Iterable[DocT]:
     """Overridden from base class (CorpusRewriter)."""
     chunked_corpus = []
-    for chunks in await ot.parallel(
+    for chunks in await executing.parallel(
         *[self.chunker(document) for document in corpus]
     ):
       chunked_corpus.extend(chunks)
@@ -146,7 +145,9 @@ class FormattingCorpusRewriter(CorpusRewriter[DocT]):
       corpus: Iterable[DocT],
   ) -> Iterable[DocT]:
     """Overridden from base class (CorpusRewriter)."""
-    return await ot.parallel(*[self.formatter(document) for document in corpus])
+    return await executing.parallel(
+        *[self.formatter(document) for document in corpus]
+    )
 
 
 @dataclasses.dataclass(frozen=True)
