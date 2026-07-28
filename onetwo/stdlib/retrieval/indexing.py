@@ -541,7 +541,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     with self._backend_routing_context():
       embed_executables = [
           llm.embed(
-              doc.content,
+              doc.content,  # pyrefly: ignore[missing-attribute]
               task_type=self.document_task_type,
               title=doc.title,
           )
@@ -567,7 +567,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     docs = list(docs)
     if not docs:
       return
-    _validate_docs(docs)
+    _validate_docs(docs)  # pyrefly: ignore[bad-argument-type]
     self._docs.extend(docs)
     embedded_results = await self._calculate_doc_embeddings(docs)
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])

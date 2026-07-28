@@ -201,7 +201,7 @@ async def _generate_text(
     healing_option: TokenHealingOption = TokenHealingOption.NONE,
 ) -> str | tuple[str, dict[str, Any]]:
   """Interface of the generate_text built-in function."""
-  del (
+  del (  # pyrefly: ignore[unsupported-delete]
       prompt,
       temperature,
       max_tokens,
@@ -230,7 +230,7 @@ def _generate_texts(
     healing_option: TokenHealingOption = TokenHealingOption.NONE,
 ) -> Sequence[str | tuple[str, dict[str, Any]]]:
   """Interface of the generate_texts built-in function."""
-  del (
+  del (  # pyrefly: ignore[unsupported-delete]
       prompt,
       samples,
       temperature,

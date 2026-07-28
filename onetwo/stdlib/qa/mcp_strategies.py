@@ -192,7 +192,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
         # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
         # live session objects (like Futures) during GenAI SDK's internal
         # config copying. Returning self preserves the shared live connection.
-        client.session.__deepcopy__ = lambda memo: client.session
+        client.session.__deepcopy__ = lambda memo: client.session  # pyrefly: ignore[missing-attribute]
         self._client = client
 
     # Build a thinking_config that preserves any existing settings (e.g.,

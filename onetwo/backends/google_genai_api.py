@@ -456,7 +456,7 @@ def _update_trace_info_from_usage_metadata(
       'llm.tools.calls': tool_call_count,
   }
   if tool_call_details:
-    trace_info['llm.tools.details'] = tool_call_details
+    trace_info['llm.tools.details'] = tool_call_details  # pyrefly: ignore[bad-assignment]
   tracing.update_info(trace_info)
 
 

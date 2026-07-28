@@ -299,7 +299,7 @@ def main(argv: Sequence[str]) -> None:
       )
       print(f'  Index built with {emb_index.num_docs} docs.')
 
-      strategy = strategies_lib.RAGStrategy(retriever=emb_index)
+      strategy = strategies_lib.RAGStrategy(retriever=emb_index)  # pyrefly: ignore[bad-argument-type]
       result = executing.run(
           strategy(question='What is the capital of Spain?', max_results=2)
       )
@@ -327,7 +327,7 @@ def main(argv: Sequence[str]) -> None:
       executing.run(
           emb_index.create_index(corpus_name='capitals', docs=_CAPITAL_DOCS)
       )
-      strategy = strategies_lib.RAGStrategy(retriever=emb_index)
+      strategy = strategies_lib.RAGStrategy(retriever=emb_index)  # pyrefly: ignore[bad-argument-type]
       result = executing.run(
           strategy(
               question='Tell me about the Brandenburg Gate in Germany.',
@@ -378,7 +378,7 @@ def main(argv: Sequence[str]) -> None:
           emb_index.create_index(corpus_name='multimodal', docs=mm_docs)
       )
       print(f'  Index built with {emb_index.num_docs} docs.')
-      strategy = strategies_lib.RAGStrategy(retriever=emb_index)
+      strategy = strategies_lib.RAGStrategy(retriever=emb_index)  # pyrefly: ignore[bad-argument-type]
       result = executing.run(
           strategy(question='What kind of bird is in the photo?', max_results=1)
       )
@@ -424,7 +424,7 @@ def main(argv: Sequence[str]) -> None:
           _Chunk('I want to visit a European capital known for the '),
           _Chunk('Eiffel Tower. Which country is it in?'),
       ])
-      strategy = strategies_lib.RAGStrategy(retriever=emb_index)
+      strategy = strategies_lib.RAGStrategy(retriever=emb_index)  # pyrefly: ignore[bad-argument-type]
       result = executing.run(strategy(question=mm_question, max_results=2))
       print(f'  Answer: {result.answer}')
       print(f'  Doc IDs: {result.doc_ids}')
