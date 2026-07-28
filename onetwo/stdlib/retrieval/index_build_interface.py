@@ -16,6 +16,8 @@
 
 import abc
 import dataclasses
+import hashlib
+import json
 from typing import Any, Generic, TypeVar
 
 import dataclasses_json
@@ -51,6 +53,12 @@ def make_searcher(config: SearcherConfig) -> searchers.Searcher:
 class IndexSpec(dataclasses_json.DataClassJsonMixin, abc.ABC):
   """Base class for index specifications."""
 
+  def get_stable_hash(self) -> str:
+    """Returns a stable 8-character hash of the specification."""
+    json_dict = json.loads(self.to_json())
+    stable_json = json.dumps(json_dict, sort_keys=True)
+    return hashlib.md5(stable_json.encode("utf-8")).hexdigest()[:8]
+
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass
@@ -76,17 +84,12 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
 
   def __str__(self) -> str:
     """Returns a compact, path-friendly string representation."""
-    parts = []
-    if self.embed_backend_config.model_name:
-      parts.append(f"model={self.embed_backend_config.model_name}")
-    else:
-      parts.append(f"backend={self.embed_backend_config.backend_class_name}")
-    parts.append(f"searcher={self.searcher_config.class_name}")
-    if self.query_task_type:
-      parts.append(f"query_task={self.query_task_type}")
-    if self.document_task_type:
-      parts.append(f"doc_task={self.document_task_type}")
-    return "-".join(parts)
+    model_name = (
+        self.embed_backend_config.model_name
+        or self.embed_backend_config.backend_class_name
+    )
+    spec_hash = self.get_stable_hash()
+    return f"EmbeddingBasedDocumentIndex_{model_name}__hash_{spec_hash}"
 
 
 # TODO: Standardize the spec-to-rewriter mapping and make it
@@ -104,10 +107,27 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
   Attributes:
     max_tokens_per_chunk: Maximum tokens per chunk for chunking.
     format_str: Format string for document formatting.
+    overlap_window: Number of tokens to overlap between chunks.
   """
 
   max_tokens_per_chunk: int | None = 512
   format_str: str = "Title: {title}\nFacts: {text}"
+  overlap_window: int = 0
+
+  def __str__(self) -> str:
+    """Returns a compact, path-friendly string representation."""
+    model_name = (
+        self.embed_backend_config.model_name
+        or self.embed_backend_config.backend_class_name
+    )
+    spec_hash = self.get_stable_hash()
+    return (
+        "EmbeddingBasedDocumentIndex"
+        f"_chunk_size_{self.max_tokens_per_chunk}"
+        f"_overlap_window_{self.overlap_window}"
+        f"_{model_name}"
+        f"__hash_{spec_hash}"
+    )
 
 
 SpecT = TypeVar("SpecT", bound=IndexSpec)

@@ -224,7 +224,24 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.assertEqual(
         str(spec),
-        'model=gemini-embedding-2-searcher=BruteForceSearcher-query_task=CUSTOM_QUERY_TASK-doc_task=CUSTOM_DOC_TASK',
+        'EmbeddingBasedDocumentIndex_gemini-embedding-2__hash_00c8c803',
+    )
+
+  def test_simple_rewriting_index_spec_str_representation(self):
+    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        query_task_type='CUSTOM_QUERY_TASK',
+        document_task_type='CUSTOM_DOC_TASK',
+        searcher_config=index_build_interface.SearcherConfig(
+            class_name='BruteForceSearcher',
+        ),
+        max_tokens_per_chunk=512,
+        overlap_window=50,
+        format_str='{text}',
+    )
+    self.assertEqual(
+        str(spec),
+        'EmbeddingBasedDocumentIndex_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_ee25466c',
     )
 
 

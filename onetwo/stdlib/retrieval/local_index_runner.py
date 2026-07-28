@@ -60,7 +60,8 @@ class LocalIndexRunner(
         chunker = chunking.NoChunking()
       else:
         chunker = chunking.ChunkByMaxTokens(
-            max_tokens_per_chunk=spec.max_tokens_per_chunk
+            max_tokens_per_chunk=spec.max_tokens_per_chunk,
+            overlap_window=spec.overlap_window,
         )
       formatter = document_formatting.TextDocumentFormatter(
           format_str=spec.format_str
