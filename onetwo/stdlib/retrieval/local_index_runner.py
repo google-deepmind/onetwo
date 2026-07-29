@@ -63,9 +63,12 @@ class LocalIndexRunner(
             max_tokens_per_chunk=spec.max_tokens_per_chunk,
             overlap_window=spec.overlap_window,
         )
-      formatter = document_formatting.TextDocumentFormatter(
-          format_str=spec.format_str
-      )
+      if spec.format_str is None:
+        formatter = document_formatting.NoFormatting()
+      else:
+        formatter = document_formatting.TextDocumentFormatter(
+            format_str=spec.format_str
+        )
       rewriter = corpus_rewriting.SequentialCorpusRewriter(
           rewriters=[
               corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),

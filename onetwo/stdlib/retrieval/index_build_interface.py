@@ -110,8 +110,8 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     overlap_window: Number of tokens to overlap between chunks.
   """
 
-  max_tokens_per_chunk: int | None = 512
-  format_str: str = "Title: {title}\nFacts: {text}"
+  max_tokens_per_chunk: int | None = None
+  format_str: str | None = "{text}"
   overlap_window: int = 0
 
   def __str__(self) -> str:
