@@ -33,9 +33,8 @@ BACKEND_REGISTRY: dict[str, type[backends_base.Backend]] = {
 }
 
 
-@dataclasses_json.dataclass_json
 @dataclasses.dataclass(frozen=True)
-class BackendConfig:
+class BackendConfig(dataclasses_json.DataClassJsonMixin):
   """Configuration for a backend.
 
   Attributes:
@@ -53,6 +52,17 @@ class BackendConfig:
   backend_class_name: str | None = None
   model_name: str | None = None
   kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+  def __str__(self) -> str:
+    """Returns a compact, human-readable string representation."""
+    parts = []
+    if self.backend_class_name:
+      parts.append(self.backend_class_name)
+    if self.model_name:
+      parts.append(self.model_name)
+    for k, v in sorted(self.kwargs.items()):
+      parts.append(f'{k}={v}')
+    return '-'.join(parts)
 
 
 @dataclasses_json.dataclass_json

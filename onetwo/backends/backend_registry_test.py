@@ -92,6 +92,26 @@ class BackendRegistryTest(absltest.TestCase):
     ):
       backend_registry.get_backend(config, temperature=0.8)
 
+  def test_backend_config_serialization(self):
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI',
+        model_name='gemini-1.5-pro',
+        kwargs={'temperature': 0.5},
+    )
+    json_str = config.to_json()
+    reconstructed = backend_registry.GenerateBackendConfig.from_json(json_str)
+    self.assertEqual(config, reconstructed)
+
+  def test_backend_config_str(self):
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI',
+        model_name='gemini-1.5-pro',
+        kwargs={'temperature': 0.5},
+    )
+    self.assertEqual(
+        str(config), 'GoogleGenAIAPI-gemini-1.5-pro-temperature=0.5'
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
