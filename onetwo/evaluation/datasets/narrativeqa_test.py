@@ -31,6 +31,7 @@ def _make_narrativeqa_row(
     doc_id: str = 'test_doc_id_1',
     doc_text: str = 'France is a country in Europe. Its capital is Paris.',
     url: str = 'http://example.com/france',
+    title: str = 'France Document',
     summary: str = 'Summary of France',
     kind: str = 'story',
 ) -> dict[str, Any]:
@@ -40,7 +41,10 @@ def _make_narrativeqa_row(
           'id': doc_id.encode('utf-8'),
           'text': doc_text.encode('utf-8'),
           'url': url.encode('utf-8'),
-          'summary': summary.encode('utf-8'),
+          'summary': {
+              'title': title.encode('utf-8'),
+              'text': summary.encode('utf-8'),
+          },
           'kind': kind.encode('utf-8'),
       },
       'question': {
@@ -150,8 +154,12 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     examples = ot.run(loader.load_examples())
 
     self.assertLen(examples, 2)
-    self.assertEqual(examples[0]['question'], 'Q1')
-    self.assertEqual(examples[1]['question'], 'Q2')
+    self.assertEqual(
+        examples[0]['question'], 'In France Document, q1'
+    )
+    self.assertEqual(
+        examples[1]['question'], 'In France Document, q2'
+    )
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
   def test_max_examples_limits_documents_output(self, mock_tfds):
@@ -186,8 +194,12 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     examples = ot.run(loader.load_examples())
 
     self.assertLen(examples, 2)
-    self.assertEqual(examples[0]['question'], 'Q1')
-    self.assertEqual(examples[1]['question'], 'Q3')
+    self.assertEqual(
+        examples[0]['question'], 'In France Document, q1'
+    )
+    self.assertEqual(
+        examples[1]['question'], 'In France Document, q3'
+    )
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
   def test_doc_ids_filter_documents(self, mock_tfds):
@@ -271,6 +283,64 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     self.assertEqual(loader.max_number_of_examples, 5)
     self.assertFalse(loader.clean_html)
     self.assertEqual(loader.doc_ids, ['D1'])
+
+  @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
+  def test_question_prepended_with_title(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(
+            question='What happened to the hero?',
+            title='Percival Keene',
+        ),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = narrativeqa.NarrativeQADatasetLoader()
+    examples = ot.run(loader.load_examples())
+
+    self.assertLen(examples, 1)
+    self.assertEqual(
+        examples[0]['question'],
+        'In Percival Keene, what happened to the hero?',
+    )
+
+  @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
+  def test_metadata_uses_golden_doc_ids(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(doc_id='doc_123'),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = narrativeqa.NarrativeQADatasetLoader()
+    examples = ot.run(loader.load_examples())
+
+    self.assertLen(examples, 1)
+    metadata = examples[0]['metadata']
+    self.assertNotIn('document_id', metadata)
+    self.assertEqual(
+        metadata[datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS],
+        ['doc_123'],
+    )
+
+  @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
+  def test_document_title_from_summary(self, mock_tfds):
+    rows = [
+        _make_narrativeqa_row(
+            doc_id='D1',
+            title='The Great Novel',
+            url='http://example.com/novel',
+        ),
+    ]
+    mock_tfds.load.return_value = mock.MagicMock()
+    mock_tfds.as_numpy.return_value = iter(rows)
+
+    loader = narrativeqa.NarrativeQADatasetLoader()
+    documents = list(ot.run(loader.load_documents()))
+
+    self.assertLen(documents, 1)
+    self.assertEqual(documents[0].title, 'The Great Novel')
+    self.assertEqual(documents[0].metadata['url'], 'http://example.com/novel')
 
   def test_registered_loaders(self):
     for split in ['train', 'validation', 'test']:

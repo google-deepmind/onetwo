@@ -32,21 +32,32 @@ _ExampleDict = datasets_lib.ExampleDict
 
 @dataclasses.dataclass
 class NarrativeQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
-  """Loads the NarrativeQA dataset via TFDS, returning examples and documents.
+  """Loads a modified NarrativeQA dataset via TFDS.
+
+  This is a modified version of the original NarrativeQA dataset designed to
+  make all questions share a single corpus. The book or script title is
+  prepended to each question so that the model must first identify the
+  relevant document in the corpus and then answer the question.
+
+  For example, the original question:
+    "What injury does the infant T. rex suffer from?"
+  becomes:
+    "In Jurassic Park: The Lost World, what injury does the infant T. rex
+    suffer from?"
 
   This loader uses TFDS's HuggingFace bridge to load the `narrativeqa` dataset
   and provides methods to return evaluation-compatible examples and `Document`
   objects.
 
   The returned example dictionaries contain:
-    - question: The question text.
+    - question: The question text, prepended with the document title.
     - answer: A list of answer texts.
-    - metadata: Dictionary with 'document_id' (pointing to the ground truth
-      document).
+    - metadata: Dictionary with 'golden_doc_ids' (list containing the ground
+      truth document id).
 
   The returned `Document` objects contain:
     - doc_id: Unique identifier from the dataset.
-    - title: The URL of the document (used as title).
+    - title: The title of the book or script.
     - content: The full text of the document (optionally cleaned of HTML).
     - metadata: Dictionary with 'url', 'summary', and 'category'.
 
@@ -88,29 +99,32 @@ class NarrativeQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
     if self.clean_html:
       content = self._clean_text(content)
     url = datasets_lib.decode_value(raw_doc['url'])
+    title = datasets_lib.decode_value(raw_doc['summary']['title'])
     return _Document(
         doc_id=doc_id,
-        # The dataset does not have a separate title field, so we use the url
-        # as the title, because it typically contains the title.
-        title=url,
+        title=title,
         content=content,
         metadata={
             'url': url,
-            'summary': datasets_lib.decode_value(raw_doc['summary']),
+            'summary': datasets_lib.decode_value(raw_doc['summary']['text']),
             'category': datasets_lib.decode_value(raw_doc['kind']),
         },
     )
 
   def _build_example_from_row(self, row: dict[str, Any]) -> _ExampleDict:
+    title = datasets_lib.decode_value(row['document']['summary']['title'])
+    question = datasets_lib.decode_value(row['question']['text'])
     return {
-        datasets_lib.EXAMPLE_FIELD_QUESTION: datasets_lib.decode_value(
-            row['question']['text']
+        datasets_lib.EXAMPLE_FIELD_QUESTION: (
+            f'In {title}, {question[0].lower()}{question[1:]}'
         ),
         datasets_lib.EXAMPLE_FIELD_ANSWER: datasets_lib.decode_list(
             row['answers']['text']
         ),
         datasets_lib.EXAMPLE_FIELD_METADATA: {
-            'document_id': datasets_lib.decode_value(row['document']['id']),
+            datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS: [
+                datasets_lib.decode_value(row['document']['id'])
+            ],
         },
     }
 
@@ -160,12 +174,6 @@ class NarrativeQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
     return documents
 
 
-# TODO: Turn NarrativeQA datasets into datasets with a single
-# corpus by prepending the book/script title to the query. For example:
-# Before: "What injury does the infant T. rex suffer from?"
-# After: "In Jurassic Park: The Lost World, what injury does the infant T. rex
-# suffer from?"
-#
 # Register dataset loaders in the registry.
 datasets_lib.register_dataset_loader(
     'narrativeqa_train',
