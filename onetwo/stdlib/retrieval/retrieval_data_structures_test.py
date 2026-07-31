@@ -118,6 +118,12 @@ class RetrievalDataStructuresTest(parameterized.TestCase):
     self.assertEqual(restored.content.chunks[1].content, 'Text prompt')
     self.assertEqual(restored.metadata['keys'], ['a', 'b'])
 
+  def test_metadata_fields(self):
+    self.assertEqual(
+        retrieval_data_structures.METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC,
+        'span_within_original_doc',
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

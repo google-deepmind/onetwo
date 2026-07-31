@@ -41,6 +41,34 @@ _CHUNK_NUMBER = retrieval_data_structures.METADATA_FIELD_CHUNK_NUMBER
 _TOTAL_NUMBER_OF_CHUNKS = (
     retrieval_data_structures.METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS
 )
+_SPAN_WITHIN_ORIGINAL_DOC = (
+    retrieval_data_structures.METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC
+)
+
+
+def get_substring_indices(
+    full_text: str,
+    substring: str,
+) -> tuple[int, int] | None:
+  """Computes character offsets for a substing within a full text.
+
+  Note: finds the first occurrence of the substring in the full text.
+
+  Args:
+    full_text: The full text to search within.
+    substring: The substring to search for.
+
+  Returns:
+    A tuple of the start and end indices of the substring in the full_text, or
+    None if the substring is not found or if either of the strings is empty.
+  """
+  if not full_text or not substring:
+    return None
+  start_idx = full_text.find(substring)
+  if start_idx == -1:
+    return None
+  end_idx = start_idx + len(substring)
+  return (start_idx, end_idx)
 
 
 class Chunker(Protocol):
@@ -95,7 +123,8 @@ class TextChunker(Chunker):
   Chunks contain content derived from the original document's text content
   through the `_chunk_text` method. All other document attributes are passed
   through to the output chunks. The metadata of the chunk will additionally
-  include `original_doc_id`, `chunk_number` and `total_number_of_chunks`.
+  include `original_doc_id`, `chunk_number`, `total_number_of_chunks` and
+  `span_within_original_doc`.
 
   If formatting is desired before or after chunking, use a `DocumentFormatter`
   (see `onetwo.stdlib.retrieval.document_formatting`). To compose chunking and
@@ -126,21 +155,21 @@ class TextChunker(Chunker):
       document: The document to chunk.
     """
     document_text = document.text
+    chunk_texts = list(await self._chunk_text(document_text))
+    total_number_of_chunks = len(chunk_texts)
     chunks = []
-    for i, chunk_text in enumerate(await self._chunk_text(document_text)):
+    for i, chunk_text in enumerate(chunk_texts):
       chunk = copy.deepcopy(document)
       chunk.content = chunk_text
+      chunk_span = get_substring_indices(document_text, chunk_text)
       # Modify the doc_id of every chunk to produce a unique id for each chunk.
       chunk.doc_id = f'{document.doc_id}_chunk{i+1}'
-      chunks.append(chunk)
-
-    # Add additional metadata to chunks.
-    # This is done in order to keep track of the order of the chunks.
-    total_number_of_chunks = len(chunks)
-    for i, chunk in enumerate(chunks):
       chunk.metadata[_ORIGINAL_DOC_ID] = document.doc_id
       chunk.metadata[_CHUNK_NUMBER] = i + 1
       chunk.metadata[_TOTAL_NUMBER_OF_CHUNKS] = total_number_of_chunks
+      chunk.metadata[_SPAN_WITHIN_ORIGINAL_DOC] = chunk_span
+      chunks.append(chunk)
+
     return chunks
 
 

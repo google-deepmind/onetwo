@@ -27,6 +27,9 @@ _CHUNK_NUMBER = retrieval_data_structures.METADATA_FIELD_CHUNK_NUMBER
 _TOTAL_NUMBER_OF_CHUNKS = (
     retrieval_data_structures.METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS
 )
+_SPAN_WITHIN_ORIGINAL_DOC = (
+    retrieval_data_structures.METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC
+)
 
 DOCS = [
     retrieval_data_structures.Document(
@@ -64,6 +67,7 @@ DOC1_CHUNKS_5TOKENS = [
             _ORIGINAL_DOC_ID: '1',
             _CHUNK_NUMBER: 1,
             _TOTAL_NUMBER_OF_CHUNKS: 3,
+            _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
         },
     ),
     retrieval_data_structures.Document(
@@ -76,6 +80,7 @@ DOC1_CHUNKS_5TOKENS = [
             _ORIGINAL_DOC_ID: '1',
             _CHUNK_NUMBER: 2,
             _TOTAL_NUMBER_OF_CHUNKS: 3,
+            _SPAN_WITHIN_ORIGINAL_DOC: (5, 10),
         },
     ),
     retrieval_data_structures.Document(
@@ -88,6 +93,7 @@ DOC1_CHUNKS_5TOKENS = [
             _ORIGINAL_DOC_ID: '1',
             _CHUNK_NUMBER: 3,
             _TOTAL_NUMBER_OF_CHUNKS: 3,
+            _SPAN_WITHIN_ORIGINAL_DOC: (10, 13),
         },
     ),
 ]
@@ -103,6 +109,7 @@ DOC2_CHUNKS_5TOKENS = [
             _ORIGINAL_DOC_ID: '2',
             _CHUNK_NUMBER: 1,
             _TOTAL_NUMBER_OF_CHUNKS: 3,
+            _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
         },
     ),
     retrieval_data_structures.Document(
@@ -115,6 +122,7 @@ DOC2_CHUNKS_5TOKENS = [
             _ORIGINAL_DOC_ID: '2',
             _CHUNK_NUMBER: 2,
             _TOTAL_NUMBER_OF_CHUNKS: 3,
+            _SPAN_WITHIN_ORIGINAL_DOC: (5, 10),
         },
     ),
     retrieval_data_structures.Document(
@@ -127,6 +135,7 @@ DOC2_CHUNKS_5TOKENS = [
             _ORIGINAL_DOC_ID: '2',
             _CHUNK_NUMBER: 3,
             _TOTAL_NUMBER_OF_CHUNKS: 3,
+            _SPAN_WITHIN_ORIGINAL_DOC: (10, 13),
         },
     ),
 ]
@@ -362,6 +371,7 @@ class CorpusRewritingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1_chunk1_chunk1_chunk1_chunk1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 1,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 13),
                   },
               ),
               retrieval_data_structures.Document(
@@ -374,6 +384,7 @@ class CorpusRewritingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '2_chunk1_chunk1_chunk1_chunk1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 1,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 13),
                   },
               ),
           ],
@@ -417,6 +428,7 @@ class CorpusRewritingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
                   },
               ),
               retrieval_data_structures.Document(
@@ -427,6 +439,7 @@ class CorpusRewritingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (6, 11),
                   },
               ),
           ],

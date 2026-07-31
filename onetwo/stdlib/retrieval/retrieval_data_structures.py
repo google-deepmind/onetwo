@@ -59,6 +59,11 @@ METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS = 'total_number_of_chunks'
 # during retrieval.
 METADATA_FIELD_ORIGINAL_DOC_ID = 'original_doc_id'
 
+# **span_within_original_doc**: A tuple of (start, end) character indices
+# indicating the span within the original document text that this chunk was
+# derived from.
+METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC = 'span_within_original_doc'
+
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)

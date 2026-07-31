@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterable
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
@@ -24,6 +25,9 @@ _ORIGINAL_DOC_ID = retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID
 _CHUNK_NUMBER = retrieval_data_structures.METADATA_FIELD_CHUNK_NUMBER
 _TOTAL_NUMBER_OF_CHUNKS = (
     retrieval_data_structures.METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS
+)
+_SPAN_WITHIN_ORIGINAL_DOC = (
+    retrieval_data_structures.METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC
 )
 
 
@@ -121,6 +125,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
                   },
               ),
               retrieval_data_structures.Document(
@@ -131,6 +136,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (6, 11),
                   },
               ),
           ],
@@ -148,6 +154,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 6),
                   },
               ),
               retrieval_data_structures.Document(
@@ -158,6 +165,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (6, 11),
                   },
               ),
           ],
@@ -182,6 +190,10 @@ class ChunkingTest(parameterized.TestCase):
           chunks,
           expected_chunks,
       )
+    with self.subTest('spans_correspond_to_substrings'):
+      for chunk in chunks:
+        start, end = chunk.metadata[_SPAN_WITHIN_ORIGINAL_DOC]
+        self.assertEqual(document.text[start:end], chunk.content)
 
   @parameterized.named_parameters([
       {
@@ -198,6 +210,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
                   },
               ),
               retrieval_data_structures.Document(
@@ -207,6 +220,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
                       _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (6, 11),
                   },
               ),
           ],
@@ -225,6 +239,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 1,
                       _TOTAL_NUMBER_OF_CHUNKS: 3,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
                   },
               ),
               retrieval_data_structures.Document(
@@ -234,6 +249,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 2,
                       _TOTAL_NUMBER_OF_CHUNKS: 3,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (4, 10),
                   },
               ),
               retrieval_data_structures.Document(
@@ -243,6 +259,7 @@ class ChunkingTest(parameterized.TestCase):
                       _ORIGINAL_DOC_ID: '1',
                       _CHUNK_NUMBER: 3,
                       _TOTAL_NUMBER_OF_CHUNKS: 3,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (8, 11),
                   },
               ),
           ],
@@ -263,6 +280,10 @@ class ChunkingTest(parameterized.TestCase):
           chunks,
           expected_chunks,
       )
+    with self.subTest('spans_correspond_to_substrings'):
+      for chunk in chunks:
+        start, end = chunk.metadata[_SPAN_WITHIN_ORIGINAL_DOC]
+        self.assertEqual(document.text[start:end], chunk.content)
 
   def testChunkByMaxTokensOverlapEqualsMaxTokensRaisesError(self):
     document = retrieval_data_structures.Document(
@@ -273,6 +294,89 @@ class ChunkingTest(parameterized.TestCase):
     )
     with self.assertRaises(ValueError):
       ot.run(chunker(document))
+
+  def testTextChunkerSpans(self):
+    class ConcreteTextChunker(chunking.TextChunker):
+
+      async def _chunk_text(self, text: str) -> Iterable[str]:
+        # Return two chunks: front and back half
+        half = len(text) // 2
+        return [
+            text[:half],
+            text[half:],
+        ]
+
+    document = retrieval_data_structures.Document(
+        title='Test Title', content='abcdefgh', doc_id='test1'
+    )
+    chunker = ConcreteTextChunker()
+    chunks = ot.run(chunker(document))
+
+    self.assertLen(chunks, 2)
+
+    self.assertEqual(chunks[0].content, 'abcd')
+    self.assertEqual(chunks[0].doc_id, 'test1_chunk1')
+    self.assertEqual(chunks[0].metadata[_ORIGINAL_DOC_ID], 'test1')
+    self.assertEqual(chunks[0].metadata[_CHUNK_NUMBER], 1)
+    self.assertEqual(chunks[0].metadata[_TOTAL_NUMBER_OF_CHUNKS], 2)
+    self.assertEqual(chunks[0].metadata[_SPAN_WITHIN_ORIGINAL_DOC], (0, 4))
+
+    self.assertEqual(chunks[1].content, 'efgh')
+    self.assertEqual(chunks[1].doc_id, 'test1_chunk2')
+    self.assertEqual(chunks[1].metadata[_ORIGINAL_DOC_ID], 'test1')
+    self.assertEqual(chunks[1].metadata[_CHUNK_NUMBER], 2)
+    self.assertEqual(chunks[1].metadata[_TOTAL_NUMBER_OF_CHUNKS], 2)
+    self.assertEqual(chunks[1].metadata[_SPAN_WITHIN_ORIGINAL_DOC], (4, 8))
+
+  @parameterized.named_parameters([
+      {
+          'testcase_name': 'found_at_start',
+          'full_text': 'hello world',
+          'substring': 'hello',
+          'expected': (0, 5),
+      },
+      {
+          'testcase_name': 'found_in_middle',
+          'full_text': 'hello world',
+          'substring': 'o wo',
+          'expected': (4, 8),
+      },
+      {
+          'testcase_name': 'found_at_end',
+          'full_text': 'hello world',
+          'substring': 'world',
+          'expected': (6, 11),
+      },
+      {
+          'testcase_name': 'not_found',
+          'full_text': 'hello world',
+          'substring': 'abc',
+          'expected': None,
+      },
+      {
+          'testcase_name': 'empty_substring',
+          'full_text': 'hello world',
+          'substring': '',
+          'expected': None,
+      },
+      {
+          'testcase_name': 'empty_full_text_and_empty_substring',
+          'full_text': '',
+          'substring': '',
+          'expected': None,
+      },
+      {
+          'testcase_name': 'empty_full_text_and_non_empty_substring',
+          'full_text': '',
+          'substring': 'hello',
+          'expected': None,
+      },
+  ])
+  def testGetSubstringIndices(self, full_text, substring, expected):
+    self.assertEqual(
+        chunking.get_substring_indices(full_text, substring),
+        expected,
+    )
 
 
 if __name__ == '__main__':
