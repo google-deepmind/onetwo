@@ -49,7 +49,7 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
 
     self.assertLen(examples, 2)
     self.assertEqual(
-        examples[0],
+        examples[0],  # pyrefly: ignore[bad-index]
         {
             datasets_lib.EXAMPLE_FIELD_QUESTION: 'Q1',
             datasets_lib.EXAMPLE_FIELD_ANSWER: 'A1',
@@ -57,7 +57,7 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
         },
     )
     self.assertEqual(
-        examples[1],
+        examples[1],  # pyrefly: ignore[bad-index]
         {
             datasets_lib.EXAMPLE_FIELD_QUESTION: 'Q2',
             datasets_lib.EXAMPLE_FIELD_ANSWER: 'A2',
@@ -82,7 +82,7 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
 
     self.assertLen(examples, 2)
     self.assertEqual(
-        examples[0],
+        examples[0],  # pyrefly: ignore[bad-index]
         {
             datasets_lib.EXAMPLE_FIELD_QUESTION: 'Q1',
             datasets_lib.EXAMPLE_FIELD_ANSWER: 'A1',
@@ -126,13 +126,13 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
     documents = ot.run(loader.load_documents())
 
     self.assertLen(documents, 3)
-    self.assertEqual(documents[0].doc_id, 'D1')
-    self.assertEqual(documents[0].title, 'Title 1')
-    self.assertEqual(documents[1].doc_id, 'D2')
-    self.assertEqual(documents[1].title, '')
+    self.assertEqual(documents[0].doc_id, 'D1')  # pyrefly: ignore[bad-index]
+    self.assertEqual(documents[0].title, 'Title 1')  # pyrefly: ignore[bad-index]
+    self.assertEqual(documents[1].doc_id, 'D2')  # pyrefly: ignore[bad-index]
+    self.assertEqual(documents[1].title, '')  # pyrefly: ignore[bad-index]
     # Check that a deterministic ID was generated for the 3rd doc
-    self.assertNotEmpty(documents[2].doc_id)
-    self.assertEqual(documents[2].content, 'Content 3')
+    self.assertNotEmpty(documents[2].doc_id)  # pyrefly: ignore[bad-index]
+    self.assertEqual(documents[2].content, 'Content 3')  # pyrefly: ignore[bad-index]
 
   def test_load_documents_missing_file(self):
     loader = datasets_lib.JsonlDatasetLoader(corpus_path='/nonexistent.jsonl')

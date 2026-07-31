@@ -282,8 +282,8 @@ class BeamSearchTest(parameterized.TestCase):
     with self.subTest('produces_expected_result'):
       self.assertEqual(expected_result, result)
     with self.subTest('produces_expected_final_state'):
-      self.assertLen(final_state.states, beam_size)
-      outputs = [wrapper.extract_output(state) for state in final_state.states]
+      self.assertLen(final_state.states, beam_size)  # pyrefly: ignore[missing-attribute]
+      outputs = [wrapper.extract_output(state) for state in final_state.states]  # pyrefly: ignore[missing-attribute]
       self.assertEqual(expected_final_states, outputs)
 
   def test_beam_search_with_non_deterministic_distribution(

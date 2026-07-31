@@ -518,7 +518,7 @@ class PythonPlanningAgent(
   max_steps: int = 10
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
-  async def initialize_state(
+  async def initialize_state(  # pyrefly: ignore[bad-override]
       self,
       inputs: str,
       environment: python_tool_use.PythonToolUseEnvironment | None = None,

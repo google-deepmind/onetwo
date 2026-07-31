@@ -156,7 +156,7 @@ class ReweightedDistributionAgentTest(parameterized.TestCase):
         top_k=top_k,
     )
     state = outer_agent.initialize_state('test')
-    result = executing.run(outer_agent.get_next_step_distribution(state=state))
+    result = executing.run(outer_agent.get_next_step_distribution(state=state))  # pyrefly: ignore[bad-argument-type]
     # We round off the distribution to make the comparison easier.
     result = [(s.update, round(s.score, 2)) for s in result]
     # Also to avoid issues when comparing floats, we convert everything to

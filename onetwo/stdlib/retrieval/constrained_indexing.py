@@ -108,7 +108,7 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('ConstrainedEmbeddingBasedIndex.add_docs')
-  async def add_docs(self, docs: Sequence[DocT]) -> None:
+  async def add_docs(self, docs: Sequence[DocT]) -> None:  # pyrefly: ignore[bad-override]
     """Overridden from base class (Index)."""
     num_existing_docs = len(self._docs)
     await super().add_docs(docs)

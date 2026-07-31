@@ -306,7 +306,7 @@ class Agent(Generic[_I, _O, _S, _U, _E], metaclass=abc.ABCMeta):
       if not candidate_updates:
         break
       update = candidate_updates[0]
-      state += update
+      state += update  # pyrefly: ignore[unsupported-operation]
       step += 1
       yield update
 

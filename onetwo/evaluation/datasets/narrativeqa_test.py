@@ -155,10 +155,10 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
 
     self.assertLen(examples, 2)
     self.assertEqual(
-        examples[0]['question'], 'In France Document, q1'
+        examples[0]['question'], 'In France Document, q1'  # pyrefly: ignore[bad-index]
     )
     self.assertEqual(
-        examples[1]['question'], 'In France Document, q2'
+        examples[1]['question'], 'In France Document, q2'  # pyrefly: ignore[bad-index]
     )
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
@@ -195,10 +195,10 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
 
     self.assertLen(examples, 2)
     self.assertEqual(
-        examples[0]['question'], 'In France Document, q1'
+        examples[0]['question'], 'In France Document, q1'  # pyrefly: ignore[bad-index]
     )
     self.assertEqual(
-        examples[1]['question'], 'In France Document, q3'
+        examples[1]['question'], 'In France Document, q3'  # pyrefly: ignore[bad-index]
     )
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
@@ -236,7 +236,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     self.assertLen(documents, 1)
     # The _clean_text logic extracts from <pre> if present, or BeautifulSoup
     # text otherwise.
-    self.assertEqual(documents[0].content, 'Code block')
+    self.assertEqual(documents[0].content, 'Code block')  # pyrefly: ignore[bad-index]
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
   def test_clean_html_false(self, mock_tfds):
@@ -251,7 +251,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     documents = ot.run(loader.load_documents())
 
     self.assertLen(documents, 1)
-    self.assertEqual(documents[0].content, raw_html)
+    self.assertEqual(documents[0].content, raw_html)  # pyrefly: ignore[bad-index]
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
   def test_tfds_load_arguments(self, mock_tfds):
@@ -300,7 +300,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
 
     self.assertLen(examples, 1)
     self.assertEqual(
-        examples[0]['question'],
+        examples[0]['question'],  # pyrefly: ignore[bad-index]
         'In Percival Keene, what happened to the hero?',
     )
 
@@ -316,7 +316,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     examples = ot.run(loader.load_examples())
 
     self.assertLen(examples, 1)
-    metadata = examples[0]['metadata']
+    metadata = examples[0]['metadata']  # pyrefly: ignore[bad-index]
     self.assertNotIn('document_id', metadata)
     self.assertEqual(
         metadata[datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS],

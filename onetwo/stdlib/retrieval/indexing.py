@@ -543,7 +543,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
           llm.embed(
               doc.content,  # pyrefly: ignore[missing-attribute]
               task_type=self.document_task_type,
-              title=doc.title,
+              title=doc.title,  # pyrefly: ignore[missing-attribute]
           )
           for doc in docs
       ]
@@ -623,14 +623,14 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     """Returns similarity score of the document at `doc_index` for a query."""
     if doc_index < 0 or doc_index >= len(self._doc_embeddings):
       return 0.0
-    query_embedding = await self._calculate_query_embedding(query)
+    query_embedding = await self._calculate_query_embedding(query)  # pyrefly: ignore[bad-argument-type]
     query_embedding = np.array([query_embedding])
     doc_embedding = self._doc_embeddings[doc_index]
     return np.dot(query_embedding, doc_embedding)
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.retrieve_with_scores')
-  async def retrieve_with_scores(
+  async def retrieve_with_scores(  # pyrefly: ignore[bad-override]
       self,
       query: QueryT,
       *,
@@ -651,7 +651,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.retrieve', skip=['output'])
-  async def retrieve(
+  async def retrieve(  # pyrefly: ignore[bad-override]
       self,
       query: QueryT,
       *,

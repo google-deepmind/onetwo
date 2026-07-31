@@ -297,8 +297,8 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     examples = ot.run(loader.load_examples())
 
     self.assertLen(examples, 2)
-    self.assertEqual(examples[0]['question'], 'Q1')
-    self.assertEqual(examples[1]['question'], 'Q2')
+    self.assertEqual(examples[0]['question'], 'Q1')  # pyrefly: ignore[bad-index]
+    self.assertEqual(examples[1]['question'], 'Q2')  # pyrefly: ignore[bad-index]
 
   @mock.patch('onetwo.evaluation.datasets.hotpotqa.tfds')
   def test_max_examples_limits_documents_output(self, mock_tfds):
