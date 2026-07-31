@@ -185,6 +185,17 @@ class DatasetLoader(Protocol[_Example]):
       An iterable of evaluation example dictionaries.
     """
 
+  @executing.make_executable()
+  async def load_documents(self) -> Iterable[_Document]:
+    """Loads the documents of a dataset (corpus).
+
+    Returns:
+      An iterable of Document objects.
+    """
+    raise NotImplementedError(
+        'This dataset loader does not support loading documents.'
+    )
+
 
 @dataclasses.dataclass(kw_only=True)
 class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
