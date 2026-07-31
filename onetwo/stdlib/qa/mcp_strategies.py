@@ -103,15 +103,17 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     include_thoughts: Whether to include thoughts in the backend response.
       Defaults to True. Useful to analyze the thought process of the model in
       between tool calls.
+    call_timeout: Maximum seconds to wait for a single ``llm.chat()`` call
+      (including all AFC tool-call rounds) before raising ``TimeoutError``.
+      Defaults to 600 (10 minutes). Required because a non-2xx MCP response
+      crashes the StreamableHTTP transport, leaving orphaned awaits that hang
+      forever and block the entire evaluation batch.
   """
 
   mcp_server_url: str = ''
   query_template: str = default_qa_template_mcp
   include_thoughts: bool = True
-  _client: Any = dataclasses.field(default=None, init=False)
-  _client_lock: asyncio.Lock = dataclasses.field(
-      default_factory=asyncio.Lock, init=False
-  )
+  call_timeout: float = 600.0
 
   def __post_init__(self):
     if not self.mcp_server_url:
@@ -178,61 +180,89 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
 
     question = self._format_question(question, additional_instructions)
 
-    async with self._client_lock:
-      if not self._client:
-        logging.info(
-            'Connecting to MCP server client-side: %s', self.mcp_server_url
+    # Create a fresh MCP client per call.  This avoids two classes of bugs:
+    #   1. Concurrency races when multiple coroutines (from ot.evaluate /
+    #      par_iter) share a single session — one coroutine's error could
+    #      tear down or poison another's session.
+    #   2. Silent session death — when the MCP server returns HTTP 400 during
+    #      AFC, the GenAI SDK handles it internally (no exception reaches us),
+    #      leaving the session dead for all subsequent calls.
+    # The overhead of a per-call session is negligible compared to the
+    # multi-turn LLM interaction (milliseconds vs. tens of seconds).
+    logging.info(
+        'Connecting to MCP server client-side: %s', self.mcp_server_url
+    )
+    transport = fastmcp_transports.StreamableHttpTransport(
+        url=self.mcp_server_url
+    )
+    client = fastmcp.Client(transport)
+
+    async with client:
+      # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
+      # live session objects (like Futures) during GenAI SDK's internal
+      # config copying. Returning self preserves the shared live connection.
+      # The try/except guards against the session being dead (e.g. after an
+      # HTTP 400 from the MCP server kills the connection).
+      def _safe_deepcopy(memo, client_ref=client):  # pyrefly: ignore[missing-attribute]
+        del memo  # Unused; required by __deepcopy__ protocol.
+        try:
+          return client_ref.session
+        except RuntimeError:
+          return None
+
+      client.session.__deepcopy__ = _safe_deepcopy  # pyrefly: ignore[missing-attribute]
+
+      # Build a thinking_config that preserves any existing settings (e.g.,
+      # thinking_budget) from the backend's configured defaults, and only
+      # sets include_thoughts=True on top of them.
+      chat_defaults = routing.function_registry[llm.chat.name].defaults
+      existing_thinking_config = chat_defaults.get('thinking_config')
+      if existing_thinking_config is not None:
+        thinking_config = existing_thinking_config.model_copy(
+            update={'include_thoughts': self.include_thoughts}
         )
-        transport = fastmcp_transports.StreamableHttpTransport(
-            url=self.mcp_server_url
+      else:
+        thinking_config = genai_types.ThinkingConfig(
+            include_thoughts=self.include_thoughts
         )
-        client = fastmcp.Client(transport)
-        await client.__aenter__()
 
-        # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
-        # live session objects (like Futures) during GenAI SDK's internal
-        # config copying. Returning self preserves the shared live connection.
-        client.session.__deepcopy__ = lambda memo: client.session  # pyrefly: ignore[missing-attribute]
-        self._client = client
+      kwargs = {
+          'tools': [client.session],
+          'automatic_function_calling': (
+              genai_types.AutomaticFunctionCallingConfig(
+                  maximum_remote_calls=100
+              )
+          ),
+          'thinking_config': thinking_config,
+      }
 
-    # Build a thinking_config that preserves any existing settings (e.g.,
-    # thinking_budget) from the backend's configured defaults, and only
-    # sets include_thoughts=True on top of them.
-    chat_defaults = routing.function_registry[llm.chat.name].defaults
-    existing_thinking_config = chat_defaults.get('thinking_config')
-    if existing_thinking_config is not None:
-      thinking_config = existing_thinking_config.model_copy(
-          update={'include_thoughts': self.include_thoughts}
-      )
-    else:
-      thinking_config = genai_types.ThinkingConfig(
-          include_thoughts=self.include_thoughts
-      )
-
-    kwargs = {
-        'tools': [self._client.session],
-        'automatic_function_calling': (
-            genai_types.AutomaticFunctionCallingConfig(maximum_remote_calls=100)
-        ),
-        'thinking_config': thinking_config,
-    }
-
-    messages = [
-        content_lib.Message(
-            role=content_lib.PredefinedRole.USER,
-            content=question,
+      messages = [
+          content_lib.Message(
+              role=content_lib.PredefinedRole.USER,
+              content=question,
+          )
+      ]
+      try:
+        # Timeout: when the MCP server returns a non-2xx response (e.g.
+        # HTTP 400), the StreamableHTTP transport's raise_for_status()
+        # crashes its anyio task group, killing the transport entirely.
+        # All pending session.call_tool() awaits then hang forever on a
+        # dead MemoryObjectReceiveStream. The timeout ensures these
+        # orphaned awaits are cancelled so the evaluation can continue.
+        answer = await asyncio.wait_for(
+            llm.chat(messages, **kwargs),
+            timeout=self.call_timeout,
         )
-    ]
-    try:
-      answer = await llm.chat(messages, **kwargs)
-      answer_str = str(answer)
-      return StrategyResult(
-          answer=answer_str,
-          doc_ids=_extract_cited_doc_ids(answer_str),
-      )
-    except Exception as e:
-      logging.exception('Error during GoogleGenAIMCPStrategy execution')
-      raise RuntimeError(f'{type(e).__name__}: {str(e)}') from e
+        answer_str = str(answer)
+        return StrategyResult(
+            answer=answer_str,
+            doc_ids=_extract_cited_doc_ids(answer_str),
+        )
+      except Exception as e:
+        logging.exception('Error during GoogleGenAIMCPStrategy execution')
+        # Re-raise so ot.evaluate records the failure for this example and
+        # continues with the remaining ones.
+        raise RuntimeError(f'{type(e).__name__}: {str(e)}') from e
 
 
 # Self-register the 'mcp' strategy when this module is imported.

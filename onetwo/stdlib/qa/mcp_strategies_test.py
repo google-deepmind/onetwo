@@ -323,6 +323,103 @@ class MCPStrategyTest(parameterized.TestCase):
     self.assertEqual(mcp_strategies._extract_cited_doc_ids(answer), expected)
 
 
+class MCPStrategyErrorResilienceTest(parameterized.TestCase):
+  """Tests that the MCP strategy handles transient errors gracefully."""
+
+  def setUp(self):
+    super().setUp()
+    self.llm_backend = backends_test_utils.LLMForTest(
+        default_reply='mcp answer',
+    )
+    self.llm_backend.register()
+
+    # Mock fastmcp Client and transport to avoid network requests.
+    self.mock_client_class = self.enter_context(
+        mock.patch.object(mcp_strategies.fastmcp, 'Client', autospec=True)
+    )
+    self.mock_client = self.mock_client_class.return_value
+    self.mock_client.__aenter__ = mock.AsyncMock(return_value=self.mock_client)
+    self.mock_client.__aexit__ = mock.AsyncMock(return_value=None)
+    self.mock_client.session = mock.MagicMock()
+
+  def test_error_raises_instead_of_crashing_entire_eval(self):
+    """A RuntimeError during llm.chat propagates so ot.evaluate can catch it."""
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp'
+    )
+
+    # First call succeeds.
+    result = ot.run(strategy(question='What?'))
+    self.assertEqual(result.answer, 'mcp answer')
+
+    # Simulate an error on the second call.
+    chat_wrapper = routing.function_registry[llm.chat.name]
+    original_fn = chat_wrapper._registered_function
+
+    def raising_fn(*_args, **_kwargs):
+      raise RuntimeError('Client is not connected.')
+
+    chat_wrapper._registered_function = raising_fn
+    try:
+      with self.assertRaises(RuntimeError):
+        ot.run(strategy(question='What?'))
+    finally:
+      chat_wrapper._registered_function = original_fn
+
+  def test_each_call_creates_a_fresh_client(self):
+    """Each call creates a new MCP client, ensuring no stale session reuse."""
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp'
+    )
+
+    ot.run(strategy(question='First?'))
+    self.assertEqual(self.mock_client_class.call_count, 1)
+
+    ot.run(strategy(question='Second?'))
+    self.assertEqual(self.mock_client_class.call_count, 2)
+
+    ot.run(strategy(question='Third?'))
+    self.assertEqual(self.mock_client_class.call_count, 3)
+
+  def test_failed_call_does_not_affect_next_call(self):
+    """A failed call's session is cleaned up; the next call gets a fresh one."""
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp'
+    )
+
+    # Simulate an error on the first call.
+    chat_wrapper = routing.function_registry[llm.chat.name]
+    original_fn = chat_wrapper._registered_function
+
+    def raising_fn(*_args, **_kwargs):
+      raise RuntimeError('Connection lost.')
+
+    chat_wrapper._registered_function = raising_fn
+    try:
+      with self.assertRaises(RuntimeError):
+        ot.run(strategy(question='Fails'))
+    finally:
+      chat_wrapper._registered_function = original_fn
+
+    # The failed call's session should have been cleaned up via __aexit__.
+    self.mock_client.__aexit__.assert_awaited()
+
+    # Next call succeeds with a fresh client.
+    result = ot.run(strategy(question='Succeeds'))
+    self.assertEqual(result.answer, 'mcp answer')
+    self.assertEqual(self.mock_client_class.call_count, 2)
+
+  def test_session_cleaned_up_after_each_call(self):
+    """__aexit__ is called after each call to clean up the session."""
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp'
+    )
+
+    ot.run(strategy(question='What?'))
+    # __aexit__ should have been called once after the call completes.
+    self.mock_client.__aexit__.assert_awaited_once()
+
+
 class CrossStrategyTest(parameterized.TestCase):
   """Tests shared properties across all strategy types."""
 
