@@ -77,9 +77,12 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
   embed_backend_config: backend_registry.EmbedBackendConfig
   query_task_type: str | None = "RETRIEVAL_QUERY"
   document_task_type: str | None = "RETRIEVAL_DOCUMENT"
-  runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   searcher_config: SearcherConfig = dataclasses.field(
       default_factory=lambda: SearcherConfig(class_name="BruteForceSearcher")
+  )
+  runtime_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict,
+      metadata=dataclasses_json.config(exclude=lambda _: True),
   )
 
   def __str__(self) -> str:

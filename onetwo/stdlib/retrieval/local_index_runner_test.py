@@ -224,7 +224,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_gemini-embedding-2__hash_00c8c803',
+        'EmbeddingBasedDocumentIndex_gemini-embedding-2__hash_fc6f82d9',
     )
 
   def test_simple_rewriting_index_spec_str_representation(self):
@@ -241,8 +241,19 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_ee25466c',
+        'EmbeddingBasedDocumentIndex_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_d95428be',
     )
+
+  def test_index_spec_hash_stability(self):
+    spec1 = index_build_interface.EmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        runtime_kwargs={'api_key': 'key1', 'threadpool_size': 10},
+    )
+    spec2 = index_build_interface.EmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        runtime_kwargs={'api_key': 'key2', 'threadpool_size': 20},
+    )
+    self.assertEqual(spec1.get_stable_hash(), spec2.get_stable_hash())
 
 
 if __name__ == '__main__':
