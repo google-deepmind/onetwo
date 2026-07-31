@@ -405,7 +405,7 @@ async def _evaluate_example(
         stage_name=strategy_name,
         inputs={'args': args, 'kwargs': kwargs},
         outputs=outputs,
-        error=error if error else '',  # pyrefly: ignore[bad-argument-type]
+        error=str(error) if error else '',
     )
   else:
     # Strategy executed without error. Output a full summary.
@@ -440,7 +440,7 @@ async def _evaluate_example(
     evaluation_debug.outputs['output'] = output[0]
 
   if error and not evaluation_debug.error:
-    evaluation_debug.error = error  # pyrefly: ignore[bad-assignment]
+    evaluation_debug.error = str(error)
   evaluation_debug.counters = summary.counters  # pyrefly: ignore[missing-attribute]
   # TODO: Modify `EvaluationResult.targets` to accept `Any`, and
   # then store the target value there directly rather than wrapping as a dict.

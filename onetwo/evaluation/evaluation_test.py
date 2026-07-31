@@ -43,7 +43,6 @@ from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.evaluation import evaluation
 
-
 _Example: TypeAlias = Mapping[str, Any]
 _ExecutionResult: TypeAlias = results.ExecutionResult
 _EvaluationResult: TypeAlias = results.EvaluationResult
@@ -942,7 +941,7 @@ class EvaluationTest(parameterized.TestCase):
     expected_result = _EvaluationResult(
         stage_name='strategy_taking_question_and_option_and_calling_llm',
         inputs={'args': ['Something'], 'kwargs': {}},
-        error=TypeError(  # pyrefly: ignore[bad-argument-type]
+        error=(
             'strategy_taking_question_and_option_and_calling_llm()'
             " missing 1 required positional argument: 'option'"
         ),
@@ -1321,6 +1320,31 @@ class EvaluationTest(parameterized.TestCase):
     with self.subTest('outputs'):
       self.assertEqual('a', summary.results[0].outputs['output'])
       self.assertEqual('c', summary.results[1].outputs['output'])
+
+  def test_evaluate_un_deepcopyable_exception(self):
+
+    class UnDeepcopyableError(Exception):
+
+      def __reduce__(self):
+        # Raise TypeError during deepcopy reconstruction (similar to
+        # httpx.HTTPStatusError).
+        raise TypeError('Failed to reconstruct exception')
+
+    def failing_strategy(x: str):
+      """A strategy that raises an un-deepcopyable exception."""
+      del x
+      raise UnDeepcopyableError('test_error')
+
+    examples = [{'question': 'q1', 'answer': 'a1'}]
+    summary = evaluation.evaluate(
+        strategy=failing_strategy,
+        examples=examples,
+        output_results=True,
+        output_results_debug=True,
+    )
+    self.assertEqual(1, summary.counters.get(results.COUNTER_ERRORS, 0))
+    self.assertIn(0, summary.results)
+    self.assertIn(0, summary.results_debug)
 
 
 class NaiveEvaluationCriticTest(parameterized.TestCase):
