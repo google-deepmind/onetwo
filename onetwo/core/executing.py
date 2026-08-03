@@ -574,29 +574,29 @@ class MakeExecutableDecorator:
   @overload
   def __call__(
       self,
-      function: Callable[..., Awaitable[Executable[Any]]],
-  ) -> Callable[..., Any]:
+      function: Callable[_Args, Awaitable[Executable[_Result]]],
+  ) -> Callable[_Args, FunctionExecWrapper[_Result]]:
     ...
 
   @overload
   def __call__(
       self,
-      function: Callable[..., Awaitable[Any]],
-  ) -> Callable[..., Any]:
+      function: Callable[_Args, Awaitable[_Result]],
+  ) -> Callable[_Args, FunctionExecWrapper[_Result]]:
     ...
 
   @overload
   def __call__(
       self,
-      function: Callable[..., AsyncIterator[Any]],
-  ) -> Callable[..., Any]:
+      function: Callable[_Args, AsyncIterator[_Result]],
+  ) -> Callable[_Args, FunctionExecWrapper[_Result]]:
     ...
 
   @overload
   def __call__(
       self,
-      function: Callable[..., Any],
-  ) -> Callable[..., Any]:
+      function: Callable[_Args, _Result],
+  ) -> Callable[_Args, FunctionExecWrapper[_Result]]:
     ...
 
   def __call__(self, function: Any) -> Any:
@@ -612,49 +612,49 @@ class MakeExecutableDecorator:
 
 @overload
 def make_executable(  # pyrefly: ignore[inconsistent-overload]
-    function: Callable[..., Awaitable[Executable[Any]]],
+    function: Callable[_Args, Awaitable[Executable[_Result]]],
     *non_executed_args: str,
     non_copied_args: Iterable[str] = tuple(),
     copy_self: bool = True,
     execute_result: bool = True,
     iterate_argument: str | None = None,
-) -> Callable[..., Any]:
+) -> Callable[_Args, FunctionExecWrapper[_Result]]:
   ...
 
 
 @overload
 def make_executable(  # pyrefly: ignore[inconsistent-overload]
-    function: Callable[..., Awaitable[Any]],
+    function: Callable[_Args, Awaitable[_Result]],
     *non_executed_args: str,
     non_copied_args: Iterable[str] = tuple(),
     copy_self: bool = True,
     execute_result: bool = True,
     iterate_argument: str | None = None,
-) -> Callable[..., Any]:
+) -> Callable[_Args, FunctionExecWrapper[_Result]]:
   ...
 
 
 @overload
 def make_executable(  # pyrefly: ignore[inconsistent-overload]
-    function: Callable[..., AsyncIterator[Any]],
+    function: Callable[_Args, AsyncIterator[_Result]],
     *non_executed_args: str,
     non_copied_args: Iterable[str] = tuple(),
     copy_self: bool = True,
     execute_result: bool = True,
     iterate_argument: str | None = None,
-) -> Callable[..., Any]:
+) -> Callable[_Args, FunctionExecWrapper[_Result]]:
   ...
 
 
 @overload
 def make_executable(  # pyrefly: ignore[inconsistent-overload]
-    function: Callable[..., Any],
+    function: Callable[_Args, _Result],
     *non_executed_args: str,
     non_copied_args: Iterable[str] = tuple(),
     copy_self: bool = True,
     execute_result: bool = True,
     iterate_argument: str | None = None,
-) -> Callable[..., Any]:
+) -> Callable[_Args, FunctionExecWrapper[_Result]]:
   ...
 
 
