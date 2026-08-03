@@ -298,7 +298,7 @@ class ChunkingTest(parameterized.TestCase):
   def testTextChunkerSpans(self):
     class ConcreteTextChunker(chunking.TextChunker):
 
-      async def _chunk_text(self, text: str) -> Iterable[str]:
+      async def _chunk_text(self, text: str) -> Iterable[str]:  # pyrefly: ignore[bad-override]
         # Return two chunks: front and back half
         half = len(text) // 2
         return [
@@ -314,19 +314,19 @@ class ChunkingTest(parameterized.TestCase):
 
     self.assertLen(chunks, 2)
 
-    self.assertEqual(chunks[0].content, 'abcd')
-    self.assertEqual(chunks[0].doc_id, 'test1_chunk1')
-    self.assertEqual(chunks[0].metadata[_ORIGINAL_DOC_ID], 'test1')
-    self.assertEqual(chunks[0].metadata[_CHUNK_NUMBER], 1)
-    self.assertEqual(chunks[0].metadata[_TOTAL_NUMBER_OF_CHUNKS], 2)
-    self.assertEqual(chunks[0].metadata[_SPAN_WITHIN_ORIGINAL_DOC], (0, 4))
+    self.assertEqual(chunks[0].content, 'abcd')  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[0].doc_id, 'test1_chunk1')  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[0].metadata[_ORIGINAL_DOC_ID], 'test1')  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[0].metadata[_CHUNK_NUMBER], 1)  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[0].metadata[_TOTAL_NUMBER_OF_CHUNKS], 2)  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[0].metadata[_SPAN_WITHIN_ORIGINAL_DOC], (0, 4))  # pyrefly: ignore[bad-index]
 
-    self.assertEqual(chunks[1].content, 'efgh')
-    self.assertEqual(chunks[1].doc_id, 'test1_chunk2')
-    self.assertEqual(chunks[1].metadata[_ORIGINAL_DOC_ID], 'test1')
-    self.assertEqual(chunks[1].metadata[_CHUNK_NUMBER], 2)
-    self.assertEqual(chunks[1].metadata[_TOTAL_NUMBER_OF_CHUNKS], 2)
-    self.assertEqual(chunks[1].metadata[_SPAN_WITHIN_ORIGINAL_DOC], (4, 8))
+    self.assertEqual(chunks[1].content, 'efgh')  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[1].doc_id, 'test1_chunk2')  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[1].metadata[_ORIGINAL_DOC_ID], 'test1')  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[1].metadata[_CHUNK_NUMBER], 2)  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[1].metadata[_TOTAL_NUMBER_OF_CHUNKS], 2)  # pyrefly: ignore[bad-index]
+    self.assertEqual(chunks[1].metadata[_SPAN_WITHIN_ORIGINAL_DOC], (4, 8))  # pyrefly: ignore[bad-index]
 
   @parameterized.named_parameters([
       {
