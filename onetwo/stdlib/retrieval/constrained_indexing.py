@@ -16,7 +16,7 @@
 
 from collections.abc import Callable, Iterable, Sequence
 import dataclasses
-from typing import Any, Generic
+from typing import Any, Generic, TypeVar
 
 import numpy as np
 from onetwo.core import executing
@@ -27,17 +27,17 @@ from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
 
-QueryT = indexing.QueryT
-RetrievalResultT = indexing.RetrievalResultT
-DocT = indexing.DocT
+QueryT = TypeVar('QueryT')
+RetrievalResultT = TypeVar('RetrievalResultT')
+DocT = TypeVar('DocT')
 Document = retrieval_data_structures.Document
 
 
 @dataclasses.dataclass(kw_only=True)
-class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
-    indexing.EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
-    constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
-    Generic[QueryT, RetrievalResultT, DocT],
+class ConstrainedEmbeddingBasedIndex(
+    indexing.EmbeddingBasedIndex[QueryT, DocT],
+    constrained_retrieval.ConstrainedRetriever[QueryT, DocT],
+    Generic[QueryT, DocT],
 ):
   """Embedding-based index that supports constrained retrieval.
 
@@ -243,7 +243,7 @@ class ConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
 
 @dataclasses.dataclass(kw_only=True)
-class RewritingConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
+class RewritingConstrainedEmbeddingBasedIndex(
     indexing.RewritingEmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
     constrained_retrieval.ConstrainedRetriever[QueryT, RetrievalResultT],
     Generic[QueryT, RetrievalResultT, DocT],
@@ -251,7 +251,7 @@ class RewritingConstrainedEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-v
   """Index that rewrites documents and provides constrained retrieval."""
 
   inner_index: ConstrainedEmbeddingBasedIndex[
-      QueryT, RetrievalResultT, DocT
+      QueryT, RetrievalResultT
   ] = dataclasses.field(default_factory=ConstrainedEmbeddingBasedIndex)
 
   def rename_discrete_field_key(
@@ -271,7 +271,7 @@ constrained_serializer = (
 
 @dataclasses.dataclass(kw_only=True)
 class ConstrainedEmbeddingBasedDocumentIndex(
-    ConstrainedEmbeddingBasedIndex[str, Document, Document],
+    ConstrainedEmbeddingBasedIndex[str, Document],
     indexing.DocumentIndex,
 ):
   """Embedding-based index for Document objects with support for constraints."""

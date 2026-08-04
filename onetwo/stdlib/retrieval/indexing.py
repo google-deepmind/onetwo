@@ -168,6 +168,7 @@ class Index(
 @dataclasses.dataclass(kw_only=True)
 class IndexWrapper(
     Index[QueryT, RetrievalResultT, DocT],
+    Generic[QueryT, RetrievalResultT, DocT],
 ):
   """Index that wraps an inner index, delegating calls by default.
 
@@ -227,7 +228,10 @@ class IndexWrapper(
 
 
 @dataclasses.dataclass(kw_only=True)
-class RewritingIndex(IndexWrapper[QueryT, RetrievalResultT, DocT]):  # pyrefly: ignore[bad-specialization]
+class RewritingIndex(
+    IndexWrapper[QueryT, RetrievalResultT, DocT],
+    Generic[QueryT, RetrievalResultT, DocT],
+):
   """Index that rewrites a corpus before adding it to an inner index.
 
   By default, this class treats the rewritten documents as the primary units of
@@ -394,6 +398,7 @@ class NaiveIndex(DocumentIndex):
 @dataclasses.dataclass(kw_only=True)
 class AbstractEmbeddingBasedIndex(
     Index[QueryT, RetrievalResultT, DocT],
+    Generic[QueryT, RetrievalResultT, DocT],
 ):
   r"""Abstract base class for embedding-based retrieval indices.
 
@@ -478,7 +483,7 @@ def _default_discrete_value_map():
   return collections.defaultdict(_default_list_map)
 
 
-def _validate_docs(docs: Sequence[Document]) -> None:
+def _validate_docs(docs: Sequence[Any]) -> None:
   """Validates that the given documents all have doc_id attributes.
 
   Args:
@@ -502,9 +507,9 @@ def _validate_docs(docs: Sequence[Document]) -> None:
 # Either ChunkList or str and DocT to have `.title` and `.content`, essentially
 # a `Document`.
 @dataclasses.dataclass(kw_only=True)
-class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
-    AbstractEmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],  # pyrefly: ignore[bad-specialization]
-    Generic[QueryT, RetrievalResultT, DocT],
+class EmbeddingBasedIndex(
+    AbstractEmbeddingBasedIndex[QueryT, DocT, DocT],
+    Generic[QueryT, DocT],
 ):
   """In-memory index that retrieves documents based on embedding similarity.
 
@@ -567,7 +572,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
     docs = list(docs)
     if not docs:
       return
-    _validate_docs(docs)  # pyrefly: ignore[bad-argument-type]
+    _validate_docs(docs)
     self._docs.extend(docs)
     embedded_results = await self._calculate_doc_embeddings(docs)
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])
@@ -619,18 +624,18 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       return result
 
   @executing.make_executable(copy_self=False)
-  async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
+  async def retrieve_doc_score(self, query: QueryT, doc_index: int) -> float:
     """Returns similarity score of the document at `doc_index` for a query."""
     if doc_index < 0 or doc_index >= len(self._doc_embeddings):
       return 0.0
-    query_embedding = await self._calculate_query_embedding(query)  # pyrefly: ignore[bad-argument-type]
+    query_embedding = await self._calculate_query_embedding(query)
     query_embedding = np.array([query_embedding])
     doc_embedding = self._doc_embeddings[doc_index]
     return np.dot(query_embedding, doc_embedding)
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.retrieve_with_scores')
-  async def retrieve_with_scores(  # pyrefly: ignore[bad-override]
+  async def retrieve_with_scores(
       self,
       query: QueryT,
       *,
@@ -651,7 +656,7 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.retrieve', skip=['output'])
-  async def retrieve(  # pyrefly: ignore[bad-override]
+  async def retrieve(
       self,
       query: QueryT,
       *,
@@ -677,9 +682,8 @@ class EmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
 
 @dataclasses.dataclass(kw_only=True)
-class RewritingEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
-    RewritingIndex[QueryT, RetrievalResultT, DocT],  # pyrefly: ignore[bad-specialization]
-    EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT],
+class RewritingEmbeddingBasedIndex(
+    RewritingIndex[QueryT, RetrievalResultT, DocT],
     Generic[QueryT, RetrievalResultT, DocT],
 ):
   """Index that rewrites documents and provides embedding-specific methods.
@@ -695,10 +699,10 @@ class RewritingEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
       and similarity search.
   """
 
-  inner_index: EmbeddingBasedIndex[QueryT, RetrievalResultT, DocT]
+  inner_index: EmbeddingBasedIndex[QueryT, RetrievalResultT]
 
   @executing.make_executable(copy_self=False)
-  async def retrieve_doc_score(self, query: str, doc_index: int) -> float:
+  async def retrieve_doc_score(self, query: QueryT, doc_index: int) -> float:
     """Delegates to the inner index."""
     return await self.inner_index.retrieve_doc_score(
         query, doc_index
@@ -724,7 +728,7 @@ class RewritingEmbeddingBasedIndex(  # pyrefly: ignore[invalid-type-var]
 
 @dataclasses.dataclass(kw_only=True)
 class EmbeddingBasedDocumentIndex(
-    EmbeddingBasedIndex[str, Document, Document],
+    EmbeddingBasedIndex[str, Document],
     DocumentIndex,
 ):
   """Embedding-based index for Document objects."""
