@@ -47,7 +47,7 @@ def _default_golden_doc_ids_extractor(example: _ExampleDict) -> list[str]:
   """Default extractor that retrieves golden doc IDs from the example.
 
   Expects the golden document IDs to be stored in the
-  example['metadata']['answer_doc_ids'] field.
+  example['metadata']['golden_doc_ids'] field.
 
   Args:
     example: A mapping representing the dataset example.
@@ -56,17 +56,17 @@ def _default_golden_doc_ids_extractor(example: _ExampleDict) -> list[str]:
     A list of golden document IDs as strings.
 
   Raises:
-    KeyError: If the 'metadata' or 'answer_doc_ids' fields are not present in
+    KeyError: If the 'metadata' or 'golden_doc_ids' fields are not present in
       the example.
   """
-  if 'metadata' not in example or 'answer_doc_ids' not in example['metadata']:
+  if 'metadata' not in example or 'golden_doc_ids' not in example['metadata']:
     raise KeyError(
         'The default golden_doc_ids_extractor expects '
-        '\'metadata\': {\'answer_doc_ids\': ...} to be present in the example. '
+        '\'metadata\': {\'golden_doc_ids\': ...} to be present in the example. '
         'If your dataset uses a different key or structure, please provide a '
         'custom golden_doc_ids_extractor to make_recall_at_k.'
     )
-  gold_ids = example['metadata']['answer_doc_ids']
+  gold_ids = example['metadata']['golden_doc_ids']
   if isinstance(gold_ids, str):
     return [gold_ids]
   return [str(gid) for gid in gold_ids]

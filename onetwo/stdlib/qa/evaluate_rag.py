@@ -16,7 +16,7 @@ r"""Binary to evaluate a RAG strategy on a QA dataset.
 """
 
 import json
-from typing import Any, Mapping, Sequence
+from typing import Sequence
 
 from absl import app
 from absl import flags
@@ -88,16 +88,6 @@ _MAX_EXAMPLES = flags.DEFINE_integer(
 )
 
 
-# Custom golden doc IDs extractor for browsecomp_plus
-def _browsecomp_golden_doc_ids_extractor(
-    example: Mapping[str, Any],
-) -> list[str]:
-  metadata = example.get('metadata', {})
-  # browsecomp_plus stores it in 'golden_doc_ids'
-  gold_ids = metadata.get('golden_doc_ids', [])
-  return [str(gid) for gid in gold_ids]
-
-
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
@@ -125,14 +115,8 @@ def main(argv: Sequence[str]) -> None:
 
   metric_functions = {
       'accuracy': rag_metrics.make_accuracy_critic(),
-      'recall@5': rag_metrics.make_recall_at_k(
-          k=5,
-          answer_doc_ids_extractor=_browsecomp_golden_doc_ids_extractor,
-      ),
-      'recall@20': rag_metrics.make_recall_at_k(
-          k=20,
-          answer_doc_ids_extractor=_browsecomp_golden_doc_ids_extractor,
-      ),
+      'recall@5': rag_metrics.make_recall_at_k(k=5),
+      'recall@20': rag_metrics.make_recall_at_k(k=20),
   }
 
   print('Running evaluation...')

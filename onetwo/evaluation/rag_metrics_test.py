@@ -28,12 +28,12 @@ StrategyResult = qa.StrategyResult
 class MetricsLibTest(parameterized.TestCase):
 
   def test_default_golden_doc_ids_extractor_success_list(self):
-    example = {'metadata': {'answer_doc_ids': ['doc1', 'doc2']}}
+    example = {'metadata': {'golden_doc_ids': ['doc1', 'doc2']}}
     gold_ids = rag_metrics._default_golden_doc_ids_extractor(example)
     self.assertEqual(gold_ids, ['doc1', 'doc2'])
 
   def test_default_golden_doc_ids_extractor_success_str(self):
-    example = {'metadata': {'answer_doc_ids': 'doc1'}}
+    example = {'metadata': {'golden_doc_ids': 'doc1'}}
     gold_ids = rag_metrics._default_golden_doc_ids_extractor(example)
     self.assertEqual(gold_ids, ['doc1'])
 
@@ -94,7 +94,7 @@ class MetricsLibTest(parameterized.TestCase):
   def test_recall_at_k_calculation(
       self, k, prediction_doc_ids, golden_doc_ids, expected_recall
   ):
-    example = {'metadata': {'answer_doc_ids': golden_doc_ids}}
+    example = {'metadata': {'golden_doc_ids': golden_doc_ids}}
     prediction = StrategyResult(
         answer='some answer', doc_ids=prediction_doc_ids
     )
@@ -131,7 +131,7 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1', 'doc3'])
 
   def test_recall_at_k_no_strip(self):
-    example = {'metadata': {'answer_doc_ids': ['doc1']}}
+    example = {'metadata': {'golden_doc_ids': ['doc1']}}
     prediction = StrategyResult(
         answer='some answer', doc_ids=['doc1_chunk1', 'doc2']
     )
