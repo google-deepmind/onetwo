@@ -24,7 +24,6 @@ import copy
 import functools
 import inspect
 import io
-import itertools
 import logging
 import queue
 import threading
@@ -119,9 +118,13 @@ async def merge_iter(
 ) -> AsyncIterator[tuple[Any, int]]:
   """Merges an iterable of AsyncIterators into a single one.
 
+  Maintains up to `chunk_size` active iterators in parallel, continuously
+  refilling worker slots as iterators finish rather than waiting for whole
+  chunks to complete.
+
   Args:
     iterable: AsyncIterators to be merged (i.e. ran in parallel).
-    chunk_size: The number of AsyncIterators to be merged in parallel.
+    chunk_size: Maximum number of AsyncIterators to run in parallel.
     return_exceptions: If False, any exception will stop the processing and no
       result will be returned. If True, exceptions produced by individual
       iterators will be used as their returned result, so that the processing
@@ -132,15 +135,77 @@ async def merge_iter(
     wrapping their results into tuples with an index corresponding to which
     iterator produced it.
   """
-  offset = 0
   it = iter(iterable)
-  while True:
-    chunk = list(itertools.islice(it, chunk_size))
-    if not chunk:
+  # Tracks the original index of each iterator to preserve order in results.
+  global_index = 0
+  # Maps active asyncio.Tasks to their corresponding AsyncIterator and its
+  # original index.
+  to_process = {}
+
+  def _schedule_next() -> bool:
+    """Retrieves the next iterator from the source, schedules its first step, and adds it to the pool."""
+    nonlocal global_index
+    try:
+      next_async_it = aiter(next(it))
+      idx = global_index
+      global_index += 1
+      # Schedule the first step of this new iterator.
+      task = asyncio.ensure_future(anext(next_async_it))
+      to_process[task] = (next_async_it, idx)
+      return True
+    except StopIteration:
+      return False
+
+  # Fill the pool with up to `chunk_size` active iterators.
+  for _ in range(chunk_size):
+    if not _schedule_next():
       break
-    async for res, index in merge(*chunk, return_exceptions=return_exceptions):
-      yield res, index + offset
-    offset += len(chunk)
+
+  # Process active iterators until the pool is empty.
+  while to_process:
+    done, _ = await asyncio.wait(
+        list(to_process.keys()),
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    completed_results = []
+    completed_tasks = []
+    # Remove completed tasks from the active pool.
+    for task in done:
+      async_it, idx = to_process.pop(task)
+      completed_tasks.append((task, async_it, idx))
+
+    # Sort completed tasks by their original index before processing.
+    # This ensures deterministic scheduling order of the next steps.
+    completed_tasks.sort(key=lambda x: x[2])
+
+    for task, async_it, idx in completed_tasks:
+      try:
+        res = task.result()
+        completed_results.append((res, idx))
+        # The iterator yielded a value; schedule its next step.
+        next_task = asyncio.ensure_future(anext(async_it))
+        to_process[next_task] = (async_it, idx)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        if isinstance(e, StopAsyncIteration):
+          # The iterator is exhausted; refill the slot with a new iterator.
+          _schedule_next()
+        else:
+          f = io.StringIO()
+          traceback.print_tb(e.__traceback__, file=f)
+          e.add_note(f.getvalue())
+          if not return_exceptions:
+            for t in to_process:
+              t.cancel()
+            raise e
+          else:
+            # Treat the exception as a result and refill the slot.
+            completed_results.append((e, idx))
+            _schedule_next()
+
+    # Sort results by their original index to ensure reproducibility of outputs.
+    completed_results.sort(key=lambda x: x[1])
+    for res, idx in completed_results:
+      yield res, idx
 
 
 async def merge(

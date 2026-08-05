@@ -328,6 +328,32 @@ class IteratingTest(parameterized.TestCase):
     result = asyncio.run(wrapper())
     self.assertListEqual(result, expected, result)
 
+  def test_merge_iter_sliding_window(self):
+    slow_event = asyncio.Event()
+
+    async def slow_iterator():
+      await slow_event.wait()
+      yield 'slow'
+
+    async def fast_iterator(val: str):
+      yield val
+
+    iterators = [slow_iterator()] + [
+        fast_iterator(f'fast_{i}') for i in range(5)
+    ]
+
+    async def wrapper():
+      results = []
+      async for res, index in iterating.merge_iter(iterators, chunk_size=2):
+        results.append((res, index))
+        if len(results) == 5:
+          slow_event.set()
+      return results
+
+    results = asyncio.run(wrapper())
+    fast_results = [r for r in results if r[0] != 'slow']
+    self.assertLen(fast_results, 5)
+
   def test_merge_exceptions(self):
     iterations = 3
     num_iterators = 4
