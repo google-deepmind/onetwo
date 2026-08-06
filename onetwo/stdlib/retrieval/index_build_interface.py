@@ -61,7 +61,7 @@ class IndexSpec(dataclasses_json.DataClassJsonMixin, abc.ABC):
 
 
 @dataclasses_json.dataclass_json
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class EmbeddingBasedDocumentIndexSpec(IndexSpec):
   """Specification for building an EmbeddingBasedDocumentIndex.
 
@@ -98,7 +98,7 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
 # TODO: Standardize the spec-to-rewriter mapping and make it
 # generic.
 @dataclasses_json.dataclass_json
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     EmbeddingBasedDocumentIndexSpec
 ):
@@ -129,6 +129,69 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         f"_chunk_size_{self.max_tokens_per_chunk}"
         f"_overlap_window_{self.overlap_window}"
         f"_{model_name}"
+        f"__hash_{spec_hash}"
+    )
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
+  """Specification for building a HippoRAGDocumentIndex.
+
+  Attributes:
+    generate_backend_config: Configuration for the generation backend (LLM).
+    similarity_threshold: Minimum cosine similarity required to add a semantic
+      similarity edge between entities in the graph.
+  """
+
+  similarity_threshold: float = 0.8
+  generate_backend_config: backend_registry.GenerateBackendConfig
+
+  def __str__(self) -> str:
+    """Returns a compact, path-friendly string representation."""
+    embed_model = (
+        self.embed_backend_config.model_name
+        or self.embed_backend_config.backend_class_name
+    )
+    gen_model = (
+        self.generate_backend_config.model_name
+        or self.generate_backend_config.backend_class_name
+    )
+    spec_hash = self.get_stable_hash()
+    return (
+        f"HippoRAGDocumentIndex_embed_{embed_model}_gen_{gen_model}"
+        f"_sim_{self.similarity_threshold}"
+        f"__hash_{spec_hash}"
+    )
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class SimpleRewritingHippoRAGDocumentIndexSpec(
+    HippoRAGDocumentIndexSpec, SimpleRewritingEmbeddingBasedDocumentIndexSpec
+):
+  """Specification for building a simple Rewriting HippoRAGDocumentIndex.
+
+  This spec is a convenience wrapper combining HippoRAG index building with
+  chunking and formatting for corpus rewriting.
+  """
+
+  def __str__(self) -> str:
+    """Returns a compact, path-friendly string representation."""
+    embed_model = (
+        self.embed_backend_config.model_name
+        or self.embed_backend_config.backend_class_name
+    )
+    gen_model = (
+        self.generate_backend_config.model_name
+        or self.generate_backend_config.backend_class_name
+    )
+    spec_hash = self.get_stable_hash()
+    return (
+        f"HippoRAGDocumentIndex_chunk_{self.max_tokens_per_chunk}"
+        f"_overlap_{self.overlap_window}"
+        f"_embed_{embed_model}_gen_{gen_model}"
+        f"_sim_{self.similarity_threshold}"
         f"__hash_{spec_hash}"
     )
 

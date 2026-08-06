@@ -30,6 +30,9 @@ EmbeddingBasedDocumentIndexSpec = (
 SimpleRewritingEmbeddingBasedDocumentIndexSpec = (
     index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec
 )
+SimpleRewritingHippoRAGDocumentIndexSpec = (
+    index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec
+)
 
 IndexRunner = index_build_interface.IndexRunner
 

@@ -76,6 +76,33 @@ _EMBEDDING_MODEL_NAME = flags.DEFINE_string(
     'Name of the embedding model.',
 )
 
+_INDEX_TYPE = flags.DEFINE_enum(
+    'index_type',
+    'embedding',
+    ['embedding', 'hipporag'],
+    'Type of index to build ("embedding" or "hipporag").',
+)
+
+_GENERATION_BACKEND_CLASS_NAME = flags.DEFINE_string(
+    'generation_backend_class_name',
+    'GoogleGenAIAPI',
+    'Name of the generation backend class (for GraphRAG/HippoRAG).',
+)
+
+_GENERATION_MODEL_NAME = flags.DEFINE_string(
+    'generation_model_name',
+    'gemini-3-flash-preview',
+    'Name of the generation model (for GraphRAG/HippoRAG).',
+)
+
+_SIMILARITY_THRESHOLD = flags.DEFINE_float(
+    'similarity_threshold',
+    0.8,
+    'Minimum similarity threshold required for semantic similarity edges. This'
+    ' is only used for HippoRAG (when --index_type=hipporag) to construct'
+    ' similarity edges.',
+)
+
 _CHUNK_SIZE = flags.DEFINE_integer(
     'chunk_size',
     None,
@@ -133,13 +160,30 @@ def main(argv: Sequence[str]) -> None:
       model_name=_EMBEDDING_MODEL_NAME.value,
   )
   format_str = None if _FORMAT.value in ('None', '') else _FORMAT.value
-  spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-      embed_backend_config=embed_backend_config,
-      max_tokens_per_chunk=_CHUNK_SIZE.value,
-      overlap_window=_OVERLAP_WINDOW.value,
-      format_str=format_str,
-      runtime_kwargs=json.loads(_RUNTIME_KWARGS.value),
-  )
+  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
+
+  if _INDEX_TYPE.value == 'hipporag':
+    generate_backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
+        model_name=_GENERATION_MODEL_NAME.value,
+    )
+    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=embed_backend_config,
+        generate_backend_config=generate_backend_config,
+        max_tokens_per_chunk=_CHUNK_SIZE.value,
+        overlap_window=_OVERLAP_WINDOW.value,
+        format_str=format_str,
+        similarity_threshold=_SIMILARITY_THRESHOLD.value,
+        runtime_kwargs=runtime_kwargs,
+    )
+  else:
+    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=embed_backend_config,
+        max_tokens_per_chunk=_CHUNK_SIZE.value,
+        overlap_window=_OVERLAP_WINDOW.value,
+        format_str=format_str,
+        runtime_kwargs=runtime_kwargs,
+    )
 
   # TODO: Consider making this a helper function.
   output_directory = _OUTPUT_DIRECTORY.value

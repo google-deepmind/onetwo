@@ -16,6 +16,7 @@
 
 from typing import Iterable
 
+from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
@@ -40,7 +41,7 @@ class LocalIndexRunner(
       docs: Iterable[retrieval_data_structures.Document] | str,
       output_dir: str | None = None,
       **kwargs,
-  ) -> indexing.DocumentIndex:
+  ) -> indexing.Index:
     """Builds a DocumentIndex in memory."""
     if isinstance(docs, str):
       raise ValueError(
@@ -52,6 +53,53 @@ class LocalIndexRunner(
       runtime_kwargs = spec.runtime_kwargs
 
     if isinstance(
+        spec, index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec
+    ):
+      if spec.max_tokens_per_chunk is None:
+        chunker = chunking.NoChunking()
+      else:
+        tokenizer_backend = None
+        if spec.generate_backend_config is not None:
+          tokenizer_backend = backend_registry.get_backend(
+              spec.generate_backend_config, **runtime_kwargs
+          )
+        chunker = chunking.ChunkByMaxTokens(
+            max_tokens_per_chunk=spec.max_tokens_per_chunk,
+            overlap_window=spec.overlap_window,
+            tokenizer_backend=tokenizer_backend,
+        )
+      if spec.format_str is None:
+        formatter = document_formatting.NoFormatting()
+      else:
+        formatter = document_formatting.TextDocumentFormatter(
+            format_str=spec.format_str
+        )
+      rewriter = corpus_rewriting.SequentialCorpusRewriter(
+          rewriters=[
+              corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
+              corpus_rewriting.FormattingCorpusRewriter(formatter=formatter),
+          ]
+      )
+
+      extractor = graph_lib.GraphRAGEntityAndTriplesExtractor(
+          extraction_prompt=graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT.format(
+              entity_types=", ".join(graphrag_prompts.DEFAULT_ENTITY_TYPES)
+          ),
+          generate_backend_config=spec.generate_backend_config,
+          runtime_kwargs=runtime_kwargs,
+      )
+      inner_index = graphrag_indexing.HippoRAGDocumentIndex(
+          entity_and_triples_extractor=extractor,
+          embed_backend_config=spec.embed_backend_config,
+          generate_backend_config=spec.generate_backend_config,
+          similarity_threshold=spec.similarity_threshold,
+          runtime_kwargs=runtime_kwargs,
+      )
+      index = indexing.RewritingEmbeddingBasedDocumentIndex(
+          rewriter=rewriter,
+          inner_index=inner_index,  # pyrefly: ignore[bad-argument-type]
+      )
+    elif isinstance(
         spec,
         index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
     ):
