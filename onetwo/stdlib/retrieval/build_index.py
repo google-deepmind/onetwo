@@ -37,13 +37,11 @@ bazel run //third_party/py/onetwo/stdlib/retrieval:build_index -- \
   --runtime_kwargs='{"api_key": "YOUR_API_KEY", "threadpool_size": 20}'
 """
 
-import getpass
 import json
 from typing import Sequence
 
 from absl import app
 from absl import flags
-from etils import epath
 from onetwo.backends import backend_registry
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
@@ -144,15 +142,12 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  # TODO: Consider making this a helper function.
-  # Load dataset
   print(f'Loading dataset {_DATASET_NAME.value}...')
-  loader = datasets.get_dataset_loader(
+  docs = datasets.load_documents(
       _DATASET_NAME.value,
-      max_number_of_documents=_MAX_DOCUMENTS.value,
+      max_documents=_MAX_DOCUMENTS.value,
   )
-  docs = ot_executing.run(loader.load_documents())
-  print(f'Loaded {len(list(docs))} documents.')
+  print(f'Loaded {len(docs)} documents.')
 
   # Construct spec
   embed_backend_config = backend_registry.EmbedBackendConfig(
@@ -185,8 +180,11 @@ def main(argv: Sequence[str]) -> None:
         runtime_kwargs=runtime_kwargs,
     )
 
-  # TODO: Consider making this a helper function.
-  output_directory = _OUTPUT_DIRECTORY.value
+  output_directory = index_building.resolve_index_output_directory(
+      output_directory_pattern=_OUTPUT_DIRECTORY.value,
+      dataset_name=_DATASET_NAME.value,
+      spec=spec,
+  )
   print(f'Will save the index to output_directory: {output_directory}')
 
   # Build index

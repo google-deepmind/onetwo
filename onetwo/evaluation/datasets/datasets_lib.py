@@ -412,3 +412,45 @@ def get_dataset_loader(name: str, **kwargs) -> DatasetLoader:
 def list_dataset_loaders() -> list[str]:
   """Returns a sorted list of all registered dataset loader names."""
   return sorted(_DATASET_LOADER_REGISTRY.keys())
+
+
+def load_documents(
+    dataset_name: str,
+    max_documents: int | None = None,
+) -> list[retrieval_data_structures.Document]:
+  """Loads documents from a registered dataset.
+
+  Args:
+    dataset_name: Name of the dataset to load.
+    max_documents: Maximum number of documents to load.
+
+  Returns:
+    A list of Document objects.
+  """
+  loader = get_dataset_loader(
+      dataset_name,
+      max_number_of_documents=max_documents,
+  )
+  docs = executing.run(loader.load_documents())
+  return list(docs)
+
+
+def load_examples(
+    dataset_name: str,
+    max_examples: int | None = None,
+) -> list[ExampleDict]:
+  """Loads examples from a registered dataset.
+
+  Args:
+    dataset_name: Name of the dataset to load.
+    max_examples: Maximum number of examples to load.
+
+  Returns:
+    A list of example dictionaries.
+  """
+  loader = get_dataset_loader(
+      dataset_name,
+      max_number_of_examples=max_examples,
+  )
+  examples = executing.run(loader.load_examples())
+  return list(examples)

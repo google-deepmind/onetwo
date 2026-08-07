@@ -14,8 +14,10 @@
 
 """Index building utilities."""
 
+import getpass
 from typing import Any, Callable, Iterable
 
+from etils import epath
 from onetwo.core import executing
 
 from onetwo.stdlib.retrieval import index_build_interface
@@ -86,3 +88,24 @@ async def build_index(
 
 register_runner("local", local_index_runner.LocalIndexRunner)
 # TODO: Register the "beam" runner once implemented.
+
+
+# TODO: Determine output directory for OSS.
+def resolve_index_output_directory(
+    output_directory_pattern: str,
+    dataset_name: str,
+    spec: index_build_interface.IndexSpec,
+) -> str:
+  """Resolves the output directory for an index, handling internal paths.
+
+  Args:
+    output_directory_pattern: Pattern for the output directory (may contain
+      {username}).
+    dataset_name: Name of the dataset.
+    spec: The index spec to use for sub-directory naming.
+
+  Returns:
+    The resolved path as a string.
+  """
+  path = output_directory_pattern
+  return path

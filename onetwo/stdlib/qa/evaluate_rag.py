@@ -20,10 +20,7 @@ from typing import Sequence
 
 from absl import app
 from absl import flags
-from etils import epath
 from onetwo.backends import backend_registry
-from onetwo.core import executing as ot_executing
-from onetwo.core import results as ot_results
 from onetwo.evaluation import datasets
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
@@ -104,14 +101,12 @@ def main(argv: Sequence[str]) -> None:
   )
 
   # 2. Load Dataset Examples
-  # TODO: Consider making this a helper function.
   print(f'Loading dataset {_DATASET_NAME.value}...')
-  loader = datasets.get_dataset_loader(
+  examples = datasets.load_examples(
       _DATASET_NAME.value,
-      max_number_of_examples=_MAX_EXAMPLES.value,
+      max_examples=_MAX_EXAMPLES.value,
   )
-  examples = ot_executing.run(loader.load_examples())
-  print(f'Loaded {len(list(examples))} examples.')
+  print(f'Loaded {len(examples)} examples.')
 
   metric_functions = {
       'accuracy': rag_metrics.make_accuracy_critic(),
@@ -133,12 +128,9 @@ def main(argv: Sequence[str]) -> None:
   print(f'Evaluation Metrics: {summary.metrics}')
 
   # 5. Save Results as HTML report
-  # TODO: Consider making this a helper function.
-  output_dir = epath.Path(_OUTPUT_DIRECTORY.value)
-  output_dir.mkdir(parents=True, exist_ok=True)
-  html_report_path = output_dir / 'results.html'
-  html_report_path.write_text(
-      ot_results.HTMLRenderer(levels_to_expand=2).render(summary)
+  html_report_path = qa_evaluation.save_html_report(
+      summary=summary,
+      output_dir_path=_OUTPUT_DIRECTORY.value,
   )
   print(f'HTML report saved to {html_report_path}')
 
