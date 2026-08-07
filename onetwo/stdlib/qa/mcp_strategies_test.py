@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from google.genai import types as genai_types
+from mcp import types as mcp_types
+from mcp.client import streamable_http as mcp_streamable_http
 from onetwo import ot
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
@@ -77,6 +80,150 @@ class MCPStrategyTest(parameterized.TestCase):
   def test_no_mcp_server_url_raises(self):
     with self.assertRaises(ValueError):
       mcp_strategies.GoogleGenAIMCPStrategy(mcp_server_url='')
+
+  def test_safe_call_tool_handles_exceptions(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp'
+    )
+    mock_call_tool = mock.AsyncMock(
+        side_effect=RuntimeError('HTTP 400 Bad Request')
+    )
+    self.mock_client.session.call_tool = mock_call_tool
+
+    # Run strategy which will apply _safe_call_tool wrapper
+    result = ot.run(strategy(question=_TEXT_QUESTION))
+    self.assertEqual(result.answer, 'mcp answer')
+
+    # Now verify that wrapped call_tool catches the exception and returns
+    # error CallToolResult.
+    wrapped_call_tool = self.mock_client.session.call_tool
+    tool_res = ot.run(wrapped_call_tool('bad_tool', {'arg': 1}))
+    self.assertTrue(tool_res.isError)
+    self.assertIn('Error executing tool bad_tool', tool_res.content[0].text)
+
+  def test_suppresses_fastmcp_shutdown_exception_when_answer_produced(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp'
+    )
+    self.mock_client.__aexit__.side_effect = RuntimeError(
+        'Transport teardown error'
+    )
+
+    result = ot.run(strategy(question=_TEXT_QUESTION))
+    self.assertEqual(result.answer, 'mcp answer')
+
+  def test_resilient_transport_handles_http_400(self):
+    transport = mcp_strategies._ResilientStreamableHTTPTransport(
+        url='http://localhost:8000/mcp'
+    )
+    mock_request = mcp_types.JSONRPCRequest(
+        jsonrpc='2.0',
+        id='req-1',
+        method='tools/call',
+        params={'name': 'search_passages', 'arguments': {'bad_arg': 1}},
+    )
+    mock_msg = mcp_streamable_http.SessionMessage(
+        mcp_types.JSONRPCMessage(mock_request)
+    )
+    mock_writer = mock.AsyncMock()
+    mock_response = mock.AsyncMock()
+    mock_response.status_code = 400
+    mock_response.aread.return_value = b'{"detail": "Field required"}'
+
+    class _MockClient:
+
+      @contextlib.asynccontextmanager
+      async def stream(self, *unused_args, **unused_kwargs):
+        yield mock_response
+
+    ctx = mcp_streamable_http.RequestContext(
+        client=_MockClient(),  # pyrefly: ignore[bad-argument-type]
+        session_message=mock_msg,
+        read_stream_writer=mock_writer,
+        session_id=None,
+        metadata=None,
+    )
+
+    ot.run(transport._handle_post_request(ctx))
+
+    mock_writer.send.assert_awaited_once()
+    sent_msg = mock_writer.send.await_args[0][0]
+    self.assertIsInstance(sent_msg.message.root, mcp_types.JSONRPCError)
+    self.assertEqual(sent_msg.message.root.id, 'req-1')
+    self.assertIn('HTTP 400', sent_msg.message.root.error.message)
+
+  def test_resilient_transport_handles_http_404(self):
+    transport = mcp_strategies._ResilientStreamableHTTPTransport(
+        url='http://localhost:8000/mcp'
+    )
+    mock_request = mcp_types.JSONRPCRequest(
+        jsonrpc='2.0',
+        id='req-404',
+        method='tools/call',
+        params={'name': 'search_passages', 'arguments': {}},
+    )
+    mock_msg = mcp_streamable_http.SessionMessage(
+        mcp_types.JSONRPCMessage(mock_request)
+    )
+    mock_writer = mock.AsyncMock()
+    mock_response = mock.AsyncMock()
+    mock_response.status_code = 404
+
+    class _MockClient:
+
+      @contextlib.asynccontextmanager
+      async def stream(self, *unused_args, **unused_kwargs):
+        yield mock_response
+
+    ctx = mcp_streamable_http.RequestContext(
+        client=_MockClient(),  # pyrefly: ignore[bad-argument-type]
+        session_message=mock_msg,
+        read_stream_writer=mock_writer,
+        session_id=None,
+        metadata=None,
+    )
+
+    ot.run(transport._handle_post_request(ctx))
+
+    mock_writer.send.assert_awaited_once()
+    sent_msg = mock_writer.send.await_args[0][0]
+    self.assertIsInstance(sent_msg.message.root, mcp_types.JSONRPCError)
+    self.assertEqual(sent_msg.message.root.id, 'req-404')
+    self.assertEqual(sent_msg.message.root.error.code, 32600)
+
+  def test_resilient_transport_handles_http_202(self):
+    transport = mcp_strategies._ResilientStreamableHTTPTransport(
+        url='http://localhost:8000/mcp'
+    )
+    mock_request = mcp_types.JSONRPCRequest(
+        jsonrpc='2.0',
+        id='req-202',
+        method='notifications/initialized',
+        params={},
+    )
+    mock_msg = mcp_streamable_http.SessionMessage(
+        mcp_types.JSONRPCMessage(mock_request)
+    )
+    mock_writer = mock.AsyncMock()
+    mock_response = mock.AsyncMock()
+    mock_response.status_code = 202
+
+    class _MockClient:
+
+      @contextlib.asynccontextmanager
+      async def stream(self, *unused_args, **unused_kwargs):
+        yield mock_response
+
+    ctx = mcp_streamable_http.RequestContext(
+        client=_MockClient(),  # pyrefly: ignore[bad-argument-type]
+        session_message=mock_msg,
+        read_stream_writer=mock_writer,
+        session_id=None,
+        metadata=None,
+    )
+
+    ot.run(transport._handle_post_request(ctx))
+    mock_writer.send.assert_not_awaited()
 
   def test_query_template_formatting(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(

@@ -15,14 +15,19 @@
 """MCP-related QA strategies."""
 
 import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator
+import contextlib
 import dataclasses
 import logging
 import re
 from typing import Any
 
+import anyio
 import fastmcp
 from fastmcp.client import transports as fastmcp_transports
 from google.genai import types as genai_types
+from mcp import types as mcp_types
+from mcp.client import streamable_http as mcp_streamable_http
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -83,6 +88,170 @@ def _extract_cited_doc_ids(answer: str) -> list[str]:
         seen.add(doc_id)
         doc_ids.append(doc_id)
   return doc_ids
+
+
+# TODO: Create a helper library for these MCP transport wrappers.
+class _ResilientStreamableHTTPTransport(
+    mcp_streamable_http.StreamableHTTPTransport
+):
+  """StreamableHTTPTransport converting HTTP 4xx/5xx into JSON-RPC errors.
+
+  Standard StreamableHTTPTransport calls response.raise_for_status() inside its
+  background reader task when the MCP server returns HTTP 400/422 (e.g. on
+  invalid tool arguments). This fatal unhandled exception crashes anyio's
+  TaskGroup and permanently kills the transport, causing all subsequent tool
+  calls in the multi-turn reasoning loop to hang indefinitely.
+
+  This resilient transport intercepts HTTP error responses and sends a JSON-RPC
+  error message to the read stream, keeping the session alive and allowing the
+  LLM to receive the error and self-correct.
+  """
+
+  async def _handle_post_request(
+      self, ctx: mcp_streamable_http.RequestContext
+  ) -> None:
+    headers = self._prepare_headers()
+    message = ctx.session_message.message
+    is_initialization = self._is_initialization_request(message)
+
+    async with ctx.client.stream(
+        'POST',
+        self.url,
+        json=message.model_dump(by_alias=True, mode='json', exclude_none=True),
+        headers=headers,
+    ) as response:
+      if response.status_code == 202:
+        return
+
+      if response.status_code == 404:
+        if isinstance(message.root, mcp_types.JSONRPCRequest):
+          await self._send_session_terminated_error(
+              ctx.read_stream_writer,
+              message.root.id,
+          )
+        return
+
+      if response.status_code >= 400:
+        if isinstance(message.root, mcp_types.JSONRPCRequest):
+          content = await response.aread()
+          error_text = content.decode('utf-8', errors='replace')
+          jsonrpc_error = mcp_types.JSONRPCError(
+              jsonrpc='2.0',
+              id=message.root.id,
+              error=mcp_types.ErrorData(
+                  code=(
+                      mcp_types.INVALID_PARAMS
+                      if response.status_code in (400, 422)
+                      else mcp_types.INTERNAL_ERROR
+                  ),
+                  message=f'HTTP {response.status_code}: {error_text}',
+              ),
+          )
+          session_message = mcp_streamable_http.SessionMessage(
+              mcp_types.JSONRPCMessage(jsonrpc_error)
+          )
+          await ctx.read_stream_writer.send(session_message)
+        return
+
+      if is_initialization:
+        self._maybe_extract_session_id_from_response(response)
+
+      if isinstance(message.root, mcp_types.JSONRPCRequest):
+        content_type = response.headers.get(
+            mcp_streamable_http.CONTENT_TYPE, ''
+        ).lower()
+        if content_type.startswith(mcp_streamable_http.JSON):
+          await self._handle_json_response(
+              response, ctx.read_stream_writer, is_initialization
+          )
+        elif content_type.startswith(mcp_streamable_http.SSE):
+          await self._handle_sse_response(response, ctx, is_initialization)
+        else:
+          await self._handle_unexpected_content_type(
+              content_type,
+              ctx.read_stream_writer,
+          )
+
+
+@contextlib.asynccontextmanager
+async def _resilient_streamable_http_client(
+    url: str,
+    headers: dict[str, str] | None = None,
+    auth: Any = None,
+) -> AsyncGenerator[
+    tuple[
+        anyio.streams.memory.MemoryObjectReceiveStream[Any],
+        anyio.streams.memory.MemoryObjectSendStream[Any],
+        Any,
+    ],
+    None,
+]:
+  """Context manager providing streams via _ResilientStreamableHTTPTransport."""
+  read_stream_writer, read_stream = anyio.create_memory_object_stream[
+      mcp_streamable_http.SessionMessage | Exception
+  ](0)
+  write_stream, write_stream_reader = anyio.create_memory_object_stream[
+      mcp_streamable_http.SessionMessage
+  ](0)
+
+  client = mcp_streamable_http.create_mcp_http_client(
+      headers=headers, auth=auth
+  )
+  transport = _ResilientStreamableHTTPTransport(url)
+
+  async with anyio.create_task_group() as tg:
+    try:
+      async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(client)
+
+        def start_get_stream() -> None:
+          tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+
+        tg.start_soon(
+            transport.post_writer,
+            client,
+            write_stream_reader,
+            read_stream_writer,
+            write_stream,
+            start_get_stream,
+            tg,
+        )
+
+        try:
+          yield (read_stream, write_stream, transport.get_session_id)
+        finally:
+          if transport.session_id:
+            try:
+              await transport.terminate_session(client)
+            except Exception:  # pylint: disable=broad-except
+              pass
+          tg.cancel_scope.cancel()
+    finally:
+      await read_stream_writer.aclose()
+      await write_stream.aclose()
+
+
+class _ResilientStreamableHttpTransport(
+    fastmcp_transports.StreamableHttpTransport
+):
+  """FastMCP transport that wraps _ResilientStreamableHTTPTransport."""
+
+  @contextlib.asynccontextmanager
+  async def connect_session(
+      self, **session_kwargs
+  ) -> AsyncIterator[fastmcp_transports.ClientSession]:
+    headers = fastmcp_transports.get_http_headers() | self.headers
+    async with _resilient_streamable_http_client(
+        self.url,
+        headers=headers,
+        auth=self.auth,
+    ) as (read_stream, write_stream, _):
+      async with fastmcp_transports.ClientSession(
+          read_stream,
+          write_stream,
+          **session_kwargs,
+      ) as session:
+        yield session
 
 
 @dataclasses.dataclass
@@ -192,57 +361,92 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     logging.info(
         'Connecting to MCP server client-side: %s', self.mcp_server_url
     )
-    transport = fastmcp_transports.StreamableHttpTransport(
-        url=self.mcp_server_url
-    )
+    transport = _ResilientStreamableHttpTransport(url=self.mcp_server_url)
     client = fastmcp.Client(transport)
 
-    async with client:
-      # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
-      # live session objects (like Futures) during GenAI SDK's internal
-      # config copying. Returning self preserves the shared live connection.
-      # The try/except guards against the session being dead (e.g. after an
-      # HTTP 400 from the MCP server kills the connection).
-      def _safe_deepcopy(memo, client_ref=client):  # pyrefly: ignore[missing-attribute]
-        del memo  # Unused; required by __deepcopy__ protocol.
-        try:
-          return client_ref.session
-        except RuntimeError:
-          return None
+    answer_str = None
+    try:
+      async with client:
+        # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
+        # live session objects (like Futures) during GenAI SDK's internal
+        # config copying. Returning self preserves the shared live connection.
+        # The try/except guards against the session being dead (e.g. after an
+        # HTTP 400 from the MCP server kills the connection).
+        def _safe_deepcopy(memo, client_ref=client):  # pyrefly: ignore[missing-attribute]
+          del memo  # Unused; required by __deepcopy__ protocol.
+          try:
+            return client_ref.session
+          except RuntimeError:
+            return None
 
-      client.session.__deepcopy__ = _safe_deepcopy  # pyrefly: ignore[missing-attribute]
+        client.session.__deepcopy__ = _safe_deepcopy  # pyrefly: ignore[missing-attribute]
 
-      # Build a thinking_config that preserves any existing settings (e.g.,
-      # thinking_budget) from the backend's configured defaults, and only
-      # sets include_thoughts=True on top of them.
-      chat_defaults = routing.function_registry[llm.chat.name].defaults
-      existing_thinking_config = chat_defaults.get('thinking_config')
-      if existing_thinking_config is not None:
-        thinking_config = existing_thinking_config.model_copy(
-            update={'include_thoughts': self.include_thoughts}
-        )
-      else:
-        thinking_config = genai_types.ThinkingConfig(
-            include_thoughts=self.include_thoughts
-        )
+        # Intercept and handle call_tool exceptions (such as HTTP 400 Bad
+        # Request or transport errors) gracefully. Returning an error
+        # CallToolResult to the LLM allows it to self-correct its parameters
+        # without crashing the StreamableHTTP transport or deadlocking the
+        # session.
+        original_call_tool = client.session.call_tool
 
-      kwargs = {
-          'tools': [client.session],
-          'automatic_function_calling': (
-              genai_types.AutomaticFunctionCallingConfig(
-                  maximum_remote_calls=100
-              )
-          ),
-          'thinking_config': thinking_config,
-      }
+        async def _safe_call_tool(
+            name: str, arguments: dict[str, Any] | None = None, **call_kwargs
+        ):
+          try:
+            return await original_call_tool(
+                name, arguments=arguments, **call_kwargs
+            )
+          except Exception as exc:  # pylint: disable=broad-except
+            logging.warning(
+                'MCP call_tool(%s, %s) raised exception: %s',
+                name,
+                arguments,
+                exc,
+            )
+            return mcp_types.CallToolResult(
+                content=[
+                    mcp_types.TextContent(
+                        type='text',
+                        text=(
+                            f'Error executing tool {name}: {exc}. Please adjust'
+                            ' arguments or try another tool.'
+                        ),
+                    )
+                ],
+                isError=True,
+            )
 
-      messages = [
-          content_lib.Message(
-              role=content_lib.PredefinedRole.USER,
-              content=question,
+        client.session.call_tool = _safe_call_tool  # pyrefly: ignore[bad-assignment, missing-attribute]
+
+        # Build a thinking_config that preserves any existing settings (e.g.,
+        # thinking_budget) from the backend's configured defaults, and only
+        # sets include_thoughts=True on top of them.
+        chat_defaults = routing.function_registry[llm.chat.name].defaults
+        existing_thinking_config = chat_defaults.get('thinking_config')
+        if existing_thinking_config is not None:
+          thinking_config = existing_thinking_config.model_copy(
+              update={'include_thoughts': self.include_thoughts}
           )
-      ]
-      try:
+        else:
+          thinking_config = genai_types.ThinkingConfig(
+              include_thoughts=self.include_thoughts
+          )
+
+        kwargs = {
+            'tools': [client.session],
+            'automatic_function_calling': (
+                genai_types.AutomaticFunctionCallingConfig(
+                    maximum_remote_calls=100
+                )
+            ),
+            'thinking_config': thinking_config,
+        }
+
+        messages = [
+            content_lib.Message(
+                role=content_lib.PredefinedRole.USER,
+                content=question,
+            )
+        ]
         # Timeout: when the MCP server returns a non-2xx response (e.g.
         # HTTP 400), the StreamableHTTP transport's raise_for_status()
         # crashes its anyio task group, killing the transport entirely.
@@ -254,15 +458,30 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
             timeout=self.call_timeout,
         )
         answer_str = str(answer)
+    except Exception as e:  # pylint: disable=broad-except
+      # If fastmcp.__aexit__ raised a background transport error (e.g.
+      # HTTPStatusError from a previously caught tool call error) during
+      # client teardown, but the answer was already produced by the model,
+      # return the generated answer rather than failing the example.
+      if answer_str is not None:
+        logging.warning(
+            'FastMCP client shutdown raised exception after answer was'
+            ' generated: %s',
+            e,
+        )
         return StrategyResult(
             answer=answer_str,
             doc_ids=_extract_cited_doc_ids(answer_str),
         )
-      except Exception as e:
-        logging.exception('Error during GoogleGenAIMCPStrategy execution')
-        # Re-raise so ot.evaluate records the failure for this example and
-        # continues with the remaining ones.
-        raise RuntimeError(f'{type(e).__name__}: {str(e)}') from e
+      logging.exception('Error during GoogleGenAIMCPStrategy execution')
+      # Re-raise so ot.evaluate records the failure for this example and
+      # continues with the remaining ones.
+      raise RuntimeError(f'{type(e).__name__}: {str(e)}') from e
+
+    return StrategyResult(
+        answer=answer_str,
+        doc_ids=_extract_cited_doc_ids(answer_str),
+    )
 
 
 # Self-register the 'mcp' strategy when this module is imported.
