@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import contextlib
 from unittest import mock
 
@@ -224,6 +225,27 @@ class MCPStrategyTest(parameterized.TestCase):
 
     ot.run(transport._handle_post_request(ctx))
     mock_writer.send.assert_not_awaited()
+
+  def test_safe_call_tool_handles_per_tool_timeout(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+        tool_timeout=0.01,
+    )
+
+    async def _hanging_call_tool(*unused_args, **unused_kwargs):
+      await asyncio.sleep(1.0)
+
+    self.mock_client.session.call_tool = _hanging_call_tool
+
+    # Run strategy which will apply _safe_call_tool wrapper with
+    # tool_timeout=0.01.
+    result = ot.run(strategy(question=_TEXT_QUESTION))
+    self.assertEqual(result.answer, 'mcp answer')
+
+    wrapped_call_tool = self.mock_client.session.call_tool
+    tool_res = ot.run(wrapped_call_tool('hanging_tool', {}))
+    self.assertTrue(tool_res.isError)
+    self.assertIn('Error executing tool hanging_tool', tool_res.content[0].text)
 
   def test_query_template_formatting(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(

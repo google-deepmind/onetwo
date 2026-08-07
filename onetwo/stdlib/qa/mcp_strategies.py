@@ -274,15 +274,18 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       between tool calls.
     call_timeout: Maximum seconds to wait for a single ``llm.chat()`` call
       (including all AFC tool-call rounds) before raising ``TimeoutError``.
-      Defaults to 600 (10 minutes). Required because a non-2xx MCP response
+      Defaults to 1200 (20 minutes). Required because a non-2xx MCP response
       crashes the StreamableHTTP transport, leaving orphaned awaits that hang
       forever and block the entire evaluation batch.
+    tool_timeout: Maximum seconds to wait for an individual tool call before
+      returning a timeout error to the model. Defaults to 60.0 seconds.
   """
 
   mcp_server_url: str = ''
   query_template: str = default_qa_template_mcp
   include_thoughts: bool = True
-  call_timeout: float = 600.0
+  call_timeout: float = 1200.0
+  tool_timeout: float = 60.0
 
   def __post_init__(self):
     if not self.mcp_server_url:
@@ -392,8 +395,9 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
             name: str, arguments: dict[str, Any] | None = None, **call_kwargs
         ):
           try:
-            return await original_call_tool(
-                name, arguments=arguments, **call_kwargs
+            return await asyncio.wait_for(
+                original_call_tool(name, arguments=arguments, **call_kwargs),
+                timeout=self.tool_timeout,
             )
           except Exception as exc:  # pylint: disable=broad-except
             logging.warning(
