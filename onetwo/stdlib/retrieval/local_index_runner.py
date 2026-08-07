@@ -16,7 +16,7 @@
 
 from typing import Iterable
 
-from onetwo.backends import backend_registry
+from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
@@ -33,6 +33,15 @@ class LocalIndexRunner(
     ]
 ):
   """In-memory index runner."""
+
+  def _get_tokenizer_backend(
+      self,
+  ) -> sentencepiece_tokenizer.SentencePieceTokenizer:
+    tokenizer = sentencepiece_tokenizer.SentencePieceTokenizer(
+        model_name="GEMINI3_G145"
+    )
+    tokenizer.register()
+    return tokenizer
 
   @executing.make_executable(copy_self=False)
   async def build_index(
@@ -58,11 +67,7 @@ class LocalIndexRunner(
       if spec.max_tokens_per_chunk is None:
         chunker = chunking.NoChunking()
       else:
-        tokenizer_backend = None
-        if spec.generate_backend_config is not None:
-          tokenizer_backend = backend_registry.get_backend(
-              spec.generate_backend_config, **runtime_kwargs
-          )
+        tokenizer_backend = self._get_tokenizer_backend()
         chunker = chunking.ChunkByMaxTokens(
             max_tokens_per_chunk=spec.max_tokens_per_chunk,
             overlap_window=spec.overlap_window,
@@ -107,9 +112,11 @@ class LocalIndexRunner(
       if spec.max_tokens_per_chunk is None:
         chunker = chunking.NoChunking()
       else:
+        tokenizer_backend = self._get_tokenizer_backend()
         chunker = chunking.ChunkByMaxTokens(
             max_tokens_per_chunk=spec.max_tokens_per_chunk,
             overlap_window=spec.overlap_window,
+            tokenizer_backend=tokenizer_backend,
         )
       if spec.format_str is None:
         formatter = document_formatting.NoFormatting()

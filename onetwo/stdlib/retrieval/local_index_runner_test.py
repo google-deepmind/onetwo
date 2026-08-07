@@ -27,12 +27,14 @@
 # limitations under the License.
 
 from typing import cast
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
+from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import batching
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import indexing
@@ -66,6 +68,21 @@ class LocalIndexRunnerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
+    self.mock_sp_processor = mock.MagicMock()
+    self.mock_sp_processor.EncodeAsIds.side_effect = lambda s: [1] * len(
+        s.split()
+    )
+    self.mock_sp_processor.DecodeIds.side_effect = lambda ids: ' '.join(
+        ['word'] * len(ids)
+    )
+    self.enter_context(
+        mock.patch.object(
+            sentencepiece_tokenizer.SentencePieceTokenizer,
+            '_load_model',
+            return_value=self.mock_sp_processor,
+        )
+    )
+
     # Register LLMForTest to handle tokenize/detokenize globally
     self.llm_backend = backends_test_utils.LLMForTest(
         default_reply="{'entities': [], 'triples': []}"
@@ -250,6 +267,14 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         ValueError, 'does not support loading documents from a path'
     ):
       ot.run(runner.build_index(spec=spec, docs='/path/to/docs'))
+
+  def test_get_tokenizer_backend(self):
+    runner = local_index_runner.LocalIndexRunner()
+    tokenizer = runner._get_tokenizer_backend()
+    self.assertIsInstance(
+        tokenizer, sentencepiece_tokenizer.SentencePieceTokenizer
+    )
+    self.assertEqual(tokenizer.model_name, 'GEMINI3_G145')
 
   def test_index_spec_serialization(self):
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
