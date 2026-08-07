@@ -2741,13 +2741,13 @@ class ExtractToolCallsFromPartsTest(parameterized.TestCase):
           'function_call_only',
           [_make_fc_part('foo', {'a': 1})],
           1,
-          [{'type': 'function_call', 'name': 'foo', 'args': {'a': 1}}],
+          [google_genai_api.FunctionCallDetail(name='foo', args={'a': 1})],
       ),
       (
           'thought_only',
           [mock.Mock(function_call=None, thought=True, text='Thinking...')],
           0,
-          [{'type': 'thought', 'text': 'Thinking...'}],
+          [google_genai_api.ThoughtDetail(text='Thinking...')],
       ),
       (
           'text_only',
@@ -2764,8 +2764,8 @@ class ExtractToolCallsFromPartsTest(parameterized.TestCase):
           ],
           1,
           [
-              {'type': 'thought', 'text': 'Thinking...'},
-              {'type': 'function_call', 'name': 'bar', 'args': {'x': 2}},
+              google_genai_api.ThoughtDetail(text='Thinking...'),
+              google_genai_api.FunctionCallDetail(name='bar', args={'x': 2}),
           ],
       ),
   )
@@ -2923,6 +2923,465 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
                 'args': {'arg': 'val'},
             },
         ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_from_afc_history(
+      self, mock_update_info
+  ):
+    afc_content_1 = mock.Mock()
+    afc_content_1.parts = [
+        self._make_part(has_function_call=True),
+    ]
+    afc_content_2 = mock.Mock()
+    afc_content_2.parts = [
+        self._make_part(
+            function_response=genai_types.FunctionResponse(
+                name='test_func', response={'result': 'ok'}
+            )
+        ),
+    ]
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[afc_content_1, afc_content_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 1)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'test_func',
+                'args': {'arg': 'val'},
+                'response': {'result': 'ok'},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_matched_by_id(
+      self, mock_update_info
+  ):
+    part_call_1 = self._make_part(has_function_call=True)
+    part_call_1.function_call.id = 'call_1'
+    part_call_1.function_call.name = 'search'
+
+    part_call_2 = self._make_part(has_function_call=True)
+    part_call_2.function_call.id = 'call_2'
+    part_call_2.function_call.name = 'search'
+
+    afc_content_1 = mock.Mock()
+    afc_content_1.parts = [part_call_1, part_call_2]
+
+    # Return responses in reverse order to test ID matching.
+    resp_2 = genai_types.FunctionResponse(
+        id='call_2', name='search', response={'result': 2}
+    )
+    resp_1 = genai_types.FunctionResponse(
+        id='call_1', name='search', response={'result': 1}
+    )
+    afc_content_2 = mock.Mock()
+    afc_content_2.parts = [
+        self._make_part(function_response=resp_2),
+        self._make_part(function_response=resp_1),
+    ]
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[afc_content_1, afc_content_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 2)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'search',
+                'id': 'call_1',
+                'args': {'arg': 'val'},
+                'response': {'result': 1},
+            },
+            {
+                'type': 'function_call',
+                'name': 'search',
+                'id': 'call_2',
+                'args': {'arg': 'val'},
+                'response': {'result': 2},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_sequential_name_fallback(
+      self, mock_update_info
+  ):
+    # Turn 1: call search(q1) without ID
+    call_1 = self._make_part(has_function_call=True)
+    call_1.function_call.name = 'search'
+    call_1.function_call.args = {'q': 'q1'}
+    turn_1 = mock.Mock(parts=[call_1])
+
+    # Turn 2: response for search(q1) without ID
+    resp_1 = genai_types.FunctionResponse(name='search', response={'res': 1})
+    turn_2 = mock.Mock(parts=[self._make_part(function_response=resp_1)])
+
+    # Turn 3: call search(q2) without ID
+    call_2 = self._make_part(has_function_call=True)
+    call_2.function_call.name = 'search'
+    call_2.function_call.args = {'q': 'q2'}
+    turn_3 = mock.Mock(parts=[call_2])
+
+    # Turn 4: response for search(q2) without ID
+    resp_2 = genai_types.FunctionResponse(name='search', response={'res': 2})
+    turn_4 = mock.Mock(parts=[self._make_part(function_response=resp_2)])
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[turn_1, turn_2, turn_3, turn_4],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 2)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'search',
+                'args': {'q': 'q1'},
+                'response': {'res': 1},
+            },
+            {
+                'type': 'function_call',
+                'name': 'search',
+                'args': {'q': 'q2'},
+                'response': {'res': 2},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_orphan_safety_fallback(
+      self, mock_update_info
+  ):
+    # Response arrives without any preceding function_call in history
+    resp = genai_types.FunctionResponse(
+        name='orphan_tool', response={'status': 'orphan'}
+    )
+    turn_1 = mock.Mock(parts=[self._make_part(function_response=resp)])
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[turn_1],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 0)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_response',
+                'name': 'orphan_tool',
+                'response': {'status': 'orphan'},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_duplicate_or_extra_responses(
+      self, mock_update_info
+  ):
+    # 1 function_call for 'search', but 2 function_responses arrive
+    call_part = self._make_part(has_function_call=True)
+    call_part.function_call.name = 'search'
+    turn_1 = mock.Mock(parts=[call_part])
+
+    resp_1 = genai_types.FunctionResponse(name='search', response={'first': 1})
+    resp_2 = genai_types.FunctionResponse(name='search', response={'second': 2})
+    turn_2 = mock.Mock(
+        parts=[
+            self._make_part(function_response=resp_1),
+            self._make_part(function_response=resp_2),
+        ]
+    )
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[turn_1, turn_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 1)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'search',
+                'args': {'arg': 'val'},
+                'response': {'first': 1},
+            },
+            {
+                'type': 'function_response',
+                'name': 'search',
+                'response': {'second': 2},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_mismatched_id_fallback(
+      self, mock_update_info
+  ):
+    # Function call has id='call_1', response has id='call_999'
+    call_part = self._make_part(has_function_call=True)
+    call_part.function_call.id = 'call_1'
+    call_part.function_call.name = 'search'
+    turn_1 = mock.Mock(parts=[call_part])
+
+    resp = genai_types.FunctionResponse(
+        id='call_999', name='search', response={'unmatched': True}
+    )
+    turn_2 = mock.Mock(parts=[self._make_part(function_response=resp)])
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[turn_1, turn_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 1)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'search',
+                'id': 'call_1',
+                'args': {'arg': 'val'},
+            },
+            {
+                'type': 'function_response',
+                'name': 'search',
+                'response': {'unmatched': True},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_mixed_id_and_no_id(
+      self, mock_update_info
+  ):
+    # Call 1 has an explicit id, Call 2 has no id
+    call_1 = self._make_part(has_function_call=True)
+    call_1.function_call.id = 'id_1'
+    call_1.function_call.name = 'tool_a'
+
+    call_2 = self._make_part(has_function_call=True)
+    call_2.function_call.name = 'tool_b'
+    turn_1 = mock.Mock(parts=[call_1, call_2])
+
+    resp_1 = genai_types.FunctionResponse(
+        id='id_1', name='tool_a', response={'a': 'ok'}
+    )
+    resp_2 = genai_types.FunctionResponse(name='tool_b', response={'b': 'ok'})
+    turn_2 = mock.Mock(
+        parts=[
+            self._make_part(function_response=resp_1),
+            self._make_part(function_response=resp_2),
+        ]
+    )
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[turn_1, turn_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 2)
+    self.assertEqual(
+        call_args['llm.tools.details'],
+        [
+            {
+                'type': 'function_call',
+                'name': 'tool_a',
+                'id': 'id_1',
+                'args': {'arg': 'val'},
+                'response': {'a': 'ok'},
+            },
+            {
+                'type': 'function_call',
+                'name': 'tool_b',
+                'args': {'arg': 'val'},
+                'response': {'b': 'ok'},
+            },
+        ],
+    )
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_tool_calls_with_function_responses_json_serializable(
+      self, mock_update_info
+  ):
+    part_call = self._make_part(has_function_call=True)
+    part_call.function_call.id = 'call_1'
+    part_call.function_call.name = 'search'
+    turn_1 = mock.Mock(parts=[part_call])
+
+    mock_mcp_res = mock.Mock()
+    mock_mcp_res.model_dump.return_value = {
+        'content': 'hello mcp',
+        'isError': False,
+    }
+    resp = genai_types.FunctionResponse(
+        id='call_1', name='search', response={'result': mock_mcp_res}
+    )
+    turn_2 = mock.Mock(parts=[self._make_part(function_response=resp)])
+
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])],
+        afc_history=[turn_1, turn_2],
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(), 'models/gemini-2.0-flash', response
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.tools.calls'], 1)
+    expected_details = [
+        {
+            'type': 'function_call',
+            'name': 'search',
+            'id': 'call_1',
+            'args': {'arg': 'val'},
+            'response': {'result': {'content': 'hello mcp', 'isError': False}},
+        },
+    ]
+    self.assertEqual(call_args['llm.tools.details'], expected_details)
+    # Ensure the serialized structure is 100% JSON serializable.
+    serialized = json.dumps(call_args['llm.tools.details'])
+    self.assertIn('hello mcp', serialized)
+
+  def test_attach_function_response_to_tool_details_direct(self):
+    # 1. Matching by ID
+    call_1 = google_genai_api.FunctionCallDetail(
+        name='search', id='c1', args={}
+    )
+    call_2 = google_genai_api.FunctionCallDetail(
+        name='search', id='c2', args={}
+    )
+    current_calls: list[google_genai_api.ToolCallDetail] = [call_1, call_2]
+    resp_1 = genai_types.FunctionResponse(
+        id='c2', name='search', response={'val': 2}
+    )
+    google_genai_api._attach_function_response_to_tool_details(
+        resp_1, current_turn_details=current_calls
+    )
+    self.assertEqual(call_2.response, {'val': 2})
+    self.assertIsNone(call_1.response)
+
+    # 2. Sequential fallback when ID is absent
+    resp_2 = genai_types.FunctionResponse(name='search', response={'val': 1})
+    google_genai_api._attach_function_response_to_tool_details(
+        resp_2, current_turn_details=current_calls
+    )
+    self.assertEqual(call_1.response, {'val': 1})
+
+    # 3. Cross-turn matching from accumulated_details
+    fetch_call = google_genai_api.FunctionCallDetail(
+        name='fetch', id='f1', args={}
+    )
+    accumulated: list[google_genai_api.ToolCallDetail] = [fetch_call]
+    curr_turn: list[google_genai_api.ToolCallDetail] = []
+    resp_3 = genai_types.FunctionResponse(
+        id='f1', name='fetch', response={'doc': 'abc'}
+    )
+    google_genai_api._attach_function_response_to_tool_details(
+        resp_3, current_turn_details=curr_turn, accumulated_details=accumulated
+    )
+    self.assertEqual(fetch_call.response, {'doc': 'abc'})
+    self.assertEmpty(curr_turn)
+
+    # 4. Orphan response appends to current_turn
+    resp_orphan = genai_types.FunctionResponse(
+        name='unknown', response={'err': 'not found'}
+    )
+    google_genai_api._attach_function_response_to_tool_details(
+        resp_orphan, current_turn_details=curr_turn
+    )
+    self.assertEqual(
+        curr_turn,
+        [
+            google_genai_api.FunctionResponseDetail(
+                name='unknown', response={'err': 'not found'}
+            )
+        ],
+    )
+
+  def test_tool_call_detail_structured_dataclasses(self):
+    fc = google_genai_api.FunctionCallDetail(
+        name='search', args={'q': 'test'}, id='c1', response={'hits': 5}
+    )
+    self.assertEqual(
+        fc.to_dict(),
+        {
+            'type': 'function_call',
+            'name': 'search',
+            'args': {'q': 'test'},
+            'id': 'c1',
+            'response': {'hits': 5},
+        },
+    )
+
+    fr = google_genai_api.FunctionResponseDetail(
+        name='search', response={'hits': 5}
+    )
+    self.assertEqual(
+        fr.to_dict(),
+        {
+            'type': 'function_response',
+            'name': 'search',
+            'response': {'hits': 5},
+        },
+    )
+
+    thought = google_genai_api.ThoughtDetail(text='Thinking...')
+    self.assertEqual(
+        thought.to_dict(),
+        {'type': 'thought', 'text': 'Thinking...'},
     )
 
   @mock.patch.object(google_genai_api.tracing, 'update_info')
