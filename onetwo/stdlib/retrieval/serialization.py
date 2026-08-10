@@ -24,8 +24,30 @@ import numpy as np
 from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_state
+from onetwo.stdlib.retrieval import retrieval_data_structures
 
-DocT = TypeVar('DocT')
+DocT = TypeVar('DocT', bound=retrieval_data_structures.Document)
+
+
+def load_documents(
+    file_path: str,
+    doc_class: type[DocT],
+) -> list[DocT]:
+  """Loads documents from a file path.
+
+  Args:
+    file_path: Path to the documents file.
+    doc_class: The class to use for deserializing documents.
+
+  Returns:
+    A list of deserialized documents.
+  """
+  docs = []
+  with open(file_path, 'r') as f:
+    for line in f:
+      if line.strip():
+        docs.append(doc_class.from_json(line))
+  return docs
 
 
 @dataclasses.dataclass
@@ -80,7 +102,8 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     docs_path = os.path.join(path, self.docs_jsonl_name)
     with open(docs_path, 'w') as f:
       for doc in state.docs:
-        f.write(doc.to_json() + '\n')  # pytype: disable=attribute-error
+        doc_document: retrieval_data_structures.Document = doc
+        f.write(doc_document.to_json() + '\n')
 
     # Save embeddings to NPY.
     embeddings_path = os.path.join(path, self.embeds_npy_name)
@@ -120,12 +143,10 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
       raise ValueError('base_path is not set.')
 
     # Load documents from JSONL.
-    docs_path = os.path.join(path, self.docs_jsonl_name)
-    docs = []
-    with open(docs_path, 'r') as f:
-      for line in f:
-        if line.strip():
-          docs.append(self.doc_class.from_json(line))  # pytype: disable=attribute-error
+    docs = load_documents(
+        file_path=os.path.join(path, self.docs_jsonl_name),
+        doc_class=self.doc_class,
+    )
 
     # Load embeddings from NPY.
     embeddings_path = os.path.join(path, self.embeds_npy_name)

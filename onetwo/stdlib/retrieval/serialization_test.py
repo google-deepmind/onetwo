@@ -15,6 +15,7 @@
 import os
 import shutil
 import tempfile
+from typing import Any, cast
 
 from absl.testing import absltest
 import numpy as np
@@ -137,7 +138,9 @@ class SerializationTest(absltest.TestCase):
       pass
 
     with self.assertRaisesRegex(TypeError, 'InvalidDoc must implement to_json'):
-      serialization.SimpleEmbeddingBasedIndexSerializer(doc_class=InvalidDoc)
+      serialization.SimpleEmbeddingBasedIndexSerializer(
+          doc_class=cast(Any, InvalidDoc)
+      )
 
   def test_embedding_index_serializer_init_raises_error(self):
     class IncompleteDoc:
@@ -149,7 +152,9 @@ class SerializationTest(absltest.TestCase):
     with self.assertRaisesRegex(
         TypeError, 'IncompleteDoc must implement from_json'
     ):
-      serialization.SimpleEmbeddingBasedIndexSerializer(doc_class=IncompleteDoc)
+      serialization.SimpleEmbeddingBasedIndexSerializer(
+          doc_class=cast(Any, IncompleteDoc)
+      )
 
 
 if __name__ == '__main__':

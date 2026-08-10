@@ -65,9 +65,8 @@ METADATA_FIELD_ORIGINAL_DOC_ID = 'original_doc_id'
 METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC = 'span_within_original_doc'
 
 
-@dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
-class Document:
+class Document(dataclasses_json.DataClassJsonMixin):
   """The primary data unit for storage and retrieval.
 
   A `Document` encapsulates both the raw content (text or multimodal) and the
