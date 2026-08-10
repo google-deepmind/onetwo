@@ -25,6 +25,8 @@ from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
+from onetwo.stdlib.retrieval import serialization
+
 
 class LocalIndexRunner(
     index_build_interface.IndexRunner[
@@ -53,8 +55,8 @@ class LocalIndexRunner(
   ) -> indexing.Index:
     """Builds a DocumentIndex in memory."""
     if isinstance(docs, str):
-      raise ValueError(
-          "LocalIndexRunner does not support loading documents from a path."
+      docs = serialization.load_documents(
+          docs, doc_class=retrieval_data_structures.Document
       )
 
     runtime_kwargs = {}

@@ -55,6 +55,12 @@ _DATASET_NAME = flags.DEFINE_string(
     required=True,
 )
 
+_DOCS_PATH = flags.DEFINE_string(
+    'docs_path',
+    None,
+    'Path to a file (SSTable or JSONL) containing the documents to index.',
+)
+
 _OUTPUT_DIRECTORY = flags.DEFINE_string(
     'output_directory',
     None,
@@ -142,12 +148,23 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  print(f'Loading dataset {_DATASET_NAME.value}...')
-  docs = datasets.load_documents(
-      _DATASET_NAME.value,
-      max_documents=_MAX_DOCUMENTS.value,
-  )
-  print(f'Loaded {len(docs)} documents.')
+  dataset_name = _DATASET_NAME.value
+  docs_path = _DOCS_PATH.value
+
+  if docs_path:
+    if dataset_name not in docs_path:
+      raise app.UsageError(
+          f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
+      )
+    docs = docs_path
+    print(f'Using documents from path: {docs}')
+  else:
+    print(f'Loading dataset {dataset_name}...')
+    docs = datasets.load_documents(
+        dataset_name,
+        max_documents=_MAX_DOCUMENTS.value,
+    )
+    print(f'Loaded {len(docs)} documents.')
 
   # Construct spec
   embed_backend_config = backend_registry.EmbedBackendConfig(
@@ -182,7 +199,7 @@ def main(argv: Sequence[str]) -> None:
 
   output_directory = index_building.resolve_index_output_directory(
       output_directory_pattern=_OUTPUT_DIRECTORY.value,
-      dataset_name=_DATASET_NAME.value,
+      dataset_name=dataset_name,
       spec=spec,
   )
   print(f'Will save the index to output_directory: {output_directory}')

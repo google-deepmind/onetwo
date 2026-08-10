@@ -26,6 +26,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import tempfile
 from typing import cast
 from unittest import mock
 
@@ -258,15 +260,31 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     expected_runtime_kwargs = spec_kwargs.get('runtime_kwargs', {})
     self.assertEqual(inner_index.runtime_kwargs, expected_runtime_kwargs)
 
-  def test_build_index_path_error(self):
+  def test_build_index_from_jsonl_path(self):
     spec = index_build_interface.EmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
     )
     runner = local_index_runner.LocalIndexRunner()
-    with self.assertRaisesRegex(
-        ValueError, 'does not support loading documents from a path'
-    ):
-      ot.run(runner.build_index(spec=spec, docs='/path/to/docs'))
+    with tempfile.TemporaryDirectory() as temp_dir:
+      docs_path = os.path.join(temp_dir, 'docs.jsonl')
+      docs = [
+          Document(
+              doc_id='doc1',
+              title='Title 1',
+              content='This is document one.',
+          ),
+          Document(
+              doc_id='doc2',
+              title='Title 2',
+              content='This is document two.',
+          ),
+      ]
+      with open(docs_path, 'w') as f:
+        for doc in docs:
+          f.write(doc.to_json() + '\n')
+
+      index = ot.run(runner.build_index(spec=spec, docs=docs_path))
+      self.assertEqual(index.num_docs, 2)
 
   def test_get_tokenizer_backend(self):
     runner = local_index_runner.LocalIndexRunner()
