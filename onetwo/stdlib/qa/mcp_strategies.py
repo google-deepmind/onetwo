@@ -26,6 +26,7 @@ import anyio
 import fastmcp
 from fastmcp.client import transports as fastmcp_transports
 from google.genai import types as genai_types
+import httpx
 from mcp import types as mcp_types
 from mcp.client import streamable_http as mcp_streamable_http
 from onetwo.builtins import llm
@@ -178,6 +179,9 @@ async def _resilient_streamable_http_client(
     url: str,
     headers: dict[str, str] | None = None,
     auth: Any = None,
+    http_read_timeout: float = 300.0,
+    http_connect_timeout: float = 60.0,
+    http_write_timeout: float = 60.0,
 ) -> AsyncGenerator[
     tuple[
         anyio.streams.memory.MemoryObjectReceiveStream[Any],
@@ -186,7 +190,21 @@ async def _resilient_streamable_http_client(
     ],
     None,
 ]:
-  """Context manager providing streams via _ResilientStreamableHTTPTransport."""
+  """Context manager providing streams via _ResilientStreamableHTTPTransport.
+
+  Args:
+    url: The URL of the MCP server to connect to.
+    headers: Optional HTTP headers to send with requests.
+    auth: Optional authentication handler for httpx.
+    http_read_timeout: Maximum seconds to wait for an HTTP response chunk or SSE
+      stream frame.
+    http_connect_timeout: Maximum seconds to wait to establish an HTTP
+      connection.
+    http_write_timeout: Maximum seconds to wait when writing HTTP request data.
+
+  Yields:
+    A tuple of (read_stream, write_stream, get_session_id_fn).
+  """
   read_stream_writer, read_stream = anyio.create_memory_object_stream[
       mcp_streamable_http.SessionMessage | Exception
   ](0)
@@ -195,7 +213,14 @@ async def _resilient_streamable_http_client(
   ](0)
 
   client = mcp_streamable_http.create_mcp_http_client(
-      headers=headers, auth=auth
+      headers=headers,
+      auth=auth,
+      timeout=httpx.Timeout(
+          http_read_timeout,
+          connect=http_connect_timeout,
+          read=http_read_timeout,
+          write=http_write_timeout,
+      ),
   )
   transport = _ResilientStreamableHTTPTransport(url)
 
@@ -236,6 +261,33 @@ class _ResilientStreamableHttpTransport(
 ):
   """FastMCP transport that wraps _ResilientStreamableHTTPTransport."""
 
+  def __init__(
+      self,
+      url: str,
+      *args: Any,
+      http_read_timeout: float = 300.0,
+      http_connect_timeout: float = 60.0,
+      http_write_timeout: float = 60.0,
+      **kwargs: Any,
+  ) -> None:
+    """Initializes _ResilientStreamableHttpTransport.
+
+    Args:
+      url: The URL of the MCP server to connect to.
+      *args: Positional arguments passed to base StreamableHttpTransport.
+      http_read_timeout: Maximum seconds to wait for an HTTP response chunk or
+        SSE stream frame.
+      http_connect_timeout: Maximum seconds to wait to establish an HTTP
+        connection.
+      http_write_timeout: Maximum seconds to wait when writing HTTP request
+        data.
+      **kwargs: Keyword arguments passed to base StreamableHttpTransport.
+    """
+    super().__init__(url, *args, **kwargs)
+    self.http_read_timeout = http_read_timeout
+    self.http_connect_timeout = http_connect_timeout
+    self.http_write_timeout = http_write_timeout
+
   @contextlib.asynccontextmanager
   async def connect_session(
       self, **session_kwargs
@@ -245,6 +297,9 @@ class _ResilientStreamableHttpTransport(
         self.url,
         headers=headers,
         auth=self.auth,
+        http_read_timeout=self.http_read_timeout,
+        http_connect_timeout=self.http_connect_timeout,
+        http_write_timeout=self.http_write_timeout,
     ) as (read_stream, write_stream, _):
       async with fastmcp_transports.ClientSession(
           read_stream,
@@ -270,15 +325,20 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       to the LLM. Must contain both ``{question}`` and
       ``{additional_instructions}`` placeholders.
     include_thoughts: Whether to include thoughts in the backend response.
-      Defaults to True. Useful to analyze the thought process of the model in
-      between tool calls.
+      Useful to analyze the thought process of the model in between tool calls.
     call_timeout: Maximum seconds to wait for a single ``llm.chat()`` call
       (including all AFC tool-call rounds) before raising ``TimeoutError``.
-      Defaults to 1200 (20 minutes). Required because a non-2xx MCP response
-      crashes the StreamableHTTP transport, leaving orphaned awaits that hang
-      forever and block the entire evaluation batch.
+      Required because a non-2xx MCP response crashes the StreamableHTTP
+      transport, leaving orphaned awaits that hang forever and block the entire
+      evaluation batch.
     tool_timeout: Maximum seconds to wait for an individual tool call before
-      returning a timeout error to the model. Defaults to 60.0 seconds.
+      returning a timeout error to the model.
+    http_read_timeout: Maximum seconds to wait for an HTTP response chunk or SSE
+      stream frame from the MCP server.
+    http_connect_timeout: Maximum seconds to wait to establish an HTTP
+      connection with the MCP server.
+    http_write_timeout: Maximum seconds to wait when writing HTTP request data
+      to the MCP server.
   """
 
   mcp_server_url: str = ''
@@ -286,6 +346,9 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   include_thoughts: bool = True
   call_timeout: float = 1200.0
   tool_timeout: float = 60.0
+  http_read_timeout: float = 300.0
+  http_connect_timeout: float = 60.0
+  http_write_timeout: float = 60.0
 
   def __post_init__(self):
     if not self.mcp_server_url:
@@ -364,7 +427,12 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     logging.info(
         'Connecting to MCP server client-side: %s', self.mcp_server_url
     )
-    transport = _ResilientStreamableHttpTransport(url=self.mcp_server_url)
+    transport = _ResilientStreamableHttpTransport(
+        url=self.mcp_server_url,
+        http_read_timeout=self.http_read_timeout,
+        http_connect_timeout=self.http_connect_timeout,
+        http_write_timeout=self.http_write_timeout,
+    )
     client = fastmcp.Client(transport)
 
     answer_str = None

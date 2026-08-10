@@ -795,6 +795,28 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
     self.assertFalse(original_config.include_thoughts)
     self.assertEqual(original_config.thinking_budget, 1024)
 
+  def test_configurable_http_timeouts(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+        http_read_timeout=150.0,
+        http_connect_timeout=45.0,
+        http_write_timeout=30.0,
+    )
+    self.assertEqual(strategy.http_read_timeout, 150.0)
+    self.assertEqual(strategy.http_connect_timeout, 45.0)
+    self.assertEqual(strategy.http_write_timeout, 30.0)
+
+    with mock.patch.object(
+        mcp_strategies, '_ResilientStreamableHttpTransport'
+    ) as mock_transport_cls:
+      ot.run(strategy(question='Test question'))
+      mock_transport_cls.assert_called_once_with(
+          url='http://localhost:8000/mcp',
+          http_read_timeout=150.0,
+          http_connect_timeout=45.0,
+          http_write_timeout=30.0,
+      )
+
 
 if __name__ == '__main__':
   absltest.main()
