@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import collections
 from collections.abc import Iterator
 import contextlib
@@ -1342,9 +1343,59 @@ class EvaluationTest(parameterized.TestCase):
         output_results=True,
         output_results_debug=True,
     )
-    self.assertEqual(1, summary.counters.get(results.COUNTER_ERRORS, 0))
-    self.assertIn(0, summary.results)
-    self.assertIn(0, summary.results_debug)
+    with self.subTest('summary_counters'):
+      self.assertEqual(1, summary.counters.get(results.COUNTER_ERRORS, 0))
+      self.assertIn(0, summary.results)
+      self.assertIn(0, summary.results_debug)
+
+  def test_evaluate_handles_exceptions_without_cancelling_batch(self):
+    async def _faulty_strategy(question: str) -> str:
+      if question == 'bad':
+        raise asyncio.CancelledError('Simulated task cancellation')
+      return f'answer for {question}'
+
+    examples = [
+        {'question': 'good1', 'answer': 'answer for good1'},
+        {'question': 'bad', 'answer': 'answer for bad'},
+        {'question': 'good2', 'answer': 'answer for good2'},
+    ]
+
+    summary = evaluation.evaluate(
+        strategy=_faulty_strategy,
+        examples=examples,
+        chunk_size=2,
+        output_results=True,
+        output_results_debug=True,
+        example_key_function=lambda idx, ex: ex['question'],
+    )
+
+    with self.subTest('summary_counters'):
+      self.assertEqual(summary.counters[results.COUNTER_TOTAL_EXAMPLES], 3)
+      self.assertEqual(summary.counters[results.COUNTER_ERRORS], 1)
+      self.assertIn('good1', summary.results)
+      self.assertIn('bad', summary.results)
+      self.assertIn('good2', summary.results)
+
+    with self.subTest('successful_examples'):
+      self.assertEqual(summary.results['good1'].error, '')
+      self.assertEqual(
+          summary.results['good1'].outputs['output'], 'answer for good1'
+      )
+      self.assertEqual(summary.results['good2'].error, '')
+      self.assertEqual(
+          summary.results['good2'].outputs['output'], 'answer for good2'
+      )
+
+    with self.subTest('errored_example_result'):
+      bad_result = summary.results['bad']
+      self.assertIn('Simulated task cancellation', bad_result.error)
+      self.assertEqual(bad_result.outputs, {})
+      self.assertEqual(bad_result.stage_name, '_faulty_strategy')
+
+    with self.subTest('errored_example_debug_result'):
+      bad_debug = summary.results_debug['bad']
+      self.assertIn('Simulated task cancellation', bad_debug.error)
+      self.assertEqual(bad_debug.outputs, {})
 
 
 class NaiveEvaluationCriticTest(parameterized.TestCase):

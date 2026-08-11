@@ -321,7 +321,7 @@ async def _evaluate_example(
         )
       else:
         prediction = await utils.call_and_maybe_await(strategy, *args, **kwargs)  # pyrefly: ignore[invalid-param-spec]
-  except Exception as e:  # pylint: disable=broad-exception-caught
+  except BaseException as e:  # pylint: disable=broad-exception-caught
     # Log the full traceback to Analog but print only the last frame on screen.
     logging.warning('Error evaluating example.', exc_info=e)
     traceback.print_exception(e, limit=-1)
