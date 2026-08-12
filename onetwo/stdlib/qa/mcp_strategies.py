@@ -326,11 +326,6 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       ``{additional_instructions}`` placeholders.
     include_thoughts: Whether to include thoughts in the backend response.
       Useful to analyze the thought process of the model in between tool calls.
-    call_timeout: Maximum seconds to wait for a single ``llm.chat()`` call
-      (including all AFC tool-call rounds) before raising ``TimeoutError``.
-      Required because a non-2xx MCP response crashes the StreamableHTTP
-      transport, leaving orphaned awaits that hang forever and block the entire
-      evaluation batch.
     tool_timeout: Maximum seconds to wait for an individual tool call before
       returning a timeout error to the model.
     http_read_timeout: Maximum seconds to wait for an HTTP response chunk or SSE
@@ -344,7 +339,6 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   mcp_server_url: str = ''
   query_template: str = default_qa_template_mcp
   include_thoughts: bool = True
-  call_timeout: float = 1200.0
   tool_timeout: float = 60.0
   http_read_timeout: float = 300.0
   http_connect_timeout: float = 60.0
@@ -519,16 +513,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
                 content=question,
             )
         ]
-        # Timeout: when the MCP server returns a non-2xx response (e.g.
-        # HTTP 400), the StreamableHTTP transport's raise_for_status()
-        # crashes its anyio task group, killing the transport entirely.
-        # All pending session.call_tool() awaits then hang forever on a
-        # dead MemoryObjectReceiveStream. The timeout ensures these
-        # orphaned awaits are cancelled so the evaluation can continue.
-        answer = await asyncio.wait_for(
-            llm.chat(messages, **kwargs),
-            timeout=self.call_timeout,
-        )
+        answer = await llm.chat(messages, **kwargs)
         answer_str = str(answer)
     except Exception as e:  # pylint: disable=broad-except
       # If fastmcp.__aexit__ raised a background transport error (e.g.
