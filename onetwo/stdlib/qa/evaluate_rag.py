@@ -32,6 +32,7 @@ _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
     'browsecomp_plus',
     'Name of the dataset to load from the registry.',
+    allow_override=True,
 )
 
 _INDEX_DIRECTORY = flags.DEFINE_string(
@@ -65,6 +66,7 @@ _RUNTIME_KWARGS = flags.DEFINE_string(
     '{}',
     'JSON string containing runtime arguments for the backends (e.g. API key,'
     ' project).',
+    allow_override=True,
 )
 
 _QA_STRATEGY_NAME = flags.DEFINE_string(

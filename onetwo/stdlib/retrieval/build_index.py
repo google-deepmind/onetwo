@@ -42,9 +42,9 @@ from onetwo.stdlib.retrieval import index_building
 
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
-    None,
+    'browsecomp_plus',
     'Name of the dataset to load from the registry.',
-    required=True,
+    allow_override=True,
 )
 
 _DOCS_PATH = flags.DEFINE_string(
@@ -127,6 +127,7 @@ _RUNTIME_KWARGS = flags.DEFINE_string(
         'JSON string containing runtime arguments for the backend (e.g. API'
         ' key, project).'
     ),
+    allow_override=True,
 )
 
 _MAX_DOCUMENTS = flags.DEFINE_integer(
