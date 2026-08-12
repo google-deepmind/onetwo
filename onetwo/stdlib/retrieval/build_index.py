@@ -27,18 +27,10 @@
 # limitations under the License.
 
 r"""Binary to build an embedding-based document index.
-
-Run as:
-bazel run //third_party/py/onetwo/stdlib/retrieval:build_index -- \
-  --dataset_name=browsecomp_plus \
-  --max_documents=5 \
-  --embedding_backend_class_name=GoogleGenAIAPI \
-  --embedding_model_name=gemini-embedding-2 \
-  --runtime_kwargs='{"api_key": "YOUR_API_KEY", "threadpool_size": 20}'
 """
 
 import json
-from typing import Sequence
+from typing import Any, Sequence
 
 from absl import app
 from absl import flags
@@ -144,16 +136,46 @@ _MAX_DOCUMENTS = flags.DEFINE_integer(
 )
 
 
-def main(argv: Sequence[str]) -> None:
-  if len(argv) > 1:
-    raise app.UsageError('Too many command-line arguments.')
+def build_index(
+    dataset_name: str,
+    output_directory: str,
+    runtime_kwargs: dict[str, Any],
+    max_documents: int | None = None,
+    docs_path: str | None = None,
+    index_type: str = 'embedding',
+    embedding_backend_class_name: str = 'GoogleGenAIAPI',
+    embedding_model_name: str = 'gemini-embedding-2',
+    chunk_size: int | None = None,
+    overlap_window: int = 0,
+    format_str: str | None = None,
+    generation_backend_class_name: str = 'GoogleGenAIAPI',
+    generation_model_name: str = 'gemini-3-flash-preview',
+    similarity_threshold: float = 0.8,
+) -> str:
+  """Builds a document index for the specified dataset.
 
-  dataset_name = _DATASET_NAME.value
-  docs_path = _DOCS_PATH.value
+  Args:
+    dataset_name: Name of the dataset to load from the registry.
+    output_directory: Directory pattern where the built index will be saved.
+    runtime_kwargs: Arguments for backends (e.g. API key).
+    max_documents: Max documents to index.
+    docs_path: Optional path to documents.
+    index_type: Type of index ('embedding' or 'hipporag').
+    embedding_backend_class_name: Embedding backend class name.
+    embedding_model_name: Embedding model name.
+    chunk_size: Max tokens per chunk.
+    overlap_window: Tokens to overlap between chunks.
+    format_str: Format string for document formatting.
+    generation_backend_class_name: Generation backend class name for HippoRAG.
+    generation_model_name: Generation model name for HippoRAG.
+    similarity_threshold: Similarity threshold for HippoRAG.
 
+  Returns:
+    The output directory path where the index was saved.
+  """
   if docs_path:
     if dataset_name not in docs_path:
-      raise app.UsageError(
+      raise ValueError(
           f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
       )
     docs = docs_path
@@ -162,47 +184,46 @@ def main(argv: Sequence[str]) -> None:
     print(f'Loading dataset {dataset_name}...')
     docs = datasets.load_documents(
         dataset_name,
-        max_documents=_MAX_DOCUMENTS.value,
+        max_documents=max_documents,
     )
     print(f'Loaded {len(docs)} documents.')
 
   # Construct spec
   embed_backend_config = backend_registry.EmbedBackendConfig(
-      backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
-      model_name=_EMBEDDING_MODEL_NAME.value,
+      backend_class_name=embedding_backend_class_name,
+      model_name=embedding_model_name,
   )
-  format_str = None if _FORMAT.value in ('None', '') else _FORMAT.value
-  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
+  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
 
-  if _INDEX_TYPE.value == 'hipporag':
+  if index_type == 'hipporag':
     generate_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
-        model_name=_GENERATION_MODEL_NAME.value,
+        backend_class_name=generation_backend_class_name,
+        model_name=generation_model_name,
     )
     spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
         generate_backend_config=generate_backend_config,
-        max_tokens_per_chunk=_CHUNK_SIZE.value,
-        overlap_window=_OVERLAP_WINDOW.value,
+        max_tokens_per_chunk=chunk_size,
+        overlap_window=overlap_window,
         format_str=format_str,
-        similarity_threshold=_SIMILARITY_THRESHOLD.value,
-        runtime_kwargs=runtime_kwargs,
+        similarity_threshold=similarity_threshold,
+        runtime_kwargs=rt_kwargs,
     )
   else:
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
-        max_tokens_per_chunk=_CHUNK_SIZE.value,
-        overlap_window=_OVERLAP_WINDOW.value,
+        max_tokens_per_chunk=chunk_size,
+        overlap_window=overlap_window,
         format_str=format_str,
-        runtime_kwargs=runtime_kwargs,
+        runtime_kwargs=rt_kwargs,
     )
 
-  output_directory = index_building.resolve_index_output_directory(
-      output_directory_pattern=_OUTPUT_DIRECTORY.value,
+  out_dir = index_building.resolve_index_output_directory(
+      output_directory_pattern=output_directory,
       dataset_name=dataset_name,
       spec=spec,
   )
-  print(f'Will save the index to output_directory: {output_directory}')
+  print(f'Will save the index to output_directory: {out_dir}')
 
   # Build index
   print('Building index...')
@@ -210,11 +231,37 @@ def main(argv: Sequence[str]) -> None:
       index_building.build_index(
           spec=spec,
           docs=docs,
-          output_dir=output_directory,
+          output_dir=out_dir,
           runner='local',
       )
   )
-  print(f'Index built and saved to {output_directory}.')
+  print(f'Index built and saved to {out_dir}.')
+  return out_dir
+
+
+def main(argv: Sequence[str]) -> None:
+  if len(argv) > 1:
+    raise app.UsageError('Too many command-line arguments.')
+
+  format_str = None if _FORMAT.value in ('None', '') else _FORMAT.value
+  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
+
+  build_index(
+      dataset_name=_DATASET_NAME.value,
+      max_documents=_MAX_DOCUMENTS.value,
+      docs_path=_DOCS_PATH.value,
+      index_type=_INDEX_TYPE.value,
+      output_directory=_OUTPUT_DIRECTORY.value,
+      embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
+      embedding_model_name=_EMBEDDING_MODEL_NAME.value,
+      chunk_size=_CHUNK_SIZE.value,
+      overlap_window=_OVERLAP_WINDOW.value,
+      format_str=format_str,
+      generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
+      generation_model_name=_GENERATION_MODEL_NAME.value,
+      similarity_threshold=_SIMILARITY_THRESHOLD.value,
+      runtime_kwargs=runtime_kwargs,
+  )
 
 
 if __name__ == '__main__':

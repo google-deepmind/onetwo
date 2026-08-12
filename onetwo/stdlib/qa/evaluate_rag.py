@@ -16,15 +16,17 @@ r"""Binary to evaluate a RAG strategy on a QA dataset.
 """
 
 import json
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from absl import app
 from absl import flags
 from onetwo.backends import backend_registry
+from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import qa_spec
+
 
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
@@ -85,26 +87,59 @@ _MAX_EXAMPLES = flags.DEFINE_integer(
 )
 
 
-def main(argv: Sequence[str]) -> None:
-  if len(argv) > 1:
-    raise app.UsageError('Too many command-line arguments.')
+def evaluate_rag(
+    dataset_name: str,
+    index_directory: str,
+    output_directory: str,
+    runtime_kwargs: Mapping[str, Any] | str,
+    generate_model_backend_class_name: str = 'GoogleGenAIAPI',
+    generate_model_name: str = 'gemini-3.5-flash-lite',
+    qa_strategy_name: str = 'rag',
+    query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
+    max_examples: int = 5,
+) -> results.EvaluationSummary:
+  """Evaluates a RAG strategy on a QA dataset.
+
+  Args:
+    dataset_name: Name of the dataset to load from the registry.
+    index_directory: Directory containing the pre-built index.
+    output_directory: Directory where evaluation results will be saved.
+    runtime_kwargs: Runtime arguments dict or JSON string (e.g. API key).
+    generate_model_backend_class_name: Generation backend class name.
+    generate_model_name: Generation model name.
+    qa_strategy_name: QA strategy name.
+    query_time_kwargs: Query-time arguments dict or JSON string.
+    max_examples: Max examples to evaluate.
+
+  Returns:
+    EvaluationSummary object containing metrics and detailed results.
+  """
+  if isinstance(query_time_kwargs, str):
+    q_time_kwargs = json.loads(query_time_kwargs)
+  else:
+    q_time_kwargs = dict(query_time_kwargs)
+
+  if isinstance(runtime_kwargs, str):
+    rt_kwargs = json.loads(runtime_kwargs)
+  else:
+    rt_kwargs = dict(runtime_kwargs)
 
   gen_backend_config = backend_registry.GenerateBackendConfig(
-      backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
-      model_name=_GENERATE_MODEL_NAME.value,
+      backend_class_name=generate_model_backend_class_name,
+      model_name=generate_model_name,
   )
   spec = qa_spec.QAStrategySpec(
-      qa_strategy_name=_QA_STRATEGY_NAME.value,
-      index_path=_INDEX_DIRECTORY.value,
+      qa_strategy_name=qa_strategy_name,
+      index_path=index_directory,
       generate_backend_config=gen_backend_config,
-      query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),
+      query_time_kwargs=q_time_kwargs,
   )
 
   # 2. Load Dataset Examples
-  print(f'Loading dataset {_DATASET_NAME.value}...')
+  print(f'Loading dataset {dataset_name}...')
   examples = datasets.load_examples(
-      _DATASET_NAME.value,
-      max_examples=_MAX_EXAMPLES.value,
+      dataset_name,
+      max_examples=max_examples,
   )
   print(f'Loaded {len(examples)} examples.')
 
@@ -120,7 +155,7 @@ def main(argv: Sequence[str]) -> None:
       rag_spec=spec,
       examples=dict_examples,
       metric_functions=metric_functions,
-      runtime_kwargs=json.loads(_RUNTIME_KWARGS.value),
+      runtime_kwargs=rt_kwargs,
       output_results=True,
       enable_tracing=True,
   )
@@ -130,9 +165,27 @@ def main(argv: Sequence[str]) -> None:
   # 5. Save Results as HTML report
   html_report_path = qa_evaluation.save_html_report(
       summary=summary,
-      output_dir_path=_OUTPUT_DIRECTORY.value,
+      output_dir_path=output_directory,
   )
   print(f'HTML report saved to {html_report_path}')
+  return summary
+
+
+def main(argv: Sequence[str]) -> None:
+  if len(argv) > 1:
+    raise app.UsageError('Too many command-line arguments.')
+
+  evaluate_rag(
+      dataset_name=_DATASET_NAME.value,
+      index_directory=_INDEX_DIRECTORY.value,
+      output_directory=_OUTPUT_DIRECTORY.value,
+      generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
+      generate_model_name=_GENERATE_MODEL_NAME.value,
+      qa_strategy_name=_QA_STRATEGY_NAME.value,
+      query_time_kwargs=_QUERY_TIME_KWARGS.value,
+      runtime_kwargs=_RUNTIME_KWARGS.value,
+      max_examples=_MAX_EXAMPLES.value,
+  )
 
 
 if __name__ == '__main__':
