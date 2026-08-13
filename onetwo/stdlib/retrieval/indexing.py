@@ -48,8 +48,9 @@ import abc
 import collections
 import contextlib
 import dataclasses
+import enum
 import random
-from typing import Any, Generic, Iterable, Iterator, Sequence, TypeVar
+from typing import Any, Generic, Iterable, Iterator, Sequence, TypeVar, cast
 
 import numpy as np
 from onetwo.backends import backends_base
@@ -71,6 +72,38 @@ QueryT = TypeVar('QueryT')
 RetrievalResultT = TypeVar('RetrievalResultT')
 DocT = TypeVar('DocT')
 Document = retrieval_data_structures.Document
+
+
+def _validate_docs(docs: Sequence[Any]) -> None:
+  """Validates that the given documents all have doc_id attributes.
+
+  Args:
+    docs: The documents to validate.
+
+  Raises: ValueError if one or more are missing IDs.
+  """
+  docs_missing_ids = []
+  for i, doc in enumerate(docs):
+    if getattr(doc, 'doc_id', None) is None:
+      docs_missing_ids.append(i)
+  if docs_missing_ids:
+    raise ValueError(
+        f'Docs missing doc_id ({len(docs_missing_ids)} / {len(list(docs))}): '
+        f'{docs_missing_ids[:10]} ...'
+    )
+
+
+class RetrievalTarget(str, enum.Enum):
+  """Target objects to return during retrieval.
+
+  REWRITTEN: Returns the rewritten documents (e.g. chunks) as stored in the
+    inner index.
+  ORIGINAL: Returns the original documents (e.g. parent documents) associated
+    with the retrieved rewritten documents.
+  """
+
+  REWRITTEN = 'rewritten'
+  ORIGINAL = 'original'
 
 
 class Index(
@@ -240,6 +273,11 @@ class RewritingIndex(
   original documents) as stored in the inner index, rather than the original
   source documents.
 
+  When `retrieval_target` is set to `RetrievalTarget.ORIGINAL` (or passed to
+  `retrieve`/`retrieve_with_scores`), the index will instead resolve and
+  return the original documents associated with the retrieved rewritten
+  documents.
+
   One specific usecase is to use this class to chunk documents before adding
   them to an inner index. In this case, the `rewriter` would be a
   `ChunkingRewriter`:
@@ -255,19 +293,39 @@ class RewritingIndex(
       )
     )
 
-  Future iterations could support alternative behaviors, such as:
-  1.  **Parent-Document Retrieval**: Returning the original document associated
-      with a retrieved rewritten document.
-  2.  **Contextual Windowing**: Returning a chunk along with its neighboring
-      surrounding context.
-
   Attributes:
     rewriter: CorpusRewriter used to rewrite the documents.
+    retrieval_target: Default target objects to return upon retrieval (rewritten
+      or original).
+    preserve_original_docs: Whether to preserve original documents in memory
+      when `add_docs` is called. Note that setting this to True will save the
+      documents during index serialization.
   """
 
   rewriter: corpus_rewriting.CorpusRewriter = dataclasses.field(
       default_factory=corpus_rewriting.NoRewriting
   )
+  retrieval_target: RetrievalTarget = RetrievalTarget.REWRITTEN
+  preserve_original_docs: bool = False
+  _original_docs: dict[str, DocT] = dataclasses.field(
+      default_factory=dict, repr=False
+  )
+
+  def get_original_doc(self, chunk: DocT) -> DocT | None:
+    """Resolves the original document for a given chunk or document."""
+    # 1. Try metadata (standard chunking case)
+    if metadata := getattr(chunk, 'metadata', None):
+      if isinstance(metadata, dict) and (
+          original_id := metadata.get(
+              retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID
+          )
+      ):
+        return self._original_docs.get(original_id)
+
+    # 2. Try direct doc_id (fallback for NoRewriting/1-to-1 rewriting)
+    if chunk_id := getattr(chunk, 'doc_id', None):
+      return self._original_docs.get(chunk_id)
+    return None
 
   @executing.make_executable(copy_self=False)
   async def create_index(self, corpus_name: str, docs: Iterable[DocT]) -> None:
@@ -287,8 +345,72 @@ class RewritingIndex(
   @executing.make_executable(copy_self=False)
   async def add_docs(self, docs: Iterable[DocT]) -> None:
     """Overridden from base class (Index)."""
-    rewritten_docs = await self.rewriter(docs)
+    doc_list = list(docs)
+    if not doc_list:
+      return
+    _validate_docs(doc_list)
+    if self.preserve_original_docs:
+      for doc in doc_list:
+        self._original_docs[getattr(doc, 'doc_id')] = doc
+    rewritten_docs = await self.rewriter(doc_list)
     await self.inner_index.add_docs(docs=rewritten_docs)
+
+  def destroy_index(self) -> None:
+    """Overridden from base class (Index)."""
+    self._original_docs.clear()
+    self.inner_index.destroy_index()
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve(
+      self,
+      query: QueryT,
+      *,
+      max_results: int | None = None,
+      **kwargs,
+  ) -> Iterable[RetrievalResultT]:
+    """Overridden from base class (Retriever)."""
+    docs_and_scores = await self.retrieve_with_scores(
+        query, max_results=max_results, **kwargs
+    )
+    return [doc for doc, _ in docs_and_scores]
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve_with_scores(
+      self,
+      query: QueryT,
+      *,
+      max_results: int | None = None,
+      **kwargs,
+  ) -> Iterable[tuple[RetrievalResultT, float]]:
+    """Overridden from base class (Retriever)."""
+    if self.retrieval_target == RetrievalTarget.REWRITTEN:
+      return await self.inner_index.retrieve_with_scores(
+          query, max_results=max_results, **kwargs
+      )
+
+    rewritten_docs_and_scores = list(
+        await self.inner_index.retrieve_with_scores(
+            query, max_results=max_results, **kwargs
+        )
+    )
+
+    original_docs_and_scores: list[tuple[RetrievalResultT, float]] = []
+    seen_original_ids = set()
+    for doc, score in rewritten_docs_and_scores:
+      original = self.get_original_doc(cast(DocT, doc))
+      if original is not None:
+        original_id = getattr(original, 'doc_id')
+        if original_id not in seen_original_ids:
+          original_docs_and_scores.append(
+              (cast(RetrievalResultT, original), score)
+          )
+          seen_original_ids.add(original_id)
+          if (
+              max_results is not None
+              and len(original_docs_and_scores) >= max_results
+          ):
+            break
+    return original_docs_and_scores
 
 
 @dataclasses.dataclass
@@ -481,25 +603,6 @@ def _default_list_map():
 def _default_discrete_value_map():
   """Returns a nested defaultdict for discrete value indexing."""
   return collections.defaultdict(_default_list_map)
-
-
-def _validate_docs(docs: Sequence[Any]) -> None:
-  """Validates that the given documents all have doc_id attributes.
-
-  Args:
-    docs: The documents to validate.
-
-  Raises: ValueError if one or more are missing IDs.
-  """
-  docs_missing_ids = []
-  for i, doc in enumerate(docs):
-    if doc.doc_id is None:
-      docs_missing_ids.append(i)
-  if docs_missing_ids:
-    raise ValueError(
-        f'Docs missing doc_id ({len(docs_missing_ids)} / {len(list(docs))}): '
-        f'{docs_missing_ids[:10]} ...'
-    )
 
 
 # TODO: Combine EmbeddingBasedIndex and

@@ -528,6 +528,114 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertLen(retrieved_list, 2)
     self.assertEqual(retrieved_list[0].doc_id, 'doc1')
 
+  def test_retrieve_original_documents(self):
+    class SemicolonChunker(chunking.Chunker):
+
+      @executing.make_executable(copy_self=False)
+      async def __call__(self, document: Document) -> list[Document]:
+        parts = [
+            p.strip() for p in str(document.content).split(';') if p.strip()
+        ]
+        chunks = []
+        for i, part in enumerate(parts):
+          chunks.append(
+              Document(
+                  doc_id=f'{document.doc_id}_chunk_{i}',
+                  title=document.title,
+                  content=part,
+                  metadata={
+                      retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID:
+                      (
+                          document.doc_id
+                      ),
+                      retrieval_data_structures.METADATA_FIELD_CHUNK_NUMBER: (
+                          i + 1
+                      ),
+                      retrieval_data_structures.
+                      METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS: len(
+                          parts
+                      ),
+                  },
+              )
+          )
+        return chunks
+
+    rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+        chunker=SemicolonChunker()
+    )
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=rewriter,
+        preserve_original_docs=True,
+        retrieval_target=indexing.RetrievalTarget.ORIGINAL,
+    )
+
+    original_doc1 = Document(
+        doc_id='doc1',
+        title='Doc 1 Title',
+        content='Doc 1 part A; Doc 1 part B; Doc 1 part C',
+    )
+    original_doc2 = Document(
+        doc_id='doc2',
+        title='Doc 2 Title',
+        content='Doc 2 part A; Doc 2 part B',
+    )
+    original_doc3 = Document(
+        doc_id='doc3',
+        title='Doc 3 Title',
+        content='Doc 3 part A; Doc 3 part B',
+    )
+
+    # 3 chunks for doc1, 2 for doc2, 2 for doc3 = 7 chunks total
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
+        np.array([0.95, 0.05]),
+        np.array([0.90, 0.10]),
+        np.array([0.85, 0.15]),
+        np.array([0.80, 0.20]),
+        np.array([0.75, 0.25]),
+        np.array([0.10, 0.90]),
+        np.array([0.05, 0.95]),
+        # Query embeddings:
+        np.array([1.0, 0.0]),
+        np.array([1.0, 0.0]),
+    ]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
+
+    ot.run(index.add_docs([original_doc1, original_doc2, original_doc3]))
+    self.assertEqual(index.num_docs, 7)  # 7 chunks in inner index
+    self.assertLen(index._original_docs, 3)
+
+    query = 'part A'
+    # With max_results=4, retrieve top 4 chunks (3 from doc1, 1 from doc2) -> 2
+    # unique original docs
+    retrieved_originals = list(
+        ot.run(
+            index.retrieve(
+                query,
+                max_results=4,
+            )
+        )
+    )
+    self.assertLen(retrieved_originals, 2)
+    self.assertEqual(retrieved_originals[0].doc_id, 'doc1')
+    self.assertEqual(retrieved_originals[1].doc_id, 'doc2')
+    self.assertEqual(
+        retrieved_originals[0].content,
+        'Doc 1 part A; Doc 1 part B; Doc 1 part C',
+    )
+
+    # With max_results=2, retrieve top 2 chunks (both from doc1) -> 1 unique
+    # original doc
+    retrieved_single = list(
+        ot.run(
+            index.retrieve(
+                query,
+                max_results=2,
+            )
+        )
+    )
+    self.assertLen(retrieved_single, 1)
+    self.assertEqual(retrieved_single[0].doc_id, 'doc1')
+
 
 class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
   """Tests the main save and load methods for chunks and embeds without constraints."""
