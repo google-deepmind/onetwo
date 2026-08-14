@@ -378,6 +378,99 @@ class ChunkingTest(parameterized.TestCase):
         expected,
     )
 
+  @parameterized.named_parameters([
+      {
+          'testcase_name': 'basic_no_overlap',
+          'content': 'one two three four five six seven eight nine ten',
+          'max_words_per_chunk': 4,
+          'overlap_window': 0,
+          'expected_chunk_contents': [
+              'one two three four',
+              'five six seven eight',
+              'nine ten',
+          ],
+      },
+      {
+          'testcase_name': 'basic_with_overlap',
+          'content': 'one two three four five six seven eight nine ten',
+          'max_words_per_chunk': 4,
+          'overlap_window': 2,
+          'expected_chunk_contents': [
+              'one two three four',
+              'three four five six',
+              'five six seven eight',
+              'seven eight nine ten',
+              'nine ten',
+          ],
+      },
+      {
+          'testcase_name': 'punctuation_newlines_and_tabs',
+          'content': (
+              'Hello, world!\nThis is a test...\n\nDoes\tit chunk'
+              ' properly?\nYes!'
+          ),
+          'max_words_per_chunk': 4,
+          'overlap_window': 0,
+          'expected_chunk_contents': [
+              'Hello, world! This is',
+              'a test... Does it',
+              'chunk properly? Yes!',
+          ],
+      },
+      {
+          'testcase_name': 'punctuation_newlines_with_overlap',
+          'content': 'First line.\nSecond line!\tThird line?\nFourth line.',
+          'max_words_per_chunk': 3,
+          'overlap_window': 1,
+          'expected_chunk_contents': [
+              'First line. Second',
+              'Second line! Third',
+              'Third line? Fourth',
+              'Fourth line.',
+          ],
+      },
+      {
+          'testcase_name': 'single_word',
+          'content': 'Hello!',
+          'max_words_per_chunk': 5,
+          'overlap_window': 0,
+          'expected_chunk_contents': ['Hello!'],
+      },
+      {
+          'testcase_name': 'empty_document',
+          'content': '',
+          'max_words_per_chunk': 5,
+          'overlap_window': 0,
+          'expected_chunk_contents': [],
+      },
+      {
+          'testcase_name': 'whitespace_only',
+          'content': '   \n\t   \n  ',
+          'max_words_per_chunk': 5,
+          'overlap_window': 0,
+          'expected_chunk_contents': [],
+      },
+  ])
+  def testChunkByMaxWords(
+      self,
+      content: str,
+      max_words_per_chunk: int,
+      overlap_window: int,
+      expected_chunk_contents: list[str],
+  ):
+    document = retrieval_data_structures.Document(
+        title='Test Title',
+        content=content,
+        doc_id='1',
+    )
+    chunker = chunking.ChunkByMaxWords(
+        max_words_per_chunk=max_words_per_chunk,
+        overlap_window=overlap_window,
+    )
+    chunks = list(ot.run(chunker(document)))
+    chunk_contents = [chunk.content for chunk in chunks]
+    self.assertEqual(chunk_contents, expected_chunk_contents)
+
 
 if __name__ == '__main__':
   absltest.main()

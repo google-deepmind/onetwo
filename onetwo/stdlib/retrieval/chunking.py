@@ -311,3 +311,60 @@ class ChunkByMaxTokens(TextChunker):
       return [chunk.strip() for chunk in chunks]
     else:
       return chunks
+
+
+@dataclasses.dataclass(kw_only=True)
+class ChunkByMaxWords(TextChunker):
+  """Chunks text by max words.
+
+  For indexing pipelines where approximate chunk size is acceptable,
+  ChunkByMaxWords provides nearly 2 orders of magnitude faster chunking than
+  ChunkByMaxTokens.
+
+  Attributes:
+    max_words_per_chunk: The maximum number of words per chunk.
+    strip_whitespace: Whether to strip whitespace from the ends of each chunk.
+    overlap_window: The number of words to overlap between chunks. If this is
+      set to 0, then the chunks will not overlap.
+  """
+
+  max_words_per_chunk: int = 100
+  strip_whitespace: bool = True
+  overlap_window: int = 0
+
+  @executing.make_executable
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  async def _chunk_text(self, text: str) -> Iterable[str]:  # pyrefly: ignore[bad-override]
+    """Returns `text` broken into chunks of up to `max_words_per_chunk`.
+
+    Args:
+      text: The text to chunk.
+    """
+    if self.max_words_per_chunk <= 0:
+      raise ValueError(
+          'max_words_per_chunk must be positive, got'
+          f' {self.max_words_per_chunk}'
+      )
+    if self.overlap_window < 0:
+      raise ValueError(
+          f'overlap_window must be non-negative, got {self.overlap_window}'
+      )
+    if self.overlap_window >= self.max_words_per_chunk:
+      raise ValueError(
+          'overlap_window must be smaller than max_words_per_chunk, got'
+          f' {self.overlap_window} >= {self.max_words_per_chunk}'
+      )
+    words = text.split()
+    if not words:
+      return []
+    step = self.max_words_per_chunk - self.overlap_window
+    word_chunks = [
+        words[i : i + self.max_words_per_chunk]
+        for i in range(0, len(words), step)
+    ]
+    chunks = [' '.join(chunk) for chunk in word_chunks]
+    if self.strip_whitespace:
+      return [chunk.strip() for chunk in chunks]
+    else:
+      return chunks
+
