@@ -138,7 +138,7 @@ def make_recall_at_k(
       # If there are no gold docs defined, recall is trivially 1.0.
       return 1.0, {}
 
-    retrieved_ids = prediction.doc_ids
+    retrieved_ids = [doc.doc_id for doc in prediction.docs]
     if k is not None:
       retrieved_ids = retrieved_ids[:k]
     retrieved_ids = [str(rid) for rid in retrieved_ids]

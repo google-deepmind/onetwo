@@ -257,13 +257,11 @@ def main(argv: Sequence[str]) -> None:
           strategy(question='What is the capital of France?')
       )
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
       if 'paris' not in result.answer.lower():
         tc.fail(f'Expected "paris" in answer, got: {result.answer}')
-      if result.doc_ids:
-        tc.fail(
-            f'Expected empty doc_ids for closed-book, got: {result.doc_ids}'
-        )
+      if result.docs:
+        tc.fail(f'Expected empty docs for closed-book, got: {result.docs}')
 
   # -----------------------------------------------------------------------
   # Test 2: Long-context strategy with text documents
@@ -275,13 +273,11 @@ def main(argv: Sequence[str]) -> None:
       strategy = strategies_lib.LongContextStrategy(documents=_CAPITAL_DOCS)
       result = executing.run(strategy(question='What is the capital of Japan?'))
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
       if 'tokyo' not in result.answer.lower():
         tc.fail(f'Expected "tokyo" in answer, got: {result.answer}')
-      if len(result.doc_ids) != len(_CAPITAL_DOCS):
-        tc.fail(
-            f'Expected {len(_CAPITAL_DOCS)} doc_ids, got {len(result.doc_ids)}'
-        )
+      if len(result.docs) != len(_CAPITAL_DOCS):
+        tc.fail(f'Expected {len(_CAPITAL_DOCS)} docs, got {len(result.docs)}')
 
   # -----------------------------------------------------------------------
   # Test 3: RAG strategy with embedding-based index (text docs)
@@ -304,15 +300,15 @@ def main(argv: Sequence[str]) -> None:
           strategy(question='What is the capital of Spain?', max_results=2)
       )
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
       if 'madrid' not in result.answer.lower():
         tc.fail(f'Expected "madrid" in answer, got: {result.answer}')
-      if len(result.doc_ids) != 2:
+      if len(result.docs) != 2:
+        tc.fail(f'Expected 2 docs (max_results=2), got {len(result.docs)}')
+      if 'spain' not in [d.doc_id for d in result.docs]:
         tc.fail(
-            f'Expected 2 doc_ids (max_results=2), got {len(result.doc_ids)}'
+            f'Expected "spain" in docs, got: {[d.doc_id for d in result.docs]}'
         )
-      if 'spain' not in result.doc_ids:
-        tc.fail(f'Expected "spain" in doc_ids, got: {result.doc_ids}')
 
   # -----------------------------------------------------------------------
   # Test 4: RAG strategy — verify retrieval relevance
@@ -335,11 +331,11 @@ def main(argv: Sequence[str]) -> None:
           )
       )
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
-      if result.doc_ids[0] != 'germany':
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
+      if result.docs[0].doc_id != 'germany':
         tc.fail(
-            'Expected top retrieved doc to be "germany", got:'
-            f' {result.doc_ids[0]}'
+            'Expected "germany" as first retrieved doc_id, got:'
+            f' {result.docs[0].doc_id}'
         )
 
   # -----------------------------------------------------------------------
@@ -357,11 +353,11 @@ def main(argv: Sequence[str]) -> None:
           strategy(question='What kind of bird is in the photo?')
       )
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
       if not result.answer:
         tc.fail('Expected a non-empty answer.')
-      if len(result.doc_ids) != len(mm_docs):
-        tc.fail(f'Expected {len(mm_docs)} doc_ids, got {len(result.doc_ids)}')
+      if len(result.docs) != len(mm_docs):
+        tc.fail(f'Expected {len(mm_docs)} docs, got {len(result.docs)}')
 
   # -----------------------------------------------------------------------
   # Test 6: RAG with multimodal documents
@@ -383,11 +379,14 @@ def main(argv: Sequence[str]) -> None:
           strategy(question='What kind of bird is in the photo?', max_results=1)
       )
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
-      if not result.answer:
-        tc.fail('Expected a non-empty answer.')
-      if 'bird_photo' not in result.doc_ids:
-        tc.fail(f'Expected "bird_photo" in doc_ids, got: {result.doc_ids}')
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
+      if 'bird' not in result.answer.lower():
+        tc.fail(f'Expected "bird" in answer, got: {result.answer}')
+      if 'bird_photo' not in [d.doc_id for d in result.docs]:
+        tc.fail(
+            'Expected "bird_photo" in docs, got:'
+            f' {[d.doc_id for d in result.docs]}'
+        )
 
   # -----------------------------------------------------------------------
   # Test 7: Strategy registry — get_strategy() works end-to-end
@@ -427,7 +426,7 @@ def main(argv: Sequence[str]) -> None:
       strategy = strategies_lib.RAGStrategy(retriever=emb_index)  # pyrefly: ignore[bad-argument-type]
       result = executing.run(strategy(question=mm_question, max_results=2))
       print(f'  Answer: {result.answer}')
-      print(f'  Doc IDs: {result.doc_ids}')
+      print(f'  Doc IDs: {[d.doc_id for d in result.docs]}')
       if 'france' not in result.answer.lower():
         tc.fail(f'Expected "france" in answer, got: {result.answer}')
 

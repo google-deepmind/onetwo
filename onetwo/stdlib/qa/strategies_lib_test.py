@@ -236,7 +236,7 @@ class ClosedBookStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'mock answer')
-    self.assertEmpty(result.doc_ids)
+    self.assertEmpty(result.docs)
 
   def test_prompt_contains_none_context(self):
     """The prompt sent to the LLM should contain 'None' as context."""
@@ -292,12 +292,12 @@ class LongContextStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'long context answer')
-    self.assertEqual(result.doc_ids, expected_doc_ids)
+    self.assertEqual([doc.doc_id for doc in result.docs], expected_doc_ids)
 
-  def test_empty_documents_returns_empty_doc_ids(self):
+  def test_empty_documents_returns_empty_docs(self):
     strategy = strategies_lib.LongContextStrategy(documents=[])
     result = ot.run(strategy(question='What?'))
-    self.assertEmpty(result.doc_ids)
+    self.assertEmpty(result.docs)
 
   def test_prompt_contains_document_content(self):
     strategy = strategies_lib.LongContextStrategy(documents=_TEXT_DOCS[:1])
@@ -355,25 +355,25 @@ class RAGStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question, **kwargs))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'rag answer')
-    self.assertEqual(result.doc_ids, expected_doc_ids)
+    self.assertEqual([doc.doc_id for doc in result.docs], expected_doc_ids)
 
   def test_no_retriever_raises(self):
     strategy = strategies_lib.RAGStrategy(retriever=None)
     with self.assertRaises(ValueError):
       ot.run(strategy(question='What?'))
 
-  def test_empty_retrieval_returns_empty_doc_ids(self):
+  def test_empty_retrieval_returns_empty_docs(self):
     retriever = MockRetriever([])
     strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     result = ot.run(strategy(question='What?'))
-    self.assertEmpty(result.doc_ids)
+    self.assertEmpty(result.docs)
 
   def test_max_results_limits_retrieval(self):
     retriever = MockRetriever(_TEXT_DOCS)
     strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     result = ot.run(strategy(question='What?', max_results=1))
-    self.assertLen(result.doc_ids, 1)
-    self.assertEqual(result.doc_ids[0], 'd1')
+    self.assertLen(result.docs, 1)
+    self.assertEqual(result.docs[0].doc_id, 'd1')
 
 
 # =============================================================================
@@ -425,7 +425,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question, **kwargs))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, '')
-    self.assertEqual(result.doc_ids, expected_doc_ids)
+    self.assertEqual([doc.doc_id for doc in result.docs], expected_doc_ids)
     # Verify LLM was not called.
     self.assertEmpty(self.llm_backend.prompts)
 
@@ -434,11 +434,11 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       ot.run(strategy(question='What?'))
 
-  def test_empty_retrieval_returns_empty_doc_ids(self):
+  def test_empty_retrieval_returns_empty_docs(self):
     retriever = MockRetriever([])
     strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
     result = ot.run(strategy(question='What?'))
-    self.assertEmpty(result.doc_ids)
+    self.assertEmpty(result.docs)
     self.assertEqual(result.answer, '')
     self.assertEmpty(self.llm_backend.prompts)
 
@@ -496,7 +496,7 @@ class CrossStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertIsInstance(result.answer, str)
-    self.assertIsInstance(result.doc_ids, list)
+    self.assertIsInstance(result.docs, list)
 
   @parameterized.named_parameters(
       dict(

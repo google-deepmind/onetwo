@@ -25,7 +25,7 @@ Design principles:
      `max_results` or `max_tokens` are optional kwargs of the strategy, which
      takes care of piping them to the retriever.
   3. **Strategies return answers and retrieved content**: Every strategy returns
-     a `StrategyResult` containing the answer and the retrieved `doc_ids`,
+     a `StrategyResult` containing the answer and the retrieved `docs`,
      enabling easy downstream computation of recall@k and accuracy.
   4. **Multimodal**: All strategies are multimodal-compatible. Questions and
      documents can be `str` or `content_lib.ChunkList`.
@@ -34,7 +34,7 @@ Usage:
   ```python
   strategy = get_strategy('rag', retriever=my_retriever)
   result = ot.run(strategy(question='What is OneTwo?', max_results=2))
-  print(result.answer, result.doc_ids)
+  print(result.answer, result.docs)
   ```
 """
 
@@ -132,7 +132,7 @@ class ClosedBookStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     dummy_doc = _Document(doc_id='none', content='None')
     context = await self.prompt_builder([dummy_doc], question)
     answer = await llm.chat(context.to_messages())
-    return _StrategyResult(answer=str(answer), doc_ids=[])
+    return _StrategyResult(answer=str(answer), docs=[])
 
 
 @dataclasses.dataclass
@@ -166,8 +166,7 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     )
     context = await self.prompt_builder(docs, question)
     answer = await llm.chat(context.to_messages())
-    doc_ids = [doc.doc_id for doc in self.documents]
-    return _StrategyResult(answer=str(answer), doc_ids=doc_ids)
+    return _StrategyResult(answer=str(answer), docs=list(self.documents))
 
 
 @dataclasses.dataclass
@@ -213,8 +212,7 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     )
     context = await self.prompt_builder(docs, question)
     answer = await llm.chat(context.to_messages())
-    doc_ids = [doc.doc_id for doc in retrieved_docs]
-    return _StrategyResult(answer=str(answer), doc_ids=doc_ids)
+    return _StrategyResult(answer=str(answer), docs=retrieved_docs)
 
 
 @dataclasses.dataclass
@@ -246,8 +244,7 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         **query_time_kwargs,
     )
     retrieved_docs = list(retrieved_docs)
-    doc_ids = [doc.doc_id for doc in retrieved_docs]
-    return _StrategyResult(answer='', doc_ids=doc_ids)
+    return _StrategyResult(answer='', docs=retrieved_docs)
 
 
 # =============================================================================

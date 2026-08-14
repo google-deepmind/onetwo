@@ -35,6 +35,7 @@ from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.retrieval import retrieval_data_structures
 
 _PromptContent = str | content_lib.ChunkList
 StrategyResult = qa.StrategyResult
@@ -528,7 +529,10 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
         )
         return StrategyResult(
             answer=answer_str,
-            doc_ids=_extract_cited_doc_ids(answer_str),
+            docs=[
+                retrieval_data_structures.Document(doc_id=d)
+                for d in _extract_cited_doc_ids(answer_str)
+            ],
         )
       logging.exception('Error during GoogleGenAIMCPStrategy execution')
       # Re-raise so ot.evaluate records the failure for this example and
@@ -537,7 +541,9 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
 
     return StrategyResult(
         answer=answer_str,
-        doc_ids=_extract_cited_doc_ids(answer_str),
+        docs=[
+            qa._Document(doc_id=d) for d in _extract_cited_doc_ids(answer_str)
+        ],
     )
 
 

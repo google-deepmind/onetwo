@@ -21,6 +21,7 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa
+from onetwo.stdlib.retrieval import retrieval_data_structures
 
 StrategyResult = qa.StrategyResult
 
@@ -96,7 +97,11 @@ class MetricsLibTest(parameterized.TestCase):
   ):
     example = {'metadata': {'golden_doc_ids': golden_doc_ids}}
     prediction = StrategyResult(
-        answer='some answer', doc_ids=prediction_doc_ids
+        answer='some answer',
+        docs=[
+            retrieval_data_structures.Document(doc_id=d)
+            for d in prediction_doc_ids
+        ],
     )
     recall_fn = rag_metrics.make_recall_at_k(k=k)
     recall, extra_info = recall_fn(
@@ -106,7 +111,9 @@ class MetricsLibTest(parameterized.TestCase):
 
     if golden_doc_ids:
       expected_retrieved_ids = (
-          prediction.doc_ids[:k] if k is not None else prediction.doc_ids
+          [doc.doc_id for doc in prediction.docs][:k]
+          if k is not None
+          else [doc.doc_id for doc in prediction.docs]
       )
       self.assertEqual(extra_info['answer_doc_ids'], golden_doc_ids)
       self.assertEqual(extra_info['retrieved_doc_ids'], expected_retrieved_ids)
@@ -117,7 +124,10 @@ class MetricsLibTest(parameterized.TestCase):
     example = {'custom_answer_key': ['doc1']}
     prediction = StrategyResult(
         answer='some answer',
-        doc_ids=['doc1', 'doc3']
+        docs=[
+            retrieval_data_structures.Document(doc_id=d)
+            for d in ['doc1', 'doc3']
+        ],
     )
     custom_extractor = lambda ex: ex['custom_answer_key']
     recall_fn = rag_metrics.make_recall_at_k(
@@ -133,7 +143,11 @@ class MetricsLibTest(parameterized.TestCase):
   def test_recall_at_k_no_strip(self):
     example = {'metadata': {'golden_doc_ids': ['doc1']}}
     prediction = StrategyResult(
-        answer='some answer', doc_ids=['doc1_chunk1', 'doc2']
+        answer='some answer',
+        docs=[
+            retrieval_data_structures.Document(doc_id=d)
+            for d in ['doc1_chunk1', 'doc2']
+        ],
     )
     recall_fn = rag_metrics.make_recall_at_k(k=2, strip_chunk_suffix=False)
     recall, extra_info = recall_fn(
@@ -174,7 +188,7 @@ class MetricsLibTest(parameterized.TestCase):
         backend_class_name='FakeBackend',
     )
 
-    prediction = StrategyResult(answer='some answer', doc_ids=[])
+    prediction = StrategyResult(answer='some answer', docs=[])
 
     accuracy_critic_fn = rag_metrics.make_accuracy_critic(backend_config=config)
 

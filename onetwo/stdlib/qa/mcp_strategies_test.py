@@ -76,7 +76,7 @@ class MCPStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertEqual(result.answer, 'mcp answer')
-    self.assertEmpty(result.doc_ids)
+    self.assertEmpty(result.docs)
 
   def test_no_mcp_server_url_raises(self):
     with self.assertRaises(ValueError):
@@ -620,7 +620,7 @@ class CrossStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertIsInstance(result.answer, str)
-    self.assertIsInstance(result.doc_ids, list)
+    self.assertIsInstance(result.docs, list)
 
   @parameterized.named_parameters(
       dict(
