@@ -114,6 +114,7 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
   """
 
   max_tokens_per_chunk: int | None = None
+  chunking_strategy: str = "words"
   format_str: str | None = "{text}"
   overlap_window: int = 0
 
@@ -126,6 +127,7 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     spec_hash = self.get_stable_hash()
     return (
         "EmbeddingBasedDocumentIndex"
+        f"_chunk_strategy_{self.chunking_strategy}"
         f"_chunk_size_{self.max_tokens_per_chunk}"
         f"_overlap_window_{self.overlap_window}"
         f"_{model_name}"

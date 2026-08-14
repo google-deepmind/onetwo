@@ -45,6 +45,23 @@ class LocalIndexRunner(
     tokenizer.register()
     return tokenizer
 
+  def _get_chunker(
+      self,
+      spec: index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+  ) -> chunking.Chunker:
+    if spec.max_tokens_per_chunk is None:
+      return chunking.NoChunking()
+    if getattr(spec, "chunking_strategy", "words") == "words":
+      return chunking.ChunkByMaxWords(
+          max_words_per_chunk=spec.max_tokens_per_chunk,
+          overlap_window=spec.overlap_window,
+      )
+    return chunking.ChunkByMaxTokens(
+        max_tokens_per_chunk=spec.max_tokens_per_chunk,
+        overlap_window=spec.overlap_window,
+        tokenizer_backend=self._get_tokenizer_backend(),
+    )
+
   @executing.make_executable(copy_self=False)
   async def build_index(
       self,
@@ -66,15 +83,7 @@ class LocalIndexRunner(
     if isinstance(
         spec, index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec
     ):
-      if spec.max_tokens_per_chunk is None:
-        chunker = chunking.NoChunking()
-      else:
-        tokenizer_backend = self._get_tokenizer_backend()
-        chunker = chunking.ChunkByMaxTokens(
-            max_tokens_per_chunk=spec.max_tokens_per_chunk,
-            overlap_window=spec.overlap_window,
-            tokenizer_backend=tokenizer_backend,
-        )
+      chunker = self._get_chunker(spec)
       if spec.format_str is None:
         formatter = document_formatting.NoFormatting()
       else:
@@ -111,15 +120,8 @@ class LocalIndexRunner(
         index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
     ):
       embed_backend_config = spec.embed_backend_config
-      if spec.max_tokens_per_chunk is None:
-        chunker = chunking.NoChunking()
-      else:
-        tokenizer_backend = self._get_tokenizer_backend()
-        chunker = chunking.ChunkByMaxTokens(
-            max_tokens_per_chunk=spec.max_tokens_per_chunk,
-            overlap_window=spec.overlap_window,
-            tokenizer_backend=tokenizer_backend,
-        )
+      chunker = self._get_chunker(spec)
+
       if spec.format_str is None:
         formatter = document_formatting.NoFormatting()
       else:

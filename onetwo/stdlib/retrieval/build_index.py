@@ -102,13 +102,21 @@ _SIMILARITY_THRESHOLD = flags.DEFINE_float(
 _CHUNK_SIZE = flags.DEFINE_integer(
     'chunk_size',
     None,
-    'Maximum tokens per chunk. If None, no chunking is performed.',
+    'Maximum tokens or words per chunk. If None, no chunking is performed.',
+)
+
+_CHUNKING_STRATEGY = flags.DEFINE_enum(
+    'chunking_strategy',
+    'words',
+    ['tokens', 'words'],
+    'Chunking strategy to use ("words" for ChunkByMaxWords or "tokens" for'
+    ' ChunkByMaxTokens).',
 )
 
 _OVERLAP_WINDOW = flags.DEFINE_integer(
     'overlap_window',
     0,
-    'Number of tokens to overlap between chunks.',
+    'Number of tokens or words to overlap between chunks.',
 )
 
 _FORMAT = flags.DEFINE_string(
@@ -147,6 +155,7 @@ def build_index(
     embedding_backend_class_name: str = 'GoogleGenAIAPI',
     embedding_model_name: str = 'gemini-embedding-2',
     chunk_size: int | None = None,
+    chunking_strategy: str = 'words',
     overlap_window: int = 0,
     format_str: str | None = None,
     generation_backend_class_name: str = 'GoogleGenAIAPI',
@@ -164,8 +173,9 @@ def build_index(
     index_type: Type of index ('embedding' or 'hipporag').
     embedding_backend_class_name: Embedding backend class name.
     embedding_model_name: Embedding model name.
-    chunk_size: Max tokens per chunk.
-    overlap_window: Tokens to overlap between chunks.
+    chunk_size: Max tokens or words per chunk.
+    chunking_strategy: Chunking strategy ('tokens' or 'words').
+    overlap_window: Tokens or words to overlap between chunks.
     format_str: Format string for document formatting.
     generation_backend_class_name: Generation backend class name for HippoRAG.
     generation_model_name: Generation model name for HippoRAG.
@@ -205,6 +215,7 @@ def build_index(
         embed_backend_config=embed_backend_config,
         generate_backend_config=generate_backend_config,
         max_tokens_per_chunk=chunk_size,
+        chunking_strategy=chunking_strategy,
         overlap_window=overlap_window,
         format_str=format_str,
         similarity_threshold=similarity_threshold,
@@ -214,6 +225,7 @@ def build_index(
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
         max_tokens_per_chunk=chunk_size,
+        chunking_strategy=chunking_strategy,
         overlap_window=overlap_window,
         format_str=format_str,
         runtime_kwargs=rt_kwargs,
@@ -256,6 +268,7 @@ def main(argv: Sequence[str]) -> None:
       embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
       embedding_model_name=_EMBEDDING_MODEL_NAME.value,
       chunk_size=_CHUNK_SIZE.value,
+      chunking_strategy=_CHUNKING_STRATEGY.value,
       overlap_window=_OVERLAP_WINDOW.value,
       format_str=format_str,
       generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,

@@ -342,7 +342,25 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_d95428be',
+        'EmbeddingBasedDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_30cbd990',
+    )
+
+  def test_simple_rewriting_index_spec_str_representation_tokens(self):
+    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        query_task_type='CUSTOM_QUERY_TASK',
+        document_task_type='CUSTOM_DOC_TASK',
+        searcher_config=index_build_interface.SearcherConfig(
+            class_name='BruteForceSearcher',
+        ),
+        max_tokens_per_chunk=512,
+        chunking_strategy='tokens',
+        overlap_window=50,
+        format_str='{text}',
+    )
+    self.assertEqual(
+        str(spec),
+        'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_691921ed',
     )
 
   def test_index_spec_hash_stability(self):
