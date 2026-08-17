@@ -156,28 +156,37 @@ class SerializationTest(absltest.TestCase):
           doc_class=cast(Any, IncompleteDoc)
       )
 
-  def test_sharded_loading(self):
-    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
+  def test_sharded_serialization_roundtrip(self):
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(
+        _Document, num_shards=2
+    )
 
-    # Manually write sharded docs and embeddings.
     doc1 = _Document(doc_id='id1', content='content1')
     doc2 = _Document(doc_id='id2', content='content2')
-    with open(
-        os.path.join(self.test_dir, 'docs-00000-of-00002.jsonl'), 'w'
-    ) as f:
-      f.write(doc1.to_json() + '\n')
-    with open(
-        os.path.join(self.test_dir, 'docs-00001-of-00002.jsonl'), 'w'
-    ) as f:
-      f.write(doc2.to_json() + '\n')
-
-    np.save(
-        os.path.join(self.test_dir, 'embeddings-00000-of-00002.npy'),
-        np.array([[1.0, 2.0]], dtype=np.float32),
+    state = index_state.EmbeddingBasedIndexState(
+        docs=[doc1, doc2],
+        doc_embeddings=[
+            np.array([1.0, 2.0], dtype=np.float32),
+            np.array([3.0, 4.0], dtype=np.float32),
+        ],
     )
-    np.save(
-        os.path.join(self.test_dir, 'embeddings-00001-of-00002.npy'),
-        np.array([[3.0, 4.0]], dtype=np.float32),
+    serializer.save(state, self.test_dir)
+
+    self.assertTrue(
+        os.path.exists(os.path.join(self.test_dir, 'docs-00000-of-00002.jsonl'))
+    )
+    self.assertTrue(
+        os.path.exists(os.path.join(self.test_dir, 'docs-00001-of-00002.jsonl'))
+    )
+    self.assertTrue(
+        os.path.exists(
+            os.path.join(self.test_dir, 'embeddings-00000-of-00002.npy')
+        )
+    )
+    self.assertTrue(
+        os.path.exists(
+            os.path.join(self.test_dir, 'embeddings-00001-of-00002.npy')
+        )
     )
 
     new_state = ot.run(serializer.load(self.test_dir))
@@ -186,10 +195,10 @@ class SerializationTest(absltest.TestCase):
     self.assertEqual(new_state.docs[1].doc_id, 'id2')
     self.assertLen(new_state.doc_embeddings, 2)
     np.testing.assert_array_equal(
-        new_state.doc_embeddings[0], np.array([1.0, 2.0], dtype=np.float32)
+        new_state.doc_embeddings[0], state.doc_embeddings[0]
     )
     np.testing.assert_array_equal(
-        new_state.doc_embeddings[1], np.array([3.0, 4.0], dtype=np.float32)
+        new_state.doc_embeddings[1], state.doc_embeddings[1]
     )
 
 

@@ -26,6 +26,7 @@ from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval_data_structures
+import tqdm
 
 DocT = TypeVar('DocT', bound=retrieval_data_structures.Document)
 
@@ -33,12 +34,16 @@ DocT = TypeVar('DocT', bound=retrieval_data_structures.Document)
 def load_documents(
     file_path: str | epath.Path,
     doc_class: type[DocT],
+    show_progress: bool = True,
+    total: int | None = None,
 ) -> list[DocT]:
   """Loads documents from a file path (supports single or sharded files).
 
   Args:
     file_path: Path to the documents file.
     doc_class: The class to use for deserializing documents.
+    show_progress: Whether to display a tqdm progress bar during loading.
+    total: Optional total number of documents for progress tracking.
 
   Returns:
     A list of deserialized documents.
@@ -62,16 +67,23 @@ def load_documents(
 
   if len(shards) > 1:
     docs = []
-    for s in shards:
+    shards_iter = (
+        tqdm.tqdm(shards, desc='Loading document shards')
+        if show_progress
+        else shards
+    )
+    for s in shards_iter:
       docs.extend(_read_single(s))
     return docs
   else:
     content = file_path.read_text()
-    return [
-        doc_class(**json.loads(line))
-        for line in content.splitlines()
-        if line.strip()
-    ]
+    lines = content.splitlines()
+    iterator = lines
+    if show_progress:
+      iterator = tqdm.tqdm(
+          iterator, total=total or len(lines), desc='Loading index documents'
+      )
+    return [doc_class(**json.loads(line)) for line in iterator if line.strip()]
 
 
 @dataclasses.dataclass
@@ -88,6 +100,8 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embeds_npy_name: Name of the file for storing embeddings (NumPy).
     embed_backend_config_json_name: Name of the file for storing the embedding
       backend config (JSON).
+    num_shards: Number of shards for parallel saving (1 for unsharded).
+    show_progress: Whether to display a tqdm progress bar during loading.
   """
 
   doc_class: type[DocT]
@@ -95,6 +109,8 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   docs_jsonl_name: str = 'docs.jsonl'
   embeds_npy_name: str = 'embeddings.npy'
   embed_backend_config_json_name: str = 'embed_backend_config.json'
+  num_shards: int = 1
+  show_progress: bool = True
 
   def __post_init__(self):
     """Validates interface at initialization."""
@@ -123,17 +139,38 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     path = epath.Path(raw_path)
 
     path.mkdir(parents=True, exist_ok=True)
-    # Save documents to JSONL.
+    # Save documents to JSONL (sharded if num_shards > 1).
     docs_path = path / self.docs_jsonl_name
-    with docs_path.open('w') as f:
-      for doc in state.docs:
-        doc_document: retrieval_data_structures.Document = doc
-        f.write(doc_document.to_json() + '\n')
+    stem = docs_path.stem
+    suffix = docs_path.suffix
+    if self.num_shards > 1 and state.docs:
+      shard_size = (len(state.docs) + self.num_shards - 1) // self.num_shards
+      for s in range(self.num_shards):
+        shard_path = path / f'{stem}-{s:05d}-of-{self.num_shards:05d}{suffix}'
+        with shard_path.open('w') as f:
+          for doc in state.docs[s * shard_size : (s + 1) * shard_size]:
+            doc_document: retrieval_data_structures.Document = doc
+            f.write(doc_document.to_json() + '\n')
+    else:
+      with docs_path.open('w') as f:
+        for doc in state.docs:
+          doc_document: retrieval_data_structures.Document = doc
+          f.write(doc_document.to_json() + '\n')
 
-    # Save embeddings to NPY.
+    # Save embeddings to NPY (sharded if num_shards > 1).
     embeddings_path = path / self.embeds_npy_name
-    with embeddings_path.open('wb') as f:
-      np.save(f, np.stack(state.doc_embeddings, axis=0))
+    embed_matrix = np.stack(state.doc_embeddings, axis=0)
+    estem = embeddings_path.stem
+    esuffix = embeddings_path.suffix
+    if self.num_shards > 1:
+      shard_size = (len(embed_matrix) + self.num_shards - 1) // self.num_shards
+      for s in range(self.num_shards):
+        shard_path = path / f'{estem}-{s:05d}-of-{self.num_shards:05d}{esuffix}'
+        with shard_path.open('wb') as f:
+          np.save(f, embed_matrix[s * shard_size : (s + 1) * shard_size])
+    else:
+      with embeddings_path.open('wb') as f:
+        np.save(f, embed_matrix)
 
     # Save embed_backend_config to JSON if it exists.
     if state.embed_backend_config:
@@ -173,6 +210,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     docs = load_documents(
         file_path=path / self.docs_jsonl_name,
         doc_class=self.doc_class,
+        show_progress=self.show_progress,
     )
 
     # Load embeddings from NPY (sharded or single).
@@ -186,10 +224,15 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     embed_shards = sorted(path.glob(f'{estem}-*-of-*{esuffix}'))
 
     if len(embed_shards) > 1:
-      loaded_embed_shards = [_load_single_npy(s) for s in embed_shards]
-      doc_embeddings = list(
-          np.concatenate(loaded_embed_shards, axis=0)
+      loaded_embed_shards = []
+      shards_iter = (
+          tqdm.tqdm(embed_shards, desc='Loading embedding shards')
+          if self.show_progress
+          else embed_shards
       )
+      for s in shards_iter:
+        loaded_embed_shards.append(_load_single_npy(s))
+      doc_embeddings = list(np.concatenate(loaded_embed_shards, axis=0))
     elif embeddings_path.exists():
       doc_embeddings = list(_load_single_npy(embeddings_path))
     else:
