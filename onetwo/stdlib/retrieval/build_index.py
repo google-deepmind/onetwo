@@ -144,6 +144,14 @@ _MAX_DOCUMENTS = flags.DEFINE_integer(
     'Maximum number of documents to load and index (useful for testing).',
 )
 
+_EMBED_KWARGS = flags.DEFINE_string(
+    'embed_kwargs',
+    '{}',
+    (
+        'JSON string containing keyword arguments for the embedding backend.'
+    ),
+)
+
 
 def build_index(
     dataset_name: str,
@@ -154,6 +162,7 @@ def build_index(
     index_type: str = 'embedding',
     embedding_backend_class_name: str = 'GoogleGenAIAPI',
     embedding_model_name: str = 'gemini-embedding-2',
+    embed_kwargs: dict[str, Any] | None = None,
     chunk_size: int | None = None,
     chunking_strategy: str = 'words',
     overlap_window: int = 0,
@@ -173,6 +182,7 @@ def build_index(
     index_type: Type of index ('embedding' or 'hipporag').
     embedding_backend_class_name: Embedding backend class name.
     embedding_model_name: Embedding model name.
+    embed_kwargs: Keyword arguments for the embedding backend.
     chunk_size: Max tokens or words per chunk.
     chunking_strategy: Chunking strategy ('tokens' or 'words').
     overlap_window: Tokens or words to overlap between chunks.
@@ -200,9 +210,13 @@ def build_index(
     print(f'Loaded {len(docs)} documents.')
 
   # Construct spec
+  backend_kwargs = {}
+  if embed_kwargs:
+    backend_kwargs['embed_kwargs'] = embed_kwargs
   embed_backend_config = backend_registry.EmbedBackendConfig(
       backend_class_name=embedding_backend_class_name,
       model_name=embedding_model_name,
+      kwargs=backend_kwargs,
   )
   rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
 
@@ -258,6 +272,7 @@ def main(argv: Sequence[str]) -> None:
 
   format_str = None if _FORMAT.value in ('None', '') else _FORMAT.value
   runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
+  embed_kwargs = json.loads(_EMBED_KWARGS.value)
 
   build_index(
       dataset_name=_DATASET_NAME.value,
@@ -267,6 +282,7 @@ def main(argv: Sequence[str]) -> None:
       output_directory=_OUTPUT_DIRECTORY.value,
       embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
       embedding_model_name=_EMBEDDING_MODEL_NAME.value,
+      embed_kwargs=embed_kwargs,
       chunk_size=_CHUNK_SIZE.value,
       chunking_strategy=_CHUNKING_STRATEGY.value,
       overlap_window=_OVERLAP_WINDOW.value,
