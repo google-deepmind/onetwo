@@ -28,7 +28,6 @@ from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import updating
 
-
 # We define a bunch of type shortcuts for convenience.
 ExecutableWithStr = executing.Executable[str]
 make_executable = executing.make_executable
@@ -663,6 +662,14 @@ class ExecutionTest(parameterized.TestCase):
     with self.subTest('should_produce_correct_results'):
       self.assertEqual(['rep_0', 'rep_1', 'rep_2'], result)
       self.assertEqual(result, result2)
+
+  def test_par_iter_with_show_progress(self):
+    executables = (_wrap_request(f'req_{i}') for i in range(5))
+    executable = par_iter(
+        executables, chunk_size=2, show_progress=True, progress_desc='Testing'
+    )
+    result = executing.run(executable)
+    self.assertEqual(['rep_0', 'rep_1', 'rep_2', 'rep_3', 'rep_4'], result)
 
   def test_serial_parallel_stream(self):
     """Test the interleaving of two parallel series of calls."""

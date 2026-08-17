@@ -73,6 +73,10 @@ RetrievalResultT = TypeVar('RetrievalResultT')
 DocT = TypeVar('DocT')
 Document = retrieval_data_structures.Document
 
+# TODO: Revisit this default and consider making it default in
+# all public APIs.
+DEFAULT_INDEXING_THREADPOOL_SIZE = 30
+
 
 def _validate_docs(docs: Sequence[Any]) -> None:
   """Validates that the given documents all have doc_id attributes.
@@ -646,18 +650,25 @@ class EmbeddingBasedIndex(
       self, docs: Sequence[DocT]
   ) -> Sequence[Sequence[float]]:
     """Returns newly-calculated embeddings of the documents."""
+    threadpool_size = self.runtime_kwargs.get(
+        'threadpool_size', DEFAULT_INDEXING_THREADPOOL_SIZE
+    )
     with self._backend_routing_context():
-      embed_executables = [
+      embed_executables = (
           llm.embed(
               doc.content,  # pyrefly: ignore[missing-attribute]
               task_type=self.document_task_type,
               title=doc.title,  # pyrefly: ignore[missing-attribute]
           )
           for doc in docs
-      ]
-      embedded_results = await executing.parallel(*embed_executables)
-
-    return embedded_results
+      )
+      return await executing.par_iter(
+          embed_executables,
+          chunk_size=threadpool_size,
+          show_progress=True,
+          progress_desc='Embedding docs',
+          total=len(docs),
+      )
 
   @property
   def num_docs(self) -> int:

@@ -38,6 +38,7 @@ from onetwo.core import results as results_lib
 from onetwo.core import tracing
 from onetwo.core import updating
 from onetwo.core import utils
+import tqdm
 
 
 # Basic type variables that need to be specified when using this library.
@@ -891,6 +892,9 @@ def par_iter(
     executables: Iterable[Executable[Any]],
     chunk_size: int | None = None,
     return_exceptions: bool = False,
+    show_progress: bool = False,
+    progress_desc: str = 'Processing',
+    total: int | None = None,
 ) -> ParallelExecutable:
   """Lazily chains executables in parallel from an iterable of executables.
 
@@ -912,13 +916,22 @@ def par_iter(
       result will be returned. If True, exceptions produced by individual
       executables will be used as their returned result, so that the processing
       will not be interrupted.
+    show_progress: Whether to display a tqdm progress bar during execution.
+    progress_desc: Description prefix for the tqdm progress bar.
+    total: Total number of executables expected (useful when executables is a
+      generator).
 
   Returns:
     An executable that produces a list of results (or exceptions) upon
     execution.
   """
   return ParallelExecutable(
-      executables, chunk_size=chunk_size, return_exceptions=return_exceptions
+      executables,
+      chunk_size=chunk_size,
+      return_exceptions=return_exceptions,
+      show_progress=show_progress,
+      progress_desc=progress_desc,
+      total=total,
   )
 
 
@@ -1395,6 +1408,8 @@ class ParallelExecutable(Executable[Sequence[Any]]):
       result will be returned. If True, exceptions produced by individual
       executables will be used as their returned result, so that the processing
       will not be interrupted.
+    show_progress: If True, a progress bar will be shown.
+    progress_desc: Description of the progress bar.
   """
 
   def __init__(
@@ -1402,6 +1417,9 @@ class ParallelExecutable(Executable[Sequence[Any]]):
       iterable: Iterable[Executable[Any]],
       chunk_size: int | None = None,
       return_exceptions: bool = False,
+      show_progress: bool = False,
+      progress_desc: str = 'Processing',
+      total: int | None = None,
   ):
     if isinstance(iterable, Sequence):
       # If the iterable is fully materialized as a sequence already, we can take
@@ -1416,6 +1434,10 @@ class ParallelExecutable(Executable[Sequence[Any]]):
 
     self.chunk_size = chunk_size
     self.return_exceptions = return_exceptions
+    self.show_progress = show_progress
+    self.progress_desc = progress_desc
+    self.total = total
+    self._pbar: tqdm.tqdm | None = None
 
   async def _worker(self):
     """Worker task that processes items from the queue."""
@@ -1433,6 +1455,8 @@ class ParallelExecutable(Executable[Sequence[Any]]):
         self.results_dict[index] = e
       finally:
         self.queue.task_done()
+        if self._pbar is not None:
+          self._pbar.update(1)
 
   async def _producer_wrapper(self):
     """Wrapper around producer to catch exception and manage queue."""
@@ -1449,6 +1473,20 @@ class ParallelExecutable(Executable[Sequence[Any]]):
         await self.queue.put((-1, None))
 
   async def _aexec(self) -> Sequence[Any]:
+    total = self.total
+    if total is None and isinstance(self.iterable, Sequence):
+      total = len(self.iterable)
+
+    with contextlib.ExitStack() as stack:
+      if self.show_progress:
+        self._pbar = stack.enter_context(
+            tqdm.tqdm(total=total, desc=self.progress_desc)
+        )
+      else:
+        self._pbar = None
+      return await self._aexec_internal()
+
+  async def _aexec_internal(self) -> Sequence[Any]:
     # --- FAST PATH OPTIMIZATION ---
     # If we have a sequence that fits in one chunk, use native `asyncio.gather`.
     # This avoids the overhead of creating Queue, Producer, and Worker tasks.
@@ -1456,8 +1494,15 @@ class ParallelExecutable(Executable[Sequence[Any]]):
         isinstance(self.iterable, Sequence)
         and len(self.iterable) <= self.chunk_size
     ):
+
+      async def _fast_wrap(i, executable):
+        res = await _wrap_executable(executable, i, self.return_exceptions)
+        if self._pbar is not None:
+          self._pbar.update(1)
+        return res
+
       tasks = [
-          _wrap_executable(executable, i, self.return_exceptions)
+          _fast_wrap(i, executable)
           for i, executable in enumerate(self.iterable)
       ]
       if any(executable is None for executable in self.iterable):
