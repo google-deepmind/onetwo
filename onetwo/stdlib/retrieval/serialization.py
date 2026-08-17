@@ -17,9 +17,9 @@
 import collections
 import dataclasses
 import json
-import os
 from typing import Generic, TypeVar
 
+from etils import epath
 import numpy as np
 from onetwo.backends import backend_registry
 from onetwo.core import executing
@@ -30,7 +30,7 @@ DocT = TypeVar('DocT', bound=retrieval_data_structures.Document)
 
 
 def load_documents(
-    file_path: str,
+    file_path: str | epath.Path,
     doc_class: type[DocT],
 ) -> list[DocT]:
   """Loads documents from a file path.
@@ -42,8 +42,9 @@ def load_documents(
   Returns:
     A list of deserialized documents.
   """
+  file_path = epath.Path(file_path)
   docs = []
-  with open(file_path, 'r') as f:
+  with file_path.open('r') as f:
     for line in f:
       if line.strip():
         docs.append(doc_class.from_json(line))
@@ -67,7 +68,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   """
 
   doc_class: type[DocT]
-  base_path: str | None = None
+  base_path: str | epath.Path | None = None
   docs_jsonl_name: str = 'docs.jsonl'
   embeds_npy_name: str = 'embeddings.npy'
   embed_backend_config_json_name: str = 'embed_backend_config.json'
@@ -81,7 +82,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   def save(
       self,
       state: index_state.EmbeddingBasedIndexState[DocT],
-      base_path: str | None = None,
+      base_path: str | epath.Path | None = None,
   ) -> None:
     """Saves the index state to the given base path.
 
@@ -93,26 +94,28 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     Raises:
       ValueError: If no base_path is provided.
     """
-    path = base_path or self.base_path
-    if not path:
+    raw_path = base_path or self.base_path
+    if not raw_path:
       raise ValueError('base_path is not set.')
+    path = epath.Path(raw_path)
 
-    os.makedirs(path, exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True)
     # Save documents to JSONL.
-    docs_path = os.path.join(path, self.docs_jsonl_name)
-    with open(docs_path, 'w') as f:
+    docs_path = path / self.docs_jsonl_name
+    with docs_path.open('w') as f:
       for doc in state.docs:
         doc_document: retrieval_data_structures.Document = doc
         f.write(doc_document.to_json() + '\n')
 
     # Save embeddings to NPY.
-    embeddings_path = os.path.join(path, self.embeds_npy_name)
-    np.save(embeddings_path, np.stack(state.doc_embeddings, axis=0))
+    embeddings_path = path / self.embeds_npy_name
+    with embeddings_path.open('wb') as f:
+      np.save(f, np.stack(state.doc_embeddings, axis=0))
 
     # Save embed_backend_config to JSON if it exists.
     if state.embed_backend_config:
-      config_path = os.path.join(path, self.embed_backend_config_json_name)
-      with open(config_path, 'w') as f:
+      config_path = path / self.embed_backend_config_json_name
+      with config_path.open('w') as f:
         try:
           f.write(state.embed_backend_config.to_json())  # pyrefly: ignore[missing-attribute]
         except TypeError as e:
@@ -124,7 +127,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   @executing.make_executable(copy_self=False)
   async def load(
       self,
-      base_path: str | None = None,
+      base_path: str | epath.Path | None = None,
   ) -> index_state.EmbeddingBasedIndexState[DocT]:
     """Loads the index state from the given base path.
 
@@ -138,25 +141,27 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     Raises:
       ValueError: If no base_path is provided.
     """
-    path = base_path or self.base_path
-    if not path:
+    raw_path = base_path or self.base_path
+    if not raw_path:
       raise ValueError('base_path is not set.')
+    path = epath.Path(raw_path)
 
     # Load documents from JSONL.
     docs = load_documents(
-        file_path=os.path.join(path, self.docs_jsonl_name),
+        file_path=path / self.docs_jsonl_name,
         doc_class=self.doc_class,
     )
 
     # Load embeddings from NPY.
-    embeddings_path = os.path.join(path, self.embeds_npy_name)
-    doc_embeddings = list(np.load(embeddings_path))
+    embeddings_path = path / self.embeds_npy_name
+    with embeddings_path.open('rb') as f:
+      doc_embeddings = list(np.load(f))
 
     # Load embed_backend_config if it exists.
-    config_path = os.path.join(path, self.embed_backend_config_json_name)
+    config_path = path / self.embed_backend_config_json_name
     embed_backend_config = None
-    if os.path.exists(config_path):
-      with open(config_path, 'r') as f:
+    if config_path.exists():
+      with config_path.open('r') as f:
         json_str = f.read()
       embed_backend_config = backend_registry.EmbedBackendConfig.from_json(  # pyrefly: ignore[missing-attribute]
           json_str
@@ -187,28 +192,34 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
   def save(
       self,
       state: index_state.EmbeddingBasedIndexState[DocT],
-      base_path: str | None = None,
+      base_path: str | epath.Path | None = None,
   ) -> None:
     """Saves the index state to the given base path."""
     super().save(state, base_path)
 
     if isinstance(state, index_state.ConstrainedEmbeddingBasedIndexState):
-      path = base_path or self.base_path
-      indices_path = os.path.join(path, self.discrete_indices_json_name)  # pyrefly: ignore[no-matching-overload]
-      with open(indices_path, 'w') as f:
+      raw_path = base_path or self.base_path
+      if not raw_path:
+        raise ValueError('base_path is not set.')
+      path = epath.Path(raw_path)
+      indices_path = path / self.discrete_indices_json_name
+      with indices_path.open('w') as f:
         json.dump(state.doc_indices_by_discrete_value, f)
 
   @executing.make_executable(copy_self=False)
   async def load(  # pyrefly: ignore[bad-override]
       self,
-      base_path: str | None = None,
+      base_path: str | epath.Path | None = None,
   ) -> index_state.ConstrainedEmbeddingBasedIndexState[DocT]:
     """Loads the index state from the given base path."""
     base_state = await super().load(base_path)
 
-    path = base_path or self.base_path
-    indices_path = os.path.join(path, self.discrete_indices_json_name)  # pyrefly: ignore[no-matching-overload]
-    with open(indices_path, 'r') as f:
+    raw_path = base_path or self.base_path
+    if not raw_path:
+      raise ValueError('base_path is not set.')
+    path = epath.Path(raw_path)
+    indices_path = path / self.discrete_indices_json_name
+    with indices_path.open('r') as f:
       loaded_indices = json.load(f)
 
     doc_indices_by_discrete_value = collections.defaultdict(
