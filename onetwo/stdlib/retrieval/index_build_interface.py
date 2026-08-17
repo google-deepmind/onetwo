@@ -108,12 +108,13 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
   chunking and formatting for corpus rewriting.
 
   Attributes:
-    max_tokens_per_chunk: Maximum tokens per chunk for chunking.
+    max_chunk_size: Maximum tokens or words per chunk for chunking.
+    chunking_strategy: Chunking strategy to use ('words' or 'tokens').
     format_str: Format string for document formatting.
-    overlap_window: Number of tokens to overlap between chunks.
+    overlap_window: Number of tokens or words to overlap between chunks.
   """
 
-  max_tokens_per_chunk: int | None = None
+  max_chunk_size: int | None = None
   chunking_strategy: str = "words"
   format_str: str | None = "{text}"
   overlap_window: int = 0
@@ -128,7 +129,7 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     return (
         "EmbeddingBasedDocumentIndex"
         f"_chunk_strategy_{self.chunking_strategy}"
-        f"_chunk_size_{self.max_tokens_per_chunk}"
+        f"_chunk_size_{self.max_chunk_size}"
         f"_overlap_window_{self.overlap_window}"
         f"_{model_name}"
         f"__hash_{spec_hash}"
@@ -190,7 +191,9 @@ class SimpleRewritingHippoRAGDocumentIndexSpec(
     )
     spec_hash = self.get_stable_hash()
     return (
-        f"HippoRAGDocumentIndex_chunk_{self.max_tokens_per_chunk}"
+        f"HippoRAGDocumentIndex"
+        f"_chunk_strategy_{self.chunking_strategy}"
+        f"_chunk_size_{self.max_chunk_size}"
         f"_overlap_{self.overlap_window}"
         f"_embed_{embed_model}_gen_{gen_model}"
         f"_sim_{self.similarity_threshold}"

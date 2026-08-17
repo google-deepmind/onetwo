@@ -214,7 +214,7 @@ def build_index(
     spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
         generate_backend_config=generate_backend_config,
-        max_tokens_per_chunk=chunk_size,
+        max_chunk_size=chunk_size,
         chunking_strategy=chunking_strategy,
         overlap_window=overlap_window,
         format_str=format_str,
@@ -224,7 +224,7 @@ def build_index(
   else:
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
-        max_tokens_per_chunk=chunk_size,
+        max_chunk_size=chunk_size,
         chunking_strategy=chunking_strategy,
         overlap_window=overlap_window,
         format_str=format_str,

@@ -49,15 +49,15 @@ class LocalIndexRunner(
       self,
       spec: index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
   ) -> chunking.Chunker:
-    if spec.max_tokens_per_chunk is None:
+    if spec.max_chunk_size is None:
       return chunking.NoChunking()
     if getattr(spec, "chunking_strategy", "words") == "words":
       return chunking.ChunkByMaxWords(
-          max_words_per_chunk=spec.max_tokens_per_chunk,
+          max_words_per_chunk=spec.max_chunk_size,
           overlap_window=spec.overlap_window,
       )
     return chunking.ChunkByMaxTokens(
-        max_tokens_per_chunk=spec.max_tokens_per_chunk,
+        max_tokens_per_chunk=spec.max_chunk_size,
         overlap_window=spec.overlap_window,
         tokenizer_backend=self._get_tokenizer_backend(),
     )

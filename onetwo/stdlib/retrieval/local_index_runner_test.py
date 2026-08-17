@@ -126,7 +126,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'simple_rewriting_spec',
           index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
-              'max_tokens_per_chunk': 100,
+              'max_chunk_size': 100,
               'format_str': 'Title: {title}\nFacts: {text}',
           },
           indexing.RewritingEmbeddingBasedDocumentIndex,
@@ -140,7 +140,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'simple_rewriting_spec_no_chunking',
           index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
-              'max_tokens_per_chunk': None,
+              'max_chunk_size': None,
               'format_str': 'Title: {title}\nFacts: {text}',
           },
           indexing.RewritingEmbeddingBasedDocumentIndex,
@@ -154,7 +154,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'custom_params',
           index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
-              'max_tokens_per_chunk': 100,
+              'max_chunk_size': 100,
               'format_str': 'Title: {title}\nFacts: {text}',
               'query_task_type': 'CUSTOM_QUERY_TASK',
               'document_task_type': 'CUSTOM_DOC_TASK',
@@ -175,7 +175,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'hipporag_spec',
           index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec,
           {
-              'max_tokens_per_chunk': 100,
+              'max_chunk_size': 100,
               'similarity_threshold': 0.8,
           },
           indexing.RewritingEmbeddingBasedDocumentIndex,
@@ -189,7 +189,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'hipporag_spec_no_chunking',
           index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec,
           {
-              'max_tokens_per_chunk': None,
+              'max_chunk_size': None,
               'format_str': 'Title: {title}\nFacts: {text}',
               'similarity_threshold': 0.8,
           },
@@ -297,7 +297,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
   def test_index_spec_serialization(self):
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
-        max_tokens_per_chunk=100,
+        max_chunk_size=100,
         format_str='Title: {title}\nFacts: {text}',
         query_task_type='CUSTOM_QUERY_TASK',
         document_task_type='CUSTOM_DOC_TASK',
@@ -336,13 +336,13 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         searcher_config=index_build_interface.SearcherConfig(
             class_name='BruteForceSearcher',
         ),
-        max_tokens_per_chunk=512,
+        max_chunk_size=512,
         overlap_window=50,
         format_str='{text}',
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_30cbd990',
+        'EmbeddingBasedDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_c791be20',
     )
 
   def test_simple_rewriting_index_spec_str_representation_tokens(self):
@@ -353,14 +353,14 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         searcher_config=index_build_interface.SearcherConfig(
             class_name='BruteForceSearcher',
         ),
-        max_tokens_per_chunk=512,
+        max_chunk_size=512,
         chunking_strategy='tokens',
         overlap_window=50,
         format_str='{text}',
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_691921ed',
+        'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_a3efa5f8',
     )
 
   def test_index_spec_hash_stability(self):
@@ -378,7 +378,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
         generate_backend_config=self.generate_backend_config,
-        max_tokens_per_chunk=100,
+        max_chunk_size=100,
         similarity_threshold=0.8,
     )
     json_str = spec.to_json()
@@ -414,12 +414,12 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
         generate_backend_config=self.generate_backend_config,
-        max_tokens_per_chunk=512,
+        max_chunk_size=512,
         overlap_window=50,
         similarity_threshold=0.85,
     )
     self.assertIn(
-        'HippoRAGDocumentIndex_chunk_512_overlap_50_embed_gemini-embedding-2_gen_test-model_sim_0.85__hash_',
+        'HippoRAGDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_50_embed_gemini-embedding-2_gen_test-model_sim_0.85__hash_',
         str(spec),
     )
 
@@ -446,13 +446,13 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
             embed_backend_config=embed_config,
             generate_backend_config=gen_config,
-            max_tokens_per_chunk=256,
+            max_chunk_size=256,
             overlap_window=10,
             similarity_threshold=0.75,
         )
     )
     self.assertIn(
-        'HippoRAGDocumentIndex_chunk_256_overlap_10_embed_CustomEmbedClass_gen_CustomGenClass_sim_0.75__hash_',
+        'HippoRAGDocumentIndex_chunk_strategy_words_chunk_size_256_overlap_10_embed_CustomEmbedClass_gen_CustomGenClass_sim_0.75__hash_',
         str(rewriting_spec),
     )
 
