@@ -74,6 +74,7 @@ def main(argv: Sequence[str]) -> None:
   for i, example in enumerate(examples[:3]):
     print(f'   Example [{i}] question: {example.get("question")}')
     print(f'   Example [{i}] answer: {example.get("answer")}')
+    print(f'   Example [{i}] metadata: {example.get("metadata")}')
 
   print(f'\n2. Loading documents from {_DATASET_NAME.value}...')
   documents = list(ot.run(loader.load_documents()))  # pyrefly: ignore[missing-attribute]
@@ -81,6 +82,9 @@ def main(argv: Sequence[str]) -> None:
   for i, document in enumerate(documents[:3]):
     print(f'   Document [{i}] doc_id: {document.doc_id}')
     print(f'   Document [{i}] title: {document.title}')
+    print(
+        f'   Document [{i}] content (first 100 chars): {document.content[:100]}'
+    )
 
   duration = time.time() - start_time
   print('\n' + '=' * 60)
