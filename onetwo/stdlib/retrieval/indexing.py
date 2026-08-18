@@ -49,10 +49,13 @@ import collections
 import contextlib
 import dataclasses
 import enum
+import json
 import random
 from typing import Any, Generic, Iterable, Iterator, Sequence, TypeVar, cast
 
+from etils import epath
 import numpy as np
+from onetwo.backends import backend_registry
 from onetwo.backends import backends_base
 from onetwo.builtins import llm
 from onetwo.core import executing
@@ -63,10 +66,7 @@ from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
-
-from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import serialization
-base_serializer = serialization.SimpleEmbeddingBasedIndexSerializer
 
 QueryT = TypeVar('QueryT')
 RetrievalResultT = TypeVar('RetrievalResultT')
@@ -845,7 +845,13 @@ class EmbeddingBasedDocumentIndex(
     EmbeddingBasedIndex[str, Document],
     DocumentIndex,
 ):
-  """Embedding-based index for Document objects."""
+  """Embedding-based index for Document objects.
+
+  Attributes:
+    serializer_type: Serializer type to use ('simple', 'internal', etc.).
+  """
+
+  serializer_type: str = 'simple'
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""
@@ -854,13 +860,23 @@ class EmbeddingBasedDocumentIndex(
         doc_embeddings=self._doc_embeddings,
         embed_backend_config=self.embed_backend_config,
     )
-    base_serializer(Document).save(index_state_dto, base_path)
+    serializer = serialization.get_serializer(self.serializer_type, Document)
+    serializer.save(index_state_dto, base_path)
 
   # TODO: Consider passing runtime_kwargs to the load method.
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
-    index_state_dto = await base_serializer(Document).load(base_path)
+    serializer_type = self.serializer_type
+    path = epath.Path(base_path)
+    manifest_path = path / 'manifest.json'
+    if manifest_path.exists():
+      with manifest_path.open('r') as f:
+        manifest_data = json.load(f)
+      serializer_type = manifest_data.get('serializer_type', serializer_type)
+
+    serializer = serialization.get_serializer(serializer_type, Document)
+    index_state_dto = await serializer.load(base_path)
     self._docs = index_state_dto.docs
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
@@ -880,6 +896,10 @@ class RewritingEmbeddingBasedDocumentIndex(
   inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(
       default_factory=EmbeddingBasedDocumentIndex
   )
+
+  def __post_init__(self):
+    if hasattr(self, 'serializer_type') and self.serializer_type:
+      self.inner_index.serializer_type = self.serializer_type
 
   def save(self, base_path: str) -> None:
     """Saves the index state."""

@@ -687,6 +687,18 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
         index.inner_index._doc_embeddings[0],
     )
 
+  def test_unsupported_serializer_type_raises_error(self):
+    index = indexing.EmbeddingBasedDocumentIndex(
+        serializer_type='nonexistent_type'
+    )
+    docs = [Document(doc_id='a', content='A')]
+    mock_embed_fn.embeddings = [np.array([0.1, 0.2])]  # pyrefly: ignore[missing-attribute]
+    ot.run(index.add_docs(docs))
+    with self.assertRaisesRegex(
+        ValueError, 'Unsupported serializer type: nonexistent_type'
+    ):
+      index.save(self.temp_dir)
+
 
 if __name__ == '__main__':
   absltest.main()

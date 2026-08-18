@@ -18,7 +18,7 @@ import collections
 import dataclasses
 import io
 import json
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from etils import epath
 import numpy as np
@@ -102,6 +102,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
       backend config (JSON).
     num_shards: Number of shards for parallel saving (1 for unsharded).
     show_progress: Whether to display a tqdm progress bar during loading.
+    manifest_json_name: Name of the file for storing the manifest data (JSON).
   """
 
   doc_class: type[DocT]
@@ -111,6 +112,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   embed_backend_config_json_name: str = 'embed_backend_config.json'
   num_shards: int = 1
   show_progress: bool = True
+  manifest_json_name: str = 'manifest.json'
 
   def __post_init__(self):
     """Validates interface at initialization."""
@@ -183,6 +185,19 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
               'Failed to serialize EmbedBackendConfig to JSON. Ensure all '
               f'kwargs are JSON-serializable. Original error: {e}'
           ) from e
+
+    # Save manifest.json.
+    manifest_path = path / self.manifest_json_name
+    manifest_data = {
+        'serializer_type': 'simple',
+        'format_version': '1.0',
+        'docs_count': len(state.docs) if state.docs else 0,
+        'embeds_count': (
+            len(state.doc_embeddings) if state.doc_embeddings else 0
+        ),
+    }
+    with manifest_path.open('w') as f:
+      json.dump(manifest_data, f, indent=2)
 
   @executing.make_executable(copy_self=False)
   async def load(
@@ -317,3 +332,25 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
         embed_backend_config=base_state.embed_backend_config,
         doc_indices_by_discrete_value=doc_indices_by_discrete_value,  # pyrefly: ignore[bad-argument-type]
     )
+
+
+SERIALIZER_REGISTRY: dict[str, type[Any]] = {
+    'simple': SimpleEmbeddingBasedIndexSerializer,
+}
+
+
+def get_serializer(
+    serializer_type: str,
+    doc_class: type[DocT],
+    **kwargs: Any,
+) -> Any:
+  """Returns a serializer instance for the given serializer type and doc class."""
+  if serializer_type not in SERIALIZER_REGISTRY:
+    raise ValueError(
+        f'Unsupported serializer type: {serializer_type}. '
+        f'Available types: {list(SERIALIZER_REGISTRY.keys())}'
+    )
+  serializer_cls = SERIALIZER_REGISTRY[serializer_type]
+  return serializer_cls(doc_class=doc_class, **kwargs)
+
+

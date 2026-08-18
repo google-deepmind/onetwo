@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import shutil
 import tempfile
@@ -201,6 +202,59 @@ class SerializationTest(absltest.TestCase):
         new_state.doc_embeddings[1], state.doc_embeddings[1]
     )
 
+  def test_serialization_with_manifest(self):
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
+
+    doc1 = _Document(doc_id='id1', content='content1')
+    doc2 = _Document(doc_id='id2', content='content2')
+    state = index_state.EmbeddingBasedIndexState(
+        docs=[doc1, doc2],
+        doc_embeddings=[
+            np.array([1.0, 2.0], dtype=np.float32),
+            np.array([3.0, 4.0], dtype=np.float32),
+        ],
+    )
+    serializer.save(state, self.test_dir)
+
+    manifest_path = os.path.join(self.test_dir, 'manifest.json')
+    self.assertTrue(os.path.exists(manifest_path))
+    with open(manifest_path, 'r') as f:
+      manifest_data = json.load(f)
+    self.assertEqual(manifest_data['serializer_type'], 'simple')
+    self.assertEqual(manifest_data['format_version'], '1.0')
+    self.assertEqual(manifest_data['docs_count'], 2)
+    self.assertEqual(manifest_data['embeds_count'], 2)
+
+    new_state = ot.run(serializer.load(self.test_dir))
+    self.assertLen(new_state.docs, 2)
+    self.assertEqual(new_state.docs[0].doc_id, 'id1')
+    self.assertEqual(new_state.docs[1].doc_id, 'id2')
+    self.assertLen(new_state.doc_embeddings, 2)
+    np.testing.assert_array_equal(
+        new_state.doc_embeddings[0], state.doc_embeddings[0]
+    )
+    np.testing.assert_array_equal(
+        new_state.doc_embeddings[1], state.doc_embeddings[1]
+    )
+
+  def test_serializer_registry(self):
+    self.assertIn('simple', serialization.SERIALIZER_REGISTRY)
+    self.assertIs(
+        serialization.SERIALIZER_REGISTRY['simple'],
+        serialization.SimpleEmbeddingBasedIndexSerializer,
+    )
+
+  def test_get_serializer(self):
+    serializer = serialization.get_serializer('simple', _Document)
+    self.assertIsInstance(
+        serializer, serialization.SimpleEmbeddingBasedIndexSerializer
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Unsupported serializer type: unknown'
+    ):
+      serialization.get_serializer('unknown', _Document)
+
 
 if __name__ == '__main__':
   absltest.main()
+
