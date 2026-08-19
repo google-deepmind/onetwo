@@ -25,7 +25,9 @@ from onetwo import ot
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
+from onetwo.core import executing
 from onetwo.core import routing
+from onetwo.core import tracing
 from onetwo.stdlib.qa import mcp_strategies
 from onetwo.stdlib.qa import qa
 
@@ -511,8 +513,8 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
     self.mock_client.__aexit__ = mock.AsyncMock(return_value=None)
     self.mock_client.session = mock.MagicMock()
 
-  def test_error_raises_instead_of_crashing_entire_eval(self):
-    """A RuntimeError during llm.chat propagates so ot.evaluate can catch it."""
+  def test_error_returns_no_answer_instead_of_crashing_entire_eval(self):
+    """An error during llm.chat returns no-answer with preserved traces."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
         mcp_server_url='http://localhost:8000/mcp'
     )
@@ -530,8 +532,9 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
 
     chat_wrapper._registered_function = raising_fn
     try:
-      with self.assertRaises(RuntimeError):
-        ot.run(strategy(question='What?'))
+      res = ot.run(strategy(question='What?'))
+      self.assertEqual(res.answer, '')
+      self.assertEqual(res.docs, [])
     finally:
       chat_wrapper._registered_function = original_fn
 
@@ -565,8 +568,9 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
 
     chat_wrapper._registered_function = raising_fn
     try:
-      with self.assertRaises(RuntimeError):
-        ot.run(strategy(question='Fails'))
+      res = ot.run(strategy(question='Fails'))
+      self.assertEqual(res.answer, '')
+      self.assertEqual(res.docs, [])
     finally:
       chat_wrapper._registered_function = original_fn
 
@@ -638,7 +642,7 @@ class CrossStrategyTest(parameterized.TestCase):
 
 
 class ThinkingConfigMergingTest(parameterized.TestCase):
-  """Tests that the MCP strategy merges thinking_config with existing defaults."""
+  """Tests that MCP strategy merges thinking_config with defaults."""
 
   def setUp(self):
     super().setUp()
@@ -816,6 +820,134 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
           http_connect_timeout=45.0,
           http_write_timeout=30.0,
       )
+
+  def test_maximum_remote_calls_configured_by_default(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+    )
+    captured_kwargs = {}
+    chat_wrapper = routing.function_registry[llm.chat.name]
+    original_fn = chat_wrapper._registered_function
+
+    def capturing_fn(*args, **kwargs):
+      captured_kwargs.update(kwargs)
+      return original_fn(*args, **kwargs)
+
+    chat_wrapper._registered_function = capturing_fn
+    try:
+      ot.run(strategy(question='Test question'))
+    finally:
+      chat_wrapper._registered_function = original_fn
+
+    self.assertEqual(
+        captured_kwargs['automatic_function_calling'].maximum_remote_calls, 100
+    )
+
+  def test_maximum_remote_calls_custom(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+        maximum_remote_calls=30,
+    )
+    captured_kwargs = {}
+    chat_wrapper = routing.function_registry[llm.chat.name]
+    original_fn = chat_wrapper._registered_function
+
+    def capturing_fn(*args, **kwargs):
+      captured_kwargs.update(kwargs)
+      return original_fn(*args, **kwargs)
+
+    chat_wrapper._registered_function = capturing_fn
+    try:
+      ot.run(strategy(question='Test question'))
+    finally:
+      chat_wrapper._registered_function = original_fn
+
+    self.assertEqual(
+        captured_kwargs['automatic_function_calling'].maximum_remote_calls, 30
+    )
+
+  def test_no_answer_when_model_ends_on_function_call(self):
+    self.llm_backend.reply_by_prompt_regex = {
+        '': ['[Function Call: search_passages]']
+    }
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+    )
+    result = ot.run(strategy(question='What is the meaning of life?'))
+
+    self.assertEqual(result.answer, '')
+    self.assertEqual(result.docs, [])
+
+  def test_transient_tool_error_recovered_as_tool_result(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+    )
+    mock_original_call = mock.AsyncMock(
+        side_effect=ValueError('Tool server error')
+    )
+    self.mock_client.session.call_tool = mock_original_call
+
+    # Execute strategy
+    ot.run(strategy(question='Test question'))
+
+    wrapped_call = self.mock_client.session.call_tool
+    res = ot.run(wrapped_call('faulty_tool', {'arg': 'val'}))
+    self.assertTrue(res.isError)
+    self.assertIn('Error executing tool faulty_tool', res.content[0].text)
+
+  def test_tool_call_history_preserved_in_trace_on_chat_exception(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_url='http://localhost:8000/mcp',
+    )
+    mock_tool = mock.AsyncMock(
+        return_value=mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type='text', text='Evidence text')]
+        )
+    )
+    self.mock_client.session.call_tool = mock_tool
+
+    chat_wrapper = routing.function_registry[llm.chat.name]
+    original_fn = chat_wrapper._registered_function
+
+    @executing.make_executable
+    @tracing.trace(name='llm.chat')
+    async def mock_chat_fn(messages, *args, **kwargs):
+      del messages, args, kwargs
+      # Simulate tool call happening before crash
+      wrapped_call = self.mock_client.session.call_tool
+      await wrapped_call('search_passages', {'query': 'test'})
+      # Then raise 400 token limit error
+      raise ValueError(
+          '400 INVALID_ARGUMENT: The input token count exceeds the maximum'
+          ' number of tokens allowed 1048576.'
+      )
+
+    chat_wrapper._registered_function = mock_chat_fn
+    try:
+      res_result, trace_res = ot.run(
+          strategy(question='What is the answer?'),
+          enable_tracing=True,
+      )
+    finally:
+      chat_wrapper._registered_function = original_fn
+
+    self.assertEqual(res_result.answer, '')
+    self.assertEqual(res_result.docs, [])
+    self.assertNotEmpty(trace_res.stages)
+    # Verify that walking the trace for LLM stages (as done during evaluation
+    # metric extraction) finds the tool details on the child LLM stage, not
+    # just on the parent strategy node.
+    llm_stages = [
+        s
+        for s in trace_res.stages
+        if s.stage_name and s.stage_name.endswith('.chat')
+    ]
+    self.assertLen(llm_stages, 1)
+    self.assertEqual(llm_stages[0].info.get('llm.tools.calls'), 1)
+    details = llm_stages[0].info.get('llm.tools.details', [])
+    self.assertLen(details, 1)
+    self.assertEqual(details[0]['name'], 'search_passages')
+    self.assertEqual(details[0]['args'], {'query': 'test'})
 
 
 if __name__ == '__main__':

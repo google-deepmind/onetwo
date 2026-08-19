@@ -33,9 +33,9 @@ from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import routing
+from onetwo.core import tracing
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import strategies_lib
-from onetwo.stdlib.retrieval import retrieval_data_structures
 
 _PromptContent = str | content_lib.ChunkList
 StrategyResult = qa.StrategyResult
@@ -310,6 +310,113 @@ class _ResilientStreamableHttpTransport(
         yield session
 
 
+def _build_thinking_config(
+    include_thoughts: bool,
+) -> genai_types.ThinkingConfig:
+  """Builds a ThinkingConfig preserving any defaults from backend registry."""
+  chat_defaults = routing.function_registry[llm.chat.name].defaults
+  existing_thinking_config = chat_defaults.get('thinking_config')
+  if existing_thinking_config is not None:
+    return existing_thinking_config.model_copy(
+        update={'include_thoughts': include_thoughts}
+    )
+  return genai_types.ThinkingConfig(include_thoughts=include_thoughts)
+
+
+def _setup_resilient_mcp_session(
+    client: fastmcp.Client,
+    tool_timeout: float,
+) -> list[tuple[str, dict[str, Any] | None, str]]:
+  """Configures an MCP client session with resilient error handling.
+
+  Args:
+    client: The fastmcp.Client instance whose active session will be wrapped.
+    tool_timeout: Maximum seconds to wait for a tool execution.
+
+  Returns:
+    The mutable tool_call_history list that tracks (name, arguments,
+    result_text) for every tool call.
+  """
+
+  # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
+  # live session objects (like Futures) during GenAI SDK's internal
+  # config copying. Returning self preserves the shared live connection.
+  # The try/except guards against the session being dead (e.g. after an
+  # HTTP 400 from the MCP server kills the connection).
+  def _safe_deepcopy(memo, client_ref=client):
+    del memo  # Unused; required by __deepcopy__ protocol.
+    try:
+      return client_ref.session
+    except RuntimeError:
+      return None
+
+  setattr(client.session, '__deepcopy__', _safe_deepcopy)
+
+  original_call_tool = client.session.call_tool
+  tool_call_history: list[tuple[str, dict[str, Any] | None, str]] = []
+
+  async def _safe_call_tool(
+      name: str, arguments: dict[str, Any] | None = None, **call_kwargs
+  ):
+    try:
+      result = await asyncio.wait_for(
+          original_call_tool(name, arguments=arguments, **call_kwargs),
+          timeout=tool_timeout,
+      )
+      result_text = ''
+      if hasattr(result, 'content') and result.content:
+        result_text = '\n'.join(
+            getattr(c, 'text', str(c)) for c in result.content
+        )
+      tool_call_history.append((name, arguments, result_text))
+      return result
+    except Exception as exc:  # pylint: disable=broad-except
+      logging.warning(
+          'MCP call_tool(%s, %s) raised exception: %s',
+          name,
+          arguments,
+          exc,
+      )
+      err_text = (
+          f'Error executing tool {name}: {exc}. Please adjust arguments'
+          ' or try another tool.'
+      )
+      tool_call_history.append((name, arguments, err_text))
+      return mcp_types.CallToolResult(
+          content=[
+              mcp_types.TextContent(
+                  type='text',
+                  text=err_text,
+              )
+          ],
+          isError=True,
+      )
+    finally:
+      # Update the active LLM child stage in the trace in real time as each tool
+      # executes. If llm.chat fails later (e.g. context limit), the trace will
+      # already contain all executed tool calls and responses up to that point.
+      tool_details = [
+          {
+              'type': 'function_call',
+              'name': n,
+              'args': a or {},
+              'response': {
+                  'result': {
+                      'content': [{'type': 'text', 'text': r}],
+                  }
+              },
+          }
+          for n, a, r in tool_call_history
+      ]
+      tracing.update_info({
+          'llm.tools.calls': len(tool_call_history),
+          'llm.tools.details': tool_details,
+      })
+
+  setattr(client.session, 'call_tool', _safe_call_tool)
+  return tool_call_history
+
+
 @dataclasses.dataclass
 # TODO: b/535122834 - Rename to ClientSideMCPStrategy or something more generic
 # once we standardize MCP tool passing and configuration across backends.
@@ -319,6 +426,25 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   This strategy initiates a connection to the MCP server client-side and uses a
   manual async execution loop to call tools locally on the developer's machine.
   This allows testing with HTTP (localhost) MCP servers without needing HTTPS.
+
+  Error Handling & Empty Returns:
+    - Returns ``StrategyResult(answer='', docs=[])`` when:
+        (1) The LLM chat encounters an unrecoverable error during automatic
+            function calling (e.g. input token count exceeds the model's
+            context window limit).
+        (2) The model completes automatic function calling without outputting
+            a final text answer (e.g. ends on a tool call or returns an empty
+            response).
+      In all these cases, all intermediate tool calls and responses executed
+      before the failure are preserved in the execution trace
+      (``llm.tools.calls`` and ``llm.tools.details``).
+    - Transient tool execution errors (e.g. timeouts or exceptions from the MCP
+      server) are caught and returned to the model as
+      ``CallToolResult(isError=True)`` so it can adjust arguments and recover.
+    - Raises an exception when:
+        (1) Initial configuration is invalid (e.g. missing ``mcp_server_url`` or
+            missing ``{question}`` placeholder in ``query_template``).
+        (2) FastMCP transport connection fails before LLM execution begins.
 
   Attributes:
     mcp_server_url: The URL of the MCP server to connect to.
@@ -335,6 +461,8 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       connection with the MCP server.
     http_write_timeout: Maximum seconds to wait when writing HTTP request data
       to the MCP server.
+    maximum_remote_calls: Maximum number of remote tool calls allowed during
+      automatic function calling. Defaults to 100.
   """
 
   mcp_server_url: str = ''
@@ -344,6 +472,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   http_read_timeout: float = 300.0
   http_connect_timeout: float = 60.0
   http_write_timeout: float = 60.0
+  maximum_remote_calls: int = 100
 
   def __post_init__(self):
     if not self.mcp_server_url:
@@ -430,79 +559,19 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     )
     client = fastmcp.Client(transport)
 
-    answer_str = None
+    answer_str = ''
     try:
       async with client:
-        # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
-        # live session objects (like Futures) during GenAI SDK's internal
-        # config copying. Returning self preserves the shared live connection.
-        # The try/except guards against the session being dead (e.g. after an
-        # HTTP 400 from the MCP server kills the connection).
-        def _safe_deepcopy(memo, client_ref=client):  # pyrefly: ignore[missing-attribute]
-          del memo  # Unused; required by __deepcopy__ protocol.
-          try:
-            return client_ref.session
-          except RuntimeError:
-            return None
-
-        client.session.__deepcopy__ = _safe_deepcopy  # pyrefly: ignore[missing-attribute]
-
-        # Intercept and handle call_tool exceptions (such as HTTP 400 Bad
-        # Request or transport errors) gracefully. Returning an error
-        # CallToolResult to the LLM allows it to self-correct its parameters
-        # without crashing the StreamableHTTP transport or deadlocking the
-        # session.
-        original_call_tool = client.session.call_tool
-
-        async def _safe_call_tool(
-            name: str, arguments: dict[str, Any] | None = None, **call_kwargs
-        ):
-          try:
-            return await asyncio.wait_for(
-                original_call_tool(name, arguments=arguments, **call_kwargs),
-                timeout=self.tool_timeout,
-            )
-          except Exception as exc:  # pylint: disable=broad-except
-            logging.warning(
-                'MCP call_tool(%s, %s) raised exception: %s',
-                name,
-                arguments,
-                exc,
-            )
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(
-                        type='text',
-                        text=(
-                            f'Error executing tool {name}: {exc}. Please adjust'
-                            ' arguments or try another tool.'
-                        ),
-                    )
-                ],
-                isError=True,
-            )
-
-        client.session.call_tool = _safe_call_tool  # pyrefly: ignore[bad-assignment, missing-attribute]
-
-        # Build a thinking_config that preserves any existing settings (e.g.,
-        # thinking_budget) from the backend's configured defaults, and only
-        # sets include_thoughts=True on top of them.
-        chat_defaults = routing.function_registry[llm.chat.name].defaults
-        existing_thinking_config = chat_defaults.get('thinking_config')
-        if existing_thinking_config is not None:
-          thinking_config = existing_thinking_config.model_copy(
-              update={'include_thoughts': self.include_thoughts}
-          )
-        else:
-          thinking_config = genai_types.ThinkingConfig(
-              include_thoughts=self.include_thoughts
-          )
-
+        tool_call_history = _setup_resilient_mcp_session(
+            client=client,
+            tool_timeout=self.tool_timeout,
+        )
+        thinking_config = _build_thinking_config(self.include_thoughts)
         kwargs = {
             'tools': [client.session],
             'automatic_function_calling': (
                 genai_types.AutomaticFunctionCallingConfig(
-                    maximum_remote_calls=100
+                    maximum_remote_calls=self.maximum_remote_calls
                 )
             ),
             'thinking_config': thinking_config,
@@ -514,14 +583,32 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
                 content=question,
             )
         ]
-        answer = await llm.chat(messages, **kwargs)
-        answer_str = str(answer)
+        try:
+          answer = await llm.chat(messages, **kwargs)
+          answer_str = str(answer) if answer is not None else ''
+        except Exception as chat_exc:  # pylint: disable=broad-except
+          logging.warning(
+              'llm.chat encountered error during AFC: %s. Preserving %d tool'
+              ' calls in trace and returning no answer.',
+              chat_exc,
+              len(tool_call_history),
+          )
+          return StrategyResult(answer='', docs=[])
+
+        # If AFC completed without a final text answer (e.g. ended on a tool
+        # call), return a no-answer result.
+        if not answer_str or answer_str.startswith('[Function Call:'):
+          logging.info(
+              'Model did not provide a final text answer (tool calls: %d).',
+              len(tool_call_history),
+          )
+          return StrategyResult(answer='', docs=[])
     except Exception as e:  # pylint: disable=broad-except
       # If fastmcp.__aexit__ raised a background transport error (e.g.
       # HTTPStatusError from a previously caught tool call error) during
       # client teardown, but the answer was already produced by the model,
-      # return the generated answer rather than failing the example.
-      if answer_str is not None:
+      # return the generated answer.
+      if answer_str:
         logging.warning(
             'FastMCP client shutdown raised exception after answer was'
             ' generated: %s',
@@ -530,14 +617,12 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
         return StrategyResult(
             answer=answer_str,
             docs=[
-                retrieval_data_structures.Document(doc_id=d)
+                qa._Document(doc_id=d)
                 for d in _extract_cited_doc_ids(answer_str)
             ],
         )
       logging.exception('Error during GoogleGenAIMCPStrategy execution')
-      # Re-raise so ot.evaluate records the failure for this example and
-      # continues with the remaining ones.
-      raise RuntimeError(f'{type(e).__name__}: {str(e)}') from e
+      return StrategyResult(answer='', docs=[])
 
     return StrategyResult(
         answer=answer_str,
