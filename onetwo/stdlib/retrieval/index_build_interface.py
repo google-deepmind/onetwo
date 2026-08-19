@@ -80,6 +80,10 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
   searcher_config: SearcherConfig = dataclasses.field(
       default_factory=lambda: SearcherConfig(class_name="BruteForceSearcher")
   )
+  serializer_type: str = dataclasses.field(
+      default="simple",
+      metadata=dataclasses_json.config(exclude=lambda _: True),
+  )
   runtime_kwargs: dict[str, Any] = dataclasses.field(
       default_factory=dict,
       metadata=dataclasses_json.config(exclude=lambda _: True),

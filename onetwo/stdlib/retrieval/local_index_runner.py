@@ -139,11 +139,13 @@ class LocalIndexRunner(
           query_task_type=spec.query_task_type,
           document_task_type=spec.document_task_type,
           searcher=index_build_interface.make_searcher(spec.searcher_config),
+          serializer_type=spec.serializer_type,
           runtime_kwargs=runtime_kwargs,
       )
       index = indexing.RewritingEmbeddingBasedDocumentIndex(
           rewriter=rewriter,
           inner_index=inner_index,
+          serializer_type=spec.serializer_type,
       )
     elif isinstance(
         spec, index_build_interface.EmbeddingBasedDocumentIndexSpec
@@ -153,6 +155,7 @@ class LocalIndexRunner(
           query_task_type=spec.query_task_type,
           document_task_type=spec.document_task_type,
           searcher=index_build_interface.make_searcher(spec.searcher_config),
+          serializer_type=spec.serializer_type,
           runtime_kwargs=runtime_kwargs,
       )
     else:

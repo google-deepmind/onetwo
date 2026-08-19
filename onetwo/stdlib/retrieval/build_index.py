@@ -144,6 +144,13 @@ _MAX_DOCUMENTS = flags.DEFINE_integer(
     'Maximum number of documents to load and index (useful for testing).',
 )
 
+_SERIALIZER_TYPE = flags.DEFINE_enum(
+    'serializer_type',
+    'simple',
+    ['simple', 'internal'],
+    'Serializer type to use for saving the index.',
+)
+
 _EMBED_KWARGS = flags.DEFINE_string(
     'embed_kwargs',
     '{}',
@@ -170,8 +177,9 @@ def build_index(
     generation_backend_class_name: str = 'GoogleGenAIAPI',
     generation_model_name: str = 'gemini-3-flash-preview',
     similarity_threshold: float = 0.8,
+    serializer_type: str = 'simple',
 ) -> str:
-  """Builds a document index for the specified dataset.
+  """Builds and saves a document index for the specified dataset.
 
   Args:
     dataset_name: Name of the dataset to load from the registry.
@@ -190,6 +198,7 @@ def build_index(
     generation_backend_class_name: Generation backend class name for HippoRAG.
     generation_model_name: Generation model name for HippoRAG.
     similarity_threshold: Similarity threshold for HippoRAG.
+    serializer_type: Serializer type to use ('simple' or 'internal').
 
   Returns:
     The output directory path where the index was saved.
@@ -242,6 +251,7 @@ def build_index(
         chunking_strategy=chunking_strategy,
         overlap_window=overlap_window,
         format_str=format_str,
+        serializer_type=serializer_type,
         runtime_kwargs=rt_kwargs,
     )
 
@@ -290,6 +300,7 @@ def main(argv: Sequence[str]) -> None:
       generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
       generation_model_name=_GENERATION_MODEL_NAME.value,
       similarity_threshold=_SIMILARITY_THRESHOLD.value,
+      serializer_type=_SERIALIZER_TYPE.value,
       runtime_kwargs=runtime_kwargs,
   )
 
