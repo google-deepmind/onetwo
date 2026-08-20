@@ -47,3 +47,4 @@ from onetwo.evaluation.datasets.datasets_lib import *
 from onetwo.evaluation.datasets.hotpotqa import HotpotQADatasetLoader
 from onetwo.evaluation.datasets.multihoprag import MultiHopRAGDatasetLoader
 from onetwo.evaluation.datasets.narrativeqa import NarrativeQADatasetLoader
+from onetwo.evaluation.datasets.nfcorpus import NFCorpusDatasetLoader

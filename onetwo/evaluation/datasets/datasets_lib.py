@@ -59,6 +59,10 @@ EXAMPLE_FIELD_METADATA = 'metadata'
 # **golden_doc_ids**: The ids of the documents that contain the answer.
 EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS = 'golden_doc_ids'
 
+# **golden_doc_scores**: The ids of the documents that match the query or
+# contain the answer and their relevance scores.
+EXAMPLE_METADATA_FIELD_GOLDEN_DOC_SCORES = 'golden_doc_scores'
+
 # Type alias for an evaluation example (a dictionary with at least 'question',
 # 'answer' and 'metadata' keys), compatible with `evaluation.evaluate` default
 # extractors.
