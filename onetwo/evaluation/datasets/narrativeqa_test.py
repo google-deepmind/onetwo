@@ -141,7 +141,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     self.assertLen(documents, expected_doc_count)
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
-  def test_max_examples_limits_output(self, mock_tfds):
+  def test_max_number_of_examples_limits_output(self, mock_tfds):
     rows = [
         _make_narrativeqa_row(question='Q1', answer='A1'),
         _make_narrativeqa_row(question='Q2', answer='A2'),
@@ -162,7 +162,7 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     )
 
   @mock.patch('onetwo.evaluation.datasets.narrativeqa.tfds')
-  def test_max_examples_limits_documents_output(self, mock_tfds):
+  def test_max_number_of_documents_limits_documents_output(self, mock_tfds):
     rows = [
         _make_narrativeqa_row(doc_id='D1'),
         _make_narrativeqa_row(doc_id='D2'),
@@ -171,7 +171,9 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     mock_tfds.load.return_value = mock.MagicMock()
     mock_tfds.as_numpy.return_value = iter(rows)
 
-    loader = narrativeqa.NarrativeQADatasetLoader(max_number_of_examples=2)
+    loader = narrativeqa.NarrativeQADatasetLoader(
+        split='train', max_number_of_documents=2
+    )
     documents = ot.run(loader.load_documents())
 
     self.assertLen(documents, 2)

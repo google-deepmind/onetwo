@@ -63,14 +63,17 @@ class NarrativeQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
 
   Attributes:
     split: The dataset split to load (e.g. 'train', 'validation', 'test').
-    max_number_of_examples: If set, only the first N examples (and their
-      corresponding documents) are loaded. If None, all examples are loaded.
+    max_number_of_examples: If set, only the first N examples are loaded. If
+      None, all examples are loaded.
+    max_number_of_documents: If set, only the first N documents are loaded. If
+      None, all documents are loaded.
     clean_html: Whether to convert the html to raw text.
     doc_ids: If set, only examples and documents with these IDs are loaded.
   """
 
   split: str = 'train'
   max_number_of_examples: int | None = None
+  max_number_of_documents: int | None = None
   clean_html: bool = True
   doc_ids: list[str] | None = None
 
@@ -165,8 +168,8 @@ class NarrativeQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
         continue
       if doc_id not in seen_ids:
         if (
-            self.max_number_of_examples is not None
-            and len(documents) == self.max_number_of_examples
+            self.max_number_of_documents is not None
+            and len(documents) == self.max_number_of_documents
         ):
           break
         seen_ids.add(doc_id)

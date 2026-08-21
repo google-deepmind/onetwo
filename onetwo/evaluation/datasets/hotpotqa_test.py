@@ -284,7 +284,7 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     self.assertLen(documents, expected_doc_count)
 
   @mock.patch('onetwo.evaluation.datasets.hotpotqa.tfds')
-  def test_max_examples_limits_output(self, mock_tfds):
+  def test_max_number_of_examples_limits_output(self, mock_tfds):
     rows = [
         _make_hotpotqa_row(question='Q1', answer='A1'),
         _make_hotpotqa_row(question='Q2', answer='A2'),
@@ -301,7 +301,7 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     self.assertEqual(examples[1]['question'], 'Q2')  # pyrefly: ignore[bad-index]
 
   @mock.patch('onetwo.evaluation.datasets.hotpotqa.tfds')
-  def test_max_examples_limits_documents_output(self, mock_tfds):
+  def test_max_number_of_documents_limits_documents_output(self, mock_tfds):
     rows = [
         _make_hotpotqa_row(context_titles=['T1'], context_sentences=[['S1.']]),
         _make_hotpotqa_row(context_titles=['T2'], context_sentences=[['S2.']]),
@@ -310,7 +310,9 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     mock_tfds.load.return_value = mock.MagicMock()
     mock_tfds.as_numpy.return_value = iter(rows)
 
-    loader = hotpotqa.HotpotQADatasetLoader(max_number_of_examples=2)
+    loader = hotpotqa.HotpotQADatasetLoader(
+        split='train', max_number_of_documents=2
+    )
     documents = ot.run(loader.load_documents())
 
     self.assertLen(documents, 2)

@@ -44,13 +44,16 @@ class HotpotQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
   Attributes:
     name: The HotpotQA configuration name. One of 'distractor' or 'fullwiki'.
     split: The dataset split to load (e.g. 'train', 'validation', 'test').
-    max_number_of_examples: If set, only the first N examples (and their
-      corresponding documents) are loaded. If None, all examples are loaded.
+    max_number_of_examples: If set, only the first N examples are loaded. If
+      None, all examples are loaded.
+    max_number_of_documents: If set, only the first N documents are loaded. If
+      None, all documents are loaded.
   """
 
   name: str = 'fullwiki'
   split: str = 'validation'
   max_number_of_examples: int | None = None
+  max_number_of_documents: int | None = None
 
   def _build_documents_from_hotpotqa_context(
       self,
@@ -158,8 +161,8 @@ class HotpotQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
     count = 0
     for row in ds_numpy:
       if (
-          self.max_number_of_examples is not None
-          and count == self.max_number_of_examples
+          self.max_number_of_documents is not None
+          and len(documents) == self.max_number_of_documents
       ):
         break
       documents.extend(

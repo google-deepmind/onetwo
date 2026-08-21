@@ -214,7 +214,7 @@ def build_index(
     print(f'Loading dataset {dataset_name}...')
     docs = datasets.load_documents(
         dataset_name,
-        max_documents=max_documents,
+        max_number_of_documents=max_documents,
     )
     print(f'Loaded {len(docs)} documents.')
 

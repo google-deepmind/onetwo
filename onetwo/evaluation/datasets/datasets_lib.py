@@ -109,13 +109,13 @@ def generate_document_id(doc: _Document) -> str:
 
 def load_examples_from_jsonl(
     examples_path: str | epath.Path,
-    max_examples: int | None = None,
+    max_number_of_examples: int | None = None,
 ) -> list[ExampleDict]:
   """Loads examples from a JSONL file.
 
   Args:
     examples_path: Path to the JSONL file.
-    max_examples: Maximum number of examples to load.
+    max_number_of_examples: Maximum number of examples to load.
 
   Returns:
     A list of parsed example dictionaries.
@@ -138,7 +138,10 @@ def load_examples_from_jsonl(
           logging.warning(
               'Could not parse example line: %s. Error: %s', line, e
           )
-        if max_examples is not None and len(examples) >= max_examples:
+        if (
+            max_number_of_examples is not None
+            and len(examples) >= max_number_of_examples
+        ):
           break
   except IOError as e:
     raise RuntimeError(
@@ -149,13 +152,13 @@ def load_examples_from_jsonl(
 
 def load_examples_from_json(
     examples_path: str | epath.Path,
-    max_examples: int | None = None,
+    max_number_of_examples: int | None = None,
 ) -> list[ExampleDict]:
   """Loads examples from a standard JSON file (array of examples).
 
   Args:
     examples_path: Path to the JSON file.
-    max_examples: Maximum number of examples to load.
+    max_number_of_examples: Maximum number of examples to load.
 
   Returns:
     A list of parsed example dictionaries.
@@ -173,8 +176,8 @@ def load_examples_from_json(
     raise RuntimeError(
         f'Could not load examples from json file {examples_path}: {e}'
     ) from e
-  if max_examples is not None:
-    examples = examples[:max_examples]
+  if max_number_of_examples is not None:
+    examples = examples[:max_number_of_examples]
   return examples
 
 
@@ -217,14 +220,18 @@ class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
   Attributes:
     corpus_path: Path to the corpus JSONL file.
     examples_path: Path to the examples JSONL file.
-    max_examples: If set, only loads the first `max_examples` examples.
+    max_number_of_examples: If set, only loads the first
+      `max_number_of_examples` examples.
+    max_number_of_documents: If set, only loads the first
+      `max_number_of_documents` documents.
   """
 
   # TODO and
   # multi-threaded reading for documents for faster loading.
   corpus_path: str | epath.Path | None = None
   examples_path: str | epath.Path | None = None
-  max_examples: int | None = None
+  max_number_of_examples: int | None = None
+  max_number_of_documents: int | None = None
 
   def __post_init__(self):
     if self.corpus_path is not None:
@@ -303,6 +310,9 @@ class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
           missing_doc_id_count,
       )
 
+    if self.max_number_of_documents is not None:
+      documents = documents[:self.max_number_of_documents]
+
     return documents
 
   @executing.make_executable()
@@ -324,9 +334,11 @@ class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
       raise FileNotFoundError(f'Examples file does not exist: {examples_path}')
 
     if examples_path.suffix == '.jsonl':
-      return load_examples_from_jsonl(examples_path, self.max_examples)
+      return load_examples_from_jsonl(
+          examples_path, self.max_number_of_examples
+      )
     else:
-      return load_examples_from_json(examples_path, self.max_examples)
+      return load_examples_from_json(examples_path, self.max_number_of_examples)
 
 
 def decode_value(value: Any) -> str:
@@ -420,20 +432,20 @@ def list_dataset_loaders() -> list[str]:
 
 def load_documents(
     dataset_name: str,
-    max_documents: int | None = None,
+    max_number_of_documents: int | None = None,
 ) -> list[retrieval_data_structures.Document]:
   """Loads documents from a registered dataset.
 
   Args:
     dataset_name: Name of the dataset to load.
-    max_documents: Maximum number of documents to load.
+    max_number_of_documents: Maximum number of documents to load.
 
   Returns:
     A list of Document objects.
   """
   loader = get_dataset_loader(
       dataset_name,
-      max_number_of_documents=max_documents,
+      max_number_of_documents=max_number_of_documents,
   )
   docs = executing.run(loader.load_documents())
   return list(docs)
@@ -441,20 +453,20 @@ def load_documents(
 
 def load_examples(
     dataset_name: str,
-    max_examples: int | None = None,
+    max_number_of_examples: int | None = None,
 ) -> list[ExampleDict]:
   """Loads examples from a registered dataset.
 
   Args:
     dataset_name: Name of the dataset to load.
-    max_examples: Maximum number of examples to load.
+    max_number_of_examples: Maximum number of examples to load.
 
   Returns:
     A list of example dictionaries.
   """
   loader = get_dataset_loader(
       dataset_name,
-      max_number_of_examples=max_examples,
+      max_number_of_examples=max_number_of_examples,
   )
   examples = executing.run(loader.load_examples())
   return list(examples)

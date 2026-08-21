@@ -140,8 +140,8 @@ def evaluate_rag(
   # 2. Load Dataset Examples
   print(f'Loading dataset {dataset_name}...')
   examples = datasets.load_examples(
-      dataset_name,
-      max_examples=max_examples,
+      dataset_name=dataset_name,
+      max_number_of_examples=max_examples,
   )
   print(f'Loaded {len(examples)} examples.')
 

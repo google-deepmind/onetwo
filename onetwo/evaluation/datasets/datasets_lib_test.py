@@ -90,7 +90,7 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
         },
     )
 
-  def test_load_examples_max_examples(self):
+  def test_load_examples_max_number_of_examples(self):
     examples_content = (
         '{"question": "Q1", "answer": "A1"}\n'
         '{"question": "Q2", "answer": "A2"}\n'
@@ -101,7 +101,7 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
     )
 
     loader = datasets_lib.JsonlDatasetLoader(
-        examples_path=examples_file.full_path, max_examples=2
+        examples_path=examples_file.full_path, max_number_of_examples=2
     )
     examples = ot.run(loader.load_examples())
 
