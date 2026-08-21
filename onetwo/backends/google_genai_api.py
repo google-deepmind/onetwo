@@ -1285,6 +1285,7 @@ class GoogleGenAIAPI(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
   async def _cached_embed(
       self, content: str | content_lib.ChunkList, **kwargs
   ) -> Sequence[float]:

@@ -17,6 +17,7 @@ import copy
 import dataclasses
 import functools
 import multiprocessing.pool
+import threading
 import time
 from typing import TypeAlias
 
@@ -26,7 +27,6 @@ import numpy as np
 from onetwo.core import content as content_lib
 from onetwo.core import utils
 import PIL.Image
-
 
 _Chunk: TypeAlias = content_lib.Chunk
 _ChunkList: TypeAlias = content_lib.ChunkList
@@ -357,6 +357,90 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('should_limit_async_calls'):
       # We run 20 queries with 2qps, on two objects, it should take ~5s.
       self.assertBetween(end - start, 5, 6)
+
+  def test_rate_limit_method_concurrency(self):
+    class ClassForTest:
+
+      def __init__(self):
+        self.concurrent_executions = 0
+        self.max_concurrent_executions = 0
+        self.call_times = []
+        self._lock = threading.Lock()
+
+      @utils.rate_limit_method(10.0)
+      def f(self):
+        with self._lock:
+          self.call_times.append(time.perf_counter())
+          self.concurrent_executions += 1
+          self.max_concurrent_executions = max(
+              self.max_concurrent_executions, self.concurrent_executions
+          )
+        time.sleep(0.5)
+        with self._lock:
+          self.concurrent_executions -= 1
+
+    t = ClassForTest()
+
+    start = time.perf_counter()
+    with multiprocessing.pool.ThreadPool(10) as pool:
+      list(pool.map(lambda _: t.f(), range(10)))
+    end = time.perf_counter()
+
+    with self.subTest('should_execute_concurrently'):
+      # If they are serialized, max_concurrent_executions would be 1.
+      self.assertGreater(t.max_concurrent_executions, 1)
+      # 10 calls spaced by 0.1s + 0.5s execution = ~1.4s minimum.
+      # fully serialized would be > 5s.
+      self.assertLess(end - start, 4.0)
+
+    with self.subTest('should_space_calls_by_qps'):
+      t.call_times.sort()
+      intervals = [
+          t.call_times[i] - t.call_times[i - 1]
+          for i in range(1, len(t.call_times))
+      ]
+      for interval in intervals:
+        self.assertGreaterEqual(interval, 0.08)
+
+  def test_rate_limit_method_async_concurrency(self):
+    class ClassForTest:
+
+      def __init__(self):
+        self.concurrent_executions = 0
+        self.max_concurrent_executions = 0
+        self.call_times = []
+
+      @utils.rate_limit_method(10.0)
+      async def af(self):
+        self.call_times.append(time.perf_counter())
+        self.concurrent_executions += 1
+        self.max_concurrent_executions = max(
+            self.max_concurrent_executions, self.concurrent_executions
+        )
+        await asyncio.sleep(0.5)
+        self.concurrent_executions -= 1
+
+    t = ClassForTest()
+
+    async def run_test():
+      await asyncio.gather(*[t.af() for _ in range(10)])
+
+    start = time.perf_counter()
+    asyncio.run(run_test())
+    end = time.perf_counter()
+
+    with self.subTest('should_execute_concurrently'):
+      self.assertGreater(t.max_concurrent_executions, 1)
+      self.assertLess(end - start, 4.0)
+
+    with self.subTest('should_space_calls_by_qps'):
+      t.call_times.sort()
+      intervals = [
+          t.call_times[i] - t.call_times[i - 1]
+          for i in range(1, len(t.call_times))
+      ]
+      for interval in intervals:
+        self.assertGreaterEqual(interval, 0.08)
 
   def test_with_retry_sync(self):
     max_retries = 12
@@ -800,7 +884,6 @@ class UtilsTest(parameterized.TestCase):
           np.array([1, 2, 3]),
           np.array([3, 2, 1]),
       ),
-
   )
   def test_get_hash(self, key, similar_key, other_key):
     # We create a simple copy of the key.

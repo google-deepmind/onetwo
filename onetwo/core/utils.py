@@ -305,27 +305,34 @@ def rate_limit_function[F: Callable[..., Any]](
       nonlocal last_call
       lock.acquire()
       current = time.perf_counter()
-      try:
-        if current < last_call + interval:
-          time.sleep(interval - current + last_call)
-        return function(*args, **kwargs)
-      finally:
-        last_call = time.perf_counter()
-        lock.release()
+      sleep_time = 0.0
+      if current < last_call + interval:
+        sleep_time = (last_call + interval) - current
+      last_call = current + sleep_time
+      lock.release()
+
+      if sleep_time > 0:
+        time.sleep(sleep_time)
+
+      return function(*args, **kwargs)
 
     @functools.wraps(function)
     async def awrapper(*args: _Args.args, **kwargs: _Args.kwargs) -> _T:
       nonlocal last_call
       while not lock.acquire(blocking=False):
         await asyncio.sleep(0)
+
       current = time.perf_counter()
-      try:
-        if current < last_call + interval:
-          await asyncio.sleep(interval - current + last_call)
-        return await function(*args, **kwargs)  # pyrefly: ignore[not-async]
-      finally:
-        last_call = time.perf_counter()
-        lock.release()
+      sleep_time = 0.0
+      if current < last_call + interval:
+        sleep_time = (last_call + interval) - current
+      last_call = current + sleep_time
+      lock.release()
+
+      if sleep_time > 0:
+        await asyncio.sleep(sleep_time)
+
+      return await function(*args, **kwargs)  # pyrefly: ignore[not-async]
 
     if inspect.iscoroutinefunction(function):
       return awrapper  # pyrefly: ignore[bad-return]
@@ -393,10 +400,6 @@ def rate_limit_method(
       last_call_name = f'_last_call_{method_name}'
       return getattr(self, last_call_name)
 
-    def set_last_call(self):
-      last_call_name = f'_last_call_{method_name}'
-      setattr(self, last_call_name, time.perf_counter())
-
     @functools.wraps(method)
     def wrapper(self, *args: Any, **kwargs: Any) -> Any:
       qps_value = RuntimeParameter[float | None](qps, self).value()
@@ -406,16 +409,22 @@ def rate_limit_method(
         # are equivalent.
         return method(*((self,) + args), **kwargs)
       instance_lock, interval = get_params(self, qps_value)
+
       instance_lock.acquire()
       last_call = get_last_call(self)
       current = time.perf_counter()
-      try:
-        if current < last_call + interval:
-          time.sleep(interval - current + last_call)
-        return method(*((self,) + args), **kwargs)
-      finally:
-        set_last_call(self)
-        instance_lock.release()
+      sleep_time = 0.0
+      if current < last_call + interval:
+        sleep_time = (last_call + interval) - current
+
+      # We assign the *actual* time it will run to the last_call mark
+      setattr(self, f'_last_call_{method_name}', current + sleep_time)
+      instance_lock.release()
+
+      if sleep_time > 0:
+        time.sleep(sleep_time)
+
+      return method(*((self,) + args), **kwargs)
 
     @functools.wraps(method)
     async def awrapper(self, *args: Any, **kwargs: Any) -> Any:
@@ -425,15 +434,20 @@ def rate_limit_method(
       instance_lock, interval = get_params(self, qps_value)
       while not instance_lock.acquire(blocking=False):
         await asyncio.sleep(0)
+
       last_call = get_last_call(self)
       current = time.perf_counter()
-      try:
-        if current < last_call + interval:
-          await asyncio.sleep(interval - current + last_call)
-        return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
-      finally:
-        set_last_call(self)
-        instance_lock.release()
+      sleep_time = 0.0
+      if current < last_call + interval:
+        sleep_time = (last_call + interval) - current
+
+      setattr(self, f'_last_call_{method_name}', current + sleep_time)
+      instance_lock.release()
+
+      if sleep_time > 0:
+        await asyncio.sleep(sleep_time)
+
+      return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
 
     if inspect.iscoroutinefunction(method):
       return cast(_F, awrapper)

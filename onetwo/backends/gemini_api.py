@@ -545,11 +545,12 @@ class GeminiAPI(
       is_sampled=False,
       cache_key_maker=lambda: caching.CacheKeyMaker(hashed=['content']),
   )
-  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
   def embed(
       self,
       content: str | _ChunkList,
