@@ -119,6 +119,8 @@ class QAExample:
   """An example (or few-shot exemplar) for use with a QAStrategy.
 
   Attributes:
+    example_id: Optional unique identifier for the example within the dataset
+      (e.g., query_id, example_id from source benchmarks).
     question: The question to ask.
     answer: The golden answer to the question.
     metadata: Optional metadata about the example (or other custom content).
@@ -129,6 +131,7 @@ class QAExample:
       objects may not (de)serialize correctly.
   """
 
+  example_id: str = ''
   question: str | content_lib.ChunkList = ''
   answer: Any = None
   metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
