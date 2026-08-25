@@ -150,12 +150,10 @@ def _configure_http_limits(
     http_options: genai_types.HttpOptions | genai_types.HttpOptionsDict | None,
 ) -> genai_types.HttpOptions | genai_types.HttpOptionsDict:
   """Ensures httpx connection limits match the threadpool size."""
-  if threadpool_size <= 100:
-    # Keep the default limits for small threadpools.
-    return http_options  # pyrefly: ignore[bad-return]
+  max_conns = max(threadpool_size, 100)
   limits = httpx.Limits(
-      max_connections=threadpool_size,
-      max_keepalive_connections=threadpool_size,
+      max_connections=max_conns,
+      max_keepalive_connections=max_conns,
   )
   if http_options is None:
     http_options = genai_types.HttpOptions(client_args={'limits': limits})

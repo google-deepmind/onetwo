@@ -2508,19 +2508,39 @@ class GoogleGenaiApiTest(
           testcase_name='none_small_pool',
           threadpool_size=4,
           http_options_in=None,
-          expected_http_options_out=None,
+          expected_http_options_out=genai_types.HttpOptions(
+              client_args={
+                  'limits': httpx.Limits(
+                      max_connections=100, max_keepalive_connections=100
+                  )
+              },
+          ),
       ),
       dict(
           testcase_name='dict_small_pool',
           threadpool_size=4,
           http_options_in={'timeout': 10},
-          expected_http_options_out={'timeout': 10},
+          expected_http_options_out={
+              'timeout': 10,
+              'client_args': {
+                  'limits': httpx.Limits(
+                      max_connections=100, max_keepalive_connections=100
+                  )
+              },
+          },
       ),
       dict(
           testcase_name='options_small_pool',
           threadpool_size=4,
           http_options_in=genai_types.HttpOptions(timeout=10),
-          expected_http_options_out=genai_types.HttpOptions(timeout=10),
+          expected_http_options_out=genai_types.HttpOptions(
+              timeout=10,
+              client_args={
+                  'limits': httpx.Limits(
+                      max_connections=100, max_keepalive_connections=100
+                  )
+              },
+          ),
       ),
       dict(
           testcase_name='none_large_pool',
@@ -2531,7 +2551,7 @@ class GoogleGenaiApiTest(
                   'limits': httpx.Limits(
                       max_connections=101, max_keepalive_connections=101
                   )
-              }
+              },
           ),
       ),
       dict(
