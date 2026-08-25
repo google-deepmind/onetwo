@@ -103,6 +103,15 @@ class HotpotQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
     Returns:
       A dictionary suitable for use as an evaluation example.
     """
+    supporting_facts = row.get('supporting_facts', {})
+    supporting_titles = (
+        supporting_facts.get('title', [])
+        if isinstance(supporting_facts, dict)
+        else []
+    )
+    golden_doc_ids = list(
+        dict.fromkeys(datasets_lib.decode_list(supporting_titles))
+    )
     return {
         datasets_lib.EXAMPLE_FIELD_QUESTION: datasets_lib.decode_value(
             row['question']
@@ -114,9 +123,7 @@ class HotpotQADatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
             'id': datasets_lib.decode_value(row.get('id', b'')),
             'type': datasets_lib.decode_value(row.get('type', b'')),
             'level': datasets_lib.decode_value(row.get('level', b'')),
-            datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS: row.get(
-                'supporting_facts', {}
-            ),
+            datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS: golden_doc_ids,
         },
     }
 

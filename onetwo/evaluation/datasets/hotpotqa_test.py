@@ -162,8 +162,10 @@ class BuildExampleTest(parameterized.TestCase):
     metadata = example[datasets_lib.EXAMPLE_FIELD_METADATA]
     self.assertEqual(metadata['id'], row_id)
     self.assertEqual(metadata['type'], row_type)
-    self.assertEqual(metadata['level'], level)
-    self.assertIn(datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS, metadata)
+    self.assertEqual(
+        metadata[datasets_lib.EXAMPLE_METADATA_FIELD_GOLDEN_DOC_IDS],
+        ['France'],
+    )
 
 
 class HotpotQADatasetLoaderTest(parameterized.TestCase):
