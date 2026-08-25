@@ -84,7 +84,7 @@ _QUERY_TIME_KWARGS = flags.DEFINE_string(
 
 _MAX_EXAMPLES = flags.DEFINE_integer(
     'max_examples',
-    5,
+    None,
     'Maximum number of examples to evaluate.',
 )
 
@@ -98,7 +98,7 @@ def evaluate_rag(
     generate_model_name: str = 'gemini-3.5-flash-lite',
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
-    max_examples: int = 5,
+    max_examples: int | None = 5,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
