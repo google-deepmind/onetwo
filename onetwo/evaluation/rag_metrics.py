@@ -74,7 +74,7 @@ def _default_golden_doc_ids_extractor(example: _ExampleDict) -> list[str]:
 
 def make_recall_at_k(
     k: int | None = None,
-    answer_doc_ids_extractor: Callable[[_ExampleDict], list[str]] | None = None,
+    golden_doc_ids_extractor: Callable[[_ExampleDict], list[str]] | None = None,
     strip_chunk_suffix: bool = True,
 ) -> Callable[..., tuple[float, dict[str, Any]]]:
   """Returns a recall@k metric function for RAG evaluation.
@@ -89,7 +89,7 @@ def make_recall_at_k(
     )
     example = {
         'metadata': {
-            'answer_doc_ids': ['doc_1', 'doc_4'],
+            'golden_doc_ids': ['doc_1', 'doc_4'],
         }
     }
 
@@ -100,26 +100,26 @@ def make_recall_at_k(
         example=example,
     )
     # score: 0.5 (only 'doc_1' of the gold docs is in the top 2 retrieved docs)
-    # info: {'answer_doc_ids': ['doc_1', 'doc_4'], 'retrieved_doc_ids':
+    # info: {'golden_doc_ids': ['doc_1', 'doc_4'], 'retrieved_doc_ids':
     #         ['doc_2', 'doc_1']}
     ```
 
   Args:
     k: The number of retrieved documents to consider. If None, all retrieved
       documents are considered.
-    answer_doc_ids_extractor: A function that takes the dataset example and
+    golden_doc_ids_extractor: A function that takes the dataset example and
       returns a list of golden document IDs (as strings). If None, defaults to
-      using the 'answer_doc_ids' field in the example's 'metadata' field.
+      using the 'golden_doc_ids' field in the example's 'metadata' field.
     strip_chunk_suffix: If True, strips the '_chunkNNN' suffix from both
       retrieved and golden document IDs before computing recall.
 
   Returns:
     A metric function (conforming to `evaluation.MetricFunction`) that takes the
     target, prediction, and example, and returns a tuple of recall@k score and
-    extra_info_dict (containing answer_doc_ids and retrieved_doc_ids).
+    extra_info_dict (containing golden_doc_ids and retrieved_doc_ids).
   """
-  answer_doc_ids_extractor = (
-      answer_doc_ids_extractor or _default_golden_doc_ids_extractor
+  golden_doc_ids_extractor = (
+      golden_doc_ids_extractor or _default_golden_doc_ids_extractor
   )
 
   def recall_at_k(
@@ -132,7 +132,7 @@ def make_recall_at_k(
     if not example:
       raise ValueError('Example is required to retrieve golden_doc_ids.')
 
-    gold_ids = answer_doc_ids_extractor(example)
+    gold_ids = golden_doc_ids_extractor(example)
     gold_ids = [str(gid) for gid in gold_ids]
     if not gold_ids:
       # If there are no gold docs defined, recall is trivially 1.0.
@@ -149,7 +149,7 @@ def make_recall_at_k(
 
     intersection = set(gold_ids).intersection(set(retrieved_ids))
     extra_evaluation_info = {
-        'answer_doc_ids': gold_ids,
+        'golden_doc_ids': gold_ids,
         'retrieved_doc_ids': original_retrieved_ids,
     }
     return len(intersection) / len(gold_ids), extra_evaluation_info

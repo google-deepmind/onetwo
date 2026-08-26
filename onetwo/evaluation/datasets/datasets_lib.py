@@ -212,9 +212,9 @@ class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
   * Corpus: One document per line, e.g.:
     `{"doc_id": "doc1", "title": "Title 1", "content": "Content"}`
   * Examples: One QA pair per line, e.g.:
-    `{"question": "Q?", "answer": "A", "answer_doc_ids": ["doc1"]}`
-    (Any non-standard fields like 'answer_doc_ids' are stored in 'metadata'.
-     It is highly recommended to provide 'answer_doc_ids' containing the
+    `{"question": "Q?", "answer": "A", "golden_doc_ids": ["doc1"]}`
+    (Any non-standard fields like 'golden_doc_ids' are stored in 'metadata'.
+     It is highly recommended to provide 'golden_doc_ids' containing the
      ground truth document IDs for evaluation purposes.)
 
   Attributes:

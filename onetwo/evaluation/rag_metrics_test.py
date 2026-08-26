@@ -115,7 +115,7 @@ class MetricsLibTest(parameterized.TestCase):
           if k is not None
           else [doc.doc_id for doc in prediction.docs]
       )
-      self.assertEqual(extra_info['answer_doc_ids'], golden_doc_ids)
+      self.assertEqual(extra_info['golden_doc_ids'], golden_doc_ids)
       self.assertEqual(extra_info['retrieved_doc_ids'], expected_retrieved_ids)
     else:
       self.assertEqual(extra_info, {})
@@ -131,13 +131,13 @@ class MetricsLibTest(parameterized.TestCase):
     )
     custom_extractor = lambda ex: ex['custom_answer_key']
     recall_fn = rag_metrics.make_recall_at_k(
-        k=5, answer_doc_ids_extractor=custom_extractor
+        k=5, golden_doc_ids_extractor=custom_extractor
     )
     recall, extra_info = recall_fn(
         target=None, prediction=prediction, example=example
     )
     self.assertAlmostEqual(recall, 1.0)
-    self.assertEqual(extra_info['answer_doc_ids'], ['doc1'])
+    self.assertEqual(extra_info['golden_doc_ids'], ['doc1'])
     self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1', 'doc3'])
 
   def test_recall_at_k_no_strip(self):
@@ -154,7 +154,7 @@ class MetricsLibTest(parameterized.TestCase):
         target=None, prediction=prediction, example=example
     )
     self.assertAlmostEqual(recall, 0.0)
-    self.assertEqual(extra_info['answer_doc_ids'], ['doc1'])
+    self.assertEqual(extra_info['golden_doc_ids'], ['doc1'])
     self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1_chunk1', 'doc2'])
 
   def test_accuracy_critic_with_backend_config(self):
