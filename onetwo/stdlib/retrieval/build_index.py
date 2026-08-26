@@ -144,6 +144,18 @@ _MAX_DOCUMENTS = flags.DEFINE_integer(
     'Maximum number of documents to load and index (useful for testing).',
 )
 
+_MAX_RETRIES = flags.DEFINE_integer(
+    'max_retries',
+    5,
+    'Maximum number of retries for backend requests.',
+)
+
+_HTTP_TIMEOUT = flags.DEFINE_integer(
+    'http_timeout',
+    60000,
+    'HTTP timeout in milliseconds for backend requests (default: 60s).',
+)
+
 _SERIALIZER_TYPE = flags.DEFINE_enum(
     'serializer_type',
     'simple',
@@ -160,6 +172,8 @@ _EMBED_KWARGS = flags.DEFINE_string(
 )
 
 
+# TODO: Consider merging max_retries and http_timeout
+# into runtime_kwargs.
 def build_index(
     dataset_name: str,
     output_directory: str,
@@ -178,6 +192,8 @@ def build_index(
     generation_model_name: str = 'gemini-3-flash-preview',
     similarity_threshold: float = 0.8,
     serializer_type: str = 'simple',
+    max_retries: int | None = 5,
+    http_timeout: int | None = 60000,
 ) -> str:
   """Builds and saves a document index for the specified dataset.
 
@@ -199,6 +215,8 @@ def build_index(
     generation_model_name: Generation model name for HippoRAG.
     similarity_threshold: Similarity threshold for HippoRAG.
     serializer_type: Serializer type to use ('simple' or 'internal').
+    max_retries: Maximum number of retries for backend requests.
+    http_timeout: HTTP timeout in milliseconds for backend requests.
 
   Returns:
     The output directory path where the index was saved.
@@ -228,6 +246,15 @@ def build_index(
       kwargs=backend_kwargs,
   )
   rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  if 'max_retries' not in rt_kwargs and max_retries is not None:
+    rt_kwargs['max_retries'] = max_retries
+  if 'http_options' not in rt_kwargs and http_timeout is not None:
+    rt_kwargs['http_options'] = {'timeout': http_timeout}
+  elif 'http_options' in rt_kwargs and isinstance(
+      rt_kwargs['http_options'], dict
+  ):
+    if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
+      rt_kwargs['http_options']['timeout'] = http_timeout
 
   if index_type == 'hipporag':
     generate_backend_config = backend_registry.GenerateBackendConfig(
@@ -302,6 +329,8 @@ def main(argv: Sequence[str]) -> None:
       similarity_threshold=_SIMILARITY_THRESHOLD.value,
       serializer_type=_SERIALIZER_TYPE.value,
       runtime_kwargs=runtime_kwargs,
+      max_retries=_MAX_RETRIES.value,
+      http_timeout=_HTTP_TIMEOUT.value,
   )
 
 
