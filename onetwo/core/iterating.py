@@ -25,6 +25,7 @@ import functools
 import inspect
 import io
 import logging
+import os
 import queue
 import threading
 import traceback
@@ -63,14 +64,34 @@ class _ThreadWithAsyncioLoop(Generic[T], threading.Thread):
       self.result = e
 
 
-def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
-  """Runs a coroutine in a new thread if the current thread is running asyncio.
+_THREAD_LOCAL = threading.local()
 
-  By default this will simply call asyncio.run, but in the case where this is
-  called from an already running event loop (e.g. this is what happens
-  when running in Google colab, or in Jupyter notebooks), then a new thread
-  will be created to run the coroutine in a separate event loop.
-  This is to avoid the user to have to call await on the coroutine explicitly.
+
+def _get_thread_local_runner() -> asyncio.Runner:
+  """Returns a persistent asyncio.Runner for the current thread and PID."""
+  current_pid = os.getpid()
+  runner = getattr(_THREAD_LOCAL, 'runner', None)
+  saved_pid = getattr(_THREAD_LOCAL, 'pid', None)
+
+  # Recreate after a fork: the inherited Runner still references the parent's
+  # loop and (now-invalid) file descriptors. Runner is lazy, so constructing
+  # one here does not create a loop until the first run().
+  if runner is None or saved_pid != current_pid:
+    runner = asyncio.Runner()
+    _THREAD_LOCAL.runner = runner
+    _THREAD_LOCAL.pid = current_pid
+
+  return runner
+
+
+def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
+  """Runs a coroutine synchronously with per-call context isolation + loop reuse.
+
+  By default this will run the coroutine on a persistent thread-local Runner,
+  inheriting the caller's contextvars via a fresh copy while preserving loop and
+  socket persistence. If called from an already running event loop (e.g. Google
+  colab or Jupyter notebooks), a new thread will be created to run the coroutine
+  in a separate event loop.
 
   Args:
     coroutine: The coroutine to be run.
@@ -104,7 +125,20 @@ def asyncio_run_wrapper(coroutine: Coroutine[Any, Any, T]) -> T:
       else:
         return thr.result  # pyrefly: ignore[bad-return]
   else:
-    return asyncio.run(coroutine)
+    # Standard thread (Flume, ThreadPoolExecutor, CLI): reuse the persistent
+    # loop (keeps sockets alive) and copy context per call for isolation.
+    runner = _get_thread_local_runner()
+    try:
+      return runner.run(coroutine, context=contextvars.copy_context())
+    finally:
+      loop = runner.get_loop()
+      to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
+      if to_cancel:
+        for t in to_cancel:
+          t.cancel()
+        loop.run_until_complete(
+            asyncio.gather(*to_cancel, return_exceptions=True)
+        )
 
 
 # Note that we use Any as a type hint for the AsyncIterator because we can

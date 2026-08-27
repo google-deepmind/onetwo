@@ -1641,33 +1641,26 @@ def main(argv: Sequence[str]) -> None:
         tc.fail('llm.tools.calls not found in any trace stage.')
 
   if _should_run_test(33):
-    # TODO: b/532970232 - Running sequential executing.run calls with MCP tools
-    # fails on subsequent runs due to the cached GenAI Client's event loop
-    # binding.
     with _run_test(
         33,
-        'MCP Tool: sequential calls on different loops (expected failure)',
+        'MCP Tool: sequential calls on persistent loop',
         test_results,
     ) as tc:
-      # The first run (in test 32) established and closed Loop A.
-      # If test 32 did not run, we run it once here to close Loop A.
+      # The first run (in test 32) establishes the client and loop.
+      # If test 32 did not run, we run it once here.
       if not _should_run_test(32):
-        try:
-          executing.run(_run_mcp_add_test())
-        except Exception:  # pylint: disable=broad-except
-          pass
-
-      # Now, run it again on a brand new Loop B.
-      try:
         executing.run(_run_mcp_add_test())
-        tc.fail('Expected event loop closed error, but it succeeded.')
-      except ValueError as err:
-        if 'Event loop is closed' in str(err):
-          print(f'Caught expected loop closed error: {err}')
-        else:
-          tc.fail(f'Caught unexpected ValueError: {err}')
-      except Exception as err:  # pylint: disable=broad-except
-        tc.fail(f'Caught unexpected exception: {err}')
+
+      # Sequential executing.run calls now succeed because the thread-local
+      # event loop and MCP transport sockets persist across calls.
+      result_text, add_called, _ = executing.run(
+          _run_mcp_add_test()
+      )
+      print(f'Second run MCP result: {result_text}')
+      if '20' not in result_text:
+        tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
+      if not add_called:
+        tc.fail('The add tool was not called by the LLM on second run.')
 
   if _should_run_test(34):
     with _run_test(

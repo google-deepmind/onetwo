@@ -109,6 +109,109 @@ class IteratingTest(parameterized.TestCase):
 
     asyncio.run(outer_wrapper())
 
+  def test_asyncio_run_wrapper_reuses_thread_local_runner(self):
+    async def f(val: int):
+      await asyncio.sleep(0.001)
+      return val
+
+    # Verify runner/loop is reused on the same thread and stays open.
+    self.assertEqual(iterating.asyncio_run_wrapper(f(1)), 1)
+    runner1 = iterating._get_thread_local_runner()
+    loop1 = runner1.get_loop()
+    self.assertFalse(loop1.is_closed())
+
+    self.assertEqual(iterating.asyncio_run_wrapper(f(2)), 2)
+    runner2 = iterating._get_thread_local_runner()
+    self.assertIs(runner1, runner2)
+    self.assertIs(loop1, runner2.get_loop())
+    self.assertFalse(loop1.is_closed())
+
+  def test_asyncio_run_wrapper_isolates_context_vars_across_calls(self):
+    test_var = contextvars.ContextVar('test_var_isolation', default='initial')
+
+    async def mutator(new_val: str):
+      current = test_var.get()
+      test_var.set(new_val)
+      return current, test_var.get()
+
+    # 1. First run inherits 'initial', mutates to 'call_1' inside coroutine
+    res1 = iterating.asyncio_run_wrapper(mutator('call_1'))
+    self.assertEqual(res1, ('initial', 'call_1'))
+    # Outer thread should NOT be mutated (remains 'initial')
+    self.assertEqual(test_var.get(), 'initial')
+
+    # 2. Second run inherits 'initial', mutates to 'call_2' inside coroutine
+    res2 = iterating.asyncio_run_wrapper(mutator('call_2'))
+    self.assertEqual(res2, ('initial', 'call_2'))
+    self.assertEqual(test_var.get(), 'initial')
+
+    # 3. Caller changes contextvar on outer thread to 'modified'
+    test_var.set('modified')
+    res3 = iterating.asyncio_run_wrapper(mutator('call_3'))
+    self.assertEqual(res3, ('modified', 'call_3'))
+    self.assertEqual(test_var.get(), 'modified')
+
+  def test_asyncio_run_wrapper_multithreaded_runner_isolation(self):
+    thread_runners = {}
+    lock = threading.Lock()
+
+    def worker(thread_idx: int):
+      async def f(val: int):
+        await asyncio.sleep(0.001)
+        return val
+
+      for i in range(10):
+        res = iterating.asyncio_run_wrapper(f(i))
+        self.assertEqual(res, i)
+
+      runner = iterating._get_thread_local_runner()
+      with lock:
+        thread_runners[thread_idx] = runner
+
+    threads = [
+        threading.Thread(target=worker, args=(i,)) for i in range(5)
+    ]
+    for t in threads:
+      t.start()
+    for t in threads:
+      t.join()
+
+    # Verify each thread maintained its own distinct, unclosed runner and loop.
+    self.assertLen(thread_runners, 5)
+    unique_runners = set(thread_runners.values())
+    self.assertLen(unique_runners, 5)
+    for runner in unique_runners:
+      self.assertFalse(runner.get_loop().is_closed())
+
+  def test_asyncio_run_wrapper_recreates_runner_after_fork(self):
+    async def f(val: int):
+      return val
+
+    # Establish a runner bound to the current PID (the "parent" process).
+    self.assertEqual(iterating.asyncio_run_wrapper(f(1)), 1)
+    parent_runner = iterating._get_thread_local_runner()
+    parent_loop = parent_runner.get_loop()
+    parent_pid = iterating.os.getpid()
+    self.assertFalse(parent_loop.is_closed())
+
+    # Simulate a fork by making os.getpid() report a different PID. The stale
+    # runner references the parent's loop/epoll FD/sockets, so it must be
+    # replaced with a fresh runner + loop rather than reused.
+    with mock.patch.object(
+        iterating.os, 'getpid', return_value=parent_pid + 1
+    ):
+      child_runner = iterating._get_thread_local_runner()
+      self.assertIsNot(child_runner, parent_runner)
+      self.assertIsNot(child_runner.get_loop(), parent_loop)
+      # The fresh runner is fully functional post-"fork".
+      self.assertEqual(iterating.asyncio_run_wrapper(f(2)), 2)
+
+    # The stale parent runner must be abandoned, NOT closed: Runner.close()
+    # would run the loop and poll the now-invalid post-fork epoll FD (the very
+    # b/537645225 failure mode). GC releases it later via the low-level
+    # loop.close(), which does not run the loop.
+    self.assertFalse(parent_loop.is_closed())
+
   def test_async_iterator_to_sync(self):
     async def wrap():
       for i in range(5):

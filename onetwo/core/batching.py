@@ -402,6 +402,9 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
         if not self.task.done():
           raise ValueError('Could not close watcher task on queue.')
       self.request_queue.join()
+    else:
+      if self.task is not None and not self.task.done():
+        self.task.cancel()
     # Delete the task.
     self.task = None  # pyrefly: ignore[bad-argument-type]
     # Close and remove the request queue.
@@ -461,6 +464,8 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
     batch = []
     got_finish_signal = False
     while not got_finish_signal:
+      if self.request_queue is None:
+        break
       # Possibly do something else to allow the queue to be filled in.
       await asyncio.sleep(0)
 
