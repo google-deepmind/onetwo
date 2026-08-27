@@ -19,6 +19,7 @@ defined in `evaluation.py` and expected by `evaluation.evaluate`.
 """
 
 from collections.abc import Callable
+import math
 import re
 from typing import Any
 
@@ -85,7 +86,7 @@ def make_recall_at_k(
 
     prediction = StrategyResult(
         answer='Generated answer',
-        doc_ids=['doc_2', 'doc_1', 'doc_3'],
+        docs=['doc_2', 'doc_1', 'doc_3'],
     )
     example = {
         'metadata': {
@@ -207,3 +208,164 @@ def make_accuracy_critic(
 
 
 accuracy_critic = make_accuracy_critic()
+
+
+def _default_golden_doc_scores_extractor(
+    example: _ExampleDict,
+) -> dict[str, int | float]:
+  """Default extractor that retrieves golden docs and their relevance scores.
+
+  Expects the golden document scores to be stored in the
+  example['metadata']['golden_doc_scores'] field.
+
+  Args:
+    example: A mapping representing the dataset example.
+
+  Returns:
+    A mapping of document ID to relevance score.
+
+  Raises:
+    KeyError: If the 'metadata' or 'golden_doc_scores' fields are not present in
+      the example.
+  """
+  if (
+      'metadata' not in example
+      or 'golden_doc_scores' not in example['metadata']
+  ):
+    raise KeyError(
+        'The default golden_doc_scores_extractor expects '
+        "'metadata': {'golden_doc_scores': ...} to be present in the example. "
+        'If your dataset uses a different key or structure, please provide a '
+        'custom golden_doc_scores_extractor to make_ndcg_at_k.'
+    )
+  scores = example['metadata']['golden_doc_scores']
+  return {str(k): v for k, v in scores.items()}
+
+
+def make_ndcg_at_k(
+    k: int | None = None,
+    golden_doc_scores_extractor: (
+        Callable[[_ExampleDict], dict[str, int | float]] | None
+    ) = None,
+    strip_chunk_suffix: bool = True,
+) -> Callable[..., tuple[float, dict[str, Any]]]:
+  """Returns an ndcg@k metric function for RAG evaluation.
+
+  NDCG@k (Normalized Discounted Cumulative Gain at k) measures retrieval
+  quality for datasets with graded relevance scores. When the retrieved items
+  are chunks instead of documents, the retrieved chunks are mapped to parent doc
+  IDs and deduplicated (preserving first-occurrence rank), ensuring each
+  document is scored at most once.
+
+  NOTE: This metric is useful when `golden_doc_scores` is available in the
+  dataset metadata (e.g., NFCorpus). For datasets with `golden_doc_ids`
+  (e.g., HotpotQA), use `make_recall_at_k` instead.
+
+  Usage example:
+    ```python
+    ndcg_at_2 = make_ndcg_at_k(k=2)
+
+    prediction = StrategyResult(
+        answer='Generated answer',
+        docs=['doc_2', 'doc_1', 'doc_3'],
+    )
+    example = {
+        'metadata': {
+            'golden_doc_scores': {'doc_1': 2, 'doc_4': 1},
+        }
+    }
+
+    # target is not used by ndcg, so we can pass an empty string.
+    score, info = ndcg_at_2(
+        target='',
+        prediction=prediction,
+        example=example,
+    )
+    # score: ~0.52 (the most relevant doc was included, hence score > 0.5)
+    # info: {'golden_doc_scores': {'doc_1': 2, 'doc_4': 1},
+    #        'retrieved_doc_ids': ['doc_2', 'doc_1']}
+    ```
+
+  Args:
+    k: The number of retrieved items (documents or chunks) to consider. If None,
+      all retrieved items are considered.
+    golden_doc_scores_extractor: A function that takes the dataset example and
+      returns a dictionary mapping golden document IDs (as strings) to their
+      graded relevance scores (int/float). If None, defaults to using the
+      'golden_doc_scores' field in the example's 'metadata' field.
+    strip_chunk_suffix: If True, strips the '_chunkNNN' suffix from retrieved
+      document IDs and deduplicates identical document IDs before computing
+      relevance scores.
+
+  Returns:
+    A metric function (conforming to `evaluation.MetricFunction`) that takes the
+    target, prediction, and example, and returns a tuple of ndcg@k score and
+    extra_info_dict.
+  """
+  golden_doc_scores_extractor = (
+      golden_doc_scores_extractor or _default_golden_doc_scores_extractor
+  )
+
+  def ndcg_at_k(
+      target: str,
+      prediction: StrategyResult,
+      example: _ExampleDict | None = None,
+  ) -> tuple[float, dict[str, Any]]:
+    """Computes NDCG@k of retrieved doc_ids against golden relevance scores."""
+    del target  # Unused.
+    if not example:
+      raise ValueError('Example is required to retrieve golden_doc_scores.')
+
+    qrel_scores = golden_doc_scores_extractor(example)
+    if not qrel_scores:
+      # If there are no golden docs, ndcg is trivially 1.0.
+      return 1.0, {}
+
+    retrieved_ids = [doc.doc_id for doc in prediction.docs]
+    if k is not None:
+      retrieved_ids = retrieved_ids[:k]
+    retrieved_ids = [str(rid) for rid in retrieved_ids]
+
+    original_retrieved_ids = list(retrieved_ids)
+    if strip_chunk_suffix:
+      # Deduplicate document IDs while preserving the first occurrence order.
+      # This ensures that each document contributes relevance at most once,
+      # guaranteeing that NDCG <= 1.0 even when multiple chunks of the same
+      # document are retrieved within the top-k results.
+      seen_doc_ids = set()
+      new_retrieved_ids = []
+      for rid in retrieved_ids:
+        stripped_id = _strip_chunk_suffix(rid)
+        if stripped_id not in seen_doc_ids:
+          new_retrieved_ids.append(stripped_id)
+          seen_doc_ids.add(stripped_id)
+      retrieved_ids = new_retrieved_ids
+
+    # DCG calculation
+    dcg = 0.0
+    for i, doc_id in enumerate(retrieved_ids):
+      rel = qrel_scores.get(doc_id, 0)
+      dcg += (2**rel - 1) / math.log2(i + 2)
+
+    # IDCG calculation: sort all relevance scores descending, take top k
+    ideal_rels = sorted(qrel_scores.values(), reverse=True)
+    if k is not None:
+      ideal_rels = ideal_rels[:k]
+
+    idcg = 0.0
+    for i, rel in enumerate(ideal_rels):
+      idcg += (2**rel - 1) / math.log2(i + 2)
+
+    extra_evaluation_info = {
+        'golden_doc_scores': qrel_scores,
+        'retrieved_doc_ids': original_retrieved_ids,
+        'dcg': dcg,
+        'idcg': idcg,
+    }
+
+    if idcg == 0:
+      return 0.0, extra_evaluation_info
+
+    return dcg / idcg, extra_evaluation_info
+
+  return ndcg_at_k
