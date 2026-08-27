@@ -157,6 +157,28 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertEqual(extra_info['golden_doc_ids'], ['doc1'])
     self.assertEqual(extra_info['retrieved_doc_ids'], ['doc1_chunk1', 'doc2'])
 
+  def test_recall_at_k_none_prediction(self):
+    recall_fn = rag_metrics.make_recall_at_k(k=5)
+    score, info = recall_fn(
+        target=None,
+        prediction=None,
+        example={'metadata': {'golden_doc_ids': ['doc1']}},
+    )
+    self.assertEqual(score, 0.0)
+    self.assertEqual(info, {})
+
+  def test_accuracy_critic_none_prediction(self):
+    accuracy_critic_fn = rag_metrics.make_accuracy_critic()
+    score, info = executing.run(
+        accuracy_critic_fn(
+            target='expected answer',
+            prediction=None,
+            example={'question': 'some question'},
+        )
+    )
+    self.assertEqual(score, 0.0)
+    self.assertEqual(info, {})
+
   def test_accuracy_critic_with_backend_config(self):
     _T = TypeVar('_T')
 

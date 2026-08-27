@@ -129,6 +129,8 @@ def make_recall_at_k(
   ) -> tuple[float, dict[str, Any]]:
     """Computes recall@k of retrieved doc_ids against golden doc titles."""
     del target  # Unused.
+    if prediction is None:
+      return 0.0, {}
     if not example:
       raise ValueError('Example is required to retrieve golden_doc_ids.')
 
@@ -190,6 +192,8 @@ def make_accuracy_critic(
     Returns:
       A tuple of (accuracy_score, extra_info_dict).
     """
+    if prediction is None:
+      return 0.0, {}
     with routing.RegistryContext():
       if backend is not None:
         backend.register()
