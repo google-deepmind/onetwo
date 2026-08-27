@@ -124,7 +124,7 @@ class RegistryTest(absltest.TestCase):
     self.assertIsInstance(
         strategies_lib.get_strategy(
             'mcp',
-            mcp_server_url='http://localhost:8000',
+            mcp_server_urls='http://localhost:8000',
         ),
         mcp_strategies.GoogleGenAIMCPStrategy,
     )
@@ -487,7 +487,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='mcp',
           strategy=mcp_strategies.GoogleGenAIMCPStrategy(
-              mcp_server_url='http://localhost:8000/mcp',
+              mcp_server_urls='http://localhost:8000/mcp',
           ),
           question=_TEXT_QUESTION,
       ),
@@ -521,7 +521,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='mcp_multimodal',
           strategy=mcp_strategies.GoogleGenAIMCPStrategy(
-              mcp_server_url='http://localhost:8000/mcp',
+              mcp_server_urls='http://localhost:8000/mcp',
           ),
           question=_MULTIMODAL_QUESTION,
       ),

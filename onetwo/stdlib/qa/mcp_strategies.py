@@ -326,12 +326,18 @@ def _build_thinking_config(
 def _setup_resilient_mcp_session(
     client: fastmcp.Client,
     tool_timeout: float,
+    tool_call_history: (
+        list[tuple[str, dict[str, Any] | None, str]] | None
+    ) = None,
 ) -> list[tuple[str, dict[str, Any] | None, str]]:
   """Configures an MCP client session with resilient error handling.
 
   Args:
     client: The fastmcp.Client instance whose active session will be wrapped.
     tool_timeout: Maximum seconds to wait for a tool execution.
+    tool_call_history: Optional mutable list tracking (name, arguments,
+      result_text) for every tool call across all sessions. If None, a new list
+      is created.
 
   Returns:
     The mutable tool_call_history list that tracks (name, arguments,
@@ -353,7 +359,8 @@ def _setup_resilient_mcp_session(
   setattr(client.session, '__deepcopy__', _safe_deepcopy)
 
   original_call_tool = client.session.call_tool
-  tool_call_history: list[tuple[str, dict[str, Any] | None, str]] = []
+  if tool_call_history is None:
+    tool_call_history = []
 
   async def _safe_call_tool(
       name: str, arguments: dict[str, Any] | None = None, **call_kwargs
@@ -441,13 +448,14 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     - Transient tool execution errors (e.g. timeouts or exceptions from the MCP
       server) are caught and returned to the model as
       ``CallToolResult(isError=True)`` so it can adjust arguments and recover.
-    - Raises an exception when:
-        (1) Initial configuration is invalid (e.g. missing ``mcp_server_url`` or
-            missing ``{question}`` placeholder in ``query_template``).
+     - Raises an exception when:
+        (1) Initial configuration is invalid (e.g. missing ``mcp_server_urls``
+            or missing ``{question}`` placeholder in ``query_template``).
         (2) FastMCP transport connection fails before LLM execution begins.
 
   Attributes:
-    mcp_server_url: The URL of the MCP server to connect to.
+    mcp_server_urls: The URL of the MCP server to connect to (or comma-separated
+      list of URLs).
     query_template: A format string used to wrap the question before sending it
       to the LLM. Must contain both ``{question}`` and
       ``{additional_instructions}`` placeholders.
@@ -465,7 +473,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
       automatic function calling. Defaults to 100.
   """
 
-  mcp_server_url: str = ''
+  mcp_server_urls: str = ''
   query_template: str = default_qa_template_mcp
   include_thoughts: bool = True
   tool_timeout: float = 60.0
@@ -475,8 +483,8 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
   maximum_remote_calls: int = 100
 
   def __post_init__(self):
-    if not self.mcp_server_url:
-      raise ValueError('GoogleGenAIMCPStrategy requires mcp_server_url.')
+    if not self.mcp_server_urls:
+      raise ValueError('GoogleGenAIMCPStrategy requires mcp_server_urls.')
     if '{question}' not in self.query_template:
       raise ValueError(
           'query_template must contain a {question} placeholder, got:'
@@ -487,6 +495,11 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
           'query_template must contain an {additional_instructions}'
           f' placeholder, got: {self.query_template!r}'
       )
+
+  @property
+  def _mcp_server_urls(self) -> list[str]:
+    """Returns the list of MCP server URLs, split from mcp_server_urls."""
+    return [u.strip() for u in self.mcp_server_urls.split(',') if u.strip()]
 
   def _format_question(
       self,
@@ -539,7 +552,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
 
     question = self._format_question(question, additional_instructions)
 
-    # Create a fresh MCP client per call.  This avoids two classes of bugs:
+    # Create fresh MCP client(s) per call.  This avoids two classes of bugs:
     #   1. Concurrency races when multiple coroutines (from ot.evaluate /
     #      par_iter) share a single session — one coroutine's error could
     #      tear down or poison another's session.
@@ -548,27 +561,37 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     #      leaving the session dead for all subsequent calls.
     # The overhead of a per-call session is negligible compared to the
     # multi-turn LLM interaction (milliseconds vs. tens of seconds).
+    urls = self._mcp_server_urls
     logging.info(
-        'Connecting to MCP server client-side: %s', self.mcp_server_url
+        'Connecting to MCP server(s) client-side: %s',
+        ', '.join(urls),
     )
-    transport = _ResilientStreamableHttpTransport(
-        url=self.mcp_server_url,
-        http_read_timeout=self.http_read_timeout,
-        http_connect_timeout=self.http_connect_timeout,
-        http_write_timeout=self.http_write_timeout,
-    )
-    client = fastmcp.Client(transport)
+    clients = [
+        fastmcp.Client(
+            _ResilientStreamableHttpTransport(
+                url=url,
+                http_read_timeout=self.http_read_timeout,
+                http_connect_timeout=self.http_connect_timeout,
+                http_write_timeout=self.http_write_timeout,
+            )
+        )
+        for url in urls
+    ]
 
     answer_str = ''
+    tool_call_history: list[tuple[str, dict[str, Any] | None, str]] = []
     try:
-      async with client:
-        tool_call_history = _setup_resilient_mcp_session(
-            client=client,
-            tool_timeout=self.tool_timeout,
-        )
+      async with contextlib.AsyncExitStack() as stack:
+        for client in clients:
+          await stack.enter_async_context(client)
+          _setup_resilient_mcp_session(
+              client=client,
+              tool_timeout=self.tool_timeout,
+              tool_call_history=tool_call_history,
+          )
         thinking_config = _build_thinking_config(self.include_thoughts)
         kwargs = {
-            'tools': [client.session],
+            'tools': [client.session for client in clients],
             'automatic_function_calling': (
                 genai_types.AutomaticFunctionCallingConfig(
                     maximum_remote_calls=self.maximum_remote_calls

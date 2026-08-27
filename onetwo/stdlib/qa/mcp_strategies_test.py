@@ -73,20 +73,33 @@ class MCPStrategyTest(parameterized.TestCase):
   )
   def test_returns_answer(self, question):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, StrategyResult)
     self.assertEqual(result.answer, 'mcp answer')
     self.assertEmpty(result.docs)
 
-  def test_no_mcp_server_url_raises(self):
+  def test_no_mcp_server_urls_raises(self):
     with self.assertRaises(ValueError):
-      mcp_strategies.GoogleGenAIMCPStrategy(mcp_server_url='')
+      mcp_strategies.GoogleGenAIMCPStrategy(mcp_server_urls='')
+
+  def test_comma_separated_mcp_server_urls(self):
+    strategy = mcp_strategies.GoogleGenAIMCPStrategy(
+        mcp_server_urls='http://localhost:8000/mcp, http://localhost:8001/mcp'
+    )
+    self.assertEqual(
+        strategy._mcp_server_urls,
+        ['http://localhost:8000/mcp', 'http://localhost:8001/mcp'],
+    )
+    result = ot.run(strategy(question=_TEXT_QUESTION))
+    self.assertIsInstance(result, StrategyResult)
+    self.assertEqual(result.answer, 'mcp answer')
+    self.assertEqual(self.mock_client_class.call_count, 2)
 
   def test_safe_call_tool_handles_exceptions(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
     mock_call_tool = mock.AsyncMock(
         side_effect=RuntimeError('HTTP 400 Bad Request')
@@ -106,7 +119,7 @@ class MCPStrategyTest(parameterized.TestCase):
 
   def test_suppresses_fastmcp_shutdown_exception_when_answer_produced(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
     self.mock_client.__aexit__.side_effect = RuntimeError(
         'Transport teardown error'
@@ -230,7 +243,7 @@ class MCPStrategyTest(parameterized.TestCase):
 
   def test_safe_call_tool_handles_per_tool_timeout(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         tool_timeout=0.01,
     )
 
@@ -251,7 +264,7 @@ class MCPStrategyTest(parameterized.TestCase):
 
   def test_query_template_formatting(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         query_template='Prompt: {question}{additional_instructions}',
     )
     result = ot.run(strategy(question='What?'))
@@ -262,21 +275,21 @@ class MCPStrategyTest(parameterized.TestCase):
   def test_missing_question_placeholder_raises(self):
     with self.assertRaises(ValueError):
       mcp_strategies.GoogleGenAIMCPStrategy(
-          mcp_server_url='http://localhost:8000/mcp',
+          mcp_server_urls='http://localhost:8000/mcp',
           query_template='No placeholders here {additional_instructions}',
       )
 
   def test_missing_additional_instructions_placeholder_raises(self):
     with self.assertRaises(ValueError):
       mcp_strategies.GoogleGenAIMCPStrategy(
-          mcp_server_url='http://localhost:8000/mcp',
+          mcp_server_urls='http://localhost:8000/mcp',
           query_template='Only question: {question}',
       )
 
   def test_additional_instructions_str_question(self):
     """Additional instructions are injected into the template for str."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         query_template='Preamble. {additional_instructions}\nQ: {question}',
     )
     result = ot.run(
@@ -294,7 +307,7 @@ class MCPStrategyTest(parameterized.TestCase):
   def test_no_additional_instructions_str_question(self):
     """Without additional_instructions the placeholder collapses to empty."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         query_template='Preamble. {additional_instructions}\nQ: {question}',
     )
     result = ot.run(strategy(question='What?'))
@@ -306,7 +319,7 @@ class MCPStrategyTest(parameterized.TestCase):
   def test_additional_instructions_chunklist_question(self):
     """Additional instructions are injected for ChunkList questions."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         query_template='Preamble. {additional_instructions}\nQ: {question}',
     )
     result = ot.run(
@@ -323,7 +336,7 @@ class MCPStrategyTest(parameterized.TestCase):
   def test_additional_instructions_default_template(self):
     """additional_instructions works with the real default_qa_template_mcp."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
     )
     result = ot.run(
         strategy(
@@ -400,7 +413,7 @@ class MCPStrategyTest(parameterized.TestCase):
       self, query_template, question, additional_instructions, expected
   ):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         query_template=query_template,
     )
     formatted = strategy._format_question(
@@ -516,7 +529,7 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
   def test_error_returns_no_answer_instead_of_crashing_entire_eval(self):
     """An error during llm.chat returns no-answer with preserved traces."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
 
     # First call succeeds.
@@ -541,7 +554,7 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
   def test_each_call_creates_a_fresh_client(self):
     """Each call creates a new MCP client, ensuring no stale session reuse."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
 
     ot.run(strategy(question='First?'))
@@ -556,7 +569,7 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
   def test_failed_call_does_not_affect_next_call(self):
     """A failed call's session is cleaned up; the next call gets a fresh one."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
 
     # Simulate an error on the first call.
@@ -585,7 +598,7 @@ class MCPStrategyErrorResilienceTest(parameterized.TestCase):
   def test_session_cleaned_up_after_each_call(self):
     """__aexit__ is called after each call to clean up the session."""
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp'
+        mcp_server_urls='http://localhost:8000/mcp'
     )
 
     ot.run(strategy(question='What?'))
@@ -615,7 +628,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='mcp',
           strategy=mcp_strategies.GoogleGenAIMCPStrategy(
-              mcp_server_url='http://localhost:8000/mcp',
+              mcp_server_urls='http://localhost:8000/mcp',
           ),
           question=_TEXT_QUESTION,
       ),
@@ -630,7 +643,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='mcp_multimodal',
           strategy=mcp_strategies.GoogleGenAIMCPStrategy(
-              mcp_server_url='http://localhost:8000/mcp',
+              mcp_server_urls='http://localhost:8000/mcp',
           ),
           question=_MULTIMODAL_QUESTION,
       ),
@@ -751,7 +764,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
       llm.chat.update(thinking_config=default_thinking_config)
 
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         include_thoughts=strategy_include_thoughts,
     )
 
@@ -791,7 +804,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
     llm.chat.update(thinking_config=original_config)
 
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
     )
     ot.run(strategy(question='Test question'))
 
@@ -801,7 +814,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
 
   def test_configurable_http_timeouts(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         http_read_timeout=150.0,
         http_connect_timeout=45.0,
         http_write_timeout=30.0,
@@ -823,7 +836,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
 
   def test_maximum_remote_calls_configured_by_default(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
     )
     captured_kwargs = {}
     chat_wrapper = routing.function_registry[llm.chat.name]
@@ -845,7 +858,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
 
   def test_maximum_remote_calls_custom(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
         maximum_remote_calls=30,
     )
     captured_kwargs = {}
@@ -871,7 +884,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
         '': ['[Function Call: search_passages]']
     }
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
     )
     result = ot.run(strategy(question='What is the meaning of life?'))
 
@@ -880,7 +893,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
 
   def test_transient_tool_error_recovered_as_tool_result(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
     )
     mock_original_call = mock.AsyncMock(
         side_effect=ValueError('Tool server error')
@@ -897,7 +910,7 @@ class ThinkingConfigMergingTest(parameterized.TestCase):
 
   def test_tool_call_history_preserved_in_trace_on_chat_exception(self):
     strategy = mcp_strategies.GoogleGenAIMCPStrategy(
-        mcp_server_url='http://localhost:8000/mcp',
+        mcp_server_urls='http://localhost:8000/mcp',
     )
     mock_tool = mock.AsyncMock(
         return_value=mcp_types.CallToolResult(
