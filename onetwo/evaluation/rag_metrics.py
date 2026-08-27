@@ -18,13 +18,14 @@ All metrics defined in this library conform to the `MetricFunction` protocol
 defined in `evaluation.py` and expected by `evaluation.evaluate`.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import math
 import re
-from typing import Any
+from typing import Any, Final
 
 from onetwo.backends import backend_registry
 from onetwo.core import executing
+from onetwo.core import results
 from onetwo.core import routing
 from onetwo.evaluation import evaluation
 from onetwo.stdlib.qa import qa
@@ -63,7 +64,7 @@ def _default_golden_doc_ids_extractor(example: _ExampleDict) -> list[str]:
   if 'metadata' not in example or 'golden_doc_ids' not in example['metadata']:
     raise KeyError(
         'The default golden_doc_ids_extractor expects '
-        '\'metadata\': {\'golden_doc_ids\': ...} to be present in the example. '
+        "'metadata': {'golden_doc_ids': ...} to be present in the example. "
         'If your dataset uses a different key or structure, please provide a '
         'custom golden_doc_ids_extractor to make_recall_at_k.'
     )
@@ -166,8 +167,8 @@ def make_accuracy_critic(
   """Returns an AI-Rater critic that evaluates the generated answer.
 
   Args:
-    backend_config: Optional backend configuration to use for the evaluation.
-      If None, the default backend is used.
+    backend_config: Optional backend configuration to use for the evaluation. If
+      None, the default backend is used.
   """
   backend = None
   if backend_config is not None:
@@ -313,6 +314,8 @@ def make_ndcg_at_k(
   ) -> tuple[float, dict[str, Any]]:
     """Computes NDCG@k of retrieved doc_ids against golden relevance scores."""
     del target  # Unused.
+    if prediction is None:
+      return 0.0, {}
     if not example:
       raise ValueError('Example is required to retrieve golden_doc_scores.')
 
@@ -369,3 +372,299 @@ def make_ndcg_at_k(
     return dcg / idcg, extra_evaluation_info
 
   return ndcg_at_k
+
+
+# Stage name suffixes that identify LLM call stages in the execution trace.
+_LLM_STAGE_SUFFIXES = ('.chat', '.generate_text', '.instruct')
+
+
+def _walk_llm_stages(
+    execution_result: results.ExecutionResult,
+) -> list[results.ExecutionResult]:
+  """Collects all LLM call stages from the execution trace tree.
+
+  Recursively traverses the ``ExecutionResult`` tree and returns stages whose
+  ``stage_name`` ends with a known LLM call suffix (``.chat``,
+  ``.generate_text``, ``.instruct``). These stages contain the actual
+  request/response in their inputs/outputs and token/tool counts in their info.
+
+  Args:
+    execution_result: Root of the execution trace tree.
+
+  Returns:
+    A flat list of ``ExecutionResult`` nodes corresponding to LLM calls.
+  """
+  llm_stages: list[results.ExecutionResult] = []
+
+  def _traverse(node: results.ExecutionResult) -> None:
+    if node.stage_name and node.stage_name.endswith(_LLM_STAGE_SUFFIXES):
+      llm_stages.append(node)
+      return
+    for stage in node.stages:
+      _traverse(stage)
+
+  _traverse(execution_result)
+  return llm_stages
+
+
+def _find_info_value(stage: results.ExecutionResult, key: str) -> Any | None:
+  """Recursively searches for a key in the stage's info or its sub-stages."""
+  if key in stage.info:
+    return stage.info[key]
+  for substage in stage.stages:
+    val = _find_info_value(substage, key)
+    if val is not None:
+      return val
+  return None
+
+
+def _get_counts_from_info(
+    execution_result: results.ExecutionResult,
+    *,
+    info_keys: Sequence[str],
+) -> list[int]:
+  """Returns per-call counts from the execution trace info.
+
+  Args:
+    execution_result: Root of the execution trace tree.
+    info_keys: The trace info keys to sum (e.g. ['llm.tokens.prompt']).
+  """
+  stages = _walk_llm_stages(execution_result)
+  if not stages:
+    return []
+
+  counts = []
+  for stage in stages:
+    stage_sum = 0
+    for key in info_keys:
+      val = _find_info_value(stage, key)
+      if val is not None:
+        stage_sum += int(val)
+    counts.append(stage_sum)
+
+  return counts
+
+
+def _get_input_token_counts(
+    execution_result: results.ExecutionResult,
+) -> list[int]:
+  """Returns per-call input token counts from the execution trace."""
+  # Note: 'llm.tokens.cached_content' is already included in 'llm.tokens.prompt'
+  # according to the GenAI SDK specification.
+  return _get_counts_from_info(
+      execution_result,
+      info_keys=['llm.tokens.prompt', 'llm.tokens.tool_use_prompt'],
+  )
+
+
+def _get_output_token_counts(
+    execution_result: results.ExecutionResult,
+) -> list[int]:
+  """Returns per-call output token counts from the execution trace."""
+  return _get_counts_from_info(
+      execution_result,
+      info_keys=['llm.tokens.candidates', 'llm.tokens.thoughts'],
+  )
+
+
+def _get_tool_call_counts(
+    execution_result: results.ExecutionResult,
+) -> list[int]:
+  """Returns per-call tool call counts from the execution trace."""
+  return _get_counts_from_info(
+      execution_result,
+      info_keys=['llm.tools.calls'],
+  )
+
+
+# --- LLM call metrics ---
+
+
+def num_llm_calls(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Counts the number of LLM calls in the execution trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  return float(len(_walk_llm_stages(execution_result)))
+
+
+# --- Input token metrics ---
+
+
+def total_input_tokens(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Total input tokens across all LLM call stages in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_input_token_counts(execution_result)
+  return float(sum(counts)) if counts else 0.0
+
+
+def max_input_tokens(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Maximum input tokens across any single LLM call in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_input_token_counts(execution_result)
+  return float(max(counts)) if counts else 0.0
+
+
+def average_input_tokens(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Average input tokens per LLM call in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_input_token_counts(execution_result)
+  return float(sum(counts)) / len(counts) if counts else 0.0
+
+
+# --- Output token metrics ---
+
+
+def total_output_tokens(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Total output tokens across all LLM call stages in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_output_token_counts(execution_result)
+  return float(sum(counts)) if counts else 0.0
+
+
+def max_output_tokens(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Maximum output tokens across any single LLM call in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_output_token_counts(execution_result)
+  return float(max(counts)) if counts else 0.0
+
+
+def average_output_tokens(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Average output tokens per LLM call in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_output_token_counts(execution_result)
+  return float(sum(counts)) / len(counts) if counts else 0.0
+
+
+# --- Tool call metrics ---
+
+
+def num_tool_calls(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Total number of tool calls across all LLM stages in the trace."""
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  counts = _get_tool_call_counts(execution_result)
+  return float(sum(counts)) if counts else 0.0
+
+
+def tool_details(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> tuple[float, dict[str, Any]]:
+  """Extracts llm.tools.details from the trace as extra info.
+
+  Args:
+    target: Golden output (unused).
+    prediction: Strategy prediction (unused).
+    example: Example dict (unused).
+    execution_result: Root of the execution trace tree.
+
+  Returns:
+    A tuple of (number of tool details, dict containing the raw details list).
+  """
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0, {}
+
+  stages = _walk_llm_stages(execution_result)
+  details = []
+  for stage in stages:
+    val = _find_info_value(stage, 'llm.tools.details')
+    if val is not None:
+      details.extend(val)
+
+  return float(len(details)), {'tool_details': details}
+
+
+def get_default_rag_metrics(
+    accuracy_critic_backend_config: (
+        backend_registry.GenerateBackendConfig | None
+    ) = None,
+) -> dict[str, Any]:
+  """Returns a dictionary of default metric functions for RAG evaluation.
+
+  Includes retrieval metrics (recall@5, recall@20), generation quality
+  (accuracy critic), and execution trace metrics (token counts, LLM calls,
+  tool calls, and tool details).
+
+  Args:
+    accuracy_critic_backend_config: Optional backend config for the accuracy
+      critic. If None, uses the default backend config.
+
+  Returns:
+    A dictionary mapping metric names to metric functions.
+  """
+  return {
+      'accuracy': make_accuracy_critic(
+          backend_config=accuracy_critic_backend_config
+      ),
+      'recall@5': make_recall_at_k(k=5),
+      'recall@20': make_recall_at_k(k=20),
+      'num_llm_calls': num_llm_calls,
+      'total_input_tokens': total_input_tokens,
+      'max_input_tokens': max_input_tokens,
+      'average_input_tokens': average_input_tokens,
+      'total_output_tokens': total_output_tokens,
+      'max_output_tokens': max_output_tokens,
+      'average_output_tokens': average_output_tokens,
+      'num_tool_calls': num_tool_calls,
+      'tool_details': tool_details,
+  }
+
+
+DEFAULT_RAG_METRICS: Final[dict[str, Any]] = get_default_rag_metrics()

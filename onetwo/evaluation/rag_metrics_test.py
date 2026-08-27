@@ -19,6 +19,7 @@ from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import results
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -328,6 +329,16 @@ class MetricsLibTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       ndcg_fn(target=None, prediction=prediction, example=None)
 
+  def test_ndcg_at_k_none_prediction(self):
+    ndcg_fn = rag_metrics.make_ndcg_at_k(k=5)
+    score, info = ndcg_fn(
+        target=None,
+        prediction=None,
+        example={'metadata': {'golden_doc_scores': {'doc1': 2}}},
+    )
+    self.assertEqual(score, 0.0)
+    self.assertEqual(info, {})
+
   def test_accuracy_critic_with_backend_config(self):
     _T = TypeVar('_T')
 
@@ -373,6 +384,173 @@ class MetricsLibTest(parameterized.TestCase):
 
     self.assertEqual(1.0, rating)
     self.assertEqual('fake_reason', extra_info['critic_reason'])
+
+  def test_walk_llm_stages_empty_trace(self):
+    trace = results.ExecutionResult(stage_name='root')
+    self.assertEqual(rag_metrics._walk_llm_stages(trace), [])
+
+  def test_walk_llm_stages_single_stage(self):
+    stage = results.ExecutionResult(stage_name='GoogleGenAIAPI.chat')
+    trace = results.ExecutionResult(stage_name='root', stages=[stage])
+    self.assertEqual(rag_metrics._walk_llm_stages(trace), [stage])
+
+  def test_walk_llm_stages_multi_stage(self):
+    s1 = results.ExecutionResult(stage_name='GoogleGenAIAPI.chat')
+    s2 = results.ExecutionResult(stage_name='GoogleGenAIAPI.generate_text')
+    s3 = results.ExecutionResult(stage_name='GoogleGenAIAPI.instruct')
+    s_other = results.ExecutionResult(stage_name='other_stage')
+    trace = results.ExecutionResult(
+        stage_name='root',
+        stages=[
+            s1,
+            results.ExecutionResult(stage_name='sub', stages=[s2, s_other]),
+            s3,
+        ],
+    )
+    self.assertEqual(rag_metrics._walk_llm_stages(trace), [s1, s2, s3])
+
+  def test_walk_llm_stages_skips_children_of_matched_stage(self):
+    child = results.ExecutionResult(stage_name='inner.generate_text')
+    parent = results.ExecutionResult(stage_name='outer.chat', stages=[child])
+    trace = results.ExecutionResult(stage_name='root', stages=[parent])
+    self.assertEqual(rag_metrics._walk_llm_stages(trace), [parent])
+
+  def test_num_llm_calls(self):
+    self.assertEqual(
+        rag_metrics.num_llm_calls(
+            target=None, prediction=None, execution_result=None
+        ),
+        0.0,
+    )
+    s1 = results.ExecutionResult(stage_name='GoogleGenAIAPI.chat')
+    s2 = results.ExecutionResult(stage_name='GoogleGenAIAPI.generate_text')
+    trace = results.ExecutionResult(stage_name='root', stages=[s1, s2])
+    self.assertEqual(
+        rag_metrics.num_llm_calls(
+            target=None, prediction=None, execution_result=trace
+        ),
+        2.0,
+    )
+
+  def test_input_token_metrics(self):
+    self.assertEqual(
+        rag_metrics.total_input_tokens(None, None, execution_result=None), 0.0
+    )
+    self.assertEqual(
+        rag_metrics.max_input_tokens(None, None, execution_result=None), 0.0
+    )
+    self.assertEqual(
+        rag_metrics.average_input_tokens(None, None, execution_result=None), 0.0
+    )
+
+    s1 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.chat',
+        info={'llm.tokens.prompt': 10, 'llm.tokens.tool_use_prompt': 3},
+    )
+    s2 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.generate_text',
+        info={'llm.tokens.prompt': 20},
+    )
+    trace = results.ExecutionResult(stage_name='root', stages=[s1, s2])
+
+    self.assertEqual(
+        rag_metrics.total_input_tokens(None, None, execution_result=trace), 33.0
+    )
+    self.assertEqual(
+        rag_metrics.max_input_tokens(None, None, execution_result=trace), 20.0
+    )
+    self.assertEqual(
+        rag_metrics.average_input_tokens(None, None, execution_result=trace),
+        16.5,
+    )
+
+  def test_output_token_metrics(self):
+    self.assertEqual(
+        rag_metrics.total_output_tokens(None, None, execution_result=None), 0.0
+    )
+    self.assertEqual(
+        rag_metrics.max_output_tokens(None, None, execution_result=None), 0.0
+    )
+    self.assertEqual(
+        rag_metrics.average_output_tokens(None, None, execution_result=None),
+        0.0,
+    )
+
+    s1 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.chat',
+        info={'llm.tokens.candidates': 5, 'llm.tokens.thoughts': 3},
+    )
+    s2 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.generate_text',
+        info={'llm.tokens.candidates': 12},
+    )
+    trace = results.ExecutionResult(stage_name='root', stages=[s1, s2])
+
+    self.assertEqual(
+        rag_metrics.total_output_tokens(None, None, execution_result=trace),
+        20.0,
+    )
+    self.assertEqual(
+        rag_metrics.max_output_tokens(None, None, execution_result=trace), 12.0
+    )
+    self.assertEqual(
+        rag_metrics.average_output_tokens(None, None, execution_result=trace),
+        10.0,
+    )
+
+  def test_num_tool_calls(self):
+    self.assertEqual(
+        rag_metrics.num_tool_calls(None, None, execution_result=None), 0.0
+    )
+    s1 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.chat',
+        info={'llm.tools.calls': 2},
+    )
+    s2 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.generate_text',
+        info={'llm.tools.calls': 1},
+    )
+    trace = results.ExecutionResult(stage_name='root', stages=[s1, s2])
+    self.assertEqual(
+        rag_metrics.num_tool_calls(None, None, execution_result=trace), 3.0
+    )
+
+  def test_tool_details(self):
+    self.assertEqual(
+        rag_metrics.tool_details(None, None, execution_result=None), (0.0, {})
+    )
+    detail1 = {'name': 'search', 'args': {'q': 'test'}}
+    detail2 = {'name': 'lookup', 'args': {'id': '123'}}
+    s1 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.chat',
+        info={'llm.tools.details': [detail1]},
+    )
+    s2 = results.ExecutionResult(
+        stage_name='GoogleGenAIAPI.generate_text',
+        info={'llm.tools.details': [detail2]},
+    )
+    trace = results.ExecutionResult(stage_name='root', stages=[s1, s2])
+    score, info = rag_metrics.tool_details(None, None, execution_result=trace)
+    self.assertEqual(score, 2.0)
+    self.assertEqual(info, {'tool_details': [detail1, detail2]})
+
+  def test_get_default_rag_metrics(self):
+    metrics = rag_metrics.get_default_rag_metrics()
+    expected_keys = {
+        'accuracy',
+        'recall@5',
+        'recall@20',
+        'num_llm_calls',
+        'total_input_tokens',
+        'max_input_tokens',
+        'average_input_tokens',
+        'total_output_tokens',
+        'max_output_tokens',
+        'average_output_tokens',
+        'num_tool_calls',
+        'tool_details',
+    }
+    self.assertEqual(set(metrics.keys()), expected_keys)
 
 
 if __name__ == '__main__':

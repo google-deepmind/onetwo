@@ -99,6 +99,7 @@ def evaluate_rag(
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
     max_examples: int | None = 5,
+    metric_functions: Mapping[str, Any] | None = None,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -112,6 +113,8 @@ def evaluate_rag(
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments dict or JSON string.
     max_examples: Max examples to evaluate.
+    metric_functions: Optional mapping of metric names to metric functions.
+      Defaults to rag_metrics.get_default_rag_metrics().
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -145,11 +148,8 @@ def evaluate_rag(
   )
   print(f'Loaded {len(examples)} examples.')
 
-  metric_functions = {
-      'accuracy': rag_metrics.make_accuracy_critic(),
-      'recall@5': rag_metrics.make_recall_at_k(k=5),
-      'recall@20': rag_metrics.make_recall_at_k(k=20),
-  }
+  if metric_functions is None:
+    metric_functions = rag_metrics.get_default_rag_metrics()
 
   print('Running evaluation...')
   dict_examples = [dict(ex) for ex in examples]
