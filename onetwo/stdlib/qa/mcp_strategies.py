@@ -326,22 +326,15 @@ def _build_thinking_config(
 def _setup_resilient_mcp_session(
     client: fastmcp.Client,
     tool_timeout: float,
-    tool_call_history: (
-        list[tuple[str, dict[str, Any] | None, str]] | None
-    ) = None,
-) -> list[tuple[str, dict[str, Any] | None, str]]:
+    tool_call_history: list[tuple[str, dict[str, Any] | None, str]],
+) -> None:
   """Configures an MCP client session with resilient error handling.
 
   Args:
     client: The fastmcp.Client instance whose active session will be wrapped.
     tool_timeout: Maximum seconds to wait for a tool execution.
-    tool_call_history: Optional mutable list tracking (name, arguments,
-      result_text) for every tool call across all sessions. If None, a new list
-      is created.
-
-  Returns:
-    The mutable tool_call_history list that tracks (name, arguments,
-    result_text) for every tool call.
+    tool_call_history: Mutable list tracking (name, arguments, result_text) for
+      every tool call across all sessions.
   """
 
   # Monkey-patch __deepcopy__ to prevent copy.deepcopy from failing on
@@ -359,8 +352,6 @@ def _setup_resilient_mcp_session(
   setattr(client.session, '__deepcopy__', _safe_deepcopy)
 
   original_call_tool = client.session.call_tool
-  if tool_call_history is None:
-    tool_call_history = []
 
   async def _safe_call_tool(
       name: str, arguments: dict[str, Any] | None = None, **call_kwargs
@@ -421,7 +412,6 @@ def _setup_resilient_mcp_session(
       })
 
   setattr(client.session, 'call_tool', _safe_call_tool)
-  return tool_call_history
 
 
 @dataclasses.dataclass
