@@ -27,7 +27,6 @@ from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import qa_spec
 
-
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
     'browsecomp_plus',
@@ -57,8 +56,14 @@ _GENERATE_MODEL_BACKEND_CLASS_NAME = flags.DEFINE_string(
 
 _GENERATE_MODEL_NAME = flags.DEFINE_string(
     'generate_model_name',
-    'gemini-3.5-flash-lite',
+    'gemini-3.7-flash',
     'Name of the generation model.',
+)
+
+_AI_RATER_GENERATE_MODEL_NAME = flags.DEFINE_string(
+    'ai_rater_generate_model_name',
+    'gemini-3.7-flash',
+    'Name of the generation model used by the AI rater (accuracy critic).',
 )
 
 _RUNTIME_KWARGS = flags.DEFINE_string(
@@ -88,18 +93,33 @@ _MAX_EXAMPLES = flags.DEFINE_integer(
     'Maximum number of examples to evaluate.',
 )
 
+_MAX_RETRIES = flags.DEFINE_integer(
+    'max_retries',
+    5,
+    'Maximum number of retries for backend requests.',
+)
+
+_HTTP_TIMEOUT = flags.DEFINE_integer(
+    'http_timeout',
+    300000,
+    'HTTP timeout in milliseconds for backend requests (default: 5 mins).',
+)
+
 
 def evaluate_rag(
     dataset_name: str,
     index_directory: str,
     output_directory: str,
-    runtime_kwargs: Mapping[str, Any] | str,
+    runtime_kwargs: Mapping[str, Any],
     generate_model_backend_class_name: str = 'GoogleGenAIAPI',
     generate_model_name: str = 'gemini-3.5-flash-lite',
+    ai_rater_generate_model_name: str = 'gemini-3.7-flash',
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
     max_examples: int | None = 5,
     metric_functions: Mapping[str, Any] | None = None,
+    max_retries: int | None = 5,
+    http_timeout: int | None = 300000,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -110,11 +130,14 @@ def evaluate_rag(
     runtime_kwargs: Runtime arguments dict or JSON string (e.g. API key).
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name.
+    ai_rater_generate_model_name: Generation model name used by the AI rater.
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments dict or JSON string.
     max_examples: Max examples to evaluate.
     metric_functions: Optional mapping of metric names to metric functions.
       Defaults to rag_metrics.get_default_rag_metrics().
+    max_retries: Maximum number of retries for backend requests.
+    http_timeout: HTTP timeout in milliseconds for backend requests.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -124,14 +147,24 @@ def evaluate_rag(
   else:
     q_time_kwargs = dict(query_time_kwargs)
 
-  if isinstance(runtime_kwargs, str):
-    rt_kwargs = json.loads(runtime_kwargs)
-  else:
-    rt_kwargs = dict(runtime_kwargs)
+  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  if 'max_retries' not in rt_kwargs and max_retries is not None:
+    rt_kwargs['max_retries'] = max_retries
+  if 'http_options' not in rt_kwargs and http_timeout is not None:
+    rt_kwargs['http_options'] = {'timeout': http_timeout}
+  elif 'http_options' in rt_kwargs and isinstance(
+      rt_kwargs['http_options'], dict
+  ):
+    if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
+      rt_kwargs['http_options']['timeout'] = http_timeout
 
   gen_backend_config = backend_registry.GenerateBackendConfig(
       backend_class_name=generate_model_backend_class_name,
       model_name=generate_model_name,
+  )
+  ai_rater_backend_config = backend_registry.GenerateBackendConfig(
+      backend_class_name=generate_model_backend_class_name,
+      model_name=ai_rater_generate_model_name,
   )
   spec = qa_spec.QAStrategySpec(
       qa_strategy_name=qa_strategy_name,
@@ -149,7 +182,10 @@ def evaluate_rag(
   print(f'Loaded {len(examples)} examples.')
 
   if metric_functions is None:
-    metric_functions = rag_metrics.get_default_rag_metrics()
+    metric_functions = rag_metrics.get_default_rag_metrics(
+        accuracy_critic_backend_config=ai_rater_backend_config,
+        runtime_kwargs=rt_kwargs,
+    )
 
   print('Running evaluation...')
   dict_examples = [dict(ex) for ex in examples]
@@ -177,16 +213,21 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
+  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
+
   evaluate_rag(
       dataset_name=_DATASET_NAME.value,
       index_directory=_INDEX_DIRECTORY.value,
       output_directory=_OUTPUT_DIRECTORY.value,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,
+      ai_rater_generate_model_name=_AI_RATER_GENERATE_MODEL_NAME.value,
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=_QUERY_TIME_KWARGS.value,
-      runtime_kwargs=_RUNTIME_KWARGS.value,
+      runtime_kwargs=runtime_kwargs,
       max_examples=_MAX_EXAMPLES.value,
+      max_retries=_MAX_RETRIES.value,
+      http_timeout=_HTTP_TIMEOUT.value,
   )
 
 

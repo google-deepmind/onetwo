@@ -163,16 +163,21 @@ def make_recall_at_k(
 
 def make_accuracy_critic(
     backend_config: backend_registry.GenerateBackendConfig | None = None,
+    runtime_kwargs: dict[str, Any] | None = None,
 ) -> Callable[..., executing.Executable[tuple[float, dict[str, Any]]]]:
   """Returns an AI-Rater critic that evaluates the generated answer.
 
   Args:
     backend_config: Optional backend configuration to use for the evaluation. If
       None, the default backend is used.
+    runtime_kwargs: Optional runtime arguments specifically needed to
+      instantiate the backend (e.g. API key).
   """
   backend = None
   if backend_config is not None:
-    backend = backend_registry.get_backend(backend_config)
+    backend = backend_registry.get_backend(
+        backend_config, **(runtime_kwargs or {})
+    )
 
   @executing.make_executable
   async def accuracy_critic_fn(
@@ -635,6 +640,7 @@ def get_default_rag_metrics(
     accuracy_critic_backend_config: (
         backend_registry.GenerateBackendConfig | None
     ) = None,
+    runtime_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
   """Returns a dictionary of default metric functions for RAG evaluation.
 
@@ -645,13 +651,16 @@ def get_default_rag_metrics(
   Args:
     accuracy_critic_backend_config: Optional backend config for the accuracy
       critic. If None, uses the default backend config.
+    runtime_kwargs: Optional runtime arguments specifically needed to
+      instantiate the backend (e.g. API key).
 
   Returns:
     A dictionary mapping metric names to metric functions.
   """
   return {
       'accuracy': make_accuracy_critic(
-          backend_config=accuracy_critic_backend_config
+          backend_config=accuracy_critic_backend_config,
+          runtime_kwargs=runtime_kwargs,
       ),
       'recall@5': make_recall_at_k(k=5),
       'recall@20': make_recall_at_k(k=20),
