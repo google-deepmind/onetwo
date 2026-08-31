@@ -79,10 +79,20 @@ def evaluate_qa(
     else:
       index = None
 
-    strategy = strategies_lib.get_strategy(
-        rag_spec.qa_strategy_name,
-        retriever=index,
-    )
+    if rag_spec.qa_strategy_name == 'mcp':
+      strategy = strategies_lib.get_strategy(
+          rag_spec.qa_strategy_name,
+          **rag_spec.mcp_kwargs,
+      )
+    elif rag_spec.qa_strategy_name == 'closed_book':
+      strategy = strategies_lib.get_strategy(
+          rag_spec.qa_strategy_name,
+      )
+    else:
+      strategy = strategies_lib.get_strategy(
+          rag_spec.qa_strategy_name,
+          retriever=index,
+      )
 
     return ot_evaluation.evaluate(
         strategy=strategy,

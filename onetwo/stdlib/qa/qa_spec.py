@@ -34,6 +34,8 @@ class QAStrategySpec(dataclasses_json.DataClassJsonMixin):
     query_time_kwargs: Extra keyword arguments forwarded to the strategy at call
       time. The `max_results` is set to 20 by default, so that if users forget
       to specify it, it won't end up returning all the documents in the index.
+    mcp_kwargs: Extra keyword arguments forwarded to the MCP strategy at
+      construction time.
   """
   qa_strategy_name: str = 'rag'
   index_path: str = ''
@@ -41,6 +43,7 @@ class QAStrategySpec(dataclasses_json.DataClassJsonMixin):
   query_time_kwargs: dict[str, Any] = dataclasses.field(
       default_factory=lambda: {'max_results': 20}
   )
+  mcp_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
 
   def __str__(self) -> str:
     """Returns a compact, human-readable string representation."""

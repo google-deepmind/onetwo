@@ -38,7 +38,6 @@ _INDEX_DIRECTORY = flags.DEFINE_string(
     'index_directory',
     None,
     'Directory containing the pre-built index.',
-    required=True,
 )
 
 _OUTPUT_DIRECTORY = flags.DEFINE_string(
@@ -87,6 +86,13 @@ _QUERY_TIME_KWARGS = flags.DEFINE_string(
     'JSON string containing query-time arguments for the strategy.',
 )
 
+_MCP_KWARGS = flags.DEFINE_string(
+    'mcp_kwargs',
+    '{}',
+    'JSON string containing strategy arguments passed at strategy'
+    ' construction.',
+)
+
 _MAX_EXAMPLES = flags.DEFINE_integer(
     'max_examples',
     None,
@@ -108,14 +114,15 @@ _HTTP_TIMEOUT = flags.DEFINE_integer(
 
 def evaluate_rag(
     dataset_name: str,
-    index_directory: str,
     output_directory: str,
     runtime_kwargs: Mapping[str, Any],
+    index_directory: str = '',
     generate_model_backend_class_name: str = 'GoogleGenAIAPI',
     generate_model_name: str = 'gemini-3.5-flash-lite',
     ai_rater_generate_model_name: str = 'gemini-3.7-flash',
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
+    mcp_kwargs: Mapping[str, Any] | str = '{}',
     max_examples: int | None = 5,
     metric_functions: Mapping[str, Any] | None = None,
     max_retries: int | None = 5,
@@ -125,14 +132,16 @@ def evaluate_rag(
 
   Args:
     dataset_name: Name of the dataset to load from the registry.
-    index_directory: Directory containing the pre-built index.
     output_directory: Directory where evaluation results will be saved.
     runtime_kwargs: Runtime arguments dict or JSON string (e.g. API key).
+    index_directory: Directory containing the pre-built index.
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name.
     ai_rater_generate_model_name: Generation model name used by the AI rater.
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments dict or JSON string.
+    mcp_kwargs: Arguments passed to get_strategy at construction (e.g.,
+      mcp_server_urls).
     max_examples: Max examples to evaluate.
     metric_functions: Optional mapping of metric names to metric functions.
       Defaults to rag_metrics.get_default_rag_metrics().
@@ -142,10 +151,22 @@ def evaluate_rag(
   Returns:
     EvaluationSummary object containing metrics and detailed results.
   """
+  if qa_strategy_name == 'mcp':
+    try:
+      # Keeping the import here to avoid importing in internal colab runtimes.
+      from onetwo.stdlib.qa import mcp_strategies  # pyrefly: ignore[missing-module-attribute] # pylint: disable=g-import-not-at-top,unused-import
+    except ImportError:
+      print('mcp_strategies is not linked. Execution may fail.')
+
   if isinstance(query_time_kwargs, str):
     q_time_kwargs = json.loads(query_time_kwargs)
   else:
     q_time_kwargs = dict(query_time_kwargs)
+
+  if isinstance(mcp_kwargs, str):
+    mcp_kwargs = json.loads(mcp_kwargs)
+  else:
+    mcp_kwargs = dict(mcp_kwargs)
 
   rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
   if 'max_retries' not in rt_kwargs and max_retries is not None:
@@ -171,6 +192,7 @@ def evaluate_rag(
       index_path=index_directory,
       generate_backend_config=gen_backend_config,
       query_time_kwargs=q_time_kwargs,
+      mcp_kwargs=mcp_kwargs,
   )
 
   # 2. Load Dataset Examples
@@ -217,13 +239,14 @@ def main(argv: Sequence[str]) -> None:
 
   evaluate_rag(
       dataset_name=_DATASET_NAME.value,
-      index_directory=_INDEX_DIRECTORY.value,
+      index_directory=_INDEX_DIRECTORY.value or '',
       output_directory=_OUTPUT_DIRECTORY.value,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,
       ai_rater_generate_model_name=_AI_RATER_GENERATE_MODEL_NAME.value,
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=_QUERY_TIME_KWARGS.value,
+      mcp_kwargs=_MCP_KWARGS.value,
       runtime_kwargs=runtime_kwargs,
       max_examples=_MAX_EXAMPLES.value,
       max_retries=_MAX_RETRIES.value,
