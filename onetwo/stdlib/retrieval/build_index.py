@@ -29,6 +29,7 @@
 r"""Binary to build an embedding-based document index.
 """
 
+from collections.abc import Mapping
 import json
 from typing import Any, Sequence
 
@@ -39,6 +40,7 @@ from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
+
 
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
@@ -177,13 +179,13 @@ _EMBED_KWARGS = flags.DEFINE_string(
 def build_index(
     dataset_name: str,
     output_directory: str,
-    runtime_kwargs: dict[str, Any],
+    runtime_kwargs: Mapping[str, Any] | str,
     max_documents: int | None = None,
     docs_path: str | None = None,
     index_type: str = 'embedding',
     embedding_backend_class_name: str = 'GoogleGenAIAPI',
     embedding_model_name: str = 'gemini-embedding-2',
-    embed_kwargs: dict[str, Any] | None = None,
+    embed_kwargs: Mapping[str, Any] | str | None = None,
     chunk_size: int | None = None,
     chunking_strategy: str = 'words',
     overlap_window: int = 0,
@@ -237,15 +239,20 @@ def build_index(
     print(f'Loaded {len(docs)} documents.')
 
   # Construct spec
+  if isinstance(embed_kwargs, str):
+    embed_kwargs = json.loads(embed_kwargs)
   backend_kwargs = {}
   if embed_kwargs:
-    backend_kwargs['embed_kwargs'] = embed_kwargs
+    backend_kwargs['embed_kwargs'] = dict(embed_kwargs)
   embed_backend_config = backend_registry.EmbedBackendConfig(
       backend_class_name=embedding_backend_class_name,
       model_name=embedding_model_name,
       kwargs=backend_kwargs,
   )
-  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  if isinstance(runtime_kwargs, str):
+    rt_kwargs = json.loads(runtime_kwargs)
+  else:
+    rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
   if 'max_retries' not in rt_kwargs and max_retries is not None:
     rt_kwargs['max_retries'] = max_retries
   if 'http_options' not in rt_kwargs and http_timeout is not None:
@@ -255,6 +262,9 @@ def build_index(
   ):
     if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
       rt_kwargs['http_options']['timeout'] = http_timeout
+
+  if format_str in ('None', ''):
+    format_str = None
 
   if index_type == 'hipporag':
     generate_backend_config = backend_registry.GenerateBackendConfig(
@@ -307,10 +317,6 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  format_str = None if _FORMAT.value in ('None', '') else _FORMAT.value
-  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
-  embed_kwargs = json.loads(_EMBED_KWARGS.value)
-
   build_index(
       dataset_name=_DATASET_NAME.value,
       max_documents=_MAX_DOCUMENTS.value,
@@ -319,16 +325,16 @@ def main(argv: Sequence[str]) -> None:
       output_directory=_OUTPUT_DIRECTORY.value,
       embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
       embedding_model_name=_EMBEDDING_MODEL_NAME.value,
-      embed_kwargs=embed_kwargs,
+      embed_kwargs=_EMBED_KWARGS.value,
       chunk_size=_CHUNK_SIZE.value,
       chunking_strategy=_CHUNKING_STRATEGY.value,
       overlap_window=_OVERLAP_WINDOW.value,
-      format_str=format_str,
+      format_str=_FORMAT.value,
       generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
       generation_model_name=_GENERATION_MODEL_NAME.value,
       similarity_threshold=_SIMILARITY_THRESHOLD.value,
       serializer_type=_SERIALIZER_TYPE.value,
-      runtime_kwargs=runtime_kwargs,
+      runtime_kwargs=_RUNTIME_KWARGS.value,
       max_retries=_MAX_RETRIES.value,
       http_timeout=_HTTP_TIMEOUT.value,
   )
