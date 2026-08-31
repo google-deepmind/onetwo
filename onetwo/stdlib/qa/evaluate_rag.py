@@ -36,7 +36,7 @@ _DATASET_NAME = flags.DEFINE_string(
 
 _INDEX_DIRECTORY = flags.DEFINE_string(
     'index_directory',
-    '',
+    None,
     'Directory containing the pre-built index.',
 )
 
@@ -103,14 +103,12 @@ _MAX_RETRIES = flags.DEFINE_integer(
     'max_retries',
     5,
     'Maximum number of retries for backend requests.',
-    allow_override=True,
 )
 
 _HTTP_TIMEOUT = flags.DEFINE_integer(
     'http_timeout',
     300000,
     'HTTP timeout in milliseconds for backend requests (default: 5 mins).',
-    allow_override=True,
 )
 
 
@@ -241,7 +239,7 @@ def main(argv: Sequence[str]) -> None:
 
   evaluate_rag(
       dataset_name=_DATASET_NAME.value,
-      index_directory=_INDEX_DIRECTORY.value,
+      index_directory=_INDEX_DIRECTORY.value or '',
       output_directory=_OUTPUT_DIRECTORY.value,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,

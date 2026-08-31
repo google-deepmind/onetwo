@@ -19,7 +19,6 @@ from onetwo import ot
 ```
 """
 
-from onetwo import rag  # pylint: disable=unused-import
 from onetwo import version
 from onetwo.core import composing
 from onetwo.core import executing
