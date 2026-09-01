@@ -29,16 +29,14 @@
 r"""Binary to build an embedding-based document index.
 """
 
-import json
-from typing import Any, Sequence
+from typing import Sequence
 
 from absl import app
 from absl import flags
-from onetwo.backends import backend_registry
-from onetwo.core import executing as ot_executing
-from onetwo.evaluation import datasets
-from onetwo.stdlib.retrieval import index_build_interface
-from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import build_index_lib
+
+# Re-export build_index for backward compatibility.
+build_index = build_index_lib.build_index
 
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
@@ -172,146 +170,11 @@ _EMBED_KWARGS = flags.DEFINE_string(
 )
 
 
-# TODO: Consider merging max_retries and http_timeout
-# into runtime_kwargs.
-def build_index(
-    dataset_name: str,
-    output_directory: str,
-    runtime_kwargs: dict[str, Any],
-    max_documents: int | None = None,
-    docs_path: str | None = None,
-    index_type: str = 'embedding',
-    embedding_backend_class_name: str = 'GoogleGenAIAPI',
-    embedding_model_name: str = 'gemini-embedding-2',
-    embed_kwargs: dict[str, Any] | None = None,
-    chunk_size: int | None = None,
-    chunking_strategy: str = 'words',
-    overlap_window: int = 0,
-    format_str: str | None = None,
-    generation_backend_class_name: str = 'GoogleGenAIAPI',
-    generation_model_name: str = 'gemini-3-flash-preview',
-    similarity_threshold: float = 0.8,
-    serializer_type: str = 'simple',
-    max_retries: int | None = 5,
-    http_timeout: int | None = 60000,
-) -> str:
-  """Builds and saves a document index for the specified dataset.
-
-  Args:
-    dataset_name: Name of the dataset to load from the registry.
-    output_directory: Directory pattern where the built index will be saved.
-    runtime_kwargs: Arguments for backends (e.g. API key).
-    max_documents: Max documents to index.
-    docs_path: Optional path to documents.
-    index_type: Type of index ('embedding' or 'hipporag').
-    embedding_backend_class_name: Embedding backend class name.
-    embedding_model_name: Embedding model name.
-    embed_kwargs: Keyword arguments for the embedding backend.
-    chunk_size: Max tokens or words per chunk.
-    chunking_strategy: Chunking strategy ('tokens' or 'words').
-    overlap_window: Tokens or words to overlap between chunks.
-    format_str: Format string for document formatting.
-    generation_backend_class_name: Generation backend class name for HippoRAG.
-    generation_model_name: Generation model name for HippoRAG.
-    similarity_threshold: Similarity threshold for HippoRAG.
-    serializer_type: Serializer type to use ('simple' or 'internal').
-    max_retries: Maximum number of retries for backend requests.
-    http_timeout: HTTP timeout in milliseconds for backend requests.
-
-  Returns:
-    The output directory path where the index was saved.
-  """
-  if docs_path:
-    if dataset_name not in docs_path:
-      raise ValueError(
-          f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
-      )
-    docs = docs_path
-    print(f'Using documents from path: {docs}')
-  else:
-    print(f'Loading dataset {dataset_name}...')
-    docs = datasets.load_documents(
-        dataset_name,
-        max_number_of_documents=max_documents,
-    )
-    print(f'Loaded {len(docs)} documents.')
-
-  # Construct spec
-  backend_kwargs = {}
-  if embed_kwargs:
-    backend_kwargs['embed_kwargs'] = embed_kwargs
-  embed_backend_config = backend_registry.EmbedBackendConfig(
-      backend_class_name=embedding_backend_class_name,
-      model_name=embedding_model_name,
-      kwargs=backend_kwargs,
-  )
-  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
-  if 'max_retries' not in rt_kwargs and max_retries is not None:
-    rt_kwargs['max_retries'] = max_retries
-  if 'http_options' not in rt_kwargs and http_timeout is not None:
-    rt_kwargs['http_options'] = {'timeout': http_timeout}
-  elif 'http_options' in rt_kwargs and isinstance(
-      rt_kwargs['http_options'], dict
-  ):
-    if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
-      rt_kwargs['http_options']['timeout'] = http_timeout
-
-  if index_type == 'hipporag':
-    generate_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name=generation_backend_class_name,
-        model_name=generation_model_name,
-    )
-    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=embed_backend_config,
-        generate_backend_config=generate_backend_config,
-        max_chunk_size=chunk_size,
-        chunking_strategy=chunking_strategy,
-        overlap_window=overlap_window,
-        format_str=format_str,
-        similarity_threshold=similarity_threshold,
-        runtime_kwargs=rt_kwargs,
-    )
-  else:
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-        embed_backend_config=embed_backend_config,
-        max_chunk_size=chunk_size,
-        chunking_strategy=chunking_strategy,
-        overlap_window=overlap_window,
-        format_str=format_str,
-        serializer_type=serializer_type,
-        runtime_kwargs=rt_kwargs,
-    )
-
-  out_dir = index_building.resolve_index_output_directory(
-      output_directory_pattern=output_directory,
-      dataset_name=dataset_name,
-      spec=spec,
-  )
-  print(f'Will save the index to output_directory: {out_dir}')
-
-  # Build index
-  print('Building index...')
-  _ = ot_executing.run(
-      index_building.build_index(
-          spec=spec,
-          docs=docs,
-          output_dir=out_dir,
-          runner='local',
-      )
-  )
-  print(f'Index built and saved to {out_dir}.')
-  return out_dir
-
-
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  format_str = None if _FORMAT.value in ('None', '') else _FORMAT.value
-  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
-  embed_kwargs = json.loads(_EMBED_KWARGS.value)
-
-  build_index(
+  build_index_lib.build_index(
       dataset_name=_DATASET_NAME.value,
       max_documents=_MAX_DOCUMENTS.value,
       docs_path=_DOCS_PATH.value,
@@ -319,16 +182,16 @@ def main(argv: Sequence[str]) -> None:
       output_directory=_OUTPUT_DIRECTORY.value,
       embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
       embedding_model_name=_EMBEDDING_MODEL_NAME.value,
-      embed_kwargs=embed_kwargs,
+      embed_kwargs=_EMBED_KWARGS.value,
       chunk_size=_CHUNK_SIZE.value,
       chunking_strategy=_CHUNKING_STRATEGY.value,
       overlap_window=_OVERLAP_WINDOW.value,
-      format_str=format_str,
+      format_str=_FORMAT.value,
       generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
       generation_model_name=_GENERATION_MODEL_NAME.value,
       similarity_threshold=_SIMILARITY_THRESHOLD.value,
       serializer_type=_SERIALIZER_TYPE.value,
-      runtime_kwargs=runtime_kwargs,
+      runtime_kwargs=_RUNTIME_KWARGS.value,
       max_retries=_MAX_RETRIES.value,
       http_timeout=_HTTP_TIMEOUT.value,
   )

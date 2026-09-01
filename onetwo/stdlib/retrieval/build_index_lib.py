@@ -1,0 +1,164 @@
+# Copyright 2026 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Library to build an embedding-based document index."""
+
+from collections.abc import Mapping
+import json
+from typing import Any
+
+from onetwo.backends import backend_registry
+from onetwo.core import executing as ot_executing
+from onetwo.evaluation import datasets
+from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import index_building
+
+
+# TODO: Consider merging max_retries and http_timeout
+# into runtime_kwargs.
+def build_index(
+    dataset_name: str,
+    output_directory: str,
+    runtime_kwargs: Mapping[str, Any] | str,
+    max_documents: int | None = None,
+    docs_path: str | None = None,
+    index_type: str = 'embedding',
+    embedding_backend_class_name: str = 'GoogleGenAIAPI',
+    embedding_model_name: str = 'gemini-embedding-2',
+    embed_kwargs: Mapping[str, Any] | str | None = None,
+    chunk_size: int | None = None,
+    chunking_strategy: str = 'words',
+    overlap_window: int = 0,
+    format_str: str | None = None,
+    generation_backend_class_name: str = 'GoogleGenAIAPI',
+    generation_model_name: str = 'gemini-3-flash-preview',
+    similarity_threshold: float = 0.8,
+    serializer_type: str = 'simple',
+    max_retries: int | None = 5,
+    http_timeout: int | None = 60000,
+) -> str:
+  """Builds and saves a document index for the specified dataset.
+
+  Args:
+    dataset_name: Name of the dataset to load from the registry.
+    output_directory: Directory pattern where the built index will be saved.
+    runtime_kwargs: Arguments for backends (e.g. API key).
+    max_documents: Max documents to index.
+    docs_path: Optional path to documents.
+    index_type: Type of index ('embedding' or 'hipporag').
+    embedding_backend_class_name: Embedding backend class name.
+    embedding_model_name: Embedding model name.
+    embed_kwargs: Keyword arguments for the embedding backend.
+    chunk_size: Max tokens or words per chunk.
+    chunking_strategy: Chunking strategy ('tokens' or 'words').
+    overlap_window: Tokens or words to overlap between chunks.
+    format_str: Format string for document formatting.
+    generation_backend_class_name: Generation backend class name for HippoRAG.
+    generation_model_name: Generation model name for HippoRAG.
+    similarity_threshold: Similarity threshold for HippoRAG.
+    serializer_type: Serializer type to use ('simple' or 'internal').
+    max_retries: Maximum number of retries for backend requests.
+    http_timeout: HTTP timeout in milliseconds for backend requests.
+
+  Returns:
+    The output directory path where the index was saved.
+  """
+  if docs_path:
+    if dataset_name not in docs_path:
+      raise ValueError(
+          f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
+      )
+    docs = docs_path
+    print(f'Using documents from path: {docs}')
+  else:
+    print(f'Loading dataset {dataset_name}...')
+    docs = datasets.load_documents(
+        dataset_name,
+        max_number_of_documents=max_documents,
+    )
+    print(f'Loaded {len(docs)} documents.')
+
+  # Construct spec
+  if isinstance(embed_kwargs, str):
+    embed_kwargs = json.loads(embed_kwargs)
+  backend_kwargs = {}
+  if embed_kwargs:
+    backend_kwargs['embed_kwargs'] = dict(embed_kwargs)
+  embed_backend_config = backend_registry.EmbedBackendConfig(
+      backend_class_name=embedding_backend_class_name,
+      model_name=embedding_model_name,
+      kwargs=backend_kwargs,
+  )
+  if isinstance(runtime_kwargs, str):
+    rt_kwargs = json.loads(runtime_kwargs)
+  else:
+    rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  if 'max_retries' not in rt_kwargs and max_retries is not None:
+    rt_kwargs['max_retries'] = max_retries
+  if 'http_options' not in rt_kwargs and http_timeout is not None:
+    rt_kwargs['http_options'] = {'timeout': http_timeout}
+  elif 'http_options' in rt_kwargs and isinstance(
+      rt_kwargs['http_options'], dict
+  ):
+    if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
+      rt_kwargs['http_options']['timeout'] = http_timeout
+
+  if format_str in ('None', ''):
+    format_str = None
+
+  if index_type == 'hipporag':
+    generate_backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name=generation_backend_class_name,
+        model_name=generation_model_name,
+    )
+    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=embed_backend_config,
+        generate_backend_config=generate_backend_config,
+        max_chunk_size=chunk_size,
+        chunking_strategy=chunking_strategy,
+        overlap_window=overlap_window,
+        format_str=format_str,
+        similarity_threshold=similarity_threshold,
+        runtime_kwargs=rt_kwargs,
+    )
+  else:
+    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=embed_backend_config,
+        max_chunk_size=chunk_size,
+        chunking_strategy=chunking_strategy,
+        overlap_window=overlap_window,
+        format_str=format_str,
+        serializer_type=serializer_type,
+        runtime_kwargs=rt_kwargs,
+    )
+
+  out_dir = index_building.resolve_index_output_directory(
+      output_directory_pattern=output_directory,
+      dataset_name=dataset_name,
+      spec=spec,
+  )
+  print(f'Will save the index to output_directory: {out_dir}')
+
+  # Build index
+  print('Building index...')
+  _ = ot_executing.run(
+      index_building.build_index(
+          spec=spec,
+          docs=docs,
+          output_dir=out_dir,
+          runner='local',
+      )
+  )
+  print(f'Index built and saved to {out_dir}.')
+  return out_dir
