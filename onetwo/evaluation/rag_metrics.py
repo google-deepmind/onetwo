@@ -637,6 +637,7 @@ def tool_details(
 
 
 def get_default_rag_metrics(
+    max_results: int | None = None,
     accuracy_critic_backend_config: (
         backend_registry.GenerateBackendConfig | None
     ) = None,
@@ -649,6 +650,7 @@ def get_default_rag_metrics(
   tool calls, and tool details).
 
   Args:
+    max_results: Maximum number of results to consider for recall metrics.
     accuracy_critic_backend_config: Optional backend config for the accuracy
       critic. If None, uses the default backend config.
     runtime_kwargs: Optional runtime arguments specifically needed to
@@ -657,7 +659,7 @@ def get_default_rag_metrics(
   Returns:
     A dictionary mapping metric names to metric functions.
   """
-  return {
+  metric_functions = {
       'accuracy': make_accuracy_critic(
           backend_config=accuracy_critic_backend_config,
           runtime_kwargs=runtime_kwargs,
@@ -674,6 +676,9 @@ def get_default_rag_metrics(
       'num_tool_calls': num_tool_calls,
       'tool_details': tool_details,
   }
+  if max_results is not None:
+    metric_functions[f'recall@{max_results}'] = make_recall_at_k(k=max_results)
+  return metric_functions
 
 
 DEFAULT_RAG_METRICS: Final[dict[str, Any]] = get_default_rag_metrics()

@@ -195,6 +195,7 @@ def evaluate_rag(
 
   if metric_functions is None:
     metric_functions = rag_metrics.get_default_rag_metrics(
+        max_results=q_time_kwargs.get('max_results', None),
         accuracy_critic_backend_config=ai_rater_backend_config,
         runtime_kwargs=rt_kwargs,
     )

@@ -552,6 +552,24 @@ class MetricsLibTest(parameterized.TestCase):
     }
     self.assertEqual(set(metrics.keys()), expected_keys)
 
+  def test_get_default_rag_metrics_with_max_results(self):
+    metrics = rag_metrics.get_default_rag_metrics(max_results=10)
+    expected_keys = {
+        'accuracy',
+        'recall@5',
+        'recall@20',
+        'recall@10',
+        'num_llm_calls',
+        'total_input_tokens',
+        'max_input_tokens',
+        'average_input_tokens',
+        'total_output_tokens',
+        'max_output_tokens',
+        'average_output_tokens',
+        'num_tool_calls',
+        'tool_details',
+    }
+    self.assertEqual(set(metrics.keys()), expected_keys)
 
 if __name__ == '__main__':
   absltest.main()
