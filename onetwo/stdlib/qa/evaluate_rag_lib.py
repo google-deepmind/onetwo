@@ -18,12 +18,56 @@ from collections.abc import Mapping
 import json
 from typing import Any
 
+from etils import epath
 from onetwo.backends import backend_registry
+from onetwo.core import caching
 from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import qa_spec
+
+
+# TODO: Move this function to a shared library and add tests.
+def get_rag_cache_filename(
+    output_directory: str | epath.Path,
+    dataset_name: str,
+    qa_strategy_name: str,
+    generate_model_name: str,
+    index_directory: str | epath.Path = '',
+    max_results: int | str = 20,
+) -> str:
+  """Generates a cache filename following the hierarchical template.
+
+  Template:
+    {output_directory}/cache/{dataset}/{strategy}/{model_name}/{index_name}__max_results_{max_results}.json
+
+  Args:
+    output_directory: Base directory where results/caches are saved.
+    dataset_name: Name of the dataset.
+    qa_strategy_name: Name of the QA strategy.
+    generate_model_name: Name of the generation model.
+    index_directory: Path to pre-built index directory if used.
+    max_results: Max results parameter from query_time_kwargs.
+
+  Returns:
+    Full path to the cache JSON file as a string.
+  """
+  if index_directory:
+    index_name = epath.Path(index_directory).name
+    filename = f'{index_name}__max_results_{max_results}.json'
+  else:
+    filename = f'max_results_{max_results}.json'
+
+  cache_path = (
+      epath.Path(output_directory)
+      / 'cache'
+      / dataset_name
+      / qa_strategy_name
+      / generate_model_name
+      / filename
+  )
+  return str(cache_path)
 
 
 def evaluate_rag(
@@ -41,6 +85,8 @@ def evaluate_rag(
     metric_functions: Mapping[str, Any] | None = None,
     max_retries: int | None = 5,
     http_timeout: int | None = 300000,
+    cache_results: bool = False,
+    cache_filename: str | None = None,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -61,6 +107,9 @@ def evaluate_rag(
       Defaults to rag_metrics.get_default_rag_metrics().
     max_retries: Maximum number of retries for backend requests.
     http_timeout: HTTP timeout in milliseconds for backend requests.
+    cache_results: Whether to enable caching for LLM generation.
+    cache_filename: Explicit cache filename. If not provided and cache_results
+      is True, it will be auto-generated.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -96,6 +145,29 @@ def evaluate_rag(
   ):
     if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
       rt_kwargs['http_options']['timeout'] = http_timeout
+
+  cache = None
+  if cache_results or cache_filename:
+    if not cache_filename:
+      max_results = q_time_kwargs.get('max_results', 20)
+      cache_filename = get_rag_cache_filename(
+          output_directory=output_directory,
+          dataset_name=dataset_name,
+          qa_strategy_name=qa_strategy_name,
+          generate_model_name=generate_model_name,
+          index_directory=index_directory,
+          max_results=max_results,
+      )
+    print(f'Using cache file: {cache_filename}')
+    cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
+    if epath.Path(cache_filename).exists():
+      print(f'Loading existing cache from {cache_filename}...')
+      cache.load(overwrite=True)
+    else:
+      print('No existing cache found. A new cache will be created.')
+
+  if cache is not None:
+    rt_kwargs['cache'] = cache
 
   gen_backend_config = backend_registry.GenerateBackendConfig(
       backend_class_name=generate_model_backend_class_name,
@@ -137,6 +209,11 @@ def evaluate_rag(
       output_results=True,
       enable_tracing=True,
   )
+
+  if cache is not None:
+    print(f'Saving cache to {cache_filename}...')
+    cache.save(overwrite=True)
+    print(f'Cache saved successfully to {cache_filename}.')
 
   print(f'Evaluation Metrics: {summary.metrics}')
 

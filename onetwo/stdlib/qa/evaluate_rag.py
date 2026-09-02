@@ -22,7 +22,6 @@ from absl import app
 from absl import flags
 from onetwo.stdlib.qa import evaluate_rag_lib
 
-
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
     'browsecomp_plus',
@@ -107,6 +106,13 @@ _HTTP_TIMEOUT = flags.DEFINE_integer(
     'HTTP timeout in milliseconds for backend requests (default: 5 mins).',
 )
 
+_CACHE_RESULTS = flags.DEFINE_bool(
+    'cache_results',
+    False,
+    'Whether to cache LLM generation results to disk and reuse existing cache'
+    ' on reruns.',
+)
+
 
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
@@ -128,6 +134,7 @@ def main(argv: Sequence[str]) -> None:
       max_examples=_MAX_EXAMPLES.value,
       max_retries=_MAX_RETRIES.value,
       http_timeout=_HTTP_TIMEOUT.value,
+      cache_results=_CACHE_RESULTS.value,
   )
 
 
