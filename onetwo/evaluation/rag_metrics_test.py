@@ -539,6 +539,7 @@ class MetricsLibTest(parameterized.TestCase):
     expected_keys = {
         'accuracy',
         'recall@5',
+        'recall@10',
         'recall@20',
         'num_llm_calls',
         'total_input_tokens',
@@ -553,12 +554,13 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertEqual(set(metrics.keys()), expected_keys)
 
   def test_get_default_rag_metrics_with_max_results(self):
-    metrics = rag_metrics.get_default_rag_metrics(max_results=10)
+    metrics = rag_metrics.get_default_rag_metrics(max_results=14)
     expected_keys = {
         'accuracy',
         'recall@5',
-        'recall@20',
         'recall@10',
+        'recall@14',
+        'recall@20',
         'num_llm_calls',
         'total_input_tokens',
         'max_input_tokens',

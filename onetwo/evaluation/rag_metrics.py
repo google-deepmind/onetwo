@@ -665,6 +665,7 @@ def get_default_rag_metrics(
           runtime_kwargs=runtime_kwargs,
       ),
       'recall@5': make_recall_at_k(k=5),
+      'recall@10': make_recall_at_k(k=10),
       'recall@20': make_recall_at_k(k=20),
       'num_llm_calls': num_llm_calls,
       'total_input_tokens': total_input_tokens,
