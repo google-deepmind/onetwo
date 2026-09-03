@@ -50,13 +50,13 @@ _GENERATE_MODEL_BACKEND_CLASS_NAME = flags.DEFINE_string(
 
 _GENERATE_MODEL_NAME = flags.DEFINE_string(
     'generate_model_name',
-    'gemini-3.7-flash',
+    'gemini-3.6-flash',
     'Name of the generation model.',
 )
 
 _AI_RATER_GENERATE_MODEL_NAME = flags.DEFINE_string(
     'ai_rater_generate_model_name',
-    'gemini-3.7-flash',
+    'gemini-3.6-flash',
     'Name of the generation model used by the AI rater (accuracy critic).',
 )
 
