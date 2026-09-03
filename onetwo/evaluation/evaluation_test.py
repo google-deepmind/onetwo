@@ -41,6 +41,7 @@ from onetwo.core import iterating
 from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.evaluation import evaluation
+import pydantic
 
 _Example: TypeAlias = Mapping[str, Any]
 _ExecutionResult: TypeAlias = results.ExecutionResult
@@ -1685,6 +1686,43 @@ Score prediction against target in [0.0, 1.0]: """
     self.assertIn(f'Question: {question}', prompt[-1].content)
     self.assertIn(f'Answer A: {target}', prompt[-1].content)
     self.assertIn(f'Answer B: {prediction}', prompt[-1].content)
+
+  def test_structured_evaluation_critic_handles_validation_error(self):
+    """Critic returns 0.0 with error info when LLM returns invalid JSON."""
+    question = 'some question'
+
+    _T = TypeVar('_T')
+
+    @executing.make_executable
+    def fake_generate_object_empty(
+        prompt: str | content_lib.ChunkList,
+        cls: type[_T],
+        **kwargs,
+    ) -> _T:
+      del prompt, cls, kwargs
+      # Simulate what happens when the LLM returns an empty string:
+      # Pydantic tries to parse '' as JSON and raises ValidationError.
+      raise pydantic.ValidationError.from_exception_data(
+          title='NaiveCriticDecision',
+          line_errors=[],
+      )
+
+    llm.generate_object.configure(fake_generate_object_empty)
+
+    rating, extra_info = executing.run(  # pyrefly: ignore[no-matching-overload]
+        evaluation.structured_evaluation_critic(
+            target='expected answer',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+            prediction='generated answer',  # pyrefly: ignore[unexpected-keyword]
+            example={'question': question},  # pyrefly: ignore[unexpected-keyword]
+        )
+    )
+
+    self.assertEqual(0.0, rating)
+    self.assertEqual(0.0, extra_info['critic_answer_is_correct'])
+    self.assertIn('AI rater error', extra_info['critic_reason'])
+    self.assertIn('critic_error', extra_info)
+    self.assertEqual('expected answer', extra_info['critic_golden_answer'])
+    self.assertEqual('generated answer', extra_info['critic_candidate_answer'])
 
 
 if __name__ == '__main__':

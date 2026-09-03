@@ -305,10 +305,11 @@ async def _evaluate_example(
   try:
     if enable_tracing:
       if isinstance(strategy, agents_base.Agent):
-        (prediction, final_state), execution_result = (
-            await _execute_with_tracing(  # pyrefly: ignore[not-async]
-                strategy, *args, **kwargs, return_final_state=True  # pyrefly: ignore[unexpected-keyword]
-            )
+        (
+            prediction,
+            final_state,
+        ), execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async]
+            strategy, *args, **kwargs, return_final_state=True  # pyrefly: ignore[unexpected-keyword]
         )
       else:
         prediction, execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async, invalid-param-spec]
@@ -470,7 +471,10 @@ def evaluate(
     *,
     inputs_extractor: Callable[
         [_Example], tuple[Sequence[Any], Mapping[str, Any]]
-    ] = lambda x: ([x['question']], {}),  # pyrefly: ignore[bad-index]
+    ] = lambda x: (
+        [x['question']],  # pyrefly: ignore[bad-index]
+        {},
+    ),
     target_extractor: Callable[[_Example], _O] = lambda x: x['answer'],  # pyrefly: ignore[bad-index]
     metric_functions: Mapping[str, MetricFunction] | None = None,
     aggregation_functions: Sequence[AggregationFunction] | None = None,
@@ -666,7 +670,10 @@ class EvaluationConfig(Generic[_Example, _I, _O]):
   examples: Iterable[_Example]
   inputs_extractor: Callable[
       [_Example], tuple[Sequence[Any], Mapping[str, Any]]
-  ] = lambda x: ([x[_QUESTION_KEY]], {})  # pyrefly: ignore[unsupported-operation]
+  ] = lambda x: (
+      [x[_QUESTION_KEY]],  # pyrefly: ignore[unsupported-operation]
+      {},
+  )
   target_extractor: Callable[[_Example], _O] = lambda x: x['answer']  # pyrefly: ignore[unsupported-operation]
   metric_functions: Mapping[str, MetricFunction] | None = None
   aggregation_functions: Sequence[AggregationFunction] | None = None
@@ -866,7 +873,7 @@ Prediction: {prediction}
   # Strip prompt prefix if repeated by the model.
   prefix = _NAIVE_EVALUATION_CRITIC_PROMPT_SUFFIX.lower()
   if rating.startswith(prefix):
-    rating = rating[len(prefix):].strip()
+    rating = rating[len(prefix) :].strip()
 
   # Some models are stubborn about returning the answer in a certain format
   # such as boldface (e.g. **yes**), regardless of how they are prompted.
@@ -1049,7 +1056,7 @@ Prediction: {prediction}
   # Strip prompt prefix if repeated by the model.
   prefix = _NAIVE_FUZZY_EVALUATION_CRITIC_PROMPT_SUFFIX.lower()
   if rating.lower().startswith(prefix):
-    rating = rating[len(prefix):].strip()
+    rating = rating[len(prefix) :].strip()
 
   # Attempt to parse the score from the response, only allow simple floats.
   simple_float_pattern = r'\d+(\.\d+)?'
@@ -1128,7 +1135,7 @@ def build_structured_evaluation_critic_prompt(
           content_lib.PredefinedRole.USER,
           'Question: Who is the best football player of all times?\n'
           'Answer A: Lionel Messi\n'
-          'Answer B: It\'s hard to decide objectively\n'
+          "Answer B: It's hard to decide objectively\n"
           'Does answer A agree with Answer B? (true/false): ',
       ),
       content_lib.Message(
@@ -1146,8 +1153,7 @@ def build_structured_evaluation_critic_prompt(
       ),
       content_lib.Message(
           content_lib.PredefinedRole.MODEL,
-          '{"agree": true, "reason": "5 is written in english as'
-          ' \\"five\\"."}',
+          '{"agree": true, "reason": "5 is written in english as \\"five\\"."}',
       ),
       content_lib.Message(
           content_lib.PredefinedRole.USER,
@@ -1226,10 +1232,28 @@ async def structured_evaluation_critic(
       question, target, prediction
   )
 
-  decision = cast(
-      NaiveCriticDecision,
-      await llm.generate_object(prompt=messages, cls=NaiveCriticDecision),
-  )
+  # TODO: Consider doing retries here before returning 0.0.
+  try:
+    decision = cast(
+        NaiveCriticDecision,
+        await llm.generate_object(prompt=messages, cls=NaiveCriticDecision),
+    )
+  except (pydantic.ValidationError, ValueError, TypeError) as e:
+    logging.warning(
+        'AI rater failed for question=%r, target=%r, prediction=%r: %s',
+        question,
+        target,
+        prediction,
+        e,
+    )
+    return 0.0, {
+        'critic_golden_answer': target,
+        'critic_candidate_answer': prediction,
+        'critic_answer_is_correct': 0.0,
+        'critic_reason': f'AI rater error: {e}',
+        'critic_error': str(e),
+        'critic_prompt': messages,
+    }
 
   is_correct = 1.0 if decision.agree else 0.0
   reason = decision.reason
