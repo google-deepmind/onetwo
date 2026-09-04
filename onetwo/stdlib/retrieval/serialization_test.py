@@ -22,6 +22,7 @@ from absl.testing import absltest
 import numpy as np
 from onetwo import ot
 from onetwo.backends import backend_registry
+from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import serialization
@@ -253,6 +254,108 @@ class SerializationTest(absltest.TestCase):
         ValueError, 'Unsupported serializer type: unknown'
     ):
       serialization.get_serializer('unknown', _Document)
+
+  def test_multimodal_serialization_roundtrip(self):
+    """Verifies that multimodal documents with ChunkList content survive save/load."""
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
+
+    text_doc = _Document(doc_id='text1', content='Plain text document.')
+    multimodal_doc = _Document(
+        doc_id='multi1',
+        title='Multimodal Doc',
+        content=content_lib.ChunkList([
+            content_lib.Chunk(
+                content=b'\x89PNG\r\n\x1a\nfake_image_bytes',
+                content_type='image/png',
+            ),
+            content_lib.Chunk(
+                content='A caption for the image.',
+                content_type='text/plain',
+            ),
+            content_lib.Chunk(
+                content=b'\x00\x01\x02audio_bytes',
+                content_type='audio/wav',
+            ),
+        ]),
+        metadata={'source': 'test'},
+    )
+
+    state = index_state.EmbeddingBasedIndexState(
+        docs=[text_doc, multimodal_doc],
+        doc_embeddings=[
+            np.array([1.0, 2.0], dtype=np.float32),
+            np.array([3.0, 4.0], dtype=np.float32),
+        ],
+    )
+    serializer.save(state, self.test_dir)
+
+    new_state = ot.run(serializer.load(self.test_dir))
+    self.assertLen(new_state.docs, 2)
+
+    # Verify plain text document is unchanged.
+    self.assertEqual(new_state.docs[0].doc_id, 'text1')
+    self.assertEqual(new_state.docs[0].content, 'Plain text document.')
+
+    # Verify multimodal document content is a ChunkList, not a raw dict.
+    loaded_doc = new_state.docs[1]
+    self.assertEqual(loaded_doc.doc_id, 'multi1')
+    self.assertEqual(loaded_doc.title, 'Multimodal Doc')
+    self.assertIsInstance(loaded_doc.content, content_lib.ChunkList)
+
+    chunks = loaded_doc.content.chunks
+    self.assertLen(chunks, 3)
+
+    # Verify each chunk is a Chunk instance with correct content and type.
+    self.assertIsInstance(chunks[0], content_lib.Chunk)
+    self.assertEqual(chunks[0].content, b'\x89PNG\r\n\x1a\nfake_image_bytes')
+    self.assertEqual(chunks[0].content_type, 'image/png')
+
+    self.assertIsInstance(chunks[1], content_lib.Chunk)
+    self.assertEqual(chunks[1].content, 'A caption for the image.')
+    self.assertEqual(chunks[1].content_type, 'text/plain')
+
+    self.assertIsInstance(chunks[2], content_lib.Chunk)
+    self.assertEqual(chunks[2].content, b'\x00\x01\x02audio_bytes')
+    self.assertEqual(chunks[2].content_type, 'audio/wav')
+
+    # Verify metadata is preserved.
+    self.assertEqual(loaded_doc.metadata, {'source': 'test'})
+
+  def test_multimodal_sharded_serialization_roundtrip(self):
+    """Verifies that sharded multimodal documents also survive save/load."""
+    serializer = serialization.SimpleEmbeddingBasedIndexSerializer(
+        _Document, num_shards=2
+    )
+
+    docs = [
+        _Document(
+            doc_id=f'doc{i}',
+            content=content_lib.ChunkList([
+                content_lib.Chunk(
+                    content=f'text_{i}'.encode(),
+                    content_type='audio/wav',
+                ),
+            ]),
+        )
+        for i in range(4)
+    ]
+
+    state = index_state.EmbeddingBasedIndexState(
+        docs=docs,
+        doc_embeddings=[
+            np.array([float(i)], dtype=np.float32) for i in range(4)
+        ],
+    )
+    serializer.save(state, self.test_dir)
+
+    new_state = ot.run(serializer.load(self.test_dir))
+    self.assertLen(new_state.docs, 4)
+
+    for i, doc in enumerate(new_state.docs):
+      self.assertIsInstance(doc.content, content_lib.ChunkList)
+      self.assertLen(doc.content.chunks, 1)
+      self.assertIsInstance(doc.content.chunks[0], content_lib.Chunk)
+      self.assertEqual(doc.content.chunks[0].content, f'text_{i}'.encode())
 
 
 if __name__ == '__main__':

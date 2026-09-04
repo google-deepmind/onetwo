@@ -23,6 +23,7 @@ from typing import Any, Generic, TypeVar
 from etils import epath
 import numpy as np
 from onetwo.backends import backend_registry
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -57,10 +58,19 @@ def load_documents(
   # Direct instantiation via doc_class(**json.loads(line)) bypasses runtime
   # reflection and schema inspection from dataclasses_json.from_json(),
   # speeding up loading by >15x on large datasets.
+  # However, we must still apply the custom decoder to the `content` field
+  # to correctly restore multimodal ChunkList/Chunk objects from their
+  # JSON-compatible dict representation.
+  def _deserialize_line(line: str) -> DocT:
+    data = json.loads(line)
+    if 'content' in data and isinstance(data['content'], (dict, list)):
+      data['content'] = content_lib.from_json_compatible(data['content'])
+    return doc_class(**data)
+
   def _read_single(p: epath.Path) -> list[DocT]:
     content = p.read_text()
     return [
-        doc_class(**json.loads(line))
+        _deserialize_line(line)
         for line in content.splitlines()
         if line.strip()
     ]
@@ -83,7 +93,7 @@ def load_documents(
       iterator = tqdm.tqdm(
           iterator, total=total or len(lines), desc='Loading index documents'
       )
-    return [doc_class(**json.loads(line)) for line in iterator if line.strip()]
+    return [_deserialize_line(line) for line in iterator if line.strip()]
 
 
 @dataclasses.dataclass
