@@ -28,6 +28,30 @@ from onetwo.stdlib.retrieval import searchers
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(frozen=True)
+class SeedSearcherConfig(dataclasses_json.DataClassJsonMixin):
+  """Configuration for a Seed Searcher.
+
+  Attributes:
+    class_name: Name of the searcher class (e.g. 'BruteForceSearcher').
+    kwargs: Keyword arguments to pass to the searcher constructor.
+  """
+
+  class_name: str
+  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
+def make_seed_searcher(
+    config: SeedSearcherConfig,
+) -> seed_searchers.PPRSeedSearcher:
+  """Instantiates a Seed Searcher from its configuration."""
+  cls = getattr(seed_searchers, config.class_name, None)
+  if cls is None or not issubclass(cls, seed_searchers.PPRSeedSearcher):
+    raise ValueError(f"Unknown seed searcher: {config.class_name}")
+  return cls(**config.kwargs)
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(frozen=True)
 class SearcherConfig(dataclasses_json.DataClassJsonMixin):
   """Configuration for a Searcher.
 
@@ -153,6 +177,12 @@ class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
 
   similarity_threshold: float = 0.8
   generate_backend_config: backend_registry.GenerateBackendConfig
+  seed_searcher_config: SeedSearcherConfig = dataclasses.field(
+      default_factory=lambda: SeedSearcherConfig(
+          class_name="EntityAndPassageDirectSeeder",
+          kwargs={},
+      )
+  )
 
   def __str__(self) -> str:
     """Returns a compact, path-friendly string representation."""
