@@ -109,6 +109,8 @@ class LocalIndexRunner(
           embed_backend_config=spec.embed_backend_config,
           generate_backend_config=spec.generate_backend_config,
           similarity_threshold=spec.similarity_threshold,
+          ignore_triples=spec.ignore_triples,
+          ignore_similarity_edges=spec.ignore_similarity_edges,
           runtime_kwargs=runtime_kwargs,
       )
       index = indexing.RewritingEmbeddingBasedDocumentIndex(

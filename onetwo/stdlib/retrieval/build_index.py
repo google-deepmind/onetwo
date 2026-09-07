@@ -97,6 +97,20 @@ _SIMILARITY_THRESHOLD = flags.DEFINE_float(
     ' similarity edges.',
 )
 
+_IGNORE_TRIPLES = flags.DEFINE_boolean(
+    'ignore_triples',
+    True,
+    'Whether to ignore relational triples during HippoRAG graph construction'
+    ' and indexing.',
+)
+
+_IGNORE_SIMILARITY_EDGES = flags.DEFINE_boolean(
+    'ignore_similarity_edges',
+    True,
+    'Whether to ignore semantic similarity edges during HippoRAG graph'
+    ' construction.',
+)
+
 _CHUNK_SIZE = flags.DEFINE_integer(
     'chunk_size',
     None,
@@ -190,6 +204,8 @@ def main(argv: Sequence[str]) -> None:
       generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
       generation_model_name=_GENERATION_MODEL_NAME.value,
       similarity_threshold=_SIMILARITY_THRESHOLD.value,
+      ignore_triples=_IGNORE_TRIPLES.value,
+      ignore_similarity_edges=_IGNORE_SIMILARITY_EDGES.value,
       serializer_type=_SERIALIZER_TYPE.value,
       runtime_kwargs=_RUNTIME_KWARGS.value,
       max_retries=_MAX_RETRIES.value,

@@ -456,6 +456,60 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         str(rewriting_spec),
     )
 
+  def test_hipporag_index_spec_ignore_flags_and_hash_differentiation(self):
+    spec_default = index_build_interface.HippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
+    )
+    spec_include_triples = index_build_interface.HippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
+        ignore_triples=False,
+    )
+    spec_include_sim = index_build_interface.HippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
+        ignore_similarity_edges=False,
+    )
+
+    self.assertTrue(spec_default.ignore_triples)
+    self.assertTrue(spec_default.ignore_similarity_edges)
+    self.assertFalse(spec_include_triples.ignore_triples)
+    self.assertFalse(spec_include_sim.ignore_similarity_edges)
+
+    self.assertNotEqual(
+        spec_default.get_stable_hash(), spec_include_triples.get_stable_hash()
+    )
+    self.assertNotEqual(
+        spec_default.get_stable_hash(), spec_include_sim.get_stable_hash()
+    )
+
+    # Round-trip serialization
+    json_str = spec_include_triples.to_json()
+    loaded_spec = index_build_interface.HippoRAGDocumentIndexSpec.from_json(
+        json_str
+    )
+    self.assertEqual(spec_include_triples, loaded_spec)
+    self.assertFalse(loaded_spec.ignore_triples)
+
+  def test_local_index_runner_forwards_ignore_flags(self):
+    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
+        ignore_triples=False,
+        ignore_similarity_edges=False,
+    )
+    docs = [
+        Document(doc_id='doc1', title='Title 1', content='Content 1'),
+    ]
+    runner = local_index_runner.LocalIndexRunner()
+    index = ot.run(runner.build_index(spec=spec, docs=docs))
+    self.assertTrue(hasattr(index, 'inner_index'))
+    inner_index = getattr(index, 'inner_index')
+    self.assertIsInstance(inner_index, graphrag_indexing.HippoRAGDocumentIndex)
+    self.assertFalse(inner_index.ignore_triples)
+    self.assertFalse(inner_index.ignore_similarity_edges)
+
 
 if __name__ == '__main__':
   absltest.main()

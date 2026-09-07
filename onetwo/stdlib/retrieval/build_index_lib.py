@@ -44,6 +44,8 @@ def build_index(
     generation_backend_class_name: str = 'GoogleGenAIAPI',
     generation_model_name: str = 'gemini-3-flash-preview',
     similarity_threshold: float = 0.8,
+    ignore_triples: bool = True,
+    ignore_similarity_edges: bool = True,
     serializer_type: str = 'simple',
     max_retries: int | None = 5,
     http_timeout: int | None = 60000,
@@ -67,6 +69,8 @@ def build_index(
     generation_backend_class_name: Generation backend class name for HippoRAG.
     generation_model_name: Generation model name for HippoRAG.
     similarity_threshold: Similarity threshold for HippoRAG.
+    ignore_triples: Whether to ignore relational triples for HippoRAG.
+    ignore_similarity_edges: Whether to ignore similarity edges for HippoRAG.
     serializer_type: Serializer type to use ('simple' or 'internal').
     max_retries: Maximum number of retries for backend requests.
     http_timeout: HTTP timeout in milliseconds for backend requests.
@@ -130,6 +134,8 @@ def build_index(
         overlap_window=overlap_window,
         format_str=format_str,
         similarity_threshold=similarity_threshold,
+        ignore_triples=ignore_triples,
+        ignore_similarity_edges=ignore_similarity_edges,
         runtime_kwargs=rt_kwargs,
     )
   else:

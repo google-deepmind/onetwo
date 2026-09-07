@@ -173,6 +173,11 @@ class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
     generate_backend_config: Configuration for the generation backend (LLM).
     similarity_threshold: Minimum cosine similarity required to add a semantic
       similarity edge between entities in the graph.
+    seed_searcher_config: Configuration for PPR seed searcher.
+    ignore_triples: Whether to ignore indexing relational triples into the
+      triples index. Defaults to True.
+    ignore_similarity_edges: Whether to ignore semantic similarity edges between
+      entities in the graph. Defaults to True.
   """
 
   similarity_threshold: float = 0.8
@@ -183,6 +188,8 @@ class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
           kwargs={},
       )
   )
+  ignore_triples: bool = True
+  ignore_similarity_edges: bool = True
 
   def __str__(self) -> str:
     """Returns a compact, path-friendly string representation."""
