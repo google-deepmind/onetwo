@@ -910,7 +910,7 @@ class EvaluationTest(parameterized.TestCase):
     summary = evaluation.evaluate(
         strategy=ordinary_identity_function,
         examples=examples,
-        metric_functions={'accuracy': metric_function},  # pyrefly: ignore[bad-argument-type]
+        metric_functions={'accuracy': metric_function},  # pyrefly: ignore[bad-argument-type, bad-assignment]
         output_results=True,
     )
     _reset_times(summary)
@@ -1013,7 +1013,7 @@ class EvaluationTest(parameterized.TestCase):
         examples=examples,
         inputs_extractor=extract_all_example_fields_except_target,
         metric_functions={  # pyrefly: ignore[bad-argument-type]
-            'accuracy': _accuracy_function_that_returns_example_option
+            'accuracy': _accuracy_function_that_returns_example_option  # pyrefly: ignore[bad-assignment]
         },
         aggregation_functions=[_aggregate_via_dict_update],
         output_results=True,
@@ -1053,7 +1053,7 @@ class EvaluationTest(parameterized.TestCase):
         examples=examples,
         inputs_extractor=inputs_extractor,
         metric_functions={  # pyrefly: ignore[bad-argument-type]
-            'accuracy': _accuracy_function_that_returns_example_option
+            'accuracy': _accuracy_function_that_returns_example_option  # pyrefly: ignore[bad-assignment]
         },
     )
     _reset_times(summary_slow)
@@ -1076,7 +1076,7 @@ class EvaluationTest(parameterized.TestCase):
         examples=examples,
         inputs_extractor=inputs_extractor,
         metric_functions={  # pyrefly: ignore[bad-argument-type]
-            'accuracy': _accuracy_function_that_returns_example_option
+            'accuracy': _accuracy_function_that_returns_example_option  # pyrefly: ignore[bad-assignment]
         },
     )
     _reset_times(summary_fast)
