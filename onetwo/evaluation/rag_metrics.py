@@ -482,6 +482,35 @@ def _get_tool_call_counts(
   )
 
 
+# --- Timing metrics ---
+
+
+def runtime_seconds(
+    target: Any,
+    prediction: Any,
+    example: Any = None,
+    execution_result: results.ExecutionResult | None = None,
+) -> float:
+  """Returns the runtime in seconds for this example from the execution trace.
+
+  Reads the `start_time` and `end_time` monotonic clock values recorded by the
+  tracing decorator on the root `ExecutionResult` node.
+
+  Args:
+    target: Golden output (unused).
+    prediction: Strategy prediction (unused).
+    example: Example dict (unused).
+    execution_result: Root of the execution trace tree.
+
+  Returns:
+    Elapsed wall-clock time in seconds, or 0.0 if tracing was disabled.
+  """
+  del target, prediction, example
+  if execution_result is None:
+    return 0.0
+  return execution_result.get_elapsed_time()
+
+
 # --- LLM call metrics ---
 
 
@@ -664,6 +693,7 @@ def get_default_rag_metrics(
           backend_config=accuracy_critic_backend_config,
           runtime_kwargs=runtime_kwargs,
       ),
+      'runtime_seconds': runtime_seconds,
       'recall@5': make_recall_at_k(k=5),
       'recall@10': make_recall_at_k(k=10),
       'recall@20': make_recall_at_k(k=20),

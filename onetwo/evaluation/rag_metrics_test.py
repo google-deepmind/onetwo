@@ -538,6 +538,7 @@ class MetricsLibTest(parameterized.TestCase):
     metrics = rag_metrics.get_default_rag_metrics()
     expected_keys = {
         'accuracy',
+        'runtime_seconds',
         'recall@5',
         'recall@10',
         'recall@20',
@@ -557,6 +558,7 @@ class MetricsLibTest(parameterized.TestCase):
     metrics = rag_metrics.get_default_rag_metrics(max_results=14)
     expected_keys = {
         'accuracy',
+        'runtime_seconds',
         'recall@5',
         'recall@10',
         'recall@14',
@@ -572,6 +574,28 @@ class MetricsLibTest(parameterized.TestCase):
         'tool_details',
     }
     self.assertEqual(set(metrics.keys()), expected_keys)
+
+  def test_runtime_seconds_with_timing(self):
+    trace = results.ExecutionResult(stage_name='root')
+    trace.start_time = 100.0
+    trace.end_time = 105.5
+    elapsed = rag_metrics.runtime_seconds(
+        target='a', prediction='b', execution_result=trace
+    )
+    self.assertAlmostEqual(elapsed, 5.5)
+
+  def test_runtime_seconds_none_execution_result(self):
+    elapsed = rag_metrics.runtime_seconds(
+        target='a', prediction='b', execution_result=None
+    )
+    self.assertEqual(elapsed, 0.0)
+
+  def test_runtime_seconds_no_timing(self):
+    trace = results.ExecutionResult(stage_name='root')
+    elapsed = rag_metrics.runtime_seconds(
+        target='a', prediction='b', execution_result=trace
+    )
+    self.assertEqual(elapsed, 0.0)
 
 if __name__ == '__main__':
   absltest.main()
