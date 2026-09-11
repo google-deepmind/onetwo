@@ -250,6 +250,33 @@ class GoogleGenaiApiTest(
         info['llm.model'],
         google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api.rsplit('/')[-1],
     )
+    self.assertNotIn('llm.gcp_project', info)
+
+  def test_generate_text_updates_tracing_with_gcp_project(self):
+    _ = _get_and_register_backend(disable_caching=True, project='test-project')
+
+    mock_response = mock.Mock()
+    mock_response.candidates = [genai_candidate('text')]
+    mock_response.usage_metadata = mock.Mock(
+        prompt_token_count=10,
+        cached_content_token_count=5,
+        candidates_token_count=20,
+        thoughts_token_count=2,
+        tool_use_prompt_token_count=0,
+    )
+    mock_response.prompt_feedback = None
+    mock_response.automatic_function_calling_history = None
+
+    self._mock_genai_client.models.generate_content.return_value = mock_response
+
+    _, trace = executing.run(
+        llm.generate_text(prompt='Something'), enable_tracing=True
+    )
+
+    generate_text_stage = trace.stages[0]
+    generate_contents_stage = generate_text_stage.stages[0]
+    info = generate_contents_stage.info
+    self.assertEqual(info['llm.gcp_project'], 'test-project')
 
   @parameterized.named_parameters(
       dict(
@@ -1655,6 +1682,25 @@ class GoogleGenaiApiTest(
         info['llm.model'],
         google_genai_api.DEFAULT_EMBED_MODEL.gemini_api.rsplit('/')[-1],
     )
+    self.assertNotIn('llm.gcp_project', info)
+
+  def test_embed_updates_tracing_with_project(self):
+    _ = _get_and_register_backend(disable_caching=True, project='test-project')
+
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+
+    _, trace = executing.run(
+        llm.embed(content='Something'), enable_tracing=True
+    )
+
+    embed_stage = trace.stages[0]
+    self.assertEqual(embed_stage.stage_name, 'GoogleGenAIAPI.embed')
+    info = embed_stage.info
+    self.assertEqual(info['llm.gcp_project'], 'test-project')
 
   def test_embed_with_retry(self):
     self._mock_genai_client.models.embed_content.side_effect = [
@@ -3483,6 +3529,38 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
     call_args = mock_update_info.call_args[0][0]
     self.assertIsNone(call_args['llm.tokens.thoughts'])
     self.assertIsNone(call_args['llm.tokens.tool_use_prompt'])
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_gcp_project_included(self, mock_update_info):
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])]
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(),
+        'gemini-pro',
+        response,
+        project='my-gcp-project',
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertEqual(call_args['llm.gcp_project'], 'my-gcp-project')
+
+  @mock.patch.object(google_genai_api.tracing, 'update_info')
+  def test_gcp_project_omitted_when_none(self, mock_update_info):
+    response = self._make_response(
+        candidates=[self._make_candidate([self._make_part()])]
+    )
+
+    google_genai_api._update_trace_info_from_usage_metadata(
+        self._make_usage_metadata(),
+        'gemini-pro',
+        response,
+        project=None,
+    )
+
+    call_args = mock_update_info.call_args[0][0]
+    self.assertNotIn('llm.gcp_project', call_args)
 
 
 if __name__ == '__main__':

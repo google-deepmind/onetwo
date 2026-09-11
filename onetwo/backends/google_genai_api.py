@@ -375,6 +375,7 @@ def _update_trace_info_from_usage_metadata(
     usage_metadata: genai_types.GenerateContentResponseUsageMetadata,
     model_name: str,
     response: genai_types.GenerateContentResponse,
+    project: str | None = None,
 ) -> None:
   """Updates tracing info from the response's usage metadata.
 
@@ -398,6 +399,7 @@ def _update_trace_info_from_usage_metadata(
     usage_metadata: The usage_metadata attribute from the API response.
     model_name: The full model name string (e.g. 'models/gemini-2.0-flash').
     response: The full GenerateContentResponse, used to count tool calls.
+    project: Optional Google Cloud project ID to record in the trace.
   """
   # Count tool calls and extract detailed tool interaction history.
   # When the SDK handles tool use automatically (e.g. MCP), intermediate
@@ -435,6 +437,8 @@ def _update_trace_info_from_usage_metadata(
       'llm.tokens.tool_use_prompt': usage_metadata.tool_use_prompt_token_count,
       'llm.tools.calls': tool_call_count,
   }
+  if project:
+    trace_info['llm.gcp_project'] = project
   if tool_call_details:
     trace_info['llm.tools.details'] = [  # pyrefly: ignore[bad-assignment]
         detail.to_dict() for detail in tool_call_details
@@ -865,7 +869,7 @@ class GoogleGenAIAPI(
 
     if usage_metadata := getattr(response, 'usage_metadata', None):
       _update_trace_info_from_usage_metadata(
-          usage_metadata, model_name, response
+          usage_metadata, model_name, response, project=self.project
       )
 
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.
@@ -1338,9 +1342,12 @@ class GoogleGenAIAPI(
           'GoogleGenAIAPI.embed returned no embedding values for request:\n'
           f'{pprint.pformat(content)[:100]}'
       )
-    tracing.update_info({
+    trace_info = {
         'llm.model': model_name.rsplit('/', 1)[-1],
-    })
+    }
+    if self.project:
+      trace_info['llm.gcp_project'] = self.project
+    tracing.update_info(trace_info)
     values = response.embeddings[0].values
     # For gemini-embedding-001, the API returns truncated vectors when
     # output_dimensionality is set, without re-normalizing them.
