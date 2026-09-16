@@ -19,6 +19,7 @@ from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import routing
 from onetwo.stdlib.tool_use import llm_tool_use
 
@@ -347,6 +348,64 @@ class ToolTest(parameterized.TestCase):
 
     with self.subTest('kwargs_args'):
       self.assertEqual(5, executing.run(tool(arg1=2, arg2=3)))
+
+
+class RenderFunctionCallTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('python', _ArgumentFormat.PYTHON, "`Search('pi', k=2)`"),
+      ('default', None, "Search('pi', k=2)"),
+  )
+  def test_renders_args_and_kwargs(self, fmt, expected):
+    call = function_calling.FunctionCall(
+        function_name='Search', args=('pi',), kwargs={'k': 2}
+    )
+
+    self.assertEqual(expected, llm_tool_use.render_function_call(call, fmt))
+
+  def test_accepts_the_core_type(self):
+    # The builtins layer produces the core type, which has no `render` method,
+    # so the free function must accept it.
+    call = function_calling.FunctionCall(function_name='Search', args=('pi',))
+
+    self.assertEqual(
+        "`Search('pi')`",
+        llm_tool_use.render_function_call(call, _ArgumentFormat.PYTHON),
+    )
+
+
+class DeprecatedFunctionCallTest(parameterized.TestCase):
+  """Guards the backwards compatibility of `llm_tool_use.FunctionCall`.
+
+  This subclass is deprecated and is scheduled for removal once its remaining
+  callers have moved to `render_function_call`. Until then it must remain a
+  drop-in replacement for the type it used to be.
+  """
+
+  def test_render_method_still_works(self):
+    call = llm_tool_use.FunctionCall(
+        function_name='Search', args=('pi',), kwargs={}
+    )
+
+    self.assertEqual("`Search('pi')`", call.render(_ArgumentFormat.PYTHON))
+
+  def test_is_a_core_function_call(self):
+    self.assertIsInstance(
+        llm_tool_use.FunctionCall(), function_calling.FunctionCall
+    )
+
+  def test_equal_to_core_function_call_with_same_values(self):
+    self.assertEqual(
+        llm_tool_use.FunctionCall(function_name='Search', args=('pi',)),
+        function_calling.FunctionCall(function_name='Search', args=('pi',)),
+    )
+
+  def test_defaults_are_unchanged(self):
+    call = llm_tool_use.FunctionCall()
+
+    self.assertEqual('', call.function_name)
+    self.assertEqual((), call.args)
+    self.assertEqual({}, call.kwargs)
 
 
 if __name__ == '__main__':

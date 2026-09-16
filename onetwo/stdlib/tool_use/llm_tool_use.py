@@ -23,6 +23,7 @@ import json
 import re
 from typing import Any
 
+from onetwo.core import function_calling
 from onetwo.core import routing
 from onetwo.core import utils
 import yaml
@@ -445,25 +446,51 @@ def render_assignment_response(
   )
 
 
-@dataclasses.dataclass
-class FunctionCall:
-  """A single function call (e.g., as may appear in one step of tool usage).
+def render_function_call(
+    function_call: function_calling.FunctionCall,
+    fmt: ArgumentFormat | None = None,
+) -> str:
+  """Renders a function call in the given format.
 
-  Attributes:
-    function_name: The name of the function to be called. Should match the name
-      of a function that is registered in `onetwo.function_registry` (or when
-      using a tool handler like `PythonToolUseEnvironment`, the name of a tool
-      as per its `Tool.name`).
-    args: The arguments of the function.
-    kwargs: The keyword arguments of the function.
+  Args:
+    function_call: The call to render.
+    fmt: Format to render it in. `None` selects the default format used by
+      `render_call`.
+
+  Returns:
+    The rendered call, e.g. `Search(query="onetwo")` for
+    `ArgumentFormat.PYTHON`.
+  """
+  return render_call(
+      fmt,
+      function_call.function_name,
+      *function_call.args,
+      **function_call.kwargs,
+  )
+
+
+# TODO: Delete this class once the remaining callers of
+# `FunctionCall.render` have been migrated to `render_function_call`, and
+# replace it with `FunctionCall = function_calling.FunctionCall`.
+@dataclasses.dataclass(eq=False)
+class FunctionCall(function_calling.FunctionCall):
+  """A `FunctionCall` that can additionally render itself.
+
+  DEPRECATED: use `onetwo.core.function_calling.FunctionCall` for the data, and
+  the free function `render_function_call` for the rendering. This subclass
+  exists only so that existing callers of `FunctionCall.render` keep working,
+  and will be replaced by a plain alias for the core type once they have all
+  been migrated.
+
+  Instances compare equal to `function_calling.FunctionCall` instances holding
+  the same values, so the two can be mixed freely during the migration. This is
+  why `eq=False` is set: it keeps the field-wise `__eq__` inherited from the
+  core type instead of generating one that also requires an exact type match.
   """
 
-  function_name: str = ''
-  args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
-  kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
-
   def render(self, fmt: ArgumentFormat) -> str:
-    return render_call(fmt, self.function_name, *self.args, **self.kwargs)
+    """DEPRECATED: use `render_function_call(self, fmt)` instead."""
+    return render_function_call(self, fmt)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -481,7 +508,9 @@ class ToolExample:
   rendering_format: ArgumentFormat | None = None
 
   def render(self) -> str:
-    rendered_call = self.function_call.render(self.rendering_format)  # pyrefly: ignore[bad-argument-type]
+    rendered_call = render_function_call(
+        self.function_call, self.rendering_format
+    )
     rendered_response = render_response(self.rendering_format, self.response)
     return f'{rendered_call}\nwill return: {rendered_response}'
 

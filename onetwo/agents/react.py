@@ -89,7 +89,7 @@ class ReActStep:
   def render_action(self) -> str | content_lib.ChunkList:
     """Returns the action formatted appropriately for insertion in a prompt."""
     if self.action is not None:
-      return self.action.render(fmt=self.fmt)  # pyrefly: ignore[bad-argument-type]
+      return llm_tool_use.render_function_call(self.action, self.fmt)
     else:
       return str(self.action)
 
