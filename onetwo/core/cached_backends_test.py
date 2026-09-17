@@ -19,6 +19,7 @@ import dataclasses
 import io
 import itertools
 import os
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -784,6 +785,147 @@ class CachedBackendsTest(parameterized.TestCase):
     with contextlib.redirect_stdout(f):
       cb.load_backend_cache('missing')
     self.assertIn('Cache file does not exist', f.getvalue())
+
+  @parameterized.named_parameters(
+      (
+          'permission_error_on_load',
+          PermissionError('Permission denied'),
+          'load',
+      ),
+      (
+          'os_error_on_load',
+          OSError('I/O error'),
+          'load',
+      ),
+      (
+          'permission_error_on_exists',
+          PermissionError('Permission denied'),
+          'exists',
+      ),
+      (
+          'os_error_on_exists',
+          OSError('I/O error'),
+          'exists',
+      ),
+  )
+  def test_load_cache_unreadable(self, error, error_source):
+    temp_dir = self.create_tempdir()
+    cache_path = temp_dir.create_file('unreadable.json').full_path
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=temp_dir.full_path,
+        enable_print_statements=True,
+    )
+    backend = TestBackend(
+        cache_filename=cache_path,
+        return_value='a',
+    )
+    cb['unreadable'] = backend
+    cache = backend.cache
+    self.assertIsNotNone(cache)
+
+    if error_source == 'load':
+      patch_target = mock.patch.object(cache, 'load', side_effect=error)
+    else:
+      mock_path = mock.MagicMock()
+      mock_path.exists.side_effect = error
+      patch_target = mock.patch.object(
+          cached_backends.epath, 'Path', return_value=mock_path
+      )
+
+    f = io.StringIO()
+    with patch_target, contextlib.redirect_stdout(f):
+      cb.load_backend_cache('unreadable')
+
+    output = f.getvalue()
+    self.assertIn('Skipping unreadable cache file', output)
+    self.assertIn(cache_path, output)
+    self.assertEqual(0, cache.get_key_count())
+
+  def test_load_cache_unreadable_silent_when_print_disabled(self):
+    temp_dir = self.create_tempdir()
+    cache_path = temp_dir.create_file('unreadable.json').full_path
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=temp_dir.full_path,
+        enable_print_statements=False,
+    )
+    backend = TestBackend(
+        cache_filename=cache_path,
+        return_value='a',
+    )
+    cb['unreadable'] = backend
+    cache = backend.cache
+    self.assertIsNotNone(cache)
+
+    with mock.patch.object(
+        cache, 'load', side_effect=PermissionError('Permission denied')
+    ):
+      f = io.StringIO()
+      with contextlib.redirect_stdout(f):
+        cb.load_backend_cache('unreadable')
+
+    self.assertEmpty(f.getvalue())
+    self.assertEqual(0, cache.get_key_count())
+
+  def test_load_cache_multiple_files_skips_unreadable(self):
+    shared_dir = self.create_tempdir()
+    user_dir = self.create_tempdir()
+    shared_file = shared_dir.create_file('backend.json').full_path
+    user_file = user_dir.create_file('backend.json').full_path
+
+    cb = cached_backends.CachedBackends(
+        own_cache_directory=user_dir.full_path,
+        shared_cache_directory=shared_dir.full_path,
+        enable_print_statements=True,
+    )
+    backend = TestBackend(
+        cache_filename=user_file,
+        return_value='a',
+    )
+    cb['backend'] = backend
+    cache = backend.cache
+    self.assertIsNotNone(cache)
+
+    # Populate and save cache in the user cache file.
+    asyncio.run(backend.get_value('arg1'))
+    cb.save_caches()
+    self.assertEqual(1, cache.get_key_count())
+
+    # Create a new backend instance with an empty cache to test loading.
+    backend_to_load = TestBackend(
+        cache_filename=user_file,
+        return_value='a',
+    )
+    cb['backend'] = backend_to_load
+    new_cache = backend_to_load.cache
+    self.assertIsNotNone(new_cache)
+    self.assertEqual(0, new_cache.get_key_count())
+
+    # Simulate shared_file raising PermissionError during load.
+    original_load = new_cache.load
+
+    def load_with_shared_error(*args, **kwargs):
+      cache_filename = kwargs.get('cache_filename') or (
+          args[0] if args else None
+      )
+      if cache_filename == shared_file:
+        raise PermissionError('Permission denied')
+      return original_load(*args, **kwargs)
+
+    f = io.StringIO()
+    with (
+        mock.patch.object(
+            new_cache, 'load', side_effect=load_with_shared_error
+        ),
+        contextlib.redirect_stdout(f),
+    ):
+      cb.load_backend_cache('backend')
+
+    output = f.getvalue()
+    self.assertIn('Skipping unreadable cache file', output)
+    self.assertIn(shared_file, output)
+    self.assertIn('Loading cache from', output)
+    self.assertIn(user_file, output)
+    self.assertEqual(1, new_cache.get_key_count())
 
   def test_skip_saving_and_printing(self):
     cb = cached_backends.CachedBackends(

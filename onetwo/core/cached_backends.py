@@ -261,23 +261,27 @@ class CachedBackends(Mapping[str, backends_base.Backend]):
         print(f'No cache files specified for {backend_name}.')
 
     for cache_filename in cache_filenames:
-      if epath.Path(cache_filename).exists():
-        cache_size_before = cache.get_key_count()
-        if self.enable_print_statements:
-          print(f'Loading cache from {cache_filename} ({overwrite=}).')
+      try:
+        if epath.Path(cache_filename).exists():
+          cache_size_before = cache.get_key_count()
+          if self.enable_print_statements:
+            print(f'Loading cache from {cache_filename} ({overwrite=}).')
 
-        cache.load(overwrite=overwrite, cache_filename=cache_filename)
+          cache.load(overwrite=overwrite, cache_filename=cache_filename)
 
+          if self.enable_print_statements:
+            cache_size_after = cache.get_key_count()
+            print(
+                f'Loaded {cache_size_after - cache_size_before} items: '
+                f'{cache_size_before} => {cache_size_after}.'
+            )
+          overwrite = False
+        else:
+          if self.enable_print_statements:
+            print(f'Cache file does not exist: {cache_filename}')
+      except (PermissionError, OSError):
         if self.enable_print_statements:
-          cache_size_after = cache.get_key_count()
-          print(
-              f'Loaded {cache_size_after - cache_size_before} items: '
-              f'{cache_size_before} => {cache_size_after}.'
-          )
-        overwrite = False
-      else:
-        if self.enable_print_statements:
-          print(f'Cache file does not exist: {cache_filename}')
+          print(f'Skipping unreadable cache file: {cache_filename}')
 
     self._update_initial_counters(backend_name)
 
