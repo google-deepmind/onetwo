@@ -145,11 +145,20 @@ class FunctionCall:
       calls that originate from a backend, and is populated only by the
       text-parsing strategies, which can recover positional arguments.
     kwargs: The keyword arguments of the function.
+    id: Identifier used to match this call to its `FunctionResponse`. A model
+      may request several calls in a single turn, including several calls to
+      the same function, so the name alone does not identify a call. Set by
+      whoever produces the call: backends that supply one propagate it, and
+      those that do not can leave it empty when calls are answered in order.
   """
 
   function_name: str = ''
   args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
   kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+  # Excluded from `repr` because callers treat the repr of a `FunctionCall` as
+  # a serialization format: one writes it into a field of an RPC response, and
+  # others assert on it in golden tests. See b/561535278.
+  id: str = dataclasses.field(default='', repr=False)
 
 
 @dataclasses.dataclass
@@ -163,8 +172,13 @@ class FunctionResponse:
     error: A description of why the call failed, or `None` if it succeeded.
       Failures are represented rather than raised so that they can be reported
       back to the model, giving it the opportunity to correct the call.
+    id: Identifier of the `FunctionCall` this responds to, matching
+      `FunctionCall.id`.
   """
 
   function_name: str = ''
   response: Any = None
   error: str | None = None
+  # Excluded from `repr` for symmetry with `FunctionCall.id` above.
+  id: str = dataclasses.field(default='', repr=False)
+

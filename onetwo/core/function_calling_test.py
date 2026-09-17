@@ -43,6 +43,7 @@ class FunctionCallTest(parameterized.TestCase):
     self.assertEqual('', call.function_name)
     self.assertEqual((), call.args)
     self.assertEqual({}, call.kwargs)
+    self.assertEqual('', call.id)
 
   def test_positional_construction_matches_field_order(self):
     # Guards the field order, which positional callers rely on.
@@ -64,10 +65,22 @@ class FunctionCallTest(parameterized.TestCase):
         repr(function_calling.FunctionCall('Finish', ('4',), {})),
     )
 
+  def test_id_is_excluded_from_repr(self):
+    # Consequence of the above: `id` was added after callers had come to depend
+    # on the repr, so it is declared with `repr=False`.
+    call = function_calling.FunctionCall('Finish', ('4',), {}, id='call_1')
+
+    self.assertEqual(
+        "FunctionCall(function_name='Finish', args=('4',), kwargs={})",
+        repr(call),
+    )
+    self.assertEqual('call_1', call.id)
+
   @parameterized.named_parameters(
       ('function_name', {'function_name': 'Other'}),
       ('args', {'args': ('z',)}),
       ('kwargs', {'kwargs': {'b': 2}}),
+      ('id', {'id': 'call_2'}),
   )
   def test_not_equal_when_any_field_differs(self, overrides):
     call = function_calling.FunctionCall(
@@ -106,6 +119,7 @@ class FunctionResponseTest(parameterized.TestCase):
     self.assertEqual('', response.function_name)
     self.assertIsNone(response.response)
     self.assertIsNone(response.error)
+    self.assertEqual('', response.id)
 
   def test_equal_when_all_fields_match(self):
     self.assertEqual(
@@ -121,6 +135,7 @@ class FunctionResponseTest(parameterized.TestCase):
       ('function_name', {'function_name': 'Other'}),
       ('response', {'response': ['z']}),
       ('error', {'error': 'boom'}),
+      ('id', {'id': 'call_2'}),
   )
   def test_not_equal_when_any_field_differs(self, overrides):
     response = function_calling.FunctionResponse(
@@ -357,27 +372,55 @@ class ToolShapesTest(parameterized.TestCase):
     # Models routinely emit independent calls in a single turn, including two
     # calls to the same tool, so `calls` is a sequence rather than a single
     # optional call.
-    turn = function_calling.ConversationTurn(
+    model_turn = function_calling.ConversationTurn(
         role=function_calling.ConversationRole.MODEL,
         thought='Look up both entities before connecting them.',
         calls=(
             function_calling.FunctionCall(
                 function_name='search_entities',
                 kwargs={'query': 'Samuel Namara'},
+                id='call_1',
             ),
             function_calling.FunctionCall(
                 function_name='search_entities',
                 kwargs={'query': 'Firuzabad'},
+                id='call_2',
+            ),
+        ),
+    )
+    # Tools may complete out of order, so the responses are deliberately not in
+    # the same order as the calls.
+    tool_turn = function_calling.ConversationTurn(
+        role=function_calling.ConversationRole.TOOL,
+        responses=(
+            function_calling.FunctionResponse(
+                function_name='search_entities',
+                response='[{"entity_id": "entity_firuzabad_geo"}]',
+                id='call_2',
+            ),
+            function_calling.FunctionResponse(
+                function_name='search_entities',
+                response='[{"entity_id": "entity_samuel namara_person"}]',
+                id='call_1',
             ),
         ),
     )
 
-    self.assertLen(turn.calls, 2)
-    # Both calls name the same tool, so responses cannot be matched back to
-    # calls by name alone; in follow-up CL, a function call ID will be added for
-    # that purpose.
+    self.assertLen(model_turn.calls, 2)
+    # Both calls name the same tool and the responses arrive in a different
+    # order, so neither the name nor the position identifies a call. The `id`
+    # is what pairs them up.
     self.assertEqual(
-        {'search_entities'}, {call.function_name for call in turn.calls}
+        {'search_entities'}, {call.function_name for call in model_turn.calls}
+    )
+    by_id = {response.id: response for response in tool_turn.responses}
+    self.assertEqual(
+        '[{"entity_id": "entity_samuel namara_person"}]',
+        by_id[model_turn.calls[0].id].response,
+    )
+    self.assertEqual(
+        '[{"entity_id": "entity_firuzabad_geo"}]',
+        by_id[model_turn.calls[1].id].response,
     )
 
   def test_response_can_hold_a_rich_python_value(self):
