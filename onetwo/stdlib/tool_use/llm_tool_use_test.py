@@ -350,6 +350,71 @@ class ToolTest(parameterized.TestCase):
       self.assertEqual(5, executing.run(tool(arg1=2, arg2=3)))
 
 
+class ToolToSpecTest(parameterized.TestCase):
+
+  def test_projects_the_declaration_fields(self):
+    tool = llm_tool_use.Tool(
+        name='search',
+        function=_add_sync,
+        description='Searches the web.',
+        parameters={
+            'type': 'object',
+            'properties': {'query': {'type': 'string'}},
+            'required': ['query'],
+        },
+    )
+
+    self.assertEqual(
+        function_calling.ToolSpec(
+            name='search',
+            description='Searches the web.',
+            parameters={
+                'type': 'object',
+                'properties': {'query': {'type': 'string'}},
+                'required': ['query'],
+            },
+        ),
+        tool.to_spec(),
+    )
+
+  def test_omits_the_fields_that_only_matter_locally(self):
+    # `function`, `example`, `color` and `irrecoverable_error_types` drive local
+    # execution and prompting, and have no meaning to a model API.
+    tool = llm_tool_use.Tool(
+        name='search',
+        function=_add_sync,
+        example='search("onetwo")',
+        color='blue',
+        irrecoverable_error_types=['PermissionError'],
+    )
+
+    self.assertEqual(
+        function_calling.ToolSpec(name='search'), tool.to_spec()
+    )
+
+  def test_absent_description_becomes_the_empty_string(self):
+    # `Tool.description` is optional but `ToolSpec.description` is a plain
+    # string, since a declaration either describes the tool or says nothing.
+    tool = llm_tool_use.Tool(name='search')
+
+    self.assertEqual('', tool.to_spec().description)
+
+  def test_tool_without_parameters_declares_none(self):
+    # Distinct from declaring an empty schema: the tool takes no arguments at
+    # all, rather than an object with no properties.
+    tool = llm_tool_use.Tool(name='get_time', description='Returns the time.')
+
+    self.assertIsNone(tool.to_spec().parameters)
+
+  def test_parameters_defaults_to_none_for_existing_callers(self):
+    # `parameters` is declared last, so tools built positionally before it
+    # existed keep working and simply declare no signature.
+    tool = llm_tool_use.Tool('search', _add_sync, 'Searches the web.')
+
+    self.assertIsNone(tool.parameters)
+    self.assertEqual('Searches the web.', tool.to_spec().description)
+
+
 class RenderFunctionCallTest(parameterized.TestCase):
 
   @parameterized.named_parameters(

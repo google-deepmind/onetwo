@@ -498,6 +498,11 @@ class ToolExample:
 class Tool:
   """A callable that can be invoked as a tool by an LLM.
 
+  A `Tool` is the executable object: it holds the function to run, along with
+  the prompting and error-handling policy around it. Its declaration half, the
+  part a model API needs in order to offer the tool to the model, is
+  `function_calling.ToolSpec`, obtained with `to_spec`.
+
   Attributes:
     name: Name used by the LLM to call the tool.
     function: Function to be called upon executing this tool. If not specified,
@@ -514,6 +519,10 @@ class Tool:
       whether to fail early and terminate the code execution or not. If this is
       empty, then the LLM will retry until reaching the maximum number of steps
       configured in the agent.
+    parameters: JSON Schema describing the keyword arguments the tool accepts,
+      or None if it takes none. Used by the model-native function-calling
+      backends, which need a machine-readable signature rather than the prose
+      of `description` and `example` that the text-parsing strategies rely on.
   """
 
   name: str
@@ -522,6 +531,24 @@ class Tool:
   example: str | ToolExample | None = None
   color: str | None = None
   irrecoverable_error_types: list[str] | None = None
+  parameters: Mapping[str, Any] | None = None
+
+  def to_spec(self) -> function_calling.ToolSpec:
+    """Returns the declaration of this tool, as passed to a model API.
+
+    The result carries no code: it is what a backend needs in order to tell the
+    model that the tool exists, and is deliberately free of the fields that only
+    matter locally (`function`, `example`, `color`,
+    `irrecoverable_error_types`).
+    """
+    return function_calling.ToolSpec(
+        name=self.name,
+        # `ToolSpec.description` is a plain string, since a declaration sent to
+        # a model either describes the tool or says nothing about it; there is
+        # no third state for `None` to represent.
+        description=self.description or '',
+        parameters=self.parameters,
+    )
 
   @property
   def example_str(self) -> str:
