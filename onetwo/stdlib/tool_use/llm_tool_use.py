@@ -28,6 +28,9 @@ from onetwo.core import routing
 from onetwo.core import utils
 import yaml
 
+# Alias for the many callers that refer to `llm_tool_use.FunctionCall`.
+FunctionCall = function_calling.FunctionCall
+
 
 @enum.unique
 class ArgumentFormat(enum.Enum):
@@ -467,30 +470,6 @@ def render_function_call(
       *function_call.args,
       **function_call.kwargs,
   )
-
-
-# TODO: Delete this class once the remaining callers of
-# `FunctionCall.render` have been migrated to `render_function_call`, and
-# replace it with `FunctionCall = function_calling.FunctionCall`.
-@dataclasses.dataclass(eq=False)
-class FunctionCall(function_calling.FunctionCall):
-  """A `FunctionCall` that can additionally render itself.
-
-  DEPRECATED: use `onetwo.core.function_calling.FunctionCall` for the data, and
-  the free function `render_function_call` for the rendering. This subclass
-  exists only so that existing callers of `FunctionCall.render` keep working,
-  and will be replaced by a plain alias for the core type once they have all
-  been migrated.
-
-  Instances compare equal to `function_calling.FunctionCall` instances holding
-  the same values, so the two can be mixed freely during the migration. This is
-  why `eq=False` is set: it keeps the field-wise `__eq__` inherited from the
-  core type instead of generating one that also requires an exact type match.
-  """
-
-  def render(self, fmt: ArgumentFormat) -> str:
-    """DEPRECATED: use `render_function_call(self, fmt)` instead."""
-    return render_function_call(self, fmt)
 
 
 @dataclasses.dataclass(frozen=True)

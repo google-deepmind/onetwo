@@ -374,25 +374,16 @@ class RenderFunctionCallTest(parameterized.TestCase):
     )
 
 
-class DeprecatedFunctionCallTest(parameterized.TestCase):
+class FunctionCallAliasTest(parameterized.TestCase):
   """Guards the backwards compatibility of `llm_tool_use.FunctionCall`.
 
-  This subclass is deprecated and is scheduled for removal once its remaining
-  callers have moved to `render_function_call`. Until then it must remain a
-  drop-in replacement for the type it used to be.
+  The name used to refer to a subclass that could render itself. It is now a
+  plain alias for the core type, which many callers still refer to by this
+  name.
   """
 
-  def test_render_method_still_works(self):
-    call = llm_tool_use.FunctionCall(
-        function_name='Search', args=('pi',), kwargs={}
-    )
-
-    self.assertEqual("`Search('pi')`", call.render(_ArgumentFormat.PYTHON))
-
-  def test_is_a_core_function_call(self):
-    self.assertIsInstance(
-        llm_tool_use.FunctionCall(), function_calling.FunctionCall
-    )
+  def test_is_the_core_function_call(self):
+    self.assertIs(llm_tool_use.FunctionCall, function_calling.FunctionCall)
 
   def test_equal_to_core_function_call_with_same_values(self):
     self.assertEqual(

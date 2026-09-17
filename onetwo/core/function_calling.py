@@ -131,7 +131,7 @@ class ConversationTurn:
   thought: str | content_lib.ChunkList | None = None
 
 
-@dataclasses.dataclass(eq=False)
+@dataclasses.dataclass
 class FunctionCall:
   """A single function call (e.g., as may appear in one step of tool usage).
 
@@ -150,26 +150,6 @@ class FunctionCall:
   function_name: str = ''
   args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
   kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
-
-  # TODO: Delete this method, and the `eq=False` above, once the
-  # deprecated `onetwo.stdlib.tool_use.llm_tool_use.FunctionCall` subclass has
-  # been removed. Both exist only so that instances of that subclass compare
-  # equal to instances of this class while the two coexist; afterwards the
-  # dataclass-generated `__eq__` is sufficient and this class becomes a plain
-  # `@dataclasses.dataclass`, as `FunctionResponse` below already is.
-  def __eq__(self, other: Any) -> bool:
-    """Returns True if `other` is a `FunctionCall` with equal field values."""
-    # Compared field-wise rather than with the dataclass-generated `__eq__`,
-    # which additionally requires `type(self) is type(other)`. Subclasses of
-    # `FunctionCall` therefore compare equal to a plain `FunctionCall` carrying
-    # the same values, which is what callers expect of a value type.
-    if not isinstance(other, FunctionCall):
-      return NotImplemented
-    return (self.function_name, self.args, self.kwargs) == (
-        other.function_name,
-        other.args,
-        other.kwargs,
-    )
 
 
 @dataclasses.dataclass

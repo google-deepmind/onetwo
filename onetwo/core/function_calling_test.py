@@ -22,10 +22,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import function_calling
 
 
-class _Subclass(function_calling.FunctionCall):
-  """Stands in for the compatibility subclass in `llm_tool_use`."""
-
-
 @dataclasses.dataclass(frozen=True)
 class _RetrievalResult:
   """Stands in for a rich (non-string) value returned by a local tool.
@@ -80,14 +76,11 @@ class FunctionCallTest(parameterized.TestCase):
 
     self.assertNotEqual(call, dataclasses.replace(call, **overrides))
 
-  def test_equal_to_subclass_with_same_values(self):
-    # The compatibility subclass in `llm_tool_use` must be interchangeable with
-    # the core type while callers are being migrated, in both directions.
-    base = function_calling.FunctionCall(function_name='Search', args=('a',))
-    subclass = _Subclass(function_name='Search', args=('a',))
-
-    self.assertEqual(base, subclass)
-    self.assertEqual(subclass, base)
+  def test_equal_when_all_fields_match(self):
+    self.assertEqual(
+        function_calling.FunctionCall(function_name='Search', args=('a',)),
+        function_calling.FunctionCall(function_name='Search', args=('a',)),
+    )
 
   def test_not_equal_to_unrelated_type(self):
     self.assertNotEqual(function_calling.FunctionCall(), 'Search()')
