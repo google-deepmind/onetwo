@@ -44,6 +44,7 @@ class FunctionCallTest(parameterized.TestCase):
     self.assertEqual((), call.args)
     self.assertEqual({}, call.kwargs)
     self.assertEqual('', call.id)
+    self.assertEqual(b'', call.thought_signature)
 
   def test_positional_construction_matches_field_order(self):
     # Guards the field order, which positional callers rely on.
@@ -67,11 +68,24 @@ class FunctionCallTest(parameterized.TestCase):
         repr(function_calling.FunctionCall('Finish', ('4',), {}, id='call_1')),
     )
 
+  def test_thought_signature_is_excluded_from_repr(self):
+    # The one field that is left out: an opaque blob tells a reader nothing.
+    call = function_calling.FunctionCall(
+        'Finish', ('4',), {}, thought_signature=b'opaque'
+    )
+
+    self.assertEqual(
+        "FunctionCall(function_name='Finish', args=('4',), kwargs={}, id='')",
+        repr(call),
+    )
+    self.assertEqual(b'opaque', call.thought_signature)
+
   @parameterized.named_parameters(
       ('function_name', {'function_name': 'Other'}),
       ('args', {'args': ('z',)}),
       ('kwargs', {'kwargs': {'b': 2}}),
       ('id', {'id': 'call_2'}),
+      ('thought_signature', {'thought_signature': b'other'}),
   )
   def test_not_equal_when_any_field_differs(self, overrides):
     call = function_calling.FunctionCall(

@@ -1,0 +1,532 @@
+# Copyright 2026 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for the model-native function calling agent."""
+
+from collections.abc import Sequence
+import dataclasses
+from typing import Any, cast
+
+from absl.testing import absltest
+from absl.testing import parameterized
+from onetwo.agents import function_calling as fc_agents
+from onetwo.builtins import llm
+from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
+from onetwo.stdlib.tool_use import llm_tool_use
+
+_USER = fc_types.ConversationRole.USER
+_MODEL = fc_types.ConversationRole.MODEL
+_TOOL = fc_types.ConversationRole.TOOL
+
+
+def _get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary of weather information.
+  """
+  return {'location': location, 'temp': 15}
+
+
+def _get_time(city: str) -> str:
+  """Gets the time in a city.
+
+  Args:
+    city: City name.
+
+  Returns:
+    The local time.
+  """
+  return f'12:00 in {city}'
+
+
+def _explode(reason: str) -> str:
+  """Always fails.
+
+  Args:
+    reason: Why it failed.
+
+  Returns:
+    Never returns.
+  """
+  raise ValueError(reason)
+
+
+def _forbidden() -> str:
+  """Always fails with an error the tool declares irrecoverable.
+
+  Returns:
+    Never returns.
+
+  Raises:
+    PermissionError: Always.
+  """
+  raise PermissionError('not allowed')
+
+
+def _model_turn(
+    content: str | None = None, calls: Sequence[fc_types.FunctionCall] = ()
+) -> fc_types.ConversationTurn:
+  return fc_types.ConversationTurn(role=_MODEL, content=content, calls=calls)
+
+
+def _run(
+    agent: fc_agents.FCAgent,
+    inputs: str | Sequence[fc_types.ConversationTurn],
+    **kwargs,
+) -> fc_types.ConversationTurn:
+  """Runs `agent` and returns the turn it produced.
+
+  `Agent.__call__` is declared to return a union covering `return_final_state`,
+  so this narrows it back down for the benefit of the type checker.
+
+  Args:
+    agent: The agent to run.
+    inputs: What to run it on.
+    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+
+  Returns:
+    The agent's output turn.
+  """
+  return cast(fc_types.ConversationTurn, executing.run(agent(inputs, **kwargs)))
+
+
+def _run_with_state(
+    agent: fc_agents.FCAgent,
+    inputs: str | Sequence[fc_types.ConversationTurn],
+    **kwargs,
+) -> tuple[fc_types.ConversationTurn, fc_agents.FCState]:
+  """Runs `agent` and returns its output turn together with the final state.
+
+  Args:
+    agent: The agent to run.
+    inputs: What to run it on.
+    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+
+  Returns:
+    The agent's output turn and the state it ended in.
+  """
+  return cast(
+      tuple[fc_types.ConversationTurn, fc_agents.FCState],
+      executing.run(agent(inputs, return_final_state=True, **kwargs)),
+  )
+
+
+@dataclasses.dataclass
+class _ScriptedBackend:
+  """A backend that replies with a fixed script, and records what it was sent.
+
+  Stands in for a real backend: the agent under test only ever reaches a model
+  through `llm.generate_with_tools`, so scripting that one builtin is enough to
+  drive any exchange.
+  """
+
+  replies: list[fc_types.ConversationTurn] = dataclasses.field(
+      default_factory=list
+  )
+  seen_messages: list[list[fc_types.ConversationTurn]] = dataclasses.field(
+      default_factory=list
+  )
+  seen_tools: list[list[fc_types.ToolSpec]] = dataclasses.field(
+      default_factory=list
+  )
+
+  def register(self) -> None:
+    llm.generate_with_tools.configure(self.generate_with_tools)
+
+  # `copy_self=False` so that the calls we record are visible to the test.
+  @executing.make_executable(copy_self=False)
+  async def generate_with_tools(
+      self,
+      messages: Sequence[fc_types.ConversationTurn],
+      tools: Sequence[fc_types.ToolSpec],
+      **kwargs,
+  ) -> fc_types.ConversationTurn:
+    del kwargs
+    self.seen_messages.append(list(messages))
+    self.seen_tools.append(list(tools))
+    index = min(len(self.seen_messages) - 1, len(self.replies) - 1)
+    return self.replies[index]
+
+
+class FCStateTest(absltest.TestCase):
+
+  def test_add_appends_turns_and_counts_steps(self):
+    state = fc_agents.FCState(
+        history=[fc_types.ConversationTurn(role=_USER, content='hi')]
+    )
+    step = fc_agents.FCStep(
+        model_turn=_model_turn(calls=[fc_types.FunctionCall('f')]),
+        tool_turn=fc_types.ConversationTurn(
+            role=_TOOL, responses=[fc_types.FunctionResponse('f', response=1)]
+        ),
+    )
+
+    new_state = state + step
+
+    with self.subTest('appends_both_turns'):
+      self.assertLen(new_state.history, 3)
+    with self.subTest('counts_the_step'):
+      self.assertEqual(new_state.num_steps, 1)
+    with self.subTest('leaves_the_original_untouched'):
+      self.assertLen(state.history, 1)
+
+  def test_add_without_tool_turn_appends_one_turn(self):
+    state = fc_agents.FCState()
+    new_state = state + fc_agents.FCStep(model_turn=_model_turn('done'))
+    self.assertLen(new_state.history, 1)
+
+
+class FCAgentTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+  def test_replies_without_calls_finish_immediately(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    result = _run(agent, 'Hi there')
+
+    with self.subTest('returns_the_model_turn'):
+      self.assertEqual(result.content, 'Hello!')
+    with self.subTest('calls_the_model_once'):
+      self.assertLen(backend.seen_messages, 1)
+    with self.subTest('declares_the_tool'):
+      self.assertEqual(
+          [spec.name for spec in backend.seen_tools[0]], ['_get_weather']
+      )
+
+  def test_declarations_carry_no_code(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    _run(agent, 'Hi there')
+
+    spec = backend.seen_tools[0][0]
+    with self.subTest('is_a_declaration_only_spec'):
+      self.assertIsInstance(spec, fc_types.ToolSpec)
+    with self.subTest('carries_the_json_schema'):
+      self.assertIn('location', (spec.parameters or {})['properties'])
+
+  def test_executes_the_requested_call_and_feeds_the_result_back(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}, id='c1'
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees in London.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    result, state = _run_with_state(agent, 'Weather in London?')
+
+    with self.subTest('returns_the_final_answer'):
+      self.assertEqual(result.content, 'It is 15 degrees in London.')
+    with self.subTest('sends_the_tool_result_back_to_the_model'):
+      second_call_messages = backend.seen_messages[1]
+      tool_turn = second_call_messages[-1]
+      self.assertEqual(tool_turn.role, _TOOL)
+      self.assertEqual(
+          tool_turn.responses[0].response, {'location': 'London', 'temp': 15}
+      )
+    with self.subTest('matches_the_response_to_the_call_id'):
+      self.assertEqual(tool_turn.responses[0].id, 'c1')
+    with self.subTest('history_has_user_model_tool_model'):
+      self.assertEqual(
+          [turn.role for turn in state.history], [_USER, _MODEL, _TOOL, _MODEL]
+      )
+
+  @parameterized.named_parameters(
+      ('parallel', True),
+      ('sequential', False),
+  )
+  def test_answers_several_calls_in_the_order_requested(self, parallel):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    ),
+                    fc_types.FunctionCall('_get_time', kwargs={'city': 'Oslo'}),
+                ]
+            ),
+            _model_turn('Done.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(
+        tools=[_get_weather, _get_time], parallel_calls=parallel
+    )
+
+    _run(agent, 'Tell me about London and Oslo')
+
+    responses = backend.seen_messages[1][-1].responses
+    self.assertEqual(
+        [response.function_name for response in responses],
+        ['_get_weather', '_get_time'],
+    )
+
+  def test_unknown_tool_is_reported_so_the_model_can_correct_itself(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weathr', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    result = _run(agent, 'Weather in London?')
+
+    with self.subTest('tells_the_model_what_went_wrong'):
+      error = backend.seen_messages[1][-1].responses[0].error or ''
+      self.assertIn('Unknown tool', error)
+      self.assertIn('_get_weather', error)
+    with self.subTest('the_exchange_survives_and_completes'):
+      self.assertEqual(result.content, 'It is 15 degrees.')
+
+  def test_failing_tool_is_reported_rather_than_raised(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_explode', kwargs={'reason': 'boom'})
+                ]
+            ),
+            _model_turn('Sorry, that failed.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_explode])
+
+    result = _run(agent, 'Please explode')
+
+    with self.subTest('reports_the_error_to_the_model'):
+      self.assertEqual(
+          backend.seen_messages[1][-1].responses[0].error, 'ValueError: boom'
+      )
+    with self.subTest('completes_the_exchange'):
+      self.assertEqual(result.content, 'Sorry, that failed.')
+
+  def test_stop_on_tool_error_fails_fast(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_explode', kwargs={'reason': 'boom'})
+                ]
+            )
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_explode], stop_on_tool_error=True)
+
+    with self.assertRaisesRegex(ValueError, 'boom'):
+      _run(agent, 'Please explode')
+
+  def test_irrecoverable_error_type_aborts(self):
+    backend = _ScriptedBackend(
+        replies=[_model_turn(calls=[fc_types.FunctionCall('forbidden')])]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(
+        tools=[
+            llm_tool_use.Tool(
+                name='forbidden',
+                function=_forbidden,
+                irrecoverable_error_types=['PermissionError'],
+            )
+        ]
+    )
+
+    with self.assertRaises(PermissionError):
+      _run(agent, 'Do the forbidden thing')
+
+  def test_hand_written_tool_keeps_its_policy_and_gains_parameters(self):
+    tool = llm_tool_use.Tool(
+        name='weather',
+        function=_get_weather,
+        description='Custom description.',
+        irrecoverable_error_types=['PermissionError'],
+    )
+    agent = fc_agents.FCAgent(tools=[tool])
+
+    with self.subTest('derives_the_parameters'):
+      parameters = agent._specs[0].parameters or {}  # pylint: disable=protected-access
+      self.assertIn('location', parameters['properties'])
+    with self.subTest('keeps_the_authors_description'):
+      self.assertEqual(agent._specs[0].description, 'Custom description.')  # pylint: disable=protected-access
+    with self.subTest('keeps_the_error_policy'):
+      self.assertEqual(
+          agent._tools_by_name['weather'].irrecoverable_error_types,  # pylint: disable=protected-access
+          ['PermissionError'],
+      )
+
+  def test_stops_after_max_steps(self):
+    # A model that never stops asking for tools.
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            )
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather], max_steps=3)
+
+    _, state = _run_with_state(agent, 'Weather in London?')
+
+    with self.subTest('performs_exactly_max_steps_model_calls'):
+      self.assertLen(backend.seen_messages, 3)
+    with self.subTest('reports_that_it_ran_out_of_steps'):
+      self.assertTrue(agent.steps_exhausted(state))
+
+  def test_a_finished_exchange_is_not_reported_as_exhausted(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather], max_steps=3)
+
+    _, state = _run_with_state(agent, 'Hi')
+
+    self.assertFalse(agent.steps_exhausted(state))
+
+  def test_a_single_step_exposes_the_calls_without_running_them(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn('Should not get here.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    result = _run(agent, 'Weather in London?', max_steps=1)
+
+    with self.subTest('returns_the_requested_calls'):
+      self.assertEqual(result.calls[0].function_name, '_get_weather')
+    with self.subTest('does_not_call_the_model_again'):
+      self.assertLen(backend.seen_messages, 1)
+
+  def test_accepts_an_existing_conversation(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+    history = [
+        fc_types.ConversationTurn(role=_USER, content='Capital of France?'),
+        _model_turn('Paris is the capital.'),
+        fc_types.ConversationTurn(role=_USER, content='Say it in one word.'),
+    ]
+
+    result = _run(agent, history)
+
+    with self.subTest('keeps_the_conversation'):
+      self.assertLen(backend.seen_messages[0], 3)
+    with self.subTest('answers_the_last_question'):
+      self.assertEqual(result.content, 'Paris.')
+
+  def test_streams_one_update_per_step(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    initial_state = fc_agents.FCState(
+        history=[fc_types.ConversationTurn(role=_USER, content='Weather?')]
+    )
+
+    # `executing.stream` rather than `executing.run`, so that we see every
+    # update rather than only the last one.
+    updates = cast(
+        list[fc_agents.FCStep],
+        list(
+            executing.stream(agent.stream_updates(initial_state=initial_state))
+        ),
+    )
+
+    with self.subTest('yields_one_update_per_model_call'):
+      self.assertLen(updates, 2)
+    with self.subTest('the_first_update_carries_the_tool_results'):
+      first_step_turns = updates[0].turns
+      self.assertEqual(first_step_turns[-1].role, _TOOL)
+      self.assertEqual(
+          first_step_turns[-1].responses[0].response,
+          {'location': 'London', 'temp': 15},
+      )
+    with self.subTest('the_last_update_is_the_final_answer'):
+      self.assertEqual(updates[1].model_turn.content, 'It is 15 degrees.')
+      self.assertIsNone(updates[1].tool_turn)
+
+  def test_no_tools_declares_nothing(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    agent = fc_agents.FCAgent()
+
+    result = _run(agent, 'Hi')
+
+    with self.subTest('advertises_no_tools'):
+      self.assertEmpty(backend.seen_tools[0])
+    with self.subTest('still_answers'):
+      self.assertEqual(result.content, 'Hello!')
+
+
+if __name__ == '__main__':
+  absltest.main()

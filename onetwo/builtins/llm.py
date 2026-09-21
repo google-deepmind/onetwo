@@ -36,6 +36,7 @@ from onetwo.builtins import legacy_llm_builtins
 from onetwo.builtins import llm_utils
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import routing
 from onetwo.core import tracing
 
@@ -352,6 +353,60 @@ async def default_chat(
     return await generate_text(prompt, **kwargs)
 
 
+# TODO: Considering renaming this built-in function to
+# `chat_with_tools`.
+@builtins_base.Builtin
+def generate_with_tools(
+    messages: Sequence[function_calling.ConversationTurn],
+    tools: Sequence[function_calling.ToolSpec],
+    **kwargs,
+) -> function_calling.ConversationTurn:
+  """Interface of the generate_with_tools built-in function.
+
+  Performs a single model call in which the model may request tool calls. This
+  is deliberately one step rather than a loop: the loop that executes the
+  requested calls and feeds the results back lives in
+  `onetwo.agents.function_calling.FCAgent`, so that it is written once rather
+  than once per backend.
+
+  Implementations must:
+    * return exactly one turn, with `role=MODEL`;
+    * not execute any tool, which is why `tools` are `ToolSpec`s and carry no
+      code;
+    * accept a history that contains `TOOL` turns, since that is how the
+      results of previous calls are fed back;
+    * populate `FunctionCall.id` whenever the underlying API supplies one, so
+      that parallel calls can be matched to their responses;
+    * round-trip `ConversationTurn.thought` and
+      `FunctionCall.thought_signature`, since a thinking model needs the
+      signatures it issued back verbatim, and Gemini rejects a turn whose
+      earlier calls have lost theirs.
+
+  Args:
+    messages: The conversation so far. The last turn is typically a USER turn or
+      a TOOL turn carrying the results of the calls the model just made.
+    tools: Declarations of the tools the model may call. An empty sequence means
+      that no tools are advertised to the model.
+    **kwargs: Generation parameters (e.g. `temperature`, `max_tokens`, `stop`).
+
+  Returns:
+    A single MODEL turn, which may contain text content, a thought, and/or one
+    or more function calls.
+  """
+  del messages, tools, kwargs
+  raise _UNIMPLEMENTED_ERROR
+
+
+@executing.make_executable
+async def _default_generate_with_tools(
+    messages: Sequence[function_calling.ConversationTurn],
+    tools: Sequence[function_calling.ToolSpec],
+    **kwargs,
+) -> function_calling.ConversationTurn:
+  del messages, tools, kwargs
+  raise _UNIMPLEMENTED_ERROR
+
+
 @builtins_base.Builtin
 def select(
     prompt: str | _ChunkList,
@@ -517,6 +572,7 @@ def reset_defaults(
     instruct.configure(default_instruct)
     # Default `chat` uses `generate_text`.
     chat.configure(default_chat)
+    generate_with_tools.configure(_default_generate_with_tools)
     # Default `select` uses `score_text`.
     select.configure(_default_select_via_score)
     # Default `rank` uses `score_text`.

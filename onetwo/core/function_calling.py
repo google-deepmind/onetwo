@@ -52,9 +52,19 @@ requests no calls.
 from collections.abc import Mapping, Sequence
 import dataclasses
 import enum
-from typing import Any
+from typing import Any, Final
 
 from onetwo.core import content as content_lib
+
+
+# Key under which a chunk of `ConversationTurn.thought` carries the opaque
+# signature that a thinking model attaches to its reasoning, as `bytes`.
+# The signature has to be echoed back verbatim for the model to keep its
+# reasoning state across turns, and means nothing to anyone but the backend
+# that produced it. It lives in chunk metadata rather than in a field of its
+# own so that a thought can be text and signature at once, and so that every
+# backend agrees on where to look.
+THOUGHT_SIGNATURE_KEY: Final[str] = 'thought_signature'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -117,17 +127,16 @@ class ConversationTurn:
     thought: Optional internal reasoning emitted by the model before or
       alongside its function calls. A turn holds at most one, since the model
       emits one turn per generation: reasoning that the model does after seeing
-      a tool result belongs to the next MODEL turn.
+      a tool result belongs to the next MODEL turn. When the model attaches an
+      opaque signature to its reasoning, the thought is a `ChunkList` whose
+      chunks carry that signature under `THOUGHT_SIGNATURE_KEY` in their
+      metadata; see that constant.
   """
 
   role: ConversationRole
   content: str | content_lib.ChunkList | None = None
   calls: Sequence['FunctionCall'] = ()
   responses: Sequence['FunctionResponse'] = ()
-  # TODO: Thinking models attach an opaque signature to their
-  # reasoning, which has to be echoed back verbatim for the model to keep its
-  # reasoning state across turns. A `ChunkList` can carry one in the metadata
-  # of its chunks; wire that up when lowering turns onto the backends.
   thought: str | content_lib.ChunkList | None = None
 
 
@@ -146,16 +155,25 @@ class FunctionCall:
       text-parsing strategies, which can recover positional arguments.
     kwargs: The keyword arguments of the function.
     id: Identifier used to match this call to its `FunctionResponse`. A model
-      may request several calls in a single turn, including several calls to
-      the same function, so the name alone does not identify a call. Set by
-      whoever produces the call: backends that supply one propagate it, and
-      those that do not can leave it empty when calls are answered in order.
+      may request several calls in a single turn, including several calls to the
+      same function, so the name alone does not identify a call. Set by whoever
+      produces the call: backends that supply one propagate it, and those that
+      do not can leave it empty when calls are answered in order.
+    thought_signature: Opaque signature that a thinking model attaches to a call
+      it requests, encoding the reasoning that led to it. It has to be echoed
+      back verbatim when the call is replayed in a later turn: Gemini rejects a
+      conversation whose function calls have lost theirs. See
+      https://ai.google.dev/gemini-api/docs/thought-signatures. It is meaningful
+        only to the backend that produced it.
   """
 
   function_name: str = ''
   args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
   kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
   id: str = ''
+  # Left out of `repr`, unlike every other field: it is an opaque blob that
+  # tells a reader nothing and would swamp the fields that do.
+  thought_signature: bytes = dataclasses.field(default=b'', repr=False)
 
 
 @dataclasses.dataclass
@@ -177,4 +195,3 @@ class FunctionResponse:
   response: Any = None
   error: str | None = None
   id: str = ''
-

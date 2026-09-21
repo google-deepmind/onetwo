@@ -23,6 +23,7 @@ from onetwo.builtins import llm_utils
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 
 
 _T = TypeVar('_T')
@@ -445,6 +446,29 @@ class LlmTest(parameterized.TestCase):
     )
     with self.subTest('prompt_formatted_as_expected'):
       self.assertEqual(result, expected_result)
+
+  def test_generate_with_tools(self):
+    llm.reset_defaults()
+    with self.assertRaises(NotImplementedError):
+      executing.run(llm.generate_with_tools(messages=[], tools=[]))
+
+    expected = function_calling.ConversationTurn(
+        role=function_calling.ConversationRole.MODEL, content='Done'
+    )
+
+    @executing.make_executable
+    def fake_impl(
+        messages: Sequence[function_calling.ConversationTurn],
+        tools: Sequence[function_calling.ToolSpec],
+        **kwargs,
+    ) -> function_calling.ConversationTurn:
+      del messages, tools, kwargs
+      return expected
+
+    llm.generate_with_tools.configure(fake_impl)
+    self.assertEqual(
+        expected, executing.run(llm.generate_with_tools(messages=[], tools=[]))
+    )
 
 
 if __name__ == '__main__':
