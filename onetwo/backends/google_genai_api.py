@@ -44,6 +44,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import prefix_caching
 from onetwo.core import tracing
 from onetwo.core import utils
@@ -459,6 +460,193 @@ def _raise_if_empty_response(
     raise ValueError('GoogleGenAIAPI.generate_text returned no answers.')
 
 
+def _tool_from_specs(
+    tools: Sequence[function_calling.ToolSpec],
+) -> genai_types.Tool:
+  """Declares the given tools to the model.
+
+  Args:
+    tools: Declarations of the tools the model may call. These are declarations
+      and not implementations: a backend describes tools to the model but never
+      runs them. Passing the implementations instead would hand the loop to the
+      SDK, which is exactly what this backend avoids.
+
+  Returns:
+    The single `Tool` holding all of the declarations. The GenAI API takes JSON
+    Schema as it stands, so no schema conversion is involved.
+  """
+  declarations = []
+  for spec in tools:
+    declarations.append(
+        genai_types.FunctionDeclaration(
+            name=spec.name,
+            description=spec.description or '',
+            parameters_json_schema=(
+                dict(spec.parameters) if spec.parameters else None
+            ),
+        )
+    )
+  return genai_types.Tool(function_declarations=declarations)
+
+
+def _as_response_dict(value: Any) -> dict[str, Any]:
+  """Returns `value` as a dict, since a response cannot be a bare value."""
+  return dict(value) if isinstance(value, Mapping) else {'result': value}
+
+
+def _thought_parts(
+    thought: str | _ChunkList | None,
+) -> list[genai_types.Part]:
+  """Converts a model's earlier reasoning back into parts.
+
+  A thinking model attaches an opaque signature to its reasoning, which has to
+  come back verbatim for it to keep its train of thought across turns.
+  `_turn_from_candidate` parks that signature in the metadata of the thought's
+  chunks, so this is the inverse.
+
+  Args:
+    thought: The reasoning held by a `ConversationTurn`.
+
+  Returns:
+    One part per piece of reasoning, empty if there was none.
+  """
+  if not thought:
+    return []
+  if isinstance(thought, _ChunkList):
+    chunks = list(thought.chunks)
+  else:
+    chunks = [_Chunk(str(thought))]
+
+  parts = []
+  for chunk in chunks:
+    signature = None
+    if isinstance(chunk.metadata, Mapping):
+      signature = chunk.metadata.get(function_calling.THOUGHT_SIGNATURE_KEY)
+    parts.append(
+        genai_types.Part(
+            text=str(chunk.content),
+            thought=True,
+            thought_signature=signature or None,
+        )
+    )
+  return parts
+
+
+def _contents_from_turns(
+    turns: Sequence[function_calling.ConversationTurn],
+) -> list[genai_types.Content]:
+  """Converts a function-calling conversation into GenAI contents.
+
+  The GenAI API has no tool role: the results of function calls are sent back
+  as user content.
+
+  Args:
+    turns: The conversation so far.
+
+  Returns:
+    One `Content` per turn, in order.
+  """
+  contents = []
+  for turn in turns:
+    is_model = turn.role == function_calling.ConversationRole.MODEL
+    parts = _thought_parts(turn.thought)
+
+    if isinstance(turn.content, _ChunkList):
+      parts.extend(_part_from_chunk(chunk) for chunk in turn.content.chunks)
+    elif turn.content:
+      parts.append(genai_types.Part(text=str(turn.content)))
+
+    for call in turn.calls:
+      parts.append(
+          genai_types.Part(
+              function_call=genai_types.FunctionCall(
+                  name=call.function_name,
+                  id=call.id or None,
+                  args=dict(call.kwargs),
+              ),
+              # Gemini rejects a replayed call that has lost its signature:
+              # 'Function call is missing a thought_signature in functionCall
+              # parts.'
+              thought_signature=call.thought_signature or None,
+          )
+      )
+
+    for response in turn.responses:
+      # An error is reported to the model as the content of the response, so
+      # that it can see what went wrong and try something else.
+      payload = (
+          {'error': response.error}
+          if response.error is not None
+          else _as_response_dict(response.response)
+      )
+      parts.append(
+          genai_types.Part(
+              function_response=genai_types.FunctionResponse(
+                  name=response.function_name,
+                  id=response.id or None,
+                  response=payload,
+              )
+          )
+      )
+
+    if parts:
+      contents.append(
+          genai_types.Content(parts=parts, role='model' if is_model else 'user')
+      )
+  return contents
+
+
+def _turn_from_candidate(
+    candidate: genai_types.Candidate,
+) -> function_calling.ConversationTurn:
+  """Converts what the model replied into a OneTwo conversation turn.
+
+  Args:
+    candidate: One candidate of the model's reply.
+
+  Returns:
+    The equivalent MODEL turn, with the reasoning in `thought`, the visible
+    answer in `content`, and any requested calls in `calls`.
+  """
+  thought_chunks: list[_Chunk] = []
+  text_parts = []
+  calls = []
+  parts = candidate.content.parts if candidate.content else None
+  for part in parts or []:
+    if part.function_call:
+      call = part.function_call
+      calls.append(
+          function_calling.FunctionCall(
+              function_name=call.name or '',
+              id=call.id or '',
+              kwargs=dict(call.args or {}),
+              thought_signature=part.thought_signature or b'',
+          )
+      )
+    elif part.thought:
+      thought_chunks.append(
+          _Chunk(
+              part.text or '',
+              metadata={
+                  function_calling.THOUGHT_SIGNATURE_KEY: (
+                      part.thought_signature or b''
+                  )
+              },
+          )
+      )
+    elif part.text:
+      text_parts.append(part.text)
+
+  thought = _ChunkList(thought_chunks)
+  text = ''.join(text_parts)
+  return function_calling.ConversationTurn(
+      role=function_calling.ConversationRole.MODEL,
+      content=text or None,
+      calls=tuple(calls),
+      thought=thought or None,
+  )
+
+
 @batching.add_batching  # Methods of this class are batched.
 @dataclasses.dataclass
 class GoogleGenAIAPI(
@@ -624,6 +812,14 @@ class GoogleGenAIAPI(
           top_p=self.top_p,
           top_k=self.top_k,
           **self.generate_content_kwargs,
+      )
+      llm.generate_with_tools.configure(
+          self.generate_with_tools,
+          temperature=self.temperature,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+          top_p=self.top_p,
+          top_k=self.top_k,
       )
     if register_embed:
       llm.embed.configure(self.embed, **self.embed_kwargs)
@@ -1151,6 +1347,84 @@ class GoogleGenAIAPI(
         model_name=model_name,
         include_details=include_details,
     )
+
+  @executing.make_executable
+  @tracing.trace(name='GoogleGenAIAPI.generate_with_tools')
+  async def generate_with_tools(
+      self,
+      messages: Sequence[function_calling.ConversationTurn],
+      tools: Sequence[function_calling.ToolSpec],
+      **kwargs,
+  ) -> function_calling.ConversationTurn:
+    """See builtins.llm.generate_with_tools.
+
+    This performs exactly one model call. Executing the calls the model asks
+    for, and deciding whether to ask it again, is the job of the caller -- see
+    `onetwo.agents.function_calling.FCAgent`.
+
+    Args:
+      messages: The conversation so far.
+      tools: Declarations of the tools the model may call.
+      **kwargs: Generation parameters, e.g. `temperature` or `max_tokens`.
+
+    Returns:
+      The single turn the model replied with.
+    """
+    return await self._generate_with_tools(messages, tools, **kwargs)
+
+  @batching.to_thread_pool_method(
+      num_workers=utils.FromInstance('threadpool_size'),
+  )
+  @utils.with_retry(
+      max_retries=utils.FromInstance('max_retries'),
+      initial_base_delay=utils.FromInstance('initial_base_delay'),
+      max_base_delay=utils.FromInstance('max_base_delay'),
+      retriable_error_filter=_is_retriable_error,
+  )
+  def _generate_with_tools(
+      self,
+      messages: Sequence[function_calling.ConversationTurn],
+      tools: Sequence[function_calling.ToolSpec],
+      *,
+      temperature: float | None = None,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      top_k: int | None = None,
+      top_p: float | None = None,
+      **kwargs,
+  ) -> function_calling.ConversationTurn:
+    self._counters['generate_with_tools'] += 1
+    generation_config = genai_types.GenerateContentConfig(
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        stop_sequences=stop,
+        top_k=top_k,
+        top_p=top_p,
+        # An empty sequence means that no tools are advertised, which is not
+        # the same as sending an empty `Tool`.
+        tools=[_tool_from_specs(tools)] if tools else None,
+        # The SDK will happily run its own function-calling loop. The loop
+        # lives in `FCAgent`, and two of them would be silent and horrible to
+        # debug, so this one is turned off.
+        automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+            disable=True
+        ),
+        **kwargs,
+    )
+    model_name = self._generate_model_name()
+    response = self._genai_client.models.generate_content(
+        model=model_name,
+        contents=_contents_from_turns(messages),  # pyrefly: ignore[bad-argument-type]
+        config=generation_config,
+    )
+    _raise_if_empty_response(response)
+
+    if usage_metadata := getattr(response, 'usage_metadata', None):
+      _update_trace_info_from_usage_metadata(
+          usage_metadata, model_name, response, project=self.project
+      )
+
+    return _turn_from_candidate(response.candidates[0])  # pyrefly: ignore[unsupported-operation]
 
   @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.generate_object')

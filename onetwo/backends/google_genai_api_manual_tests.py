@@ -20,6 +20,7 @@ import math
 import os
 import pprint
 import time
+from typing import Any, cast
 import uuid
 
 from absl import app
@@ -28,6 +29,7 @@ from absl import logging
 import fastmcp
 from google.genai import types as genai_types
 import mcp
+from onetwo.agents import function_calling as fc_agents
 from onetwo.backends import google_genai_api
 from onetwo.builtins import composables as c
 from onetwo.builtins import formatting
@@ -35,9 +37,11 @@ from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
 from onetwo.core import prefix_caching
 from onetwo.core import routing
 from onetwo.core import sampling
+from onetwo.stdlib.tool_use import llm_tool_use
 import pydantic
 import pydantic.dataclasses as pydantic_dataclasses
 
@@ -152,6 +156,55 @@ def _print_summary(test_results: list[tuple[float, str, bool]]) -> bool:
   print('OVERALL:', 'PASS' if all_passed else 'FAIL')
   print('=' * 60)
   return all_passed
+
+
+def _run_agent(
+    agent: fc_agents.FCAgent, query: str, **kwargs
+) -> fc_types.ConversationTurn:
+  """Runs an agent and returns the turn it produced.
+
+  `Agent.__call__` is declared to return a union that also covers
+  `return_final_state`, which this caller never asks for.
+
+  Args:
+    agent: The agent to run.
+    query: What to ask it.
+    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+
+  Returns:
+    The agent's final turn.
+  """
+  return cast(
+      fc_types.ConversationTurn,
+      executing.run(agent(query, **kwargs)),
+  )
+
+
+def get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a specified location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary containing weather information.
+  """
+  return {'location': location, 'temp': 15, 'unit': 'C'}
+
+
+def _always_fails(location: str) -> dict[str, Any]:
+  """Looks up the weather, badly.
+
+  Args:
+    location: City name.
+
+  Returns:
+    Never returns.
+
+  Raises:
+    ValueError: Always.
+  """
+  raise ValueError(f'Service unavailable for {location}.')
 
 
 def main(argv: Sequence[str]) -> None:
@@ -922,194 +975,45 @@ def main(argv: Sequence[str]) -> None:
         tc.fail(f'Result is not of type CityInfo: {type(result)}')
 
   if _should_run_test(21):
-    with _run_test(21, 'Function Calling 2.0: Single Turn', test_results) as tc:
-      weather_tool_decl = genai_types.FunctionDeclaration(
-          name='get_weather',
-          description='Gets the weather for a specified location.',
-          parameters={
-              'type': 'OBJECT',
-              'properties': {
-                  'location': {'type': 'STRING', 'description': 'City name'}
-              },
-              'required': ['location'],
-          },
-      )
-      api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
-
-      res, trace = executing.run(
-          llm.generate_content(  # pytype: disable=wrong-keyword-args
-              prompt='What is the weather in London?',
-              tools=[api_tool],
-          ),
-          enable_tracing=True,
-      )
-      assert isinstance(res, content_lib.ChunkList)
-
-      if _PRINT_DEBUG.value:
-        print('Returned value(s):')
-        pprint.pprint(res)
-
-      has_fc = False
-      chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
-
-      for chunk in chunks:
-        if (
-            chunk.metadata
-            and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
-        ):
-          has_fc = True
-          fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
-          print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
-          if fc.name != 'get_weather' or fc.args.get('location') != 'London':
-            tc.fail('FunctionCall name or args do not match.')
-
-      if not has_fc:
+    with _run_test(
+        21,
+        'Function calling: a single step, so nothing is executed',
+        test_results,
+    ) as tc:
+      agent = fc_agents.FCAgent(tools=[get_weather])
+      turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+      if not turn.calls:
         tc.fail('No FunctionCall found in response.')
-
-      # Check llm.tools.calls and llm.tools.details in trace info.
-      stage_info = {}
-      if (
-          hasattr(trace, 'stages')
-          and trace.stages
-          and hasattr(trace.stages[0], 'info')
-      ):
-        stage_info = trace.stages[0].info
-      if 'llm.tools.calls' in stage_info:
-        print(f"- llm.tools.calls: {stage_info['llm.tools.calls']}")
-        if stage_info['llm.tools.calls'] != 1:
-          tc.fail(
-              'Expected llm.tools.calls == 1, got'
-              f" {stage_info['llm.tools.calls']}"
-          )
       else:
-        tc.fail('llm.tools.calls not found in trace info.')
-
-      if 'llm.tools.details' in stage_info:
-        print('- llm.tools.details:')
-        for detail in stage_info['llm.tools.details']:
-          pprint.pprint(detail, indent=4)
-        call_entries = [
-            d
-            for d in stage_info['llm.tools.details']
-            if d.get('type') == 'function_call'
-        ]
-        if not call_entries:
-          tc.fail('No function_call entries in llm.tools.details.')
-      else:
-        tc.fail('llm.tools.details not found in trace info.')
+        call = turn.calls[0]
+        print(
+            f'- Found FunctionCall: {call.function_name} with args'
+            f' {dict(call.kwargs)}'
+        )
+        if (
+            call.function_name != 'get_weather'
+            or call.kwargs.get('location') != 'London'
+        ):
+          tc.fail('FunctionCall name or args do not match.')
 
   if _should_run_test(22):
-    with _run_test(22, 'Function Calling 2.0: Multi-Turn', test_results) as tc:
+    with _run_test(22, 'Function calling: the full loop', test_results) as tc:
+      agent = fc_agents.FCAgent(tools=[get_weather])
+      final_turn = _run_agent(agent, 'What is the weather in London?')
+      print(f'- Final answer: {final_turn.content}')
+      if not final_turn.content:
+        tc.fail('Expected a final model answer after tool execution.')
 
-      def get_weather(location: str) -> dict[str, str | int]:
-        if 'London' in location:
-          return {'temp': 15, 'unit': 'C'}
-        elif 'NYC' in location or 'New York' in location:
-          return {'temp': 10, 'unit': 'C'}
-        else:
-          return {'temp': 25, 'unit': 'C'}
-
-      weather_tool_decl = genai_types.FunctionDeclaration(
-          name='get_weather',
-          description='Gets the weather for a specified location.',
-          parameters={
-              'type': 'OBJECT',
-              'properties': {
-                  'location': {'type': 'STRING', 'description': 'City name'}
-              },
-              'required': ['location'],
-          },
+      # A tool that raises should be reported back to the model rather than
+      # blowing up the loop, so that it can say something sensible instead.
+      recovering_agent = fc_agents.FCAgent(
+          tools=[llm_tool_use.Tool(name='get_weather', function=_always_fails)],
+          max_steps=3,
       )
-      api_tool = genai_types.Tool(function_declarations=[weather_tool_decl])
-
-      fc_call = genai_types.FunctionCall(
-          name='get_weather', args={'location': 'London'}, id='1'
-      )
-      fc_chunk = content_lib.Chunk(content='[Function Call: get_weather]')
-      fc_chunk.metadata = {google_genai_api.FUNCTION_CALL_METADATA_KEY: fc_call}
-
-      fr_resp = genai_types.FunctionResponse(
-          name='get_weather', response=get_weather('London'), id='1'
-      )
-      fr_chunk = content_lib.Chunk(content='[Function Response: get_weather]')
-      fr_chunk.metadata = {
-          google_genai_api.FUNCTION_RESPONSE_METADATA_KEY: fr_resp
-      }
-
-      history = [
-          content_lib.Message(
-              role='user', content='What is the weather in London?'
-          ),
-          content_lib.Message(
-              role='model', content=content_lib.ChunkList([fc_chunk])
-          ),
-          content_lib.Message(
-              role='tool', content=content_lib.ChunkList([fr_chunk])
-          ),
-          content_lib.Message(role='user', content='What about New York?'),
-      ]
-
-      res, trace = executing.run(
-          llm.generate_content(  # pytype: disable=wrong-keyword-args
-              prompt=history,
-              tools=[api_tool],
-          ),
-          enable_tracing=True,
-      )
-      assert isinstance(res, content_lib.ChunkList)
-
-      if _PRINT_DEBUG.value:
-        print('Returned value(s):')
-        pprint.pprint(res)
-
-      has_fc = False
-      chunks = res.chunks if isinstance(res, content_lib.ChunkList) else [res]
-
-      for chunk in chunks:
-        if (
-            chunk.metadata
-            and google_genai_api.FUNCTION_CALL_METADATA_KEY in chunk.metadata
-        ):
-          has_fc = True
-          fc = chunk.metadata[google_genai_api.FUNCTION_CALL_METADATA_KEY]
-          print(f'- Found FunctionCall: {fc.name} with args {fc.args}')
-          if fc.name != 'get_weather' or fc.args.get('location') != 'New York':
-            tc.fail('FunctionCall name or args do not match.')
-
-      if not has_fc:
-        tc.fail('No FunctionCall found in response.')
-
-      # Check llm.tools.calls and llm.tools.details in trace info.
-      stage_info = {}
-      if (
-          hasattr(trace, 'stages')
-          and trace.stages
-          and hasattr(trace.stages[0], 'info')
-      ):
-        stage_info = trace.stages[0].info
-      if 'llm.tools.calls' in stage_info:
-        print(f"- llm.tools.calls: {stage_info['llm.tools.calls']}")
-        if stage_info['llm.tools.calls'] != 1:
-          tc.fail(
-              'Expected llm.tools.calls == 1, got'
-              f" {stage_info['llm.tools.calls']}"
-          )
-      else:
-        tc.fail('llm.tools.calls not found in trace info.')
-
-      if 'llm.tools.details' in stage_info:
-        print('- llm.tools.details:')
-        for detail in stage_info['llm.tools.details']:
-          pprint.pprint(detail, indent=4)
-        call_entries = [
-            d
-            for d in stage_info['llm.tools.details']
-            if d.get('type') == 'function_call'
-        ]
-        if not call_entries:
-          tc.fail('No function_call entries in llm.tools.details.')
-      else:
-        tc.fail('llm.tools.details not found in trace info.')
+      recovered = _run_agent(recovering_agent, 'What is the weather in London?')
+      print(f'- Answer after the tool failed: {recovered.content}')
+      if not recovered.content:
+        tc.fail('A failing tool should be reported, not raised.')
 
   if _should_run_test(23):
     with _run_test(23, 'Check usage_metadata in trace', test_results) as tc:

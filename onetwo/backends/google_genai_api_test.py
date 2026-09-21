@@ -35,9 +35,11 @@ from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import prefix_caching
 from onetwo.core import sampling
 from onetwo.core import utils
+from onetwo.stdlib.tool_use import tool_schema
 from PIL import Image
 import pydantic
 
@@ -3561,6 +3563,303 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
 
     call_args = mock_update_info.call_args[0][0]
     self.assertNotIn('llm.gcp_project', call_args)
+
+
+def _get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a specified location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary containing weather information.
+  """
+  return {'location': location, 'temp': 15, 'condition': 'Rainy'}
+
+
+# Backends are handed declarations, never implementations, so this is what
+# `_get_weather` looks like from a backend's point of view.
+_WEATHER_SPEC = tool_schema.tool_from_callable(_get_weather).to_spec()
+
+
+class GenerateWithToolsTest(
+    parameterized.TestCase,
+    core_test_utils.CounterAssertions,
+):
+  """Tests the single model call that `FCAgent` is built on."""
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+    self._mock_genai_client = mock.create_autospec(genai.Client)
+    self._mock_genai_client.models.list.return_value = _mock_list_models()
+    self.enter_context(
+        mock.patch.object(genai, 'Client', return_value=self._mock_genai_client)
+    )
+    self._reply_with(genai_types.Part(text='text'))
+
+  def _reply_with(self, *parts: genai_types.Part) -> None:
+    """Makes the mocked client reply with a single candidate of `parts`."""
+    self._mock_genai_client.models.generate_content.return_value = (
+        genai_types.GenerateContentResponse(
+            candidates=[
+                genai_types.Candidate(
+                    content=genai_types.Content(parts=parts, role='model')
+                )
+            ]
+        )
+    )
+
+  def _last_call_kwargs(self) -> dict[str, Any]:
+    _, kwargs = self._mock_genai_client.models.generate_content.call_args
+    return kwargs
+
+  def _ask(self, *messages, **kwargs):
+    return executing.run(
+        llm.generate_with_tools(
+            messages=list(messages), tools=[_WEATHER_SPEC], **kwargs
+        )
+    )
+
+  def test_lifts_the_requested_call(self):
+    _get_and_register_backend()
+    self._reply_with(
+        genai_types.Part(
+            function_call=genai_types.FunctionCall(
+                name='_get_weather', id='call_1', args={'location': 'London'}
+            )
+        )
+    )
+
+    turn = self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER,
+            content='What is the weather in London?',
+        )
+    )
+
+    with self.subTest('returns_a_single_model_turn'):
+      self.assertEqual(turn.role, function_calling.ConversationRole.MODEL)
+    with self.subTest('lifts_the_call'):
+      self.assertLen(turn.calls, 1)
+      self.assertEqual(turn.calls[0].function_name, '_get_weather')
+      self.assertEqual(dict(turn.calls[0].kwargs), {'location': 'London'})
+    with self.subTest('keeps_the_id_so_responses_can_be_matched'):
+      self.assertEqual(turn.calls[0].id, 'call_1')
+
+  def test_performs_exactly_one_model_call(self):
+    # The model asks for a tool. A backend must not act on that: executing the
+    # call and asking again is the agent's job, not the backend's.
+    backend = _get_and_register_backend()
+    self._reply_with(
+        genai_types.Part(
+            function_call=genai_types.FunctionCall(
+                name='_get_weather', id='c1', args={'location': 'London'}
+            )
+        )
+    )
+
+    turn = self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER,
+            content='What is the weather in London?',
+        )
+    )
+
+    with self.subTest('calls_the_model_once'):
+      self.assertEqual(
+          self._mock_genai_client.models.generate_content.call_count, 1
+      )
+      self.assertCounterEqual(backend._counters, Counter(generate_with_tools=1))
+    with self.subTest('hands_the_call_back_unexecuted'):
+      self.assertLen(turn.calls, 1)
+      self.assertIsNone(turn.content)
+
+  def test_disables_the_sdks_own_function_calling_loop(self):
+    # Two loops would be silent and horrible to debug, so the SDK's one is
+    # switched off and the only loop is the one in `FCAgent`.
+    _get_and_register_backend()
+
+    self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER, content='Hi.'
+        )
+    )
+
+    config = self._last_call_kwargs()['config']
+    self.assertTrue(config.automatic_function_calling.disable)
+
+  def test_declares_the_tools_as_json_schema(self):
+    _get_and_register_backend()
+
+    self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER, content='Hi.'
+        )
+    )
+
+    tools = self._last_call_kwargs()['config'].tools
+    self.assertLen(tools, 1)
+    declarations = tools[0].function_declarations
+    self.assertLen(declarations, 1)
+    with self.subTest('declares_the_name_and_description'):
+      self.assertEqual(declarations[0].name, '_get_weather')
+      self.assertStartsWith(declarations[0].description, 'Gets the weather')
+    with self.subTest('passes_the_json_schema_through_untouched'):
+      self.assertEqual(
+          declarations[0].parameters_json_schema,
+          dict(_WEATHER_SPEC.parameters or {}),
+      )
+
+  def test_advertises_nothing_when_given_no_tools(self):
+    _get_and_register_backend()
+
+    executing.run(
+        llm.generate_with_tools(
+            messages=[
+                function_calling.ConversationTurn(
+                    role=function_calling.ConversationRole.USER, content='Hi.'
+                )
+            ],
+            tools=[],
+        )
+    )
+
+    # An empty `Tool` is not the same as no tools at all.
+    self.assertIsNone(self._last_call_kwargs()['config'].tools)
+
+  def test_sends_tool_results_back(self):
+    _get_and_register_backend()
+    self._reply_with(genai_types.Part(text='It is 15 degrees in London.'))
+
+    turn = self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER,
+            content='What is the weather in London?',
+        ),
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.MODEL,
+            calls=[
+                function_calling.FunctionCall(
+                    function_name='_get_weather',
+                    kwargs={'location': 'London'},
+                    id='c1',
+                )
+            ],
+        ),
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.TOOL,
+            responses=[
+                function_calling.FunctionResponse(
+                    function_name='_get_weather',
+                    response={'temp': 15},
+                    id='c1',
+                )
+            ],
+        ),
+    )
+
+    contents = self._last_call_kwargs()['contents']
+    with self.subTest('sends_the_earlier_call_as_the_model'):
+      self.assertEqual(contents[1].role, 'model')
+      self.assertEqual(contents[1].parts[0].function_call.name, '_get_weather')
+    with self.subTest('sends_the_response_as_the_user'):
+      # The GenAI API has no tool role, so results come back as user content.
+      self.assertEqual(contents[2].role, 'user')
+      response = contents[2].parts[0].function_response
+      self.assertEqual(response.id, 'c1')
+      self.assertEqual(response.response, {'temp': 15})
+    with self.subTest('returns_the_final_answer'):
+      self.assertEqual(turn.content, 'It is 15 degrees in London.')
+
+  def test_reports_tool_errors_to_the_model(self):
+    _get_and_register_backend()
+    self._reply_with(genai_types.Part(text='Sorry, that failed.'))
+
+    self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.TOOL,
+            responses=[
+                function_calling.FunctionResponse(
+                    function_name='_get_weather',
+                    error='Unknown tool: _get_weathr.',
+                )
+            ],
+        )
+    )
+
+    contents = self._last_call_kwargs()['contents']
+    self.assertEqual(
+        contents[0].parts[0].function_response.response,
+        {'error': 'Unknown tool: _get_weathr.'},
+    )
+
+  def test_round_trips_a_call_signature(self):
+    # Gemini refuses a conversation in which an earlier function call comes
+    # back without the signature it was issued with:
+    # 'Function call is missing a thought_signature in functionCall parts.'
+    _get_and_register_backend()
+    self._reply_with(
+        genai_types.Part(
+            function_call=genai_types.FunctionCall(
+                name='_get_weather', id='c1', args={'location': 'London'}
+            ),
+            thought_signature=b'opaque',
+        )
+    )
+
+    question = function_calling.ConversationTurn(
+        role=function_calling.ConversationRole.USER,
+        content='Weather in London?',
+    )
+    first = self._ask(question)
+
+    with self.subTest('lifts_the_signature'):
+      self.assertEqual(first.calls[0].thought_signature, b'opaque')
+
+    self._ask(question, first)
+
+    resent = self._last_call_kwargs()['contents'][1].parts
+    with self.subTest('resends_the_signature_verbatim'):
+      self.assertLen(resent, 1)
+      self.assertEqual(resent[0].thought_signature, b'opaque')
+
+  def test_round_trips_a_thought_signature(self):
+    # A thinking model expects its own reasoning, and the opaque signature
+    # attached to it, to come back verbatim on the next turn.
+    _get_and_register_backend()
+    self._reply_with(
+        genai_types.Part(
+            text='I should look up the weather.',
+            thought=True,
+            thought_signature=b'opaque',
+        ),
+        genai_types.Part(text='Checking.'),
+    )
+
+    question = function_calling.ConversationTurn(
+        role=function_calling.ConversationRole.USER,
+        content='Weather in London?',
+    )
+    first = self._ask(question)
+
+    with self.subTest('keeps_the_reasoning_out_of_the_answer'):
+      self.assertEqual(first.content, 'Checking.')
+      self.assertIsNotNone(first.thought)
+
+    # Feeding the turn straight back is how a caller continues a conversation,
+    # so that is what has to preserve the signature.
+    self._ask(question, first)
+
+    resent = [
+        p for p in self._last_call_kwargs()['contents'][1].parts if p.thought
+    ]
+    with self.subTest('resends_the_thought'):
+      self.assertLen(resent, 1)
+      self.assertEqual(resent[0].text, 'I should look up the weather.')
+    with self.subTest('resends_the_signature_verbatim'):
+      self.assertEqual(resent[0].thought_signature, b'opaque')
 
 
 if __name__ == '__main__':
