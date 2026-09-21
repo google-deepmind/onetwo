@@ -155,10 +155,7 @@ class FunctionCall:
   function_name: str = ''
   args: tuple[Any, ...] = dataclasses.field(default_factory=tuple)
   kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
-  # Excluded from `repr` because callers treat the repr of a `FunctionCall` as
-  # a serialization format: one writes it into a field of an RPC response, and
-  # others assert on it in golden tests. See b/561535278.
-  id: str = dataclasses.field(default='', repr=False)
+  id: str = ''
 
 
 @dataclasses.dataclass
@@ -179,6 +176,5 @@ class FunctionResponse:
   function_name: str = ''
   response: Any = None
   error: str | None = None
-  # Excluded from `repr` for symmetry with `FunctionCall.id` above.
-  id: str = dataclasses.field(default='', repr=False)
+  id: str = ''
 

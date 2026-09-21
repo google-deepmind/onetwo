@@ -56,25 +56,16 @@ class FunctionCallTest(parameterized.TestCase):
         call,
     )
 
-  def test_repr_is_unchanged_by_the_move(self):
-    # Several callers serialise a `FunctionCall` by its repr and assert on the
-    # resulting string, so the repr is effectively part of the public API.
-    # Adding or reordering a field will break them; see b/561535278.
+  def test_repr_includes_every_field(self):
+    # Some callers serialise a `FunctionCall` by its repr, so the repr is worth
+    # pinning. `id` is part of it: it is what tells two otherwise identical
+    # parallel calls apart, which is precisely the situation in which one reads
+    # a repr from a log or a debugger.
     self.assertEqual(
-        "FunctionCall(function_name='Finish', args=('4',), kwargs={})",
-        repr(function_calling.FunctionCall('Finish', ('4',), {})),
+        "FunctionCall(function_name='Finish', args=('4',), kwargs={},"
+        " id='call_1')",
+        repr(function_calling.FunctionCall('Finish', ('4',), {}, id='call_1')),
     )
-
-  def test_id_is_excluded_from_repr(self):
-    # Consequence of the above: `id` was added after callers had come to depend
-    # on the repr, so it is declared with `repr=False`.
-    call = function_calling.FunctionCall('Finish', ('4',), {}, id='call_1')
-
-    self.assertEqual(
-        "FunctionCall(function_name='Finish', args=('4',), kwargs={})",
-        repr(call),
-    )
-    self.assertEqual('call_1', call.id)
 
   @parameterized.named_parameters(
       ('function_name', {'function_name': 'Other'}),
