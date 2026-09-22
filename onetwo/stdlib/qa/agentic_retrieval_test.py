@@ -1,0 +1,492 @@
+# Copyright 2026 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for the agentic QA strategy."""
+
+from collections.abc import AsyncIterator, Callable, Sequence
+import contextlib
+import dataclasses
+import functools
+from typing import Any
+
+from absl.testing import absltest
+from onetwo.builtins import llm
+from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
+from onetwo.stdlib.qa import agentic_retrieval
+from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.retrieval import retrieval_data_structures
+
+_Document = retrieval_data_structures.Document
+
+_USER = fc_types.ConversationRole.USER
+_MODEL = fc_types.ConversationRole.MODEL
+
+_DOCS = {
+    'd1': _Document(
+        doc_id='d1',
+        title='France',
+        content='Paris is the capital of France.',
+    ),
+    'd2': _Document(
+        doc_id='d2',
+        title='Germany',
+        content='Berlin is the capital of Germany.',
+    ),
+    'd3': _Document(
+        doc_id='d3', title='Spain', content='Madrid is the capital of Spain.'
+    ),
+}
+
+
+def _corpus_tools(
+    results_by_query: dict[str, list[_Document]],
+    queries: list[str] | None = None,
+) -> list[Callable[..., Any]]:
+  """Returns tools over a fixed corpus, for the span of one question.
+
+  The strategy supplies no tools of its own, so a test has to bring the kind
+  of thing it is meant to be given. This is a stand-in for whatever a caller
+  writes to expose their own corpus, and it is deliberately the awkward kind:
+  `read` can only return what `search` has already found, which is what makes
+  the pair worth rebuilding per question rather than sharing.
+
+  Results are keyed by query rather than matched against content, so that a
+  test can say exactly what the model's second search turns up without having
+  to invent text that happens to match it.
+
+  Args:
+    results_by_query: What each query finds.
+    queries: If given, every query is appended to it, so that a test can see how
+      often the corpus was consulted across questions.
+
+  Returns:
+    The `search` and `read` tools, declared from the signatures below.
+  """
+  found: dict[str, _Document] = {}
+
+  def search(query: str) -> list[dict[str, str]]:
+    """Searches the corpus for passages relevant to a query.
+
+    Args:
+      query: What to search for.
+
+    Returns:
+      One entry per passage, each with its `doc_id`, its `title` and a summary.
+    """
+    if queries is not None:
+      queries.append(query)
+    hits = []
+    for doc in results_by_query.get(query, []):
+      found.setdefault(doc.doc_id, doc)
+      hits.append(
+          {'doc_id': doc.doc_id, 'title': doc.title, 'snippet': doc.text}
+      )
+    return hits
+
+  def read(doc_id: str) -> str:
+    """Returns the full text of a passage an earlier search found.
+
+    Args:
+      doc_id: The `doc_id` of a passage that `search` returned.
+
+    Returns:
+      The full text of that passage.
+
+    Raises:
+      ValueError: If no search has returned that passage.
+    """
+    doc = found.get(doc_id)
+    if doc is None:
+      known = ', '.join(found) or 'none yet'
+      raise ValueError(
+          f'No passage {doc_id!r} has been found. Found so far: {known}.'
+      )
+    return doc.text
+
+  return [search, read]
+
+
+@dataclasses.dataclass
+class _ScriptedBackend:
+  """A backend that replies with a fixed script, and records what it was sent.
+
+  The strategy reaches a model only through `llm.generate_with_tools`, so
+  scripting that one builtin is enough to drive any exchange.
+  """
+
+  replies: list[fc_types.ConversationTurn] = dataclasses.field(
+      default_factory=list
+  )
+  seen_messages: list[list[fc_types.ConversationTurn]] = dataclasses.field(
+      default_factory=list
+  )
+  seen_tools: list[list[fc_types.ToolSpec]] = dataclasses.field(
+      default_factory=list
+  )
+
+  def register(self) -> None:
+    llm.generate_with_tools.configure(self.generate_with_tools)
+
+  # `copy_self=False` so that the calls we record are visible to the test.
+  @executing.make_executable(copy_self=False)
+  async def generate_with_tools(
+      self,
+      messages: Sequence[fc_types.ConversationTurn],
+      tools: Sequence[fc_types.ToolSpec],
+      **kwargs,
+  ) -> fc_types.ConversationTurn:
+    del kwargs
+    self.seen_messages.append(list(messages))
+    self.seen_tools.append(list(tools))
+    index = min(len(self.seen_messages) - 1, len(self.replies) - 1)
+    return self.replies[index]
+
+
+def _call(name: str, **kwargs) -> fc_types.FunctionCall:
+  return fc_types.FunctionCall(function_name=name, kwargs=kwargs)
+
+
+def _model_turn(
+    content: str | None = None, calls: Sequence[fc_types.FunctionCall] = ()
+) -> fc_types.ConversationTurn:
+  return fc_types.ConversationTurn(role=_MODEL, content=content, calls=calls)
+
+
+def _responses_in(
+    conversation: Sequence[fc_types.ConversationTurn],
+) -> list[fc_types.FunctionResponse]:
+  """Returns every tool response in a conversation, in the order they occur."""
+  responses = []
+  for turn in conversation:
+    responses.extend(turn.responses)
+  return responses
+
+
+def _add(left: int, right: int) -> int:
+  """Adds two numbers.
+
+  Args:
+    left: The first number.
+    right: The second number.
+
+  Returns:
+    Their sum.
+  """
+  return left + right
+
+
+class AgenticRetrievalStrategyTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+  def test_runs_with_tools_built_outside_the_strategy(self):
+    # The corpus is wired up here, by the caller, and the strategy is handed
+    # tools that know nothing of each other.
+    queries = []
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='capital of France')]),
+            _model_turn(calls=[_call('read', doc_id='d1')]),
+            _model_turn('Paris.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(
+            _corpus_tools, {'capital of France': [_DOCS['d1']]}, queries
+        ),
+        instructions=agentic_retrieval.RETRIEVAL_INSTRUCTIONS,
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('returns_the_final_answer'):
+      self.assertEqual(result.answer, 'Paris.')
+    with self.subTest('searches_for_what_the_model_asked_for'):
+      self.assertEqual(queries, ['capital of France'])
+    with self.subTest('declares_the_tools_it_was_given'):
+      self.assertEqual(
+          sorted(spec.name for spec in backend.seen_tools[0]),
+          ['read', 'search'],
+      )
+    with self.subTest('a_tool_result_reaches_the_model_unchanged'):
+      self.assertEqual(
+          _responses_in(backend.seen_messages[-1])[-1].response,
+          _DOCS['d1'].text,
+      )
+    with self.subTest('puts_the_question_in_the_first_turn'):
+      first_turn = backend.seen_messages[0][0]
+      self.assertEqual(first_turn.role, _USER)
+      self.assertIn('What is the capital of France?', str(first_turn.content))
+    with self.subTest('passes_on_the_instructions_it_was_given'):
+      self.assertIn(
+          agentic_retrieval.RETRIEVAL_INSTRUCTIONS,
+          str(backend.seen_messages[0][0].content),
+      )
+
+  def test_each_question_gets_its_own_tools(self):
+    # `read` can only return what `search` found, so a second question that
+    # reads the first question's document must be told it does not have it:
+    # the two questions do not share what they retrieved.
+    queries = []
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='france')]),
+            _model_turn('Paris.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(
+            _corpus_tools, {'france': [_DOCS['d1']]}, queries
+        )
+    )
+
+    executing.run(strategy('What is the capital of France?'))
+    backend.replies = [
+        _model_turn(calls=[_call('read', doc_id='d1')]),
+        _model_turn('I do not know.'),
+    ]
+    backend.seen_messages.clear()
+    executing.run(strategy('And of Germany?'))
+
+    with self.subTest('the_second_question_cannot_read_the_firsts_passage'):
+      error = _responses_in(backend.seen_messages[-1])[-1].error or ''
+      self.assertIn('d1', error)
+    with self.subTest('the_corpus_itself_is_shared'):
+      # One corpus served both questions; only the tools were rebuilt.
+      self.assertEqual(queries, ['france'])
+
+  def test_tools_may_arrive_as_a_session_that_is_closed_afterwards(self):
+    # The shape a connection-backed toolset needs: opened for the question and
+    # closed once it is answered.
+    events = []
+
+    @contextlib.asynccontextmanager
+    async def open_session() -> AsyncIterator[Sequence[Callable[..., Any]]]:
+      events.append('open')
+      try:
+        yield [_add]
+      finally:
+        events.append('close')
+
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('_add', left=2, right=2)]),
+            _model_turn('Four.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=open_session
+    )
+
+    result = executing.run(strategy('What is two plus two?'))
+
+    with self.subTest('the_session_supplies_the_tools'):
+      self.assertEqual([spec.name for spec in backend.seen_tools[0]], ['_add'])
+    with self.subTest('the_model_can_use_them'):
+      self.assertEqual(result.answer, 'Four.')
+    with self.subTest('the_session_is_opened_once_and_closed'):
+      self.assertEqual(events, ['open', 'close'])
+
+    executing.run(strategy('And again?'))
+
+    with self.subTest('a_second_question_opens_its_own_session'):
+      self.assertEqual(events, ['open', 'close', 'open', 'close'])
+
+  def test_reports_no_documents_even_when_tools_return_them(self):
+    # Deliberate, and worth pinning: a tool here can return anything, and the
+    # strategy makes no attempt to recognise which of it was a document.
+    # Recovering them by shape is easy and would be wrong -- see the module
+    # docstring for what has to be settled before `docs` can be filled.
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='capital of France')]),
+            _model_turn('Paris.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(
+            _corpus_tools, {'capital of France': [_DOCS['d1']]}
+        )
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('still_answers'):
+      self.assertEqual(result.answer, 'Paris.')
+    with self.subTest('the_tool_did_return_a_document'):
+      returned = _responses_in(backend.seen_messages[-1])[-1].response
+      self.assertEqual([hit['doc_id'] for hit in returned], ['d1'])
+    with self.subTest('and_it_is_not_reported'):
+      self.assertEmpty(result.docs)
+
+  def test_mixes_shared_tools_with_per_question_ones(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_add],
+        per_question_tools=functools.partial(_corpus_tools, {}),
+    )
+
+    executing.run(strategy('What is the capital of France?'))
+
+    self.assertEqual(
+        sorted(spec.name for spec in backend.seen_tools[0]),
+        ['_add', 'read', 'search'],
+    )
+
+  def test_a_shared_tool_is_callable_like_a_per_question_one(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('_add', left=2, right=2)]),
+            _model_turn('Four.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(tools=[_add])
+
+    result = executing.run(strategy('What is two plus two?'))
+
+    self.assertEqual(result.answer, 'Four.')
+
+  def test_a_strategy_with_no_tools_still_answers(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy()
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('returns_the_answer'):
+      self.assertEqual(result.answer, 'Paris.')
+    with self.subTest('declares_no_tools'):
+      self.assertEmpty(backend.seen_tools[0])
+    with self.subTest('passes_on_the_default_instructions'):
+      self.assertIn(
+          agentic_retrieval.DEFAULT_INSTRUCTIONS,
+          str(backend.seen_messages[0][0].content),
+      )
+
+  def test_the_model_may_search_as_many_times_as_it_wants(self):
+    # The point of the loop: the second query is one the caller never wrote
+    # and the model only arrived at after seeing what the first returned.
+    queries = []
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='capitals')]),
+            _model_turn(calls=[_call('search', query='more capitals')]),
+            _model_turn('Paris, Berlin and Madrid.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(
+            _corpus_tools,
+            {
+                'capitals': [_DOCS['d2'], _DOCS['d1']],
+                'more capitals': [_DOCS['d1'], _DOCS['d3']],
+            },
+            queries,
+        )
+    )
+
+    result = executing.run(strategy('Name some capitals.'))
+
+    with self.subTest('every_query_reaches_the_corpus'):
+      self.assertEqual(queries, ['capitals', 'more capitals'])
+    with self.subTest('and_the_last_word_is_the_answer'):
+      self.assertEqual(result.answer, 'Paris, Berlin and Madrid.')
+
+  def test_a_tool_error_is_reported_to_the_model(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='france')]),
+            _model_turn(calls=[_call('read', doc_id='d9')]),
+            _model_turn(calls=[_call('read', doc_id='d1')]),
+            _model_turn('Paris.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(
+            _corpus_tools, {'france': [_DOCS['d1']]}
+        )
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('the_exchange_survives_the_failure'):
+      self.assertEqual(result.answer, 'Paris.')
+    with self.subTest('the_model_is_told_what_went_wrong'):
+      # The second step is the one that read a document that does not exist;
+      # its error reaches the model in the conversation sent next.
+      responses = _responses_in(backend.seen_messages[2])
+      error = responses[-1].error or ''
+      self.assertIn('d9', error)
+
+  def test_a_question_that_needs_no_search_is_answered_directly(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(_corpus_tools, {})
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    self.assertEqual(result.answer, 'Paris.')
+
+  def test_running_out_of_steps_returns_what_the_model_last_said(self):
+    backend = _ScriptedBackend(
+        replies=[_model_turn(calls=[_call('search', query='france')])]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        per_question_tools=functools.partial(
+            _corpus_tools, {'france': [_DOCS['d1']]}
+        ),
+        max_steps=2,
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('stops_at_the_bound'):
+      self.assertLen(backend.seen_messages, 2)
+    with self.subTest('has_no_answer_to_report'):
+      self.assertEmpty(result.answer)
+
+  def test_is_available_from_the_strategy_registry(self):
+    with self.subTest('can_be_built_by_name'):
+      strategy = strategies_lib.get_strategy('agentic_retrieval')
+      self.assertIsInstance(
+          strategy, agentic_retrieval.AgenticRetrievalStrategy
+      )
+    with self.subTest('takes_its_tools_through_the_registry'):
+      # The registry has no way to name a corpus, so tools are how a caller
+      # says what this strategy may do.
+      backend = _ScriptedBackend(replies=[_model_turn('Four.')])
+      backend.register()
+      strategy = strategies_lib.get_strategy('agentic_retrieval', tools=[_add])
+
+      executing.run(strategy('What is two plus two?'))
+
+      self.assertEqual([spec.name for spec in backend.seen_tools[0]], ['_add'])
+
+
+if __name__ == '__main__':
+  absltest.main()

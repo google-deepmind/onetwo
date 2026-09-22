@@ -1,0 +1,146 @@
+# Copyright 2026 DeepMind Technologies Limited.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tools from an MCP server, as `Tool`s any backend can be given.
+
+The Model Context Protocol is how a corpus, a service or a toolbox declares
+what it can do without anyone writing an adapter for it. A server says which
+tools it has and what arguments they take; a client discovers them at run time.
+
+This module is the join between that and the rest of OneTwo. It turns what a
+server declares into ordinary `llm_tool_use.Tool`s, which is the only thing the
+backends know about:
+
+```python
+  async with mcp_tools.mcp_session('http://localhost:8777/mcp') as tools:
+    agent = fc_agents.FCAgent(tools=tools)
+    ...
+```
+
+Because the result is a plain `Tool`, every backend that can offer a tool to a
+model can offer an MCP tool -- there is nothing MCP-specific left downstream of
+this module, and nothing here that is specific to a backend, a strategy or an
+agent.
+
+The session is a context manager because it is one connection: the tools are
+valid for as long as it is open, and calling one after it closes is an error.
+Where the tools are needed per question rather than per process -- so that
+concurrent questions do not share a connection -- pass this to a strategy that
+opens it per question, e.g. `AgenticRetrievalStrategy.per_question_tools`.
+"""
+
+from collections.abc import AsyncIterator, Sequence
+import contextlib
+from typing import Any
+
+from mcp import types as mcp_types
+from mcp.client import session as client_session
+from mcp.client import streamable_http
+from onetwo.stdlib.tool_use import llm_tool_use
+
+
+# TODO: Extend to handle multimodal content.
+def _text_of(result: mcp_types.CallToolResult) -> str:
+  """Returns the text blocks of a result, joined.
+
+  Args:
+    result: What the server sent back.
+
+  Returns:
+    Every text block, newline-separated. Empty if the result carried none,
+    which is what a server sends for a tool that returns nothing.
+  """
+  return '\n'.join(
+      content.text
+      for content in result.content
+      if isinstance(content, mcp_types.TextContent)
+  )
+
+
+def _returned(result: mcp_types.CallToolResult) -> Any:
+  """Returns what a tool call produced, as plain Python.
+
+  A server that declares an output schema must answer with
+  `structuredContent`, and the client session checks that it did and that the
+  content conforms -- so where there is structure, it is the server's own, not
+  something recovered by guessing at the text. Only a server that declares no
+  output schema falls back to text, which is then all the server actually sent.
+
+  Note that the structure is whatever the server chose to send, envelope
+  included: a tool whose result is not itself an object has to be wrapped in
+  one to satisfy the schema, and servers built with FastMCP wrap it as
+  `{'result': ...}`. Unwrapping that here would be guessing again, since the
+  key is the server's choice and not part of the protocol.
+
+  Args:
+    result: What the server sent back.
+
+  Returns:
+    The structured content if there is any, and the text otherwise.
+  """
+  if result.structuredContent is not None:
+    return result.structuredContent
+  return _text_of(result)
+
+
+def tool_from_declaration(
+    session: client_session.ClientSession, declared: mcp_types.Tool
+) -> llm_tool_use.Tool:
+  """Returns one tool a server declared, as a `Tool`.
+
+  Args:
+    session: An open session to call the tool through. It must outlive the
+      returned tool, which holds it.
+    declared: What the server said about the tool.
+
+  Returns:
+    A tool that calls the server, declared as the server declared it.
+  """
+
+  async def call(**kwargs) -> Any:
+    result = await session.call_tool(declared.name, arguments=kwargs)
+    if result.isError:
+      # Raised rather than returned, because an agent turns an exception from a
+      # tool into a message to the model, which can then correct itself. The
+      # text is what the server chose to say about the failure.
+      raise RuntimeError(_text_of(result) or f'{declared.name} failed.')
+    return _returned(result)
+
+  return llm_tool_use.Tool(
+      name=declared.name,
+      description=declared.description or '',
+      # Passed on as the server wrote it. A JSON Schema is what the backends
+      # want and what MCP carries, so there is nothing to convert; keywords the
+      # server includes that a model API does not use, such as the `title` that
+      # FastMCP generates, are ignored by the API rather than rejected.
+      parameters=declared.inputSchema,
+      function=call,
+  )
+
+
+@contextlib.asynccontextmanager
+async def mcp_session(url: str) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
+  """Connects to an MCP server and yields the tools it declares.
+
+  Args:
+    url: Streamable-HTTP endpoint of a running server.
+
+  Yields:
+    One tool per tool the server declares, valid until the session closes.
+  """
+  async with streamable_http.streamable_http_client(url) as (read, write, _):
+    async with client_session.ClientSession(read, write) as session:
+      await session.initialize()
+      declared = await session.list_tools()
+      yield [tool_from_declaration(session, tool) for tool in declared.tools]
