@@ -14,7 +14,8 @@
 
 """Tests for the model-native function calling agent."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+import contextlib
 import dataclasses
 from typing import Any, cast
 
@@ -89,6 +90,34 @@ def _model_turn(
     content: str | None = None, calls: Sequence[fc_types.FunctionCall] = ()
 ) -> fc_types.ConversationTurn:
   return fc_types.ConversationTurn(role=_MODEL, content=content, calls=calls)
+
+
+def _fake_source(
+    tools: Sequence[Any], events: list[str]
+) -> llm_tool_use.ToolSource:
+  """Returns a source of tools whose opening and closing a test can observe.
+
+  Stands in for anything whose tools outlive neither their connection nor the
+  run: an MCP server, say.
+
+  Args:
+    tools: What it yields once open.
+    events: Where `'open'` and `'close'` are recorded as they happen, so that a
+      test can say when each did rather than only that it did.
+
+  Returns:
+    A source yielding `tools`.
+  """
+
+  @contextlib.asynccontextmanager
+  async def opened() -> AsyncIterator[Sequence[Any]]:
+    events.append('open')
+    try:
+      yield tools
+    finally:
+      events.append('close')
+
+  return llm_tool_use.ToolSource(open=opened)
 
 
 def _run(
@@ -531,6 +560,168 @@ class FCAgentTest(parameterized.TestCase):
     with self.subTest('advertises_no_tools'):
       self.assertEmpty(backend.seen_tools[0])
     with self.subTest('still_answers'):
+      self.assertEqual(result.content, 'Hello!')
+
+
+class FCAgentToolSourceTest(absltest.TestCase):
+  """Tests the tools that are fetched per run rather than held on the agent.
+
+  These are the tools that cannot be built once: those reached over a
+  connection, which are callable only while it is open. Such a toolset is
+  named among `tools` as a source, and the agent is expected to open it around
+  each run and close it again, so that a caller writes no `async with` of
+  their own and the agent survives to answer the next question.
+  """
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+  def test_tools_from_a_source_are_declared_and_callable(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_get_time', kwargs={'city': 'Paris'})
+                ]
+            ),
+            _model_turn('It is noon in Paris.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(
+        tools=[_get_weather, _fake_source([_get_time], events=[])]
+    )
+
+    result = _run(agent, 'Time in Paris?')
+
+    with self.subTest('declares_them_alongside_the_agents_own'):
+      self.assertEqual(
+          sorted(spec.name for spec in backend.seen_tools[0]),
+          ['_get_time', '_get_weather'],
+      )
+    with self.subTest('executes_the_one_from_the_source'):
+      tool_turn = backend.seen_messages[1][-1]
+      self.assertEqual(tool_turn.responses[0].response, '12:00 in Paris')
+    with self.subTest('answers'):
+      self.assertEqual(result.content, 'It is noon in Paris.')
+
+  def test_a_source_is_open_for_exactly_the_length_of_the_run(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_get_time', kwargs={'city': 'Oslo'})
+                ]
+            ),
+            _model_turn('It is noon in Oslo.'),
+        ]
+    )
+    backend.register()
+    events: list[str] = []
+    agent = fc_agents.FCAgent(tools=[_fake_source([_get_time], events)])
+
+    result = _run(agent, 'Time in Oslo?')
+
+    with self.subTest('opens_it_and_closes_it_once'):
+      self.assertEqual(events, ['open', 'close'])
+    with self.subTest('the_tool_worked_while_it_was_open'):
+      self.assertEqual(
+          backend.seen_messages[1][-1].responses[0].response, '12:00 in Oslo'
+      )
+    with self.subTest('answers'):
+      self.assertEqual(result.content, 'It is noon in Oslo.')
+
+  def test_a_second_run_opens_the_source_again(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    events: list[str] = []
+    agent = fc_agents.FCAgent(tools=[_fake_source([_get_time], events)])
+
+    _run(agent, 'Hi')
+    _run(agent, 'Hi again')
+
+    with self.subTest('opens_and_closes_it_once_per_run'):
+      self.assertEqual(events, ['open', 'close', 'open', 'close'])
+    with self.subTest('declares_the_same_tools_both_times'):
+      # The tools of a run are not kept on the agent, so the second run
+      # declares what the second opening yielded and not that twice over.
+      self.assertEqual(
+          [spec.name for spec in backend.seen_tools[1]], ['_get_time']
+      )
+
+  def test_a_source_is_closed_even_when_the_run_fails(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_explode', kwargs={'reason': 'no'})
+                ]
+            )
+        ]
+    )
+    backend.register()
+    events: list[str] = []
+    agent = fc_agents.FCAgent(
+        tools=[_fake_source([_explode], events)], stop_on_tool_error=True
+    )
+
+    with self.subTest('the_failure_reaches_the_caller'):
+      with self.assertRaises(ValueError):
+        _run(agent, 'Explode please')
+    with self.subTest('the_source_is_closed_anyway'):
+      self.assertEqual(events, ['open', 'close'])
+
+  def test_a_source_replaces_a_tool_of_the_same_name(self):
+    def _fresher_get_time(city: str) -> str:
+      """Tells the time in a city, an hour later than the other one does.
+
+      Args:
+        city: Where to look.
+
+      Returns:
+        The time there.
+      """
+      return f'13:00 in {city}'
+
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_get_time', kwargs={'city': 'Rome'})
+                ]
+            ),
+            _model_turn('It is one in Rome.'),
+        ]
+    )
+    backend.register()
+    fresher = llm_tool_use.Tool(name='_get_time', function=_fresher_get_time)
+    agent = fc_agents.FCAgent(
+        tools=[_get_time, _fake_source([fresher], events=[])]
+    )
+
+    _run(agent, 'Time in Rome?')
+
+    with self.subTest('declares_it_once'):
+      self.assertEqual(
+          [spec.name for spec in backend.seen_tools[0]], ['_get_time']
+      )
+    with self.subTest('calls_the_one_from_the_source'):
+      tool_turn = backend.seen_messages[1][-1]
+      self.assertEqual(tool_turn.responses[0].response, '13:00 in Rome')
+
+  def test_a_run_without_a_source_opens_nothing(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    result = _run(agent, 'Hi')
+
+    with self.subTest('declares_the_tools_it_was_built_with'):
+      self.assertEqual(
+          [spec.name for spec in backend.seen_tools[0]], ['_get_weather']
+      )
+    with self.subTest('answers'):
       self.assertEqual(result.content, 'Hello!')
 
 

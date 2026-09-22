@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Model-native function calling, implemented once for every backend.
+"""Model-native function calling, compliant with every backend.
 
 A model that supports function calling does not execute anything: it replies
 with a request to call a tool, and waits to be told what happened. Turning that
@@ -20,13 +20,13 @@ into a useful answer takes a loop -- call the model, run whatever it asked for,
 give it the results, call it again -- which ends when the model replies without
 asking for anything further.
 
-That loop is the same whichever model is answering, so it lives here rather
-than in the backends. A backend contributes exactly one thing to it: an
-implementation of `llm.generate_with_tools`, which performs a single model call
-and knows how to spell a tool declaration, a conversation, and a function call
-in whatever dialect its API uses. Everything else -- dispatching the calls,
-reporting failures back to the model, deciding when the exchange is over -- is
-here, written once.
+That loop is the same whichever model / backend is answering. A backend
+contributes exactly one thing to it: an implementation of
+`llm.generate_with_tools`, which performs a single model call and knows how to
+spell a tool declaration, a conversation, and a function call in whatever
+dialect its API uses. Everything else -- dispatching the calls, reporting
+failures back to the model, deciding when the exchange is over -- is here,
+written once.
 
 Usage:
 
@@ -36,14 +36,25 @@ Usage:
   turn = ot.run(agent('What is the weather in London?'))
   print(turn.content)
 ```
+
+A tool need not live in this process. An MCP server can be named in the same
+list, and is connected to for the length of a run:
+
+```python
+  agent = function_calling.FCAgent(
+      tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
+  )
+```
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+import contextlib
 import copy
 import dataclasses
-from typing import Any
+from typing import Any, TypeAlias
+
 
 from onetwo.agents import agents_base
 from onetwo.builtins import llm
@@ -52,6 +63,11 @@ from onetwo.core import function_calling as fc_types
 from onetwo.core import tracing
 from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import tool_schema
+
+# What a caller may name as a FC tool.
+FCTool: TypeAlias = (
+    llm_tool_use.Tool | Callable[..., Any] | llm_tool_use.ToolSource
+)
 
 
 def _traced(response: fc_types.FunctionResponse) -> Any:
@@ -66,6 +82,33 @@ def _traced(response: fc_types.FunctionResponse) -> Any:
   if response.error:
     return {'error': response.error}
   return response.response
+
+
+def _as_tool(tool: llm_tool_use.Tool | Callable[..., Any]) -> llm_tool_use.Tool:
+  """Returns the given tool in the fully declared form the model needs.
+
+  A plain callable is introspected. A hand-written `Tool` need not declare its
+  parameters; they are recovered from the function it wraps, since the model
+  cannot call what it has not been told about. Only the missing pieces are
+  filled in, so that the policy fields the author did set, such as
+  `irrecoverable_error_types`, are preserved.
+
+  Args:
+    tool: A `Tool`, or a callable to make one from.
+
+  Returns:
+    A `Tool` with its parameters declared.
+  """
+  if not isinstance(tool, llm_tool_use.Tool):
+    return tool_schema.tool_from_callable(tool)
+  if tool.parameters is not None or tool.function is None:
+    return tool
+  derived = tool_schema.tool_from_callable(tool.function, name=tool.name)
+  return dataclasses.replace(
+      tool,
+      parameters=derived.parameters,
+      description=tool.description or derived.description,
+  )
 
 
 @dataclasses.dataclass
@@ -131,6 +174,28 @@ class FCState:
     return hash(tuple(str(turn) for turn in self.history))
 
 
+@dataclasses.dataclass(frozen=True)
+class FCEnvironment:
+  """The tools of one run, in the two forms the loop needs them in.
+
+  Most tools are fixed when the agent is built, but not all: a tool reached
+  over a connection is callable only while that connection is open, so which
+  tools exist, and whether they still work, is a property of the run rather
+  than of the agent. This is that set, opened by `FCAgent.start_environment`
+  when a run begins and released when it ends.
+
+  Attributes:
+    tools_by_name: The executable tools, indexed by the name the model uses to
+      ask for them.
+    specs: The declaration-only form, which is all the model is sent. The split
+      is deliberate: a backend receives only this, so it cannot execute
+      anything.
+  """
+
+  tools_by_name: Mapping[str, llm_tool_use.Tool]
+  specs: Sequence[fc_types.ToolSpec]
+
+
 @dataclasses.dataclass
 class FCAgent(
     agents_base.SingleSampleAgent[
@@ -138,7 +203,7 @@ class FCAgent(
         fc_types.ConversationTurn,  # _O (output)
         FCState,  # _S (state)
         FCStep,  # _U (update)
-        None,  # _E (environment)
+        FCEnvironment,  # _E (environment)
     ]
 ):
   """Agent that runs model-native function calling to completion.
@@ -159,7 +224,9 @@ class FCAgent(
     tools: The tools the model may call, either as `Tool`s or as plain
       callables, which are introspected into `Tool`s. Their declarations are
       sent to the model; their code is called from here and never leaves this
-      process.
+      process. A `ToolSource` may be listed among them to stand in for tools
+      that must be fetched when a run starts, such as those of an MCP server:
+      `tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]`.
     max_steps: Bound on the number of model calls, so that a model which keeps
       asking for tools cannot loop forever.
     parallel_calls: Whether to execute the calls of a single turn concurrently.
@@ -173,48 +240,77 @@ class FCAgent(
       every call, e.g. `{'temperature': 0.0}`.
   """
 
-  tools: Sequence[llm_tool_use.Tool | Callable[..., Any]] = ()
+  tools: Sequence[FCTool] = ()
   max_steps: int = 10
   parallel_calls: bool = True
   stop_on_tool_error: bool = False
   generate_kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
-  # Derived from `tools` in `__post_init__`: the executable form, indexed by
-  # the name the model will use, and the declaration-only form sent to the
-  # model. The split is deliberate -- a backend receives only the latter, so it
-  # cannot execute anything.
+  # The two halves of `tools`, separated in `__post_init__`: those that could
+  # be resolved there and then, and those that can only be had while a run is
+  # in progress. See `start_environment`, which puts them back together.
   _tools_by_name: dict[str, llm_tool_use.Tool] = dataclasses.field(
       init=False, default_factory=dict
   )
   _specs: list[fc_types.ToolSpec] = dataclasses.field(
       init=False, default_factory=list
   )
+  _sources: list[llm_tool_use.ToolSource] = dataclasses.field(
+      init=False, default_factory=list
+  )
 
   def __post_init__(self):
     for tool in self.tools:
-      if not isinstance(tool, llm_tool_use.Tool):
-        tool = tool_schema.tool_from_callable(tool)
-      elif tool.parameters is None and tool.function is not None:
-        # A hand-written `Tool` need not spell out its parameters; recover them
-        # from the function, since the model cannot call what is not declared.
-        # Only the missing pieces are filled in, so that the policy fields the
-        # author did set, such as `irrecoverable_error_types`, are preserved.
-        derived = tool_schema.tool_from_callable(tool.function, name=tool.name)
-        tool = dataclasses.replace(
-            tool,
-            parameters=derived.parameters,
-            description=tool.description or derived.description,
-        )
+      if isinstance(tool, llm_tool_use.ToolSource):
+        # Not a tool but a promise of some, kept until a run starts.
+        self._sources.append(tool)
+        continue
+      tool = _as_tool(tool)
       self._tools_by_name[tool.name] = tool
       self._specs.append(tool.to_spec())
+
+  @contextlib.asynccontextmanager
+  async def start_environment(self) -> AsyncIterator[FCEnvironment]:
+    """Gathers the tools of one run, and releases them when it ends.
+
+    Overridden from base class (Agent).
+
+    Tools given directly were resolved once, when the agent was built, and are
+    the whole environment when no source was given -- the usual case, which
+    opens nothing and costs nothing. Each source is asked for its tools here
+    and told to release them when the run ends, whether it ended in an answer
+    or in an exception.
+
+    A source that names a tool already given directly replaces it, on the
+    grounds that whatever was just fetched is the more current of the two.
+
+    Yields:
+      The tools of this run.
+    """
+    if not self._sources:
+      yield FCEnvironment(tools_by_name=self._tools_by_name, specs=self._specs)
+      return
+    async with contextlib.AsyncExitStack() as stack:
+      tools_by_name = dict(self._tools_by_name)
+      for source in self._sources:
+        for tool in await stack.enter_async_context(source.open()):
+          tool = _as_tool(tool)
+          tools_by_name[tool.name] = tool
+      # Declarations are derived from the same mapping the calls are dispatched
+      # against, so that a replaced tool is declared once, in the place the
+      # tool it replaced held, rather than twice over.
+      yield FCEnvironment(
+          tools_by_name=tools_by_name,
+          specs=[tool.to_spec() for tool in tools_by_name.values()],
+      )
 
   def steps_exhausted(self, state: FCState) -> bool:
     """Returns whether the exchange stopped only because it ran out of steps."""
     return state.num_steps >= self.max_steps
 
-  @executing.make_executable(copy_self=False)
+  @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def _execute_call(
-      self, call: fc_types.FunctionCall
+      self, call: fc_types.FunctionCall, *, environment: FCEnvironment
   ) -> fc_types.FunctionResponse:
     """Runs one call requested by the model and reports what happened.
 
@@ -229,13 +325,15 @@ class FCAgent(
 
     Args:
       call: The call requested by the model.
+      environment: The tools of this run. Not copied, since a tool reached over
+        a connection is bound to it and a copy of it would not work.
 
     Returns:
       The result of the call, or a description of why it failed.
     """
-    tool = self._tools_by_name.get(call.function_name)
+    tool = environment.tools_by_name.get(call.function_name)
     if tool is None:
-      available = ', '.join(sorted(self._tools_by_name)) or 'none'
+      available = ', '.join(sorted(environment.tools_by_name)) or 'none'
       return fc_types.FunctionResponse(
           function_name=call.function_name,
           error=(
@@ -263,7 +361,7 @@ class FCAgent(
   async def initialize_state(
       self,
       inputs: str | Sequence[fc_types.ConversationTurn],
-      environment: None = None,
+      environment: FCEnvironment | None = None,
   ) -> FCState:
     """Returns a newly initialized state based on the input.
 
@@ -271,7 +369,8 @@ class FCAgent(
 
     Args:
       inputs: Either the user's request, or a conversation to continue.
-      environment: Unused; this agent does not need an environment.
+      environment: Unused; the state of an exchange does not depend on which
+        tools are available to it.
     """
     del environment
     if isinstance(inputs, str):
@@ -287,7 +386,7 @@ class FCAgent(
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   @tracing.trace(name='FCAgent.step')
   async def _sample_single_next_step(
-      self, *, state: FCState, environment: None = None
+      self, *, state: FCState, environment: FCEnvironment | None = None
   ) -> FCStep:
     """Performs one model call and answers whatever it asks for.
 
@@ -295,20 +394,28 @@ class FCAgent(
 
     Args:
       state: Current state of the agent.
-      environment: Unused; this agent does not need an environment.
+      environment: The tools of this run, as gathered by `start_environment`.
+        Defaults to those given directly to the agent, which is all of them
+        unless it was given a source.
 
     Returns:
       The model's turn, plus the tool turn answering it if it requested calls.
     """
-    del environment
+    if environment is None:
+      environment = FCEnvironment(
+          tools_by_name=self._tools_by_name, specs=self._specs
+      )
     model_turn = await llm.generate_with_tools(
-        messages=state.history, tools=self._specs, **self.generate_kwargs
+        messages=state.history, tools=environment.specs, **self.generate_kwargs
     )
     if not model_turn.calls:
       self._record_step_in_trace(model_turn, ())
       return FCStep(model_turn=model_turn)
 
-    executables = [self._execute_call(call) for call in model_turn.calls]
+    executables = [
+        self._execute_call(call, environment=environment)
+        for call in model_turn.calls
+    ]
     if self.parallel_calls:
       # `par_iter` preserves the order of its inputs, so the responses line up
       # with the calls even when the tools finish out of order. That matters

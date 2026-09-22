@@ -15,7 +15,8 @@
 """Library for use of tools via LLM prompting."""
 
 import ast
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+import contextlib
 import dataclasses
 import enum
 import itertools
@@ -570,3 +571,27 @@ class Tool:
           f'({routing.function_registry=}).'
       )
     return await utils.call_and_maybe_await(tool_function, *args, **kwargs)
+
+
+@dataclasses.dataclass(frozen=True)
+class ToolSource:
+  """Tools that can only be had while a run is in progress.
+
+  This is a value holding the one thing that has to be supplied, rather than an
+  interface to implement: `mcp_tools.server` builds one, and there is nothing
+  to subclass.
+
+  Attributes:
+    open: Called when a run starts, returning an async context manager that
+      yields the tools of that run, either as `Tool`s or as plain callables to
+      be introspected into them. It is exited when the run ends, whether the run
+      succeeded or not, which is where a connection is closed and anything else
+      released.
+  """
+
+  open: Callable[
+      [],
+      contextlib.AbstractAsyncContextManager[
+          Sequence['Tool | Callable[..., Any]']
+      ],
+  ]

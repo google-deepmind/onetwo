@@ -23,9 +23,9 @@ server declares into ordinary `llm_tool_use.Tool`s, which is the only thing the
 backends know about:
 
 ```python
-  async with mcp_tools.mcp_session('http://localhost:8777/mcp') as tools:
-    agent = fc_agents.FCAgent(tools=tools)
-    ...
+  agent = fc_agents.FCAgent(
+      tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
+  )
 ```
 
 Because the result is a plain `Tool`, every backend that can offer a tool to a
@@ -33,15 +33,21 @@ model can offer an MCP tool -- there is nothing MCP-specific left downstream of
 this module, and nothing here that is specific to a backend, a strategy or an
 agent.
 
-The session is a context manager because it is one connection: the tools are
-valid for as long as it is open, and calling one after it closes is an error.
-Where the tools are needed per question rather than per process -- so that
-concurrent questions do not share a connection -- pass this to a strategy that
-opens it per question, e.g. `AgenticRetrievalStrategy.per_question_tools`.
+A connection is one session: the tools are valid for as long as it is open, and
+calling one after it closes is an error. `server` leaves that to whoever is
+given it, which is how an agent comes to open one per run and close it again,
+so that concurrent questions never share a connection. `mcp_session` is the
+same thing with the lifetime in the caller's hands:
+
+```python
+  async with mcp_tools.mcp_session('http://localhost:8777/mcp') as tools:
+    ...
+```
 """
 
 from collections.abc import AsyncIterator, Sequence
 import contextlib
+import functools
 from typing import Any
 
 from mcp import types as mcp_types
@@ -144,3 +150,25 @@ async def mcp_session(url: str) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
       await session.initialize()
       declared = await session.list_tools()
       yield [tool_from_declaration(session, tool) for tool in declared.tools]
+
+
+def server(url: str) -> llm_tool_use.ToolSource:
+  """Returns a server named as a source of tools, to be listed among them.
+
+  Nothing is connected to here. The server is asked what it has when a run
+  begins, and the session is closed when the run ends, so the same value can be
+  used for one question or a thousand:
+
+  ```python
+    agent = fc_agents.FCAgent(
+        tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
+    )
+  ```
+
+  Args:
+    url: Streamable-HTTP endpoint of the server.
+
+  Returns:
+    A source that yields the server's tools for the length of one run.
+  """
+  return llm_tool_use.ToolSource(open=functools.partial(mcp_session, url))

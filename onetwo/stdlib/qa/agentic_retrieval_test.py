@@ -27,6 +27,7 @@ from onetwo.core import function_calling as fc_types
 from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.tool_use import llm_tool_use
 
 _Document = retrieval_data_structures.Document
 
@@ -118,6 +119,54 @@ def _corpus_tools(
   return [search, read]
 
 
+def _source(
+    make_tools: Callable[[], Sequence[Callable[..., Any]]],
+    events: list[str] | None = None,
+) -> llm_tool_use.ToolSource:
+  """Returns tools built afresh for each question, let go once it is answered.
+
+  Stands in for whatever a caller writes to expose a toolset that cannot be
+  shared: one that remembers what it was asked, or one that holds a connection.
+
+  Args:
+    make_tools: Called once per question, for the tools of that question.
+    events: If given, `'open'` and `'close'` are appended to it as they happen,
+      so that a test can say when each did rather than only that it did.
+
+  Returns:
+    A source yielding the tools of one question.
+  """
+
+  @contextlib.asynccontextmanager
+  async def opened() -> AsyncIterator[Sequence[Callable[..., Any]]]:
+    if events is not None:
+      events.append('open')
+    try:
+      yield make_tools()
+    finally:
+      if events is not None:
+        events.append('close')
+
+  return llm_tool_use.ToolSource(open=opened)
+
+
+def _corpus_source(
+    results_by_query: dict[str, list[_Document]],
+    queries: list[str] | None = None,
+) -> llm_tool_use.ToolSource:
+  """Returns a source of the corpus tools, rebuilt for each question.
+
+  Args:
+    results_by_query: What each query finds.
+    queries: If given, every query is appended to it, so that a test can see how
+      often the corpus was consulted across questions.
+
+  Returns:
+    A source yielding the `search` and `read` pair of one question.
+  """
+  return _source(functools.partial(_corpus_tools, results_by_query, queries))
+
+
 @dataclasses.dataclass
 class _ScriptedBackend:
   """A backend that replies with a fixed script, and records what it was sent.
@@ -206,9 +255,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(
-            _corpus_tools, {'capital of France': [_DOCS['d1']]}, queries
-        ),
+        tools=[_corpus_source({'capital of France': [_DOCS['d1']]}, queries)],
         instructions=agentic_retrieval.RETRIEVAL_INSTRUCTIONS,
     )
 
@@ -251,9 +298,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(
-            _corpus_tools, {'france': [_DOCS['d1']]}, queries
-        )
+        tools=[_corpus_source({'france': [_DOCS['d1']]}, queries)]
     )
 
     executing.run(strategy('What is the capital of France?'))
@@ -271,19 +316,10 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       # One corpus served both questions; only the tools were rebuilt.
       self.assertEqual(queries, ['france'])
 
-  def test_tools_may_arrive_as_a_session_that_is_closed_afterwards(self):
+  def test_a_source_is_opened_for_the_question_and_closed_afterwards(self):
     # The shape a connection-backed toolset needs: opened for the question and
     # closed once it is answered.
     events = []
-
-    @contextlib.asynccontextmanager
-    async def open_session() -> AsyncIterator[Sequence[Callable[..., Any]]]:
-      events.append('open')
-      try:
-        yield [_add]
-      finally:
-        events.append('close')
-
     backend = _ScriptedBackend(
         replies=[
             _model_turn(calls=[_call('_add', left=2, right=2)]),
@@ -292,7 +328,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=open_session
+        tools=[_source(lambda: [_add], events)]
     )
 
     result = executing.run(strategy('What is two plus two?'))
@@ -322,9 +358,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(
-            _corpus_tools, {'capital of France': [_DOCS['d1']]}
-        )
+        tools=[_corpus_source({'capital of France': [_DOCS['d1']]})]
     )
 
     result = executing.run(strategy('What is the capital of France?'))
@@ -341,8 +375,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        tools=[_add],
-        per_question_tools=functools.partial(_corpus_tools, {}),
+        tools=[_add, _corpus_source({})]
     )
 
     executing.run(strategy('What is the capital of France?'))
@@ -396,14 +429,15 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(
-            _corpus_tools,
-            {
-                'capitals': [_DOCS['d2'], _DOCS['d1']],
-                'more capitals': [_DOCS['d1'], _DOCS['d3']],
-            },
-            queries,
-        )
+        tools=[
+            _corpus_source(
+                {
+                    'capitals': [_DOCS['d2'], _DOCS['d1']],
+                    'more capitals': [_DOCS['d1'], _DOCS['d3']],
+                },
+                queries,
+            )
+        ]
     )
 
     result = executing.run(strategy('Name some capitals.'))
@@ -424,9 +458,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(
-            _corpus_tools, {'france': [_DOCS['d1']]}
-        )
+        tools=[_corpus_source({'france': [_DOCS['d1']]})]
     )
 
     result = executing.run(strategy('What is the capital of France?'))
@@ -444,7 +476,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(_corpus_tools, {})
+        tools=[_corpus_source({})]
     )
 
     result = executing.run(strategy('What is the capital of France?'))
@@ -457,9 +489,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
-        per_question_tools=functools.partial(
-            _corpus_tools, {'france': [_DOCS['d1']]}
-        ),
+        tools=[_corpus_source({'france': [_DOCS['d1']]})],
         max_steps=2,
     )
 
