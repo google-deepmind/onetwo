@@ -54,6 +54,20 @@ from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import tool_schema
 
 
+def _traced(response: fc_types.FunctionResponse) -> Any:
+  """Returns the outcome of a call in a form the execution trace can carry.
+
+  Args:
+    response: The outcome of one call.
+
+  Returns:
+    The value the tool returned, or the reason it failed.
+  """
+  if response.error:
+    return {'error': response.error}
+  return response.response
+
+
 @dataclasses.dataclass
 class FCStep:
   """One model turn, together with the tool turn that answers it.
@@ -291,6 +305,7 @@ class FCAgent(
         messages=state.history, tools=self._specs, **self.generate_kwargs
     )
     if not model_turn.calls:
+      self._record_step_in_trace(model_turn, ())
       return FCStep(model_turn=model_turn)
 
     executables = [self._execute_call(call) for call in model_turn.calls]
@@ -302,12 +317,47 @@ class FCAgent(
       responses = list(await executing.par_iter(executables))
     else:
       responses = [await executable for executable in executables]
+    self._record_step_in_trace(model_turn, responses)
     return FCStep(
         model_turn=model_turn,
         tool_turn=fc_types.ConversationTurn(
             role=fc_types.ConversationRole.TOOL, responses=responses
         ),
     )
+
+  def _record_step_in_trace(
+      self,
+      model_turn: fc_types.ConversationTurn,
+      responses: Sequence[fc_types.FunctionResponse],
+  ) -> None:
+    """Records what this step asked for, and what came back, into the trace.
+
+    Args:
+      model_turn: What the model replied.
+      responses: The outcome of each call the model requested, in the order it
+        requested them. Empty when it requested none.
+    """
+    details: list[fc_types.ToolCallDetail] = []
+    if model_turn.thought:
+      details.append(fc_types.ThoughtDetail(text=str(model_turn.thought)))
+    for index, call in enumerate(model_turn.calls):
+      response = responses[index] if index < len(responses) else None
+      details.append(
+          fc_types.FunctionCallDetail(
+              name=call.function_name,
+              args=dict(call.kwargs),
+              # `id` is absent on backends that do not correlate calls; the
+              # detail then omits it rather than carrying an empty string.
+              id=call.id or None,
+              response=None if response is None else _traced(response),
+          )
+      )
+    info: dict[str, Any] = {
+        fc_types.TOOL_CALLS_INFO_KEY: len(model_turn.calls),
+    }
+    if details:
+      info[fc_types.TOOL_DETAILS_INFO_KEY] = [d.to_dict() for d in details]
+    tracing.update_info(info)
 
   def is_finished(self, state: FCState) -> bool:
     """Returns whether the exchange is over.

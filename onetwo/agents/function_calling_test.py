@@ -24,11 +24,17 @@ from onetwo.agents import function_calling as fc_agents
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
+from onetwo.core import results
 from onetwo.stdlib.tool_use import llm_tool_use
 
 _USER = fc_types.ConversationRole.USER
 _MODEL = fc_types.ConversationRole.MODEL
 _TOOL = fc_types.ConversationRole.TOOL
+
+# What the agent labels each of its steps in the execution trace. Spelled out
+# here rather than imported, because the label is a human-facing one that
+# nothing outside the agent is meant to match on.
+_STEP_STAGE_NAME = 'FCAgent.step'
 
 
 def _get_weather(location: str) -> dict[str, Any]:
@@ -526,6 +532,159 @@ class FCAgentTest(parameterized.TestCase):
       self.assertEmpty(backend.seen_tools[0])
     with self.subTest('still_answers'):
       self.assertEqual(result.content, 'Hello!')
+
+
+class FCAgentTracingTest(absltest.TestCase):
+  """Tests what a run leaves behind in the execution trace.
+
+  What the agent records is one account of a whole step -- the thought, every
+  call it asked for and what each of them returned -- for whoever reads the
+  trace afterwards. The evaluation metrics do not read it: they match the
+  builtin stage nested inside, so that they see a model call however it was
+  reached.
+  """
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+  def _step_stages(
+      self, agent: fc_agents.FCAgent, inputs: str
+  ) -> list[results.ExecutionResult]:
+    """Runs `agent` and returns the trace stage of each of its steps."""
+    _, execution_result = executing.run(agent(inputs), enable_tracing=True)
+    stages: list[results.ExecutionResult] = []
+
+    def collect(node: results.ExecutionResult) -> None:
+      if node.stage_name == _STEP_STAGE_NAME:
+        stages.append(node)
+      for child in node.stages:
+        collect(child)
+
+    collect(execution_result)
+    return stages
+
+  def test_records_each_call_and_what_it_returned(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}, id='c1'
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    stages = self._step_stages(agent, 'Weather in London?')
+
+    with self.subTest('records_one_stage_per_model_call'):
+      self.assertLen(stages, 2)
+    with self.subTest('counts_the_calls_of_each_step'):
+      self.assertEqual(
+          [stage.info[fc_types.TOOL_CALLS_INFO_KEY] for stage in stages], [1, 0]
+      )
+    with self.subTest('describes_the_call'):
+      self.assertEqual(
+          stages[0].info[fc_types.TOOL_DETAILS_INFO_KEY],
+          [{
+              'type': 'function_call',
+              'name': '_get_weather',
+              'args': {'location': 'London'},
+              'id': 'c1',
+              'response': {'location': 'London', 'temp': 15},
+          }],
+      )
+    with self.subTest('records_no_details_for_a_step_without_calls'):
+      self.assertNotIn(fc_types.TOOL_DETAILS_INFO_KEY, stages[1].info)
+
+  def test_records_a_failed_call_as_an_error(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('_explode', kwargs={'reason': 'boom'})
+                ]
+            ),
+            _model_turn('Sorry, that did not work.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_explode])
+
+    stages = self._step_stages(agent, 'Please explode')
+
+    detail = stages[0].info[fc_types.TOOL_DETAILS_INFO_KEY][0]
+    with self.subTest('still_counts_the_call'):
+      self.assertEqual(stages[0].info[fc_types.TOOL_CALLS_INFO_KEY], 1)
+    with self.subTest('records_why_it_failed'):
+      self.assertEqual(detail['response'], {'error': 'ValueError: boom'})
+    with self.subTest('omits_the_absent_id'):
+      self.assertNotIn('id', detail)
+
+  def test_records_the_models_reasoning(self):
+    backend = _ScriptedBackend(
+        replies=[
+            fc_types.ConversationTurn(
+                role=_MODEL,
+                thought='I should look that up.',
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'Paris'}
+                    )
+                ],
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+
+    stages = self._step_stages(agent, 'Weather in Paris?')
+
+    details = stages[0].info[fc_types.TOOL_DETAILS_INFO_KEY]
+    with self.subTest('records_the_thought_before_the_call_it_led_to'):
+      self.assertEqual(
+          details[0], {'type': 'thought', 'text': 'I should look that up.'}
+      )
+    with self.subTest('records_the_call_too'):
+      self.assertEqual(details[1]['name'], '_get_weather')
+
+  def test_records_a_result_that_is_not_plain_data(self):
+    class _Opaque:
+
+      def __repr__(self) -> str:
+        return '<opaque>'
+
+    def _opaque_tool() -> Any:
+      """Returns something that is not JSON.
+
+      Returns:
+        An object with no structured form.
+      """
+      return _Opaque()
+
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[fc_types.FunctionCall('_opaque_tool')]),
+            _model_turn('Done.'),
+        ]
+    )
+    backend.register()
+    agent = fc_agents.FCAgent(tools=[_opaque_tool])
+
+    stages = self._step_stages(agent, 'Go')
+
+    detail = stages[0].info[fc_types.TOOL_DETAILS_INFO_KEY][0]
+    # Recorded as it stands, like everything else the trace holds. Reducing it
+    # here would throw away what a notebook renderer could have shown, and
+    # would be a second answer to a question `onetwo.core.tracing` has already
+    # answered for a stage's inputs and outputs.
+    self.assertIsInstance(detail['response'], _Opaque)
 
 
 if __name__ == '__main__':

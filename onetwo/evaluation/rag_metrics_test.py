@@ -534,6 +534,59 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertEqual(score, 2.0)
     self.assertEqual(info, {'tool_details': [detail1, detail2]})
 
+  def test_reads_a_client_side_function_calling_run(self):
+    # The shape `FCAgent` produces: one stage per step, each wrapping the model
+    # call it made. Only the nested `llm` builtin is read. What the agent
+    # recorded on its own stage is there for a person reading the trace.
+    def step(tool_calls: int, tokens: int) -> results.ExecutionResult:
+      return results.ExecutionResult(
+          stage_name='FCAgent.step',
+          # Disagrees with the stage below on purpose, to show which of the two
+          # the metrics take.
+          info={'llm.tools.calls': 99},
+          stages=[
+              results.ExecutionResult(
+                  stage_name='GoogleGenAIAPI.generate_with_tools',
+                  info={
+                      'llm.tools.calls': tool_calls,
+                      'llm.tokens.prompt': tokens,
+                  },
+              )
+          ],
+      )
+
+    trace = results.ExecutionResult(
+        stage_name='root', stages=[step(2, 100), step(0, 250)]
+    )
+
+    with self.subTest('counts_one_llm_call_per_step'):
+      self.assertEqual(
+          rag_metrics.num_llm_calls(None, None, execution_result=trace), 2.0
+      )
+    with self.subTest('counts_the_tools_the_model_call_reported'):
+      self.assertEqual(
+          rag_metrics.num_tool_calls(None, None, execution_result=trace), 2.0
+      )
+    with self.subTest('reads_tokens_from_the_model_call'):
+      self.assertEqual(
+          rag_metrics.total_input_tokens(None, None, execution_result=trace),
+          350.0,
+      )
+
+  def test_reads_a_bare_generate_with_tools_call(self):
+    trace = results.ExecutionResult(
+        stage_name='root',
+        stages=[
+            results.ExecutionResult(
+                stage_name='GoogleGenAIAPI.generate_with_tools',
+                info={'llm.tokens.prompt': 10},
+            )
+        ],
+    )
+    self.assertEqual(
+        rag_metrics.num_llm_calls(None, None, execution_result=trace), 1.0
+    )
+
   def test_get_default_rag_metrics(self):
     metrics = rag_metrics.get_default_rag_metrics()
     expected_keys = {

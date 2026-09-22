@@ -25,6 +25,7 @@ from typing import Any, Final
 
 from onetwo.backends import backend_registry
 from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
 from onetwo.core import results
 from onetwo.core import routing
 from onetwo.evaluation import evaluation
@@ -380,7 +381,12 @@ def make_ndcg_at_k(
 
 
 # Stage name suffixes that identify LLM call stages in the execution trace.
-_LLM_STAGE_SUFFIXES = ('.chat', '.generate_text', '.instruct')
+_LLM_STAGE_SUFFIXES = (
+    '.chat',
+    '.generate_text',
+    '.instruct',
+    '.generate_with_tools',
+)
 
 
 def _walk_llm_stages(
@@ -478,7 +484,7 @@ def _get_tool_call_counts(
   """Returns per-call tool call counts from the execution trace."""
   return _get_counts_from_info(
       execution_result,
-      info_keys=['llm.tools.calls'],
+      info_keys=[fc_types.TOOL_CALLS_INFO_KEY],
   )
 
 
@@ -658,7 +664,7 @@ def tool_details(
   stages = _walk_llm_stages(execution_result)
   details = []
   for stage in stages:
-    val = _find_info_value(stage, 'llm.tools.details')
+    val = _find_info_value(stage, fc_types.TOOL_DETAILS_INFO_KEY)
     if val is not None:
       details.extend(val)
 
