@@ -245,6 +245,52 @@ async def _execute_with_tracing(
   return prediction, trace
 
 
+@executing.make_executable(
+    non_copied_args=[
+        'metric_function',
+        'target',
+        'prediction',
+        'example',
+        'execution_result',
+    ]
+)
+async def _evaluate_single_metric(
+    metric_function: MetricFunction,
+    *,
+    target: Any,
+    prediction: Any,
+    example: Any,
+    execution_result: results.ExecutionResult | None,
+) -> Any:
+  """Evaluates a single metric function on an example."""
+  # TODO: Revisit how to handle robustly all the possible
+  # types of inputs to metrics in a nicer way that does not involve
+  # two nested try-except blocks.
+  try:
+    return await utils.call_and_maybe_await(
+        metric_function,  # pyrefly: ignore[bad-argument-type]
+        target=target,
+        prediction=prediction,
+        example=example,
+        execution_result=execution_result,  # pyrefly: ignore[unexpected-keyword]
+    )
+  except TypeError:
+    try:
+      return await utils.call_and_maybe_await(
+          metric_function,  # pyrefly: ignore[bad-argument-type]
+          target=target,
+          prediction=prediction,
+          example=example,
+      )
+    except TypeError:
+      # Since not all metric functions require access to the `example`
+      # dict, we fall back to trying calling the metric function with
+      # just the `target` and `prediction` arguments.
+      return await utils.call_and_maybe_await(
+          metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
+      )
+
+
 @executing.make_executable
 async def _evaluate_example(
     strategy: Callable[_Args, _O] | Callable[_Args, executing.Executable[_O]],
@@ -260,6 +306,7 @@ async def _evaluate_example(
     metric_functions: Mapping[str, MetricFunction] | None = None,
     output_final_states: bool = False,
     enable_tracing: bool = True,
+    chunk_size: int = 100,
 ) -> tuple[_Example, results.EvaluationSummary]:
   """Evaluates the given strategy on the given example.
 
@@ -339,33 +386,22 @@ async def _evaluate_example(
     if enable_tracing:
       metrics_trace = results.ExecutionResult(stage_name='metrics')
       tracing.execution_context.set(metrics_trace)
-    for metric_name, metric_function in metric_functions.items():
-      # TODO: Revisit how to handle robustly all the possible
-      # types of inputs to metrics in a nicer way that does not involve
-      # two nested try-except blocks.
-      try:
-        metric_value = await utils.call_and_maybe_await(
-            metric_function,  # pyrefly: ignore[bad-argument-type]
-            target=target,
-            prediction=prediction,
-            example=example,
-            execution_result=execution_result,  # pyrefly: ignore[unexpected-keyword]
-        )
-      except TypeError:
-        try:
-          metric_value = await utils.call_and_maybe_await(
-              metric_function,  # pyrefly: ignore[bad-argument-type]
-              target=target,
-              prediction=prediction,
-              example=example,
-          )
-        except TypeError:
-          # Since not all metric functions require access to the `example`
-          # dict, we fall back to trying calling the metric function with
-          # just the `target` and `prediction` arguments.
-          metric_value = await utils.call_and_maybe_await(
-              metric_function, target=target, prediction=prediction  # pyrefly: ignore[bad-argument-type]
-          )
+    metric_values = await executing.par_iter(
+        [
+            _evaluate_single_metric(
+                metric_function,
+                target=target,
+                prediction=prediction,
+                example=example,
+                execution_result=execution_result,
+            )
+            for metric_function in metric_functions.values()
+        ],
+        chunk_size=chunk_size,
+    )
+    for metric_name, metric_value in zip(
+        metric_functions.keys(), metric_values
+    ):
       if isinstance(metric_value, tuple):
         metric_value, metric_extra_info = metric_value
         if metric_extra_info:
@@ -575,6 +611,7 @@ def evaluate(
           metric_functions=metric_functions,  # pyrefly: ignore[unexpected-keyword]
           output_final_states=output_final_states,  # pyrefly: ignore[unexpected-keyword]
           enable_tracing=enable_tracing,  # pyrefly: ignore[unexpected-keyword]
+          chunk_size=chunk_size,  # pyrefly: ignore[unexpected-keyword]
       )
       for example in examples
   )

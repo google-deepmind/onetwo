@@ -732,6 +732,38 @@ class EvaluationTest(parameterized.TestCase):
     with self.subTest('results_debug_info'):
       self.assertEqual(expected_info, summary.results_debug[0].info)
 
+  @parameterized.named_parameters(
+      ('ordinary_2_args', ordinary_accuracy_function, 1.0),
+      ('async_2_args', async_accuracy_function, 1.0),
+      ('executable_2_args', executable_accuracy_function, 1.0),
+      (
+          '3_args_with_extra_info',
+          _accuracy_function_that_returns_example_option,
+          (1.0, {'some_key': 42}),
+      ),
+      (
+          'executable_3_args',
+          executable_accuracy_function_taking_example_as_arg,
+          1.0,
+      ),
+      (
+          '4_args_with_execution_result',
+          metric_taking_execution_result,
+          (1.0, {'trace_stage_name': 'test_stage'}),
+      ),
+  )
+  def test_evaluate_single_metric(self, metric_fn, expected_output):
+    actual_output = executing.run(
+        evaluation._evaluate_single_metric(
+            metric_fn,
+            target='ans',
+            prediction='ans',
+            example={'question': 'q', 'option': 42},
+            execution_result=results.ExecutionResult(stage_name='test_stage'),
+        )
+    )
+    self.assertEqual(expected_output, actual_output)
+
   def test_evaluate_metric_receives_execution_result(self):
     examples = [{'question': 'a', 'answer': 'b'}]
     summary = evaluation.evaluate(
