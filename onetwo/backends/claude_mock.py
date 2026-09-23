@@ -25,12 +25,12 @@ https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
 """
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, TypeAlias
 
 _DEFAULT_REPLY: Final[str] = 'Hello'
 _DEFAULT_THINKING: Final[str] = 'Let me think about this.'
 _DEFAULT_TOOL_USE_ID: Final[str] = 'toolu_mock_456'
-_DEFAULT_TOOL_INPUT: Final[dict[str, Any]] = {'query': 'mock search query'}
+_DEFAULT_TOOL_ARGUMENT: Final[str] = 'mock argument'
 
 
 class TextBlock:
@@ -42,11 +42,17 @@ class TextBlock:
 
 
 class ThinkingBlock:
-  """Mock for an Anthropic thinking content block."""
+  """Mock for an Anthropic thinking content block.
 
-  def __init__(self, thinking: str):
+  The signature is opaque to everyone but Anthropic, and has to be echoed back
+  verbatim for the model to keep its reasoning across turns. See
+  https://platform.claude.com/docs/en/build-with-claude/extended-thinking
+  """
+
+  def __init__(self, thinking: str, signature: str = ''):
     self.type = 'thinking'
     self.thinking = thinking
+    self.signature = signature
 
 
 class ToolUseBlock:
@@ -62,6 +68,9 @@ class ToolUseBlock:
     self.input = input
 
 
+ContentBlock: TypeAlias = TextBlock | ThinkingBlock | ToolUseBlock
+
+
 class Usage:
   """Mock for the usage object in a Messages API response."""
 
@@ -75,7 +84,7 @@ class Message:
 
   def __init__(
       self,
-      content: Sequence[TextBlock],
+      content: Sequence[ContentBlock],
       role: str = 'assistant',
       stop_reason: str = 'end_turn',
       usage: Usage | None = None,
@@ -95,6 +104,26 @@ class TokenCountResponse:
 
   def __init__(self, input_tokens: int):
     self.input_tokens = input_tokens
+
+
+def _mock_tool_input(tool_def: Mapping[str, Any]) -> dict[str, Any]:
+  """Invents an argument for each parameter the tool declares.
+
+  Answering with the parameters the tool actually declares, rather than with a
+  fixed pair, is what lets a caller check that the right tool was asked for
+  with the right arguments without reaching the real API. The values are
+  placeholders: only their presence means anything.
+
+  Args:
+    tool_def: One tool definition, as passed to `create`.
+
+  Returns:
+    One placeholder argument per declared property, empty for a tool that
+    declares none.
+  """
+  schema = tool_def.get('input_schema') or {}
+  properties = schema.get('properties') or {}
+  return {name: _DEFAULT_TOOL_ARGUMENT for name in properties}
 
 
 class MessagesNamespace:
@@ -156,7 +185,7 @@ class MessagesNamespace:
             for part in msg_content
         )
 
-    content: list[TextBlock | ThinkingBlock | ToolUseBlock] = []
+    content: list[ContentBlock] = []
     # When thinking is enabled, prepend a thinking block.
     if thinking and thinking.get('type') in ('enabled', 'adaptive'):
       content.append(ThinkingBlock(thinking=_DEFAULT_THINKING))
@@ -170,16 +199,13 @@ class MessagesNamespace:
           ToolUseBlock(
               id=_DEFAULT_TOOL_USE_ID,
               name=tool_name,
-              input=dict(_DEFAULT_TOOL_INPUT),
+              input=_mock_tool_input(tool_def),
           )
       )
-      return Message(
-          content=content,  # pyrefly: ignore[bad-argument-type]
-          stop_reason='tool_use',
-      )
+      return Message(content=content, stop_reason='tool_use')
 
     content.append(TextBlock(text=self._reply))
-    return Message(content=content)  # pyrefly: ignore[bad-argument-type]
+    return Message(content=content)
 
   def count_tokens(
       self,

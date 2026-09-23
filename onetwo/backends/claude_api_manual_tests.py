@@ -12,19 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+r"""Manual tests for the Claude backend, run by hand against the real API.
+
+Run them with an Anthropic API key:
+
+```shell
+  python3 -m onetwo.backends.claude_api_manual_tests \
+      --api_key=sk-ant-... --print_debug
+```
+
+The last line printed is PASS or FAIL. `--load_cache_file` replays a previous
+run from `--cache_dir` instead of calling the API.
+
+"""
+
 from collections.abc import Sequence
 import os
 import pprint
 import time
+from typing import Any, cast
 
 from absl import app
 from absl import flags
+from onetwo.agents import function_calling as fc_agents
 from onetwo.backends import claude_api
 from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
 from onetwo.core import sampling
+from onetwo.stdlib.tool_use import llm_tool_use
 
 _API_KEY = flags.DEFINE_string(
     'api_key',
@@ -46,6 +64,56 @@ _PRINT_DEBUG = flags.DEFINE_bool(
     default=False,
     help='Debug logging.',
 )
+
+
+def get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a specified location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary containing weather information.
+  """
+  return {'location': location, 'temp': 15, 'unit': 'C'}
+
+
+def _always_fails(location: str) -> dict[str, Any]:
+  """Looks up the weather, badly.
+
+  Args:
+    location: City name.
+
+  Returns:
+    Never returns.
+
+  Raises:
+    ValueError: Always.
+  """
+  del location
+  raise ValueError('The weather service is down.')
+
+
+def _run_agent(
+    agent: fc_agents.FCAgent, query: str, **kwargs
+) -> fc_types.ConversationTurn:
+  """Runs an agent and returns the turn it produced.
+
+  `Agent.__call__` is declared to return a union that also covers
+  `return_final_state`, which this caller never asks for.
+
+  Args:
+    agent: The agent to run.
+    query: What to ask it.
+    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+
+  Returns:
+    The agent's final turn.
+  """
+  return cast(
+      fc_types.ConversationTurn,
+      executing.run(agent(query, **kwargs)),
+  )
 
 
 def main(argv: Sequence[str]) -> None:
@@ -379,11 +447,14 @@ def main(argv: Sequence[str]) -> None:
   if not isinstance(res, tuple) or 'text' not in res[1]:
     success = False
     print('FAILURE: include_details did not return expected format.')
-  elif 'thinking' not in res[1]:  # pyrefly: ignore[not-iterable]
+  # `_generate_text` files the reasoning under `thinking_output`, not
+  # `thinking`, so this used to look for a key that is never written and report
+  # a failure on every run against the real API.
+  elif 'thinking_output' not in res[1]:  # pyrefly: ignore[not-iterable]
     success = False
-    print('FAILURE: thinking not found in details.')
+    print('FAILURE: thinking_output not found in details.')
   elif _PRINT_DEBUG.value:
-    print('  Thinking content:', res[1]['thinking'][:200], '...')  # pyrefly: ignore[bad-index]
+    print('  Thinking content:', res[1]['thinking_output'][:200], '...')  # pyrefly: ignore[bad-index]
     print('  Answer:', res[0][:200])
 
   print(f'10.1 Chat with thinking enabled on {thinking_model}.')
@@ -480,6 +551,57 @@ def main(argv: Sequence[str]) -> None:
     print('FAILURE: chat with web_search tool returned empty response.')
   elif _PRINT_DEBUG.value:
     print('  Response (raw):', res[:500])
+
+  # ============ Model-native function calling (FCAgent) ============
+  # Unlike test 12, which hands Claude a raw Anthropic tool definition, these
+  # go through `llm.generate_with_tools`, so the tools are ordinary Python
+  # callables and the loop that runs them is OneTwo's.
+  backend.register()
+
+  print(f'13. Function calling: a single step, so nothing is executed, on '
+        f'{model_name}.')
+  agent = fc_agents.FCAgent(tools=[get_weather])
+  turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+  if not turn.calls:
+    success = False
+    print('FAILURE: no FunctionCall found in the response.')
+  else:
+    call = turn.calls[0]
+    print(
+        f'  Found FunctionCall: {call.function_name} with args'
+        f' {dict(call.kwargs)}'
+    )
+    # The tool and its parameter names are checked rather than the argument
+    # value, so that this says the same thing whether the reply came from
+    # Claude or from a mock standing in for it. Against the real API the value
+    # printed above should be 'London'.
+    if call.function_name != 'get_weather':
+      success = False
+      print(f'FAILURE: expected get_weather, got {call.function_name}.')
+    elif 'location' not in call.kwargs:
+      success = False
+      print(f'FAILURE: expected a location argument, got {dict(call.kwargs)}.')
+
+  print(f'14. Function calling: the full loop, on {model_name}.')
+  agent = fc_agents.FCAgent(tools=[get_weather])
+  final_turn = _run_agent(agent, 'What is the weather in London?')
+  print(f'  Final answer: {final_turn.content}')
+  if not final_turn.content:
+    success = False
+    print('FAILURE: expected a final model answer after tool execution.')
+
+  print('14.1 Function calling: a tool that fails is reported, not raised.')
+  # A tool that raises should be shown to the model rather than blowing up the
+  # loop, so that it can say something sensible instead.
+  recovering_agent = fc_agents.FCAgent(
+      tools=[llm_tool_use.Tool(name='get_weather', function=_always_fails)],
+      max_steps=3,
+  )
+  recovered = _run_agent(recovering_agent, 'What is the weather in London?')
+  print(f'  Answer after the tool failed: {recovered.content}')
+  if not recovered.content:
+    success = False
+    print('FAILURE: a failing tool should be reported, not raised.')
 
   # Restore the original backend for cache saving.
   backend.register()

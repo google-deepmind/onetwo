@@ -16,13 +16,14 @@
 
 import base64
 import collections
-from typing import Counter, Final, TypeAlias
+from typing import Any, Counter, Final, TypeAlias, cast
 
 # We have to mock anthropic to make this test hermetic.
 from unittest import mock
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.agents import function_calling as fc_agents
 from onetwo.backends import claude_api
 from onetwo.backends import claude_mock
 from onetwo.builtins import llm
@@ -30,12 +31,20 @@ from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
+from onetwo.stdlib.tool_use import tool_schema
 import PIL.Image
 
 import anthropic
 
 _Message: TypeAlias = content_lib.Message
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
+
+_ConversationRole: TypeAlias = fc_types.ConversationRole
+_ConversationTurn: TypeAlias = fc_types.ConversationTurn
+_FunctionCall: TypeAlias = fc_types.FunctionCall
+_FunctionResponse: TypeAlias = fc_types.FunctionResponse
+_ToolSpec: TypeAlias = fc_types.ToolSpec
 
 
 _BATCH_SIZE: Final[int] = 4
@@ -970,6 +979,364 @@ class StopSequenceFilteringTest(parameterized.TestCase):
     self.assertLen(res, 2)
     for sample in res:
       self.assertEqual(sample, claude_mock._DEFAULT_REPLY)
+
+
+def _get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a specified location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary containing weather information.
+  """
+  return {'location': location, 'temp': 15, 'condition': 'Rainy'}
+
+
+# Backends are handed declarations, never implementations, so this is what
+# `_get_weather` looks like from a backend's point of view.
+_WEATHER_SPEC = tool_schema.tool_from_callable(_get_weather).to_spec()
+
+
+class _ScriptedMessages:
+  """Stands in for `client.messages`, replying with what it was scripted to.
+
+  Recording the requests is the point: most of what this backend does for
+  function calling is deciding what to put on the wire, so that is what the
+  tests look at.
+  """
+
+  def __init__(self, *replies: claude_mock.Message):
+    self.replies = list(replies)
+    self.requests: list[dict[str, Any]] = []
+
+  def create(self, **api_kwargs) -> claude_mock.Message:
+    self.requests.append(api_kwargs)
+    # The last reply is repeated, so that a test which only cares about one
+    # turn does not have to script every turn the model might take.
+    return self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+
+
+class _ScriptedClient:
+  """A client whose `messages` namespace is scripted."""
+
+  def __init__(self, messages: _ScriptedMessages):
+    self.messages = messages
+
+
+class GenerateWithToolsTest(
+    parameterized.TestCase, core_test_utils.CounterAssertions
+):
+  """Tests the single model call that `FCAgent` is built on."""
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+  def _script(self, *replies: claude_mock.Message) -> claude_api.ClaudeAPI:
+    """Registers a backend whose client replies with `replies`, in order."""
+    backend = _get_and_register_backend()
+    self._messages = _ScriptedMessages(*replies)
+    # A test double standing in for the client, which `_client` is not
+    # annotated to accept.
+    backend._client = _ScriptedClient(self._messages)  # pyrefly: ignore[bad-assignment]
+    return backend
+
+  def _last_request(self) -> dict[str, Any]:
+    return self._messages.requests[-1]
+
+  def _ask(self, *messages, **kwargs):
+    return executing.run(
+        llm.generate_with_tools(
+            messages=list(messages), tools=[_WEATHER_SPEC], **kwargs
+        )
+    )
+
+  def _question(self) -> _ConversationTurn:
+    return _ConversationTurn(
+        role=_ConversationRole.USER, content='What is the weather in London?'
+    )
+
+  def test_lifts_the_requested_call(self):
+    self._script(
+        claude_mock.Message(
+            content=[
+                claude_mock.ToolUseBlock(
+                    id='toolu_1',
+                    name='_get_weather',
+                    input={'location': 'London'},
+                )
+            ],
+            stop_reason='tool_use',
+        )
+    )
+
+    turn = self._ask(self._question())
+
+    with self.subTest('returns_a_single_model_turn'):
+      self.assertEqual(turn.role, _ConversationRole.MODEL)
+    with self.subTest('lifts_the_call'):
+      self.assertLen(turn.calls, 1)
+      self.assertEqual(turn.calls[0].function_name, '_get_weather')
+      self.assertEqual(dict(turn.calls[0].kwargs), {'location': 'London'})
+    with self.subTest('keeps_the_id_so_responses_can_be_matched'):
+      self.assertEqual(turn.calls[0].id, 'toolu_1')
+
+  def test_performs_exactly_one_model_call(self):
+    # The model asks for a tool. A backend must not act on that: executing the
+    # call and asking again is the agent's job, not the backend's.
+    backend = self._script(
+        claude_mock.Message(
+            content=[
+                claude_mock.ToolUseBlock(
+                    id='toolu_1',
+                    name='_get_weather',
+                    input={'location': 'London'},
+                )
+            ],
+            stop_reason='tool_use',
+        )
+    )
+
+    turn = self._ask(self._question())
+
+    with self.subTest('calls_the_model_once'):
+      self.assertLen(self._messages.requests, 1)
+      self.assertCounterEqual(
+          backend._counters,
+          Counter(generate_with_tools=1, _generate_with_tools_batches=1),
+      )
+    with self.subTest('hands_the_call_back_unexecuted'):
+      self.assertLen(turn.calls, 1)
+      self.assertIsNone(turn.content)
+
+  def test_declares_the_tools_as_json_schema(self):
+    self._script(claude_mock.Message(content=[claude_mock.TextBlock('Hi.')]))
+
+    self._ask(self._question())
+
+    tools = self._last_request()['tools']
+    self.assertLen(tools, 1)
+    with self.subTest('declares_the_name_and_description'):
+      self.assertEqual(tools[0]['name'], '_get_weather')
+      self.assertStartsWith(tools[0]['description'], 'Gets the weather')
+    with self.subTest('passes_the_json_schema_through_untouched'):
+      self.assertEqual(
+          tools[0]['input_schema'], dict(_WEATHER_SPEC.parameters or {})
+      )
+
+  def test_declares_an_empty_schema_for_a_tool_without_parameters(self):
+    # Anthropic requires `input_schema` even when there is nothing to describe.
+    self._script(claude_mock.Message(content=[claude_mock.TextBlock('Hi.')]))
+
+    executing.run(
+        llm.generate_with_tools(
+            messages=[self._question()],
+            tools=[_ToolSpec(name='ping', description='Pings.')],
+        )
+    )
+
+    self.assertEqual(
+        self._last_request()['tools'][0]['input_schema'],
+        {'type': 'object', 'properties': {}},
+    )
+
+  def test_advertises_nothing_when_given_no_tools(self):
+    self._script(claude_mock.Message(content=[claude_mock.TextBlock('Hi.')]))
+
+    executing.run(
+        llm.generate_with_tools(messages=[self._question()], tools=[])
+    )
+
+    # Advertising an empty list is not the same as advertising nothing.
+    self.assertNotIn('tools', self._last_request())
+
+  def test_sends_tool_results_back_as_user_content(self):
+    self._script(
+        claude_mock.Message(
+            content=[claude_mock.TextBlock('It is 15 degrees in London.')]
+        )
+    )
+
+    turn = self._ask(
+        self._question(),
+        _ConversationTurn(
+            role=_ConversationRole.MODEL,
+            calls=[
+                _FunctionCall(
+                    function_name='_get_weather',
+                    kwargs={'location': 'London'},
+                    id='toolu_1',
+                )
+            ],
+        ),
+        _ConversationTurn(
+            role=_ConversationRole.TOOL,
+            responses=[
+                _FunctionResponse(
+                    function_name='_get_weather',
+                    response={'temp': 15},
+                    id='toolu_1',
+                )
+            ],
+        ),
+    )
+
+    messages = self._last_request()['messages']
+    with self.subTest('sends_the_earlier_call_as_the_assistant'):
+      self.assertEqual(messages[1]['role'], 'assistant')
+      self.assertEqual(
+          messages[1]['content'][0],
+          {
+              'type': 'tool_use',
+              'id': 'toolu_1',
+              'name': '_get_weather',
+              'input': {'location': 'London'},
+          },
+      )
+    with self.subTest('sends_the_result_as_the_user'):
+      # Claude has no tool role, so results come back as user content.
+      self.assertEqual(messages[2]['role'], 'user')
+      self.assertEqual(
+          messages[2]['content'][0],
+          {
+              'type': 'tool_result',
+              'tool_use_id': 'toolu_1',
+              'content': '{"temp": 15}',
+          },
+      )
+    with self.subTest('returns_the_final_answer'):
+      self.assertEqual(turn.content, 'It is 15 degrees in London.')
+
+  def test_reports_tool_errors_to_the_model(self):
+    self._script(
+        claude_mock.Message(
+            content=[claude_mock.TextBlock('Sorry, that failed.')]
+        )
+    )
+
+    self._ask(
+        _ConversationTurn(
+            role=_ConversationRole.TOOL,
+            responses=[
+                _FunctionResponse(
+                    function_name='_get_weather',
+                    error='Unknown tool: _get_weathr.',
+                    id='toolu_1',
+                )
+            ],
+        )
+    )
+
+    self.assertEqual(
+        self._last_request()['messages'][0]['content'][0],
+        {
+            'type': 'tool_result',
+            'tool_use_id': 'toolu_1',
+            'content': 'Unknown tool: _get_weathr.',
+            'is_error': True,
+        },
+    )
+
+  def test_round_trips_a_thought_signature(self):
+    # Once thinking is on, Anthropic rejects a turn whose thinking blocks did
+    # not come back with the tool results, so the signature has to survive the
+    # trip through `ConversationTurn`.
+    self._script(
+        claude_mock.Message(
+            content=[
+                claude_mock.ThinkingBlock(
+                    thinking='I should look up the weather.',
+                    signature='opaque',
+                ),
+                claude_mock.TextBlock('Checking.'),
+            ]
+        )
+    )
+
+    question = self._question()
+    first = self._ask(question)
+
+    with self.subTest('keeps_the_reasoning_out_of_the_answer'):
+      self.assertEqual(first.content, 'Checking.')
+      self.assertIsNotNone(first.thought)
+
+    # Feeding the turn straight back is how a caller continues a conversation,
+    # so that is what has to preserve the signature.
+    self._ask(question, first)
+
+    resent = self._last_request()['messages'][1]['content'][0]
+    with self.subTest('resends_the_thought_first_and_verbatim'):
+      self.assertEqual(
+          resent,
+          {
+              'type': 'thinking',
+              'thinking': 'I should look up the weather.',
+              'signature': 'opaque',
+          },
+      )
+
+  def test_round_trips_a_signature_with_an_empty_body(self):
+    # Adaptive thinking returns blocks whose body is empty but whose signature
+    # is real. The `ChunkList` holding one of those is falsy, so a truthiness
+    # test drops it and Anthropic then rejects the follow-up request. Found
+    # against the live API, so it stays covered here.
+    self._script(
+        claude_mock.Message(
+            content=[
+                claude_mock.ThinkingBlock(thinking='', signature='opaque'),
+                claude_mock.TextBlock('Checking.'),
+            ]
+        )
+    )
+
+    question = self._question()
+    first = self._ask(question)
+    self._ask(question, first)
+
+    resent = self._last_request()['messages'][1]['content'][0]
+    self.assertEqual(
+        resent,
+        {'type': 'thinking', 'thinking': '', 'signature': 'opaque'},
+    )
+
+  def test_runs_the_whole_loop_through_the_agent(self):
+    # What all of the above is for: `FCAgent` asks, executes, and asks again,
+    # and none of that is the backend's business beyond getting the wire
+    # format right.
+    self._script(
+        claude_mock.Message(
+            content=[
+                claude_mock.ToolUseBlock(
+                    id='toolu_1',
+                    name='_get_weather',
+                    input={'location': 'London'},
+                )
+            ],
+            stop_reason='tool_use',
+        ),
+        claude_mock.Message(
+            content=[claude_mock.TextBlock('It is 15 degrees in London.')]
+        ),
+    )
+
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+    # `Agent.__call__` is declared to return a union that also covers
+    # `return_final_state`, which this caller never asks for.
+    turn = cast(
+        _ConversationTurn,
+        executing.run(agent('What is the weather in London?')),
+    )
+
+    with self.subTest('reaches_an_answer'):
+      self.assertEqual(turn.content, 'It is 15 degrees in London.')
+    with self.subTest('took_two_model_calls'):
+      self.assertLen(self._messages.requests, 2)
+    with self.subTest('fed_the_tool_result_back'):
+      self.assertEqual(
+          self._last_request()['messages'][2]['content'][0]['content'],
+          '{"location": "London", "temp": 15, "condition": "Rainy"}',
+      )
 
 
 if __name__ == '__main__':

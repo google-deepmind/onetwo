@@ -25,11 +25,13 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import io
+import json
 import logging
 import pprint
 from typing import Any, Final, TypeAlias
 
 from onetwo.backends import backends_base
+
 import anthropic
 
 from onetwo.builtins import formatting
@@ -38,6 +40,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import tracing
 from onetwo.core import utils
 import PIL.Image
@@ -62,7 +65,24 @@ _CLAUDE_ROLE_BY_PREDEFINED_ROLE = {
     content_lib.PredefinedRole.SYSTEM: 'system',
 }
 
+# Claude has no tool role: the results of tool calls are sent back as user
+# content. See
+# https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
 _TOOL_RESULT_ROLE: Final[str] = 'user'
+
+# Anthropic requires `input_schema` on every custom tool, including one that
+# takes no arguments, so a tool without parameters is declared with this.
+_EMPTY_INPUT_SCHEMA: Final[Mapping[str, Any]] = {
+    'type': 'object',
+    'properties': {},
+}
+
+# Key under which the opaque payload of a `redacted_thinking` block is parked
+# in the metadata of the chunk standing in for it. Such a block carries no
+# readable text, only a blob that has to be echoed back verbatim like any other
+# thinking block, and this is where it is kept in the meantime. Its readable
+# counterpart uses `function_calling.THOUGHT_SIGNATURE_KEY`.
+_REDACTED_THINKING_KEY: Final[str] = 'claude_redacted_thinking'
 
 _COMPLETION_SYSTEM_PROMPT_PREFIX: Final[str] = 'Continue the sentence: '
 
@@ -195,6 +215,259 @@ def _convert_messages_to_claude_format(
 
   system_prompt = '\n'.join(system_parts) if system_parts else None
   return api_messages, system_prompt
+
+
+def _filtered_stop_sequences(stop: Sequence[str]) -> list[str]:
+  """Drops the stop sequences the Claude API will not accept.
+
+  Args:
+    stop: The stop sequences asked for.
+
+  Returns:
+    Those that contain something other than whitespace, which is all the Claude
+    API accepts. Anything dropped is logged rather than raised, so that a
+    prompt written for another backend still runs here.
+  """
+  stop_list = list(stop)
+  filtered = [
+      stop_sequence for stop_sequence in stop_list if stop_sequence.strip()
+  ]
+  if len(filtered) < len(stop_list):
+    logging.warning(
+        'Dropping %d whitespace-only stop sequence(s) unsupported by the'
+        ' Claude API (e.g. "\\n"). Remaining: %s',
+        len(stop_list) - len(filtered),
+        filtered,
+    )
+  return filtered
+
+
+def _tool_definitions_from_specs(
+    tools: Sequence[function_calling.ToolSpec],
+) -> list[dict[str, Any]]:
+  """Declares the given tools to the model.
+
+  Args:
+    tools: Declarations of the tools the model may call. These are declarations
+      and not implementations: a backend describes tools to the model but never
+      runs them.
+
+  Returns:
+    One tool definition per spec. `input_schema` is JSON Schema, which is the
+    dialect the Messages API already takes, so no schema conversion is
+    involved.
+  """
+  definitions = []
+  for spec in tools:
+    definitions.append({
+        'name': spec.name,
+        'description': spec.description or '',
+        'input_schema': (
+            dict(spec.parameters)
+            if spec.parameters
+            else dict(_EMPTY_INPUT_SCHEMA)
+        ),
+    })
+  return definitions
+
+
+def _tool_use_id(call_id: str, function_name: str) -> str:
+  """Returns the id by which Claude matches a call to its result.
+
+  Claude requires an id on both halves of the exchange. A call that came from
+  Claude always carries one, so this only has to invent something for a
+  conversation that was written by hand, where the name serves: it is
+  unambiguous unless the same tool was called twice in the same turn, and both
+  halves derive it the same way, so they still match.
+
+  Args:
+    call_id: The id of the call, which may be empty.
+    function_name: The name of the tool being called.
+
+  Returns:
+    A non-empty id, assuming the tool has a name.
+  """
+  return call_id or function_name
+
+
+def _thinking_blocks_from_thought(
+    thought: str | content_lib.ChunkList | None,
+) -> list[dict[str, Any]]:
+  """Converts the model's earlier reasoning back into thinking blocks.
+
+  Once thinking is enabled, Anthropic requires the thinking blocks of the turn
+  that requested a tool to come back *unmodified* alongside the tool results,
+  and rejects the request otherwise. `_turn_from_response` parks the signature
+  of each block in the metadata of the chunk standing in for it, so this is the
+  inverse. See
+  https://platform.claude.com/docs/en/build-with-claude/extended-thinking
+
+  Args:
+    thought: The reasoning held by a `ConversationTurn`.
+
+  Returns:
+    One block per piece of reasoning, empty if there was none.
+  """
+  # Deliberately not `if not thought`. Adaptive thinking returns blocks whose
+  # body is empty but whose signature is real, and a `ChunkList` of those is
+  # falsy even though it is exactly what must be echoed back. Dropping it makes
+  # Anthropic reject the next request, which is how this was found.
+  if thought is None:
+    return []
+  if isinstance(thought, content_lib.ChunkList):
+    chunks = list(thought.chunks)
+  elif thought:
+    chunks = [content_lib.Chunk(str(thought))]
+  else:
+    chunks = []
+
+  blocks = []
+  for chunk in chunks:
+    metadata = chunk.metadata if isinstance(chunk.metadata, Mapping) else {}
+    if redacted := metadata.get(_REDACTED_THINKING_KEY):
+      blocks.append({'type': 'redacted_thinking', 'data': redacted})
+      continue
+    signature = metadata.get(function_calling.THOUGHT_SIGNATURE_KEY) or b''
+    block: dict[str, Any] = {
+        'type': 'thinking',
+        'thinking': str(chunk.content),
+    }
+    if signature:
+      # Held as bytes because that is what the narrow waist declares, but
+      # Anthropic states it as a string.
+      block['signature'] = signature.decode()
+    blocks.append(block)
+  return blocks
+
+
+def _tool_result_content(response: function_calling.FunctionResponse) -> str:
+  """Renders what a tool returned in the form Claude accepts.
+
+  Args:
+    response: The outcome of one call.
+
+  Returns:
+    The result as text. Anthropic takes either text or content blocks here, and
+    text keeps every kind of result in one shape. A value that is not JSON is
+    rendered with `repr`, on the grounds that showing the model something
+    imperfect beats failing the turn.
+  """
+  if response.error is not None:
+    # An error is reported to the model as the content of the result, so that
+    # it can see what went wrong and try something else.
+    return response.error
+  if isinstance(response.response, str):
+    return response.response
+  return json.dumps(response.response, default=repr)
+
+
+def _messages_from_turns(
+    turns: Sequence[function_calling.ConversationTurn],
+) -> list[dict[str, Any]]:
+  """Converts a function-calling conversation into Claude messages.
+
+  Args:
+    turns: The conversation so far.
+
+  Returns:
+    One message per turn that has anything in it, in order. A TOOL turn becomes
+    a user message of `tool_result` blocks, since Claude has no tool role.
+  """
+  messages = []
+  for turn in turns:
+    blocks: list[dict[str, Any]] = []
+
+    if turn.role == function_calling.ConversationRole.TOOL:
+      for response in turn.responses:
+        block: dict[str, Any] = {
+            'type': 'tool_result',
+            'tool_use_id': _tool_use_id(response.id, response.function_name),
+            'content': _tool_result_content(response),
+        }
+        if response.error is not None:
+          block['is_error'] = True
+        blocks.append(block)
+      if blocks:
+        messages.append({'role': _TOOL_RESULT_ROLE, 'content': blocks})
+      continue
+
+    # Anthropic wants the thinking of a turn before the rest of it.
+    blocks.extend(_thinking_blocks_from_thought(turn.thought))
+
+    if isinstance(turn.content, content_lib.ChunkList):
+      blocks.extend(
+          _convert_chunk_to_claude_part(chunk) for chunk in turn.content.chunks
+      )
+    elif turn.content:
+      blocks.append({'type': 'text', 'text': str(turn.content)})
+
+    for call in turn.calls:
+      blocks.append({
+          'type': 'tool_use',
+          'id': _tool_use_id(call.id, call.function_name),
+          'name': call.function_name,
+          'input': dict(call.kwargs),
+      })
+
+    if blocks:
+      is_model = turn.role == function_calling.ConversationRole.MODEL
+      messages.append({
+          'role': 'assistant' if is_model else 'user',
+          'content': blocks,
+      })
+  return messages
+
+
+def _turn_from_response(response: Any) -> function_calling.ConversationTurn:
+  """Converts what the model replied into a OneTwo conversation turn.
+
+  Args:
+    response: The response object from the Messages API.
+
+  Returns:
+    The equivalent MODEL turn, with the reasoning in `thought`, the visible
+    answer in `content`, and any requested calls in `calls`.
+  """
+  thought_chunks: list[content_lib.Chunk] = []
+  text_parts = []
+  calls = []
+  for block in response.content or []:
+    match getattr(block, 'type', ''):
+      case 'thinking':
+        signature = getattr(block, 'signature', '') or ''
+        thought_chunks.append(
+            content_lib.Chunk(
+                getattr(block, 'thinking', '') or '',
+                metadata={
+                    function_calling.THOUGHT_SIGNATURE_KEY: signature.encode()
+                },
+            )
+        )
+      case 'redacted_thinking':
+        # Nothing readable to show, but the blob still has to come back, so it
+        # travels as an empty chunk carrying it.
+        thought_chunks.append(
+            content_lib.Chunk('', metadata={_REDACTED_THINKING_KEY: block.data})
+        )
+      case 'tool_use':
+        calls.append(
+            function_calling.FunctionCall(
+                function_name=block.name or '',
+                id=block.id or '',
+                kwargs=dict(block.input or {}),
+            )
+        )
+      case 'text':
+        text_parts.append(block.text)
+
+  thought = content_lib.ChunkList(thought_chunks) if thought_chunks else None
+  text = ''.join(text_parts)
+  return function_calling.ConversationTurn(
+      role=function_calling.ConversationRole.MODEL,
+      content=text or None,
+      calls=tuple(calls),
+      thought=thought,
+  )
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -371,6 +644,14 @@ class ClaudeAPI(
           formatter=formatting.FormatterName.API,
           **self.generate_text_kwargs,
       )
+      # `generate_text_kwargs` is not forwarded here: it is where a raw `tools`
+      # list is set for the passthrough path, and those would collide with the
+      # declarations the caller passes to this builtin.
+      llm.generate_with_tools.configure(
+          self.generate_with_tools,
+          max_tokens=self.max_tokens,
+          stop=self.stop,
+      )
       llm.instruct.configure(
           llm.default_instruct, formatter=formatting.FormatterName.API
       )
@@ -385,7 +666,6 @@ class ClaudeAPI(
     else:
       raise ValueError('An API key is required for using the Claude API.')
 
-  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
   def _messages_create(
       self,
       messages: Sequence[content_lib.Message],
@@ -422,35 +702,35 @@ class ClaudeAPI(
     if system_prompt is not None:
       api_kwargs['system'] = system_prompt
     if stop is not None:
-      # Claude API requires each stop sequence to contain non-whitespace.
-      # Filter out whitespace-only sequences (e.g. '\n') with a warning.
-      stop_list = list(stop)
-      filtered = [
-          stop_sequence
-          for stop_sequence in stop_list
-          if stop_sequence.strip()
-      ]
-      if len(filtered) < len(stop_list):
-        logging.warning(
-            'Dropping %d whitespace-only stop sequence(s) unsupported by the'
-            ' Claude API (e.g. "\\n"). Remaining: %s',
-            len(stop_list) - len(filtered),
-            filtered,
-        )
-      if filtered:
+      if filtered := _filtered_stop_sequences(stop):
         api_kwargs['stop_sequences'] = filtered
 
     api_kwargs.update(kwargs)
 
+    return self._create(api_kwargs)
+
+  @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
+  def _create(self, api_kwargs: Mapping[str, Any]) -> Any:
+    """Calls the Messages API, reporting what was sent if it fails.
+
+    Args:
+      api_kwargs: The request, already in the shape the Messages API takes.
+
+    Returns:
+      A response from the Messages API.
+
+    Raises:
+      ValueError: If the API rejected the request, with the beginning of the
+        request attached, since the error alone rarely says which call it was.
+    """
     assert self._client is not None
     try:
-      response = self._client.messages.create(**api_kwargs)
+      return self._client.messages.create(**api_kwargs)
     except Exception as err:  # pylint: disable=broad-except
       raise ValueError(
           f'anthropic.client.messages.create raised err:\n{err}\n'
-          f'for request:\n{pprint.pformat(api_messages)[:100]}'
+          f'for request:\n{pprint.pformat(api_kwargs.get("messages"))[:100]}'
       ) from err
-    return response
 
   def _complete_prompt(
       self,
@@ -714,6 +994,68 @@ class ClaudeAPI(
     response = self._messages_create(messages=messages, **kwargs)
     text, _, _ = self._extract_response(response)
     return text
+
+  @executing.make_executable
+  @tracing.trace(name='ClaudeAPI.generate_with_tools')
+  async def generate_with_tools(
+      self,
+      messages: Sequence[function_calling.ConversationTurn],
+      tools: Sequence[function_calling.ToolSpec],
+      **kwargs,
+  ) -> function_calling.ConversationTurn:
+    """See builtins.llm.generate_with_tools.
+
+    This performs exactly one model call. Executing the calls the model asks
+    for, and deciding whether to ask it again, is the job of the caller -- see
+    `onetwo.agents.function_calling.FCAgent`.
+
+    Args:
+      messages: The conversation so far.
+      tools: Declarations of the tools the model may call.
+      **kwargs: Generation parameters, e.g. `max_tokens`, or any Anthropic
+        parameter such as `thinking`.
+
+    Returns:
+      The single turn the model replied with.
+    """
+    return await self._generate_with_tools(messages, tools, **kwargs)
+
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def _generate_with_tools(
+      self,
+      messages: Sequence[function_calling.ConversationTurn],
+      tools: Sequence[function_calling.ToolSpec],
+      *,
+      max_tokens: int | None = None,
+      stop: Sequence[str] | None = None,
+      **kwargs,
+  ) -> function_calling.ConversationTurn:
+    """Inner method for llm.generate_with_tools."""
+    self._counters['generate_with_tools'] += 1
+    for param in _DEPRECATED_PARAMS:
+      if kwargs.pop(param, None) is not None:
+        logging.warning(
+            'Claude API parameter %r is deprecated and will be ignored.',
+            param,
+        )
+    api_kwargs: dict[str, Any] = {
+        'model': self.model_name,
+        'max_tokens': max_tokens or self.max_tokens or DEFAULT_MAX_TOKENS,
+        'messages': _messages_from_turns(messages),
+    }
+    if stop is not None:
+      if filtered := _filtered_stop_sequences(stop):
+        api_kwargs['stop_sequences'] = filtered
+    # An empty sequence means that no tools are advertised, which is not the
+    # same as advertising an empty list of them.
+    if tools:
+      api_kwargs['tools'] = _tool_definitions_from_specs(tools)
+    api_kwargs.update(kwargs)
+    return _turn_from_response(self._create(api_kwargs))
 
   @executing.make_executable
   @tracing.trace(name='ClaudeAPI.count_tokens')
