@@ -12,20 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+r"""Manual tests for the OpenAI backend, run by hand against the real API.
+
+Run them with an OpenAI API key:
+
+```shell
+  python3 -m onetwo.backends.openai_api_manual_tests \
+      --api_key=sk-... --print_debug
+```
+
+The last line printed is PASS or FAIL. `--load_cache_file` replays a previous
+run from `--cache_dir` instead of calling the API.
+
+"""
+
 from collections.abc import Sequence
 import math
 import os
 import pprint
 import time
+from typing import Any, cast
 
 from absl import app
 from absl import flags
+from onetwo.agents import function_calling as fc_agents
 from onetwo.backends import openai_api
 from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
 from onetwo.core import sampling
+from onetwo.stdlib.tool_use import llm_tool_use
 import pydantic
 
 _API_KEY = flags.DEFINE_string(
@@ -48,6 +66,56 @@ _PRINT_DEBUG = flags.DEFINE_bool(
     default=False,
     help='Debug logging.',
 )
+
+
+def get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a specified location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary containing weather information.
+  """
+  return {'location': location, 'temp': 15, 'unit': 'C'}
+
+
+def _always_fails(location: str) -> dict[str, Any]:
+  """Looks up the weather, badly.
+
+  Args:
+    location: City name.
+
+  Returns:
+    Never returns.
+
+  Raises:
+    ValueError: Always.
+  """
+  del location
+  raise ValueError('The weather service is down.')
+
+
+def _run_agent(
+    agent: fc_agents.FCAgent, query: str, **kwargs
+) -> fc_types.ConversationTurn:
+  """Runs an agent and returns the turn it produced.
+
+  `Agent.__call__` is declared to return a union that also covers
+  `return_final_state`, which this caller never asks for.
+
+  Args:
+    agent: The agent to run.
+    query: What to ask it.
+    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+
+  Returns:
+    The agent's final turn.
+  """
+  return cast(
+      fc_types.ConversationTurn,
+      executing.run(agent(query, **kwargs)),
+  )
 
 
 def main(argv: Sequence[str]) -> None:
@@ -581,6 +649,120 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
+  # ============ Model-native function calling (FCAgent) ============
+  # Unlike test 12, which hands OpenAI a built-in `web_search` tool, these go
+  # through `llm.generate_with_tools`, so the tools are ordinary Python
+  # callables and the loop that runs them is OneTwo's.
+  print('\n*** Running function calling tests. ***')
+  fc_model = 'gpt-5.4-mini'
+  fname_fc = os.path.join(
+      _CACHE_DIR.value,
+      f'openai_api_{fc_model.replace("-", "_").replace(".", "_")}_fc.json',
+  )
+  backend_fc = openai_api.OpenAIAPI(
+      model_name=fc_model,
+      cache=caching.SimpleFunctionCache(cache_filename=fname_fc),
+      api_key=api_key,
+      batch_size=1,
+  )
+  backend_fc.register()
+
+  print(f'13. Function calling: a single step, so nothing is executed, on '
+        f'{fc_model}.')
+  agent = fc_agents.FCAgent(tools=[get_weather])
+  turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+  if not turn.calls:
+    success = False
+    print('FAILURE: no FunctionCall found in the response.')
+  else:
+    call = turn.calls[0]
+    print(
+        f'  Found FunctionCall: {call.function_name} with args'
+        f' {dict(call.kwargs)}'
+    )
+    # The tool and its parameter names are checked rather than the argument
+    # value, so that this says the same thing whether the reply came from
+    # OpenAI or from a mock standing in for it. Against the real API the value
+    # printed above should be 'London'.
+    if call.function_name != 'get_weather':
+      success = False
+      print(f'FAILURE: expected get_weather, got {call.function_name}.')
+    elif 'location' not in call.kwargs:
+      success = False
+      print(f'FAILURE: expected a location argument, got {dict(call.kwargs)}.')
+
+  print(f'14. Function calling: the full loop, on {fc_model}.')
+  agent = fc_agents.FCAgent(tools=[get_weather])
+  final_turn = _run_agent(agent, 'What is the weather in London?')
+  print(f'  Final answer: {final_turn.content}')
+  if not final_turn.content:
+    success = False
+    print('FAILURE: expected a final model answer after tool execution.')
+
+  print('14.1 Function calling: a tool that fails is reported, not raised.')
+  # A tool that raises should be shown to the model rather than blowing up the
+  # loop, so that it can say something sensible instead.
+  recovering_agent = fc_agents.FCAgent(
+      tools=[llm_tool_use.Tool(name='get_weather', function=_always_fails)],
+      max_steps=3,
+  )
+  recovered = _run_agent(recovering_agent, 'What is the weather in London?')
+  print(f'  Answer after the tool failed: {recovered.content}')
+  if not recovered.content:
+    success = False
+    print('FAILURE: a failing tool should be reported, not raised.')
+
+  print('14.2 Function calling: the reasoning round-trip.')
+  # The Responses API is stateless as this backend drives it, so the reasoning
+  # items of the turn that asked for a tool are replayed in the next request
+  # to keep the model's chain of thought across the call.
+  #
+  # Note what this does and does not check. The API does not require the
+  # items: measured against the live API, a loop that drops them entirely
+  # still answers. So a completing loop on its own proves nothing. What the
+  # API does reject is an item it cannot verify -- a mismatched `id` is a 400
+  # (`invalid_encrypted_content`) -- so this checks that what is replayed is
+  # in a shape the API accepts, and that the reasoning arrives with an item
+  # behind it in the first place.
+  backend_reasoning = openai_api.OpenAIAPI(
+      model_name=fc_model,
+      cache=caching.SimpleFunctionCache(cache_filename=fname_fc),
+      api_key=api_key,
+      batch_size=1,
+      reasoning={'effort': 'low', 'summary': 'auto'},
+  )
+  backend_reasoning.register()
+  agent = fc_agents.FCAgent(tools=[get_weather])
+  first_turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+  thought = first_turn.thought
+  if thought is None:
+    success = False
+    print('FAILURE: expected reasoning on the turn that asked for a tool.')
+  else:
+    # The readable summary is often empty even with `summary: 'auto'`, so what
+    # matters is the item behind the chunk: that is what gets replayed, and
+    # that is what the API verifies.
+    print(f'  Reasoning summary: {str(thought)[:200]}')
+    # Reasoning from this backend always arrives as a `ChunkList`; loose text
+    # would have no item behind it to replay.
+    chunks = (
+        thought.chunks if isinstance(thought, content_lib.ChunkList) else []
+    )
+    item_ids = [
+        (chunk.metadata or {}).get('openai_reasoning_item', {}).get('id')
+        for chunk in chunks
+    ]
+    print(f'  Reasoning item ids: {[i for i in item_ids if i]}')
+    if not any(item_ids):
+      success = False
+      print('FAILURE: the reasoning carries no item, so nothing can be sent '
+            'back.')
+  reasoned = _run_agent(agent, 'What is the weather in London?')
+  print(f'  Final answer with reasoning: {reasoned.content}')
+  if not reasoned.content:
+    success = False
+    print('FAILURE: the loop did not complete with reasoning enabled.')
+
   # ==================== Embedding tests ====================
   print('\n*** Running embedding tests. ***')
   embed_model = 'text-embedding-3-small'
@@ -597,7 +779,7 @@ def main(argv: Sequence[str]) -> None:
   )
   backend_embed.register()
 
-  print('13. Check that embed is working.')
+  print('15. Check that embed is working.')
   content = content_lib.ChunkList(
       chunks=[
           content_lib.Chunk(
@@ -622,7 +804,7 @@ def main(argv: Sequence[str]) -> None:
   else:
     print(f'  Returned {len(res)} floats. OK.')
 
-  print('13.1 Same query to see if it has been cached.')
+  print('15.1 Same query to see if it has been cached.')
   counters_before = dict(backend_embed._counters)
   res_cached = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
   counters_after = dict(backend_embed._counters)
@@ -639,7 +821,7 @@ def main(argv: Sequence[str]) -> None:
     success = False
     print('FAILURE: cached result does not match original result.')
 
-  print('14. Check embed norm is 1.0 for various output_dimensionality.')
+  print('16. Check embed norm is 1.0 for various output_dimensionality.')
   embed_content = content_lib.ChunkList(
       chunks=[
           content_lib.Chunk(
@@ -682,9 +864,9 @@ def main(argv: Sequence[str]) -> None:
       success = False
       print(f'  FAIL: norm {vec_norm} is not close to 1.0')
 
-  print('15. Check embed_kwargs default output_dimensionality and normalize.')
+  print('17. Check embed_kwargs default output_dimensionality and normalize.')
   target_dim = 256
-  embed_content_14 = content_lib.ChunkList(
+  embed_content_17 = content_lib.ChunkList(
       chunks=[
           content_lib.Chunk(
               content='The quick brown fox jumps over the lazy dog.',
@@ -703,7 +885,7 @@ def main(argv: Sequence[str]) -> None:
   backend_embed_kwargs.register()
   # Call embed without specifying output_dimensionality explicitly.
   res = executing.run(
-      llm.embed(content=embed_content_14)  # pytype: disable=wrong-keyword-args
+      llm.embed(content=embed_content_17)
   )
   vec_norm = math.sqrt(sum(x * x for x in res))
   norm_ok = abs(vec_norm - 1.0) < 1e-3

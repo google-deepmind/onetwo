@@ -24,6 +24,7 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import io
+import json
 import math
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, get_origin
@@ -37,6 +38,7 @@ from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import tracing
 from onetwo.core import utils
 import PIL.Image
@@ -66,6 +68,26 @@ _OPENAI_ROLE_BY_PREDEFINED_ROLE = {
 }
 
 _COMPLETION_SYSTEM_PROMPT_PREFIX: Final[str] = 'Continue the sentence: '
+
+# Schema sent for a tool that takes no arguments. The Responses API requires
+# `parameters` on a function tool, and this is the JSON Schema spelling of
+# "an object with no properties".
+_EMPTY_PARAMETER_SCHEMA: Final[Mapping[str, Any]] = {
+    'type': 'object',
+    'properties': {},
+}
+
+# Key under which the reasoning item behind a thought chunk is parked. The item
+# is opaque and has to go back to the API exactly as it arrived, so it is kept
+# whole rather than rebuilt from the readable summary. Unlike Claude, which
+# hands back a signature that fits `THOUGHT_SIGNATURE_KEY`, OpenAI matches
+# reasoning by item id and may attach an encrypted body, so the whole item is
+# what has to survive the round trip.
+_REASONING_ITEM_KEY: Final[str] = 'openai_reasoning_item'
+
+# Key under which arguments that did not parse as a JSON object are handed to
+# the tool, so that the failure names the offending text instead of vanishing.
+_RAW_ARGUMENTS_KEY: Final[str] = '_raw_arguments'
 
 
 def _convert_chunk_to_openai_part(
@@ -160,6 +182,266 @@ def _convert_messages_to_input(
       }
       for message in messages
   ]
+
+
+def _tool_definitions_from_specs(
+    tools: Sequence[function_calling.ToolSpec],
+) -> list[dict[str, Any]]:
+  """Declares the given tools to the model.
+
+  Args:
+    tools: Declarations of the tools the model may call. These are declarations
+      and not implementations: a backend describes tools to the model but never
+      runs them.
+
+  Returns:
+    One tool definition per spec. The Responses API states the name and
+    parameters at the top level of the definition, unlike Chat Completions,
+    which nests them under a `function` key. `parameters` is JSON Schema, which
+    is what `ToolSpec.parameters` already holds, so no schema conversion is
+    involved.
+  """
+  definitions = []
+  for spec in tools:
+    definitions.append({
+        'type': 'function',
+        'name': spec.name,
+        'description': spec.description or '',
+        'parameters': (
+            dict(spec.parameters)
+            if spec.parameters
+            else dict(_EMPTY_PARAMETER_SCHEMA)
+        ),
+    })
+  return definitions
+
+
+def _call_id(call_id: str, function_name: str) -> str:
+  """Returns the id by which the API matches a call to its result.
+
+  The Responses API pairs a `function_call` with its `function_call_output` by
+  `call_id`, and needs one on both halves. A call that came from the model
+  always carries one, so this only has to invent something for a conversation
+  that was written by hand, where the name serves: it is unambiguous unless the
+  same tool was called twice in the same turn, and both halves derive it the
+  same way, so they still match.
+
+  Args:
+    call_id: The id of the call, which may be empty.
+    function_name: The name of the tool being called.
+
+  Returns:
+    A non-empty id, assuming the tool has a name.
+  """
+  return call_id or function_name
+
+
+def _reasoning_items_from_thought(
+    thought: str | content_lib.ChunkList | None,
+) -> list[dict[str, Any]]:
+  """Converts the model's earlier reasoning back into reasoning items.
+
+  The Responses API is stateless as this backend drives it: nothing is carried
+  server-side between calls, so the reasoning items of the turn that asked for
+  a tool have to be replayed in the next request's `input` for the model to
+  keep its chain of thought across the call. The default model is one of the
+  reasoning-only models, so this is the normal path rather than an edge case.
+  See
+  https://platform.openai.com/docs/guides/reasoning#keeping-reasoning-items-in-context
+
+  Replaying is not something the API insists on -- a request that omits the
+  items is answered normally, just without the earlier reasoning to build on.
+  What it does insist on is that an item which *is* replayed be one it can
+  verify: an item whose `id` does not match its `encrypted_content` is a 400
+  (`invalid_encrypted_content`). Both were measured against the live API.
+
+  A reasoning item is opaque, and the API matches it by `id` and may carry an
+  `encrypted_content` blob that cannot be rebuilt from its readable summary.
+  `_turn_from_response` therefore keeps the item as it arrived in the metadata
+  of the chunk standing in for it, and this hands that back untouched.
+
+  Args:
+    thought: The reasoning held by a `ConversationTurn`.
+
+  Returns:
+    One item per piece of reasoning, empty if there was none or if the
+    reasoning did not come from this backend.
+  """
+  # Deliberately not `if not thought`: a reasoning item whose readable summary
+  # is empty still has an id and an encrypted body that must be echoed, and a
+  # `ChunkList` of those is falsy even though it is exactly what has to go
+  # back.
+  if thought is None:
+    return []
+  if isinstance(thought, content_lib.ChunkList):
+    chunks = list(thought.chunks)
+  else:
+    # Reasoning that did not come from this backend has no item to replay, and
+    # the API has nowhere to put loose text, so there is nothing to send.
+    return []
+
+  items = []
+  for chunk in chunks:
+    metadata = chunk.metadata if isinstance(chunk.metadata, Mapping) else {}
+    if item := metadata.get(_REASONING_ITEM_KEY):
+      items.append(dict(item))
+  return items
+
+
+def _tool_output_content(response: function_calling.FunctionResponse) -> str:
+  """Renders what a tool returned in the form the Responses API accepts.
+
+  Args:
+    response: The outcome of one call.
+
+  Returns:
+    The result as text, which is what `function_call_output` takes. A value
+    that is not JSON is rendered with `repr`, on the grounds that showing the
+    model something imperfect beats failing the turn.
+  """
+  if response.error is not None:
+    # The Responses API has no error flag on a tool result, so the error is
+    # reported as the content, labelled so the model can tell it apart from a
+    # successful result and try something else.
+    return f'Error: {response.error}'
+  if isinstance(response.response, str):
+    return response.response
+  return json.dumps(response.response, default=repr)
+
+
+def _input_from_turns(
+    turns: Sequence[function_calling.ConversationTurn],
+) -> list[dict[str, Any]]:
+  """Converts a function-calling conversation into Responses API input items.
+
+  Args:
+    turns: The conversation so far.
+
+  Returns:
+    A flat list of input items. Unlike the Claude and Chat Completions message
+    formats, where a tool call and its result are blocks nested inside
+    messages, the Responses API states them as items that sit beside messages
+    at the top level, so one turn may expand to several items.
+  """
+  items: list[dict[str, Any]] = []
+  for turn in turns:
+    if turn.role == function_calling.ConversationRole.TOOL:
+      for response in turn.responses:
+        items.append({
+            'type': 'function_call_output',
+            'call_id': _call_id(response.id, response.function_name),
+            'output': _tool_output_content(response),
+        })
+      continue
+
+    # The reasoning of a turn comes before the rest of it, and before the tool
+    # call it led to, which is the order the API returned it in.
+    items.extend(_reasoning_items_from_thought(turn.thought))
+
+    if turn.content:
+      is_model = turn.role == function_calling.ConversationRole.MODEL
+      items.append({
+          'role': 'assistant' if is_model else 'user',
+          'content': _convert_content_to_openai_format(turn.content),
+      })
+
+    for call in turn.calls:
+      items.append({
+          'type': 'function_call',
+          'call_id': _call_id(call.id, call.function_name),
+          'name': call.function_name,
+          # The API states the arguments as a JSON string, not an object.
+          'arguments': json.dumps(dict(call.kwargs)),
+      })
+  return items
+
+
+def _kwargs_from_arguments(arguments: str | None) -> dict[str, Any]:
+  """Parses the JSON string of arguments the model produced.
+
+  Args:
+    arguments: The `arguments` field of a `function_call` item.
+
+  Returns:
+    The arguments as a mapping. A model occasionally emits something that is
+    not a JSON object; rather than fail the turn, that is handed to the tool
+    under `_raw_arguments`, which will fail with a message naming the offending
+    text that the model can act on.
+  """
+  try:
+    parsed = json.loads(arguments or '{}')
+  except json.JSONDecodeError:
+    return {_RAW_ARGUMENTS_KEY: arguments}
+  return parsed if isinstance(parsed, dict) else {_RAW_ARGUMENTS_KEY: arguments}
+
+
+def _item_as_dict(item: Any) -> dict[str, Any]:
+  """Returns a Responses API item as a plain dict.
+
+  Args:
+    item: An item from `response.output`, which the SDK returns as a pydantic
+      model but which the mock and a replayed cache state as a dict.
+
+  Returns:
+    The item as a dict, with unset fields dropped so that echoing it back does
+    not assert nulls the API did not send.
+  """
+  if isinstance(item, Mapping):
+    return {key: value for key, value in item.items() if value is not None}
+  if hasattr(item, 'model_dump'):
+    return item.model_dump(exclude_none=True)
+  return dict(getattr(item, '__dict__', {}))
+
+
+def _turn_from_response(response: Any) -> function_calling.ConversationTurn:
+  """Converts what the model replied into a OneTwo conversation turn.
+
+  Args:
+    response: The response object from the Responses API.
+
+  Returns:
+    The equivalent MODEL turn, with the reasoning in `thought`, the visible
+    answer in `content`, and any requested calls in `calls`.
+  """
+  thought_chunks: list[content_lib.Chunk] = []
+  text_parts = []
+  calls = []
+  for item in response.output or []:
+    match getattr(item, 'type', ''):
+      case 'reasoning':
+        # The readable part is a summary, which may be absent; the chunk is
+        # kept either way because the item behind it has to be echoed back.
+        summary = ''.join(
+            getattr(part, 'text', '') or ''
+            for part in getattr(item, 'summary', [])
+        )
+        thought_chunks.append(
+            content_lib.Chunk(
+                summary,
+                metadata={_REASONING_ITEM_KEY: _item_as_dict(item)},
+            )
+        )
+      case 'function_call':
+        calls.append(
+            function_calling.FunctionCall(
+                function_name=getattr(item, 'name', '') or '',
+                id=getattr(item, 'call_id', '') or '',
+                kwargs=_kwargs_from_arguments(getattr(item, 'arguments', '')),
+            )
+        )
+      case 'message':
+        for part in getattr(item, 'content', None) or []:
+          if getattr(part, 'type', '') == 'output_text':
+            text_parts.append(getattr(part, 'text', '') or '')
+
+  thought = content_lib.ChunkList(thought_chunks) if thought_chunks else None
+  text = ''.join(text_parts)
+  return function_calling.ConversationTurn(
+      role=function_calling.ConversationRole.MODEL,
+      content=text or None,
+      calls=tuple(calls),
+      thought=thought,
+  )
 
 
 @batching.add_batching  # Methods of this class are batched.
@@ -293,6 +575,7 @@ class OpenAIAPI(
       )
 
       llm.chat.configure(self.chat, formatter=formatting.FormatterName.API)
+      llm.generate_with_tools.configure(self.generate_with_tools)
       llm.instruct.configure(
           llm.default_instruct, formatter=formatting.FormatterName.API
       )
@@ -810,6 +1093,95 @@ class OpenAIAPI(
     self._counters['chat'] += 1
     response = self._responses_create(messages=messages, **kwargs)
     return response.output_text
+
+  @tracing.trace(name='OpenAIAPI.generate_with_tools')
+  async def generate_with_tools(
+      self,
+      messages: Sequence[function_calling.ConversationTurn],
+      tools: Sequence[function_calling.ToolSpec],
+      **kwargs,
+  ) -> function_calling.ConversationTurn:
+    """See builtins.llm.generate_with_tools.
+
+    This performs exactly one model call. Executing the calls the model asks
+    for, and deciding whether to ask it again, is the job of the caller -- see
+    `onetwo.agents.function_calling.FCAgent`.
+
+    Args:
+      messages: The conversation so far.
+      tools: Declarations of the tools the model may call.
+      **kwargs: Generation parameters, e.g. `max_tokens`, or any Responses API
+        parameter such as `reasoning`.
+
+    Returns:
+      The single turn the model replied with.
+    """
+    return await self._generate_with_tools(messages, tools, **kwargs)  # pyrefly: ignore[bad-argument-count, not-async]
+
+  # Not cached, unlike the other generation methods: a cache key is built by
+  # hashing the arguments, and `ConversationTurn` is not something
+  # `utils.get_bytes_for_hashing` knows how to walk. Caching a tool-calling
+  # turn would need a hashable rendering of a conversation, which is a
+  # question of its own.
+  @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
+  @batching.batch_method_with_threadpool(
+      batch_size=utils.FromInstance('batch_size'),
+      wrapper=batching.add_logging,
+  )
+  def _generate_with_tools(
+      self,
+      messages: Sequence[function_calling.ConversationTurn],
+      tools: Sequence[function_calling.ToolSpec],
+      *,
+      max_tokens: int | None = None,
+      temperature: float | None = None,
+      top_p: float | None = None,
+      reasoning: dict[str, Any] | None = None,
+      **kwargs,
+  ) -> function_calling.ConversationTurn:
+    """Inner method for llm.generate_with_tools."""
+    self._counters['generate_with_tools'] += 1
+    # Neither is supported by the Responses API, and a prompt written for
+    # another backend may still carry them.
+    kwargs.pop('stop', None)
+    kwargs.pop('top_k', None)
+
+    api_kwargs: dict[str, Any] = {
+        'model': self.model_name,
+        'input': _input_from_turns(messages),
+    }
+    if max_tokens is not None:
+      api_kwargs['max_output_tokens'] = max_tokens
+    elif self.max_tokens is not None:
+      api_kwargs['max_output_tokens'] = self.max_tokens
+    if temperature is not None:
+      api_kwargs['temperature'] = temperature
+    if top_p is not None:
+      api_kwargs['top_p'] = top_p
+
+    effective_reasoning = reasoning if reasoning is not None else self.reasoning
+    if effective_reasoning is not None:
+      api_kwargs['reasoning'] = effective_reasoning
+    # Tools configured on the instance, e.g. the built-in `web_search`, are
+    # available to every other request this backend makes, so they stay
+    # available here. OpenAI runs those itself, so they ask nothing of the
+    # loop that runs the declared tools.
+    definitions = [*(self.tools or []), *_tool_definitions_from_specs(tools)]
+    # An empty list means that no tools are advertised, which is not the same
+    # as advertising an empty list of them.
+    if definitions:
+      api_kwargs['tools'] = definitions
+    api_kwargs.update(kwargs)
+
+    assert self._client is not None
+    try:
+      response = self._client.responses.create(**api_kwargs)
+    except Exception as err:  # pylint: disable=broad-except
+      raise ValueError(
+          f'openai.client.responses.create raised err:\n{err}\n'
+          f'for request:\n{pprint.pformat(api_kwargs["input"])[:100]}'
+      ) from err
+    return _turn_from_response(response)
 
   @executing.make_executable
   @tracing.trace(name='OpenAIAPI.embed')

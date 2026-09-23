@@ -18,7 +18,7 @@ import base64
 import collections
 import math
 import os
-from typing import Counter, Final, TypeAlias
+from typing import Any, Counter, Final, TypeAlias, cast
 from unittest import mock
 
 # We have to mock openai to make this test hermetic.
@@ -26,6 +26,7 @@ from unittest import mock
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.agents import function_calling as fc_agents
 from onetwo.backends import openai_api
 from onetwo.backends import openai_mock
 from onetwo.builtins import llm
@@ -33,6 +34,7 @@ from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
+from onetwo.core import function_calling as fc_types
 import PIL.Image
 import pydantic
 
@@ -40,6 +42,12 @@ import openai
 
 _Message: TypeAlias = content_lib.Message
 _PredefinedRole: TypeAlias = content_lib.PredefinedRole
+
+_ConversationRole: TypeAlias = fc_types.ConversationRole
+_ConversationTurn: TypeAlias = fc_types.ConversationTurn
+_FunctionCall: TypeAlias = fc_types.FunctionCall
+_FunctionResponse: TypeAlias = fc_types.FunctionResponse
+_ToolSpec: TypeAlias = fc_types.ToolSpec
 
 
 _BATCH_SIZE: Final[int] = 4
@@ -672,6 +680,469 @@ class CountTokensTest(
       self.assertEqual(backend._counters['count_tokens'], 1)
     with self.subTest('results_are_equal'):
       self.assertEqual(result1, result2)
+
+
+def _get_weather(location: str) -> dict[str, Any]:
+  """Gets the weather for a specified location.
+
+  Args:
+    location: City name.
+
+  Returns:
+    A dictionary containing weather information.
+  """
+  return {'location': location, 'temp': 15, 'unit': 'C'}
+
+
+def _always_fails(location: str) -> dict[str, Any]:
+  """Looks up the weather, badly.
+
+  Args:
+    location: City name.
+
+  Returns:
+    Never returns.
+
+  Raises:
+    ValueError: Always.
+  """
+  del location
+  raise ValueError('The weather service is down.')
+
+
+def _message(text: str) -> openai_mock.ResponseOutputMessage:
+  """Returns a message item carrying `text`."""
+  return openai_mock.ResponseOutputMessage(
+      content=[openai_mock.OutputTextContent(text=text)]
+  )
+
+
+def _call(
+    name: str, arguments: str, call_id: str = 'call_1'
+) -> openai_mock.ResponseFunctionToolCall:
+  """Returns a function_call item asking for `name`."""
+  return openai_mock.ResponseFunctionToolCall(
+      name=name, arguments=arguments, call_id=call_id
+  )
+
+
+def _reasoning(
+    summary: str = 'Thinking.',
+    item_id: str = 'rs_1',
+    encrypted_content: str = 'opaque',
+) -> openai_mock.ResponseReasoningItem:
+  """Returns a reasoning item."""
+  return openai_mock.ResponseReasoningItem(
+      summary=[openai_mock.SummaryText(summary)],
+      item_id=item_id,
+      encrypted_content=encrypted_content,
+  )
+
+
+class _ScriptedResponses:
+  """Replies with a prepared sequence, recording what it was asked."""
+
+  def __init__(self, *replies: openai_mock.Response):
+    self._replies = list(replies)
+    self.requests: list[dict[str, Any]] = []
+
+  def create(self, **kwargs) -> openai_mock.Response:
+    self.requests.append(kwargs)
+    if not self._replies:
+      raise AssertionError('The model was called more often than scripted.')
+    return self._replies.pop(0)
+
+
+class _ScriptedClient:
+  """An OpenAI client whose `responses` are scripted."""
+
+  def __init__(self, responses: _ScriptedResponses):
+    self.responses = responses
+
+
+class GenerateWithToolsTest(
+    parameterized.TestCase, core_test_utils.CounterAssertions
+):
+  """Tests the single model call that `FCAgent` is built on."""
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+    # Externally `openai` is the real library, so without this the tests
+    # below that do not script the client would call the API for real.
+    flags.FLAGS.mark_as_parsed()
+    self.enter_context(
+        mock.patch.object(
+            openai,
+            'OpenAI',
+            autospec=True,
+            side_effect=openai_mock.OpenAI,
+        )
+    )
+
+  def _script(self, *replies: openai_mock.Response) -> openai_api.OpenAIAPI:
+    """Registers a backend whose client replies with `replies`, in order."""
+    backend = _get_and_register_backend()
+    self._responses = _ScriptedResponses(*replies)
+    # A test double standing in for the client, which `_client` is not
+    # annotated to accept.
+    backend._client = _ScriptedClient(self._responses)  # pyrefly: ignore[bad-assignment]
+    return backend
+
+  def _last_request(self) -> dict[str, Any]:
+    return self._responses.requests[-1]
+
+  def _ask(self, *messages, **kwargs):
+    return executing.run(
+        llm.generate_with_tools(
+            messages=list(messages), **kwargs
+        )
+    )
+
+  # --- Tool declarations ----------------------------------------------------
+
+  def test_tool_declaration_is_flat(self):
+    """The Responses API states name and parameters at the top level."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    schema = {
+        'type': 'object',
+        'properties': {'location': {'type': 'string'}},
+        'required': ['location'],
+    }
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[
+            _ToolSpec(
+                name='get_weather',
+                description='Gets the weather.',
+                parameters=schema,
+            )
+        ],
+    )
+    self.assertEqual(
+        self._last_request()['tools'],
+        [{
+            'type': 'function',
+            'name': 'get_weather',
+            'description': 'Gets the weather.',
+            'parameters': schema,
+        }],
+    )
+
+  def test_tool_without_parameters_declares_empty_object(self):
+    """A tool that takes nothing still needs a schema."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Now?'),
+        tools=[_ToolSpec(name='now')],
+    )
+    self.assertEqual(
+        self._last_request()['tools'][0]['parameters'],
+        {'type': 'object', 'properties': {}},
+    )
+
+  def test_no_tools_declares_nothing(self):
+    """An empty sequence is not the same as an empty list of tools."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Hello'),
+        tools=[],
+    )
+    self.assertNotIn('tools', self._last_request())
+
+  def test_builtin_tools_on_the_instance_are_kept(self):
+    """A tool OpenAI runs itself stays available to a function-calling run."""
+    backend = openai_api.OpenAIAPI(
+        api_key='some_key',
+        batch_size=_BATCH_SIZE,
+        tools=[{'type': 'web_search'}],
+    )
+    backend.register()
+    responses = _ScriptedResponses(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    # A test double standing in for the client, which `_client` is not
+    # annotated to accept.
+    backend._client = _ScriptedClient(responses)  # pyrefly: ignore[bad-assignment]
+    executing.run(
+        llm.generate_with_tools(
+            messages=[
+                _ConversationTurn(role=_ConversationRole.USER, content='News?')
+            ],
+            tools=[_ToolSpec(name='now')],
+        )
+    )
+    self.assertEqual(
+        [tool['type'] for tool in responses.requests[-1]['tools']],
+        ['web_search', 'function'],
+    )
+
+  # --- Conversation to input items ------------------------------------------
+
+  def test_user_turn_becomes_a_message(self):
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[],
+    )
+    self.assertEqual(
+        self._last_request()['input'],
+        [{'role': 'user', 'content': 'Weather?'}],
+    )
+
+  def test_model_call_becomes_a_function_call_item(self):
+    """A call is an item beside the messages, not a block inside one."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        _ConversationTurn(
+            role=_ConversationRole.MODEL,
+            calls=[
+                _FunctionCall(
+                    function_name='get_weather',
+                    id='call_abc',
+                    kwargs={'location': 'London'},
+                )
+            ],
+        ),
+        tools=[],
+    )
+    self.assertEqual(
+        self._last_request()['input'][1],
+        {
+            'type': 'function_call',
+            'call_id': 'call_abc',
+            'name': 'get_weather',
+            # The API takes the arguments as a JSON string, not an object.
+            'arguments': '{"location": "London"}',
+        },
+    )
+
+  def test_tool_turn_becomes_function_call_output_items(self):
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        _ConversationTurn(
+            role=_ConversationRole.TOOL,
+            responses=[
+                _FunctionResponse(
+                    function_name='get_weather',
+                    id='call_abc',
+                    response={'temp': 15},
+                )
+            ],
+        ),
+        tools=[],
+    )
+    self.assertEqual(
+        self._last_request()['input'][1],
+        {
+            'type': 'function_call_output',
+            'call_id': 'call_abc',
+            'output': '{"temp": 15}',
+        },
+    )
+
+  def test_failed_tool_is_reported_to_the_model(self):
+    """The API has no error flag, so the error travels as the content."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        _ConversationTurn(
+            role=_ConversationRole.TOOL,
+            responses=[
+                _FunctionResponse(
+                    function_name='get_weather',
+                    id='call_abc',
+                    error='It broke.',
+                )
+            ],
+        ),
+        tools=[],
+    )
+    self.assertEqual(
+        self._last_request()['input'][1]['output'], 'Error: It broke.'
+    )
+
+  def test_call_id_falls_back_to_the_tool_name(self):
+    """A conversation written by hand has no ids, but both halves must match."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(
+            role=_ConversationRole.MODEL,
+            calls=[_FunctionCall(function_name='get_weather', kwargs={})],
+        ),
+        _ConversationTurn(
+            role=_ConversationRole.TOOL,
+            responses=[
+                _FunctionResponse(function_name='get_weather', response='15C')
+            ],
+        ),
+        tools=[],
+    )
+    items = self._last_request()['input']
+    self.assertEqual(items[0]['call_id'], 'get_weather')
+    self.assertEqual(items[1]['call_id'], 'get_weather')
+
+  # --- Response to conversation turn ----------------------------------------
+
+  def test_function_call_becomes_a_call(self):
+    self._script(
+        openai_mock.Response(
+            output=[_call('get_weather', '{"location": "London"}')],
+            output_text='',
+        )
+    )
+    turn = self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[],
+    )
+    self.assertEqual(turn.role, _ConversationRole.MODEL)
+    self.assertLen(turn.calls, 1)
+    self.assertEqual(turn.calls[0].function_name, 'get_weather')
+    self.assertEqual(turn.calls[0].kwargs, {'location': 'London'})
+    self.assertEqual(turn.calls[0].id, 'call_1')
+
+  def test_message_becomes_content(self):
+    self._script(
+        openai_mock.Response(output=[_message('It is 15C.')], output_text='x')
+    )
+    turn = self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[],
+    )
+    # Read from the output items rather than `output_text`, so that a reply
+    # mixing text and calls keeps them in step.
+    self.assertEqual(turn.content, 'It is 15C.')
+    self.assertEmpty(turn.calls)
+
+  def test_unparsable_arguments_are_handed_over_raw(self):
+    """A malformed argument string should reach the tool, not vanish."""
+    self._script(
+        openai_mock.Response(
+            output=[_call('get_weather', 'not json')], output_text=''
+        )
+    )
+    turn = self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[],
+    )
+    self.assertEqual(turn.calls[0].kwargs, {'_raw_arguments': 'not json'})
+
+  # --- Reasoning round-trip -------------------------------------------------
+
+  def test_reasoning_is_kept_whole_and_echoed_back(self):
+    """The API matches reasoning by id, so the item must survive untouched."""
+    self._script(
+        openai_mock.Response(
+            output=[
+                _reasoning('Looking it up.', 'rs_7', 'secret'),
+                _call('get_weather', '{}'),
+            ],
+            output_text='',
+        ),
+        openai_mock.Response(output=[_message('15C')], output_text='15C'),
+    )
+    turn = self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[],
+    )
+    self.assertEqual(str(turn.thought), 'Looking it up.')
+
+    # Replaying that turn should put the item back on the wire, before the
+    # call it led to.
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        turn,
+        tools=[],
+    )
+    echoed = self._last_request()['input'][1]
+    self.assertEqual(echoed['type'], 'reasoning')
+    self.assertEqual(echoed['id'], 'rs_7')
+    self.assertEqual(echoed['encrypted_content'], 'secret')
+    self.assertEqual(self._last_request()['input'][2]['type'], 'function_call')
+
+  def test_reasoning_without_a_summary_still_round_trips(self):
+    """An empty summary is common, and dropping it breaks the next request."""
+    self._script(
+        openai_mock.Response(
+            output=[
+                openai_mock.ResponseReasoningItem(
+                    summary=[], item_id='rs_8', encrypted_content='secret'
+                )
+            ],
+            output_text='',
+        ),
+        openai_mock.Response(output=[_message('ok')], output_text='ok'),
+    )
+    turn = self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        tools=[],
+    )
+    self._ask(
+        _ConversationTurn(role=_ConversationRole.USER, content='Weather?'),
+        turn,
+        tools=[],
+    )
+    echoed = self._last_request()['input'][1]
+    self.assertEqual(echoed['id'], 'rs_8')
+
+  def test_reasoning_from_another_backend_is_not_sent(self):
+    """Loose text has no item to replay, and the API has nowhere to put it."""
+    self._script(
+        openai_mock.Response(output=[_message('ok')], output_text='ok')
+    )
+    self._ask(
+        _ConversationTurn(
+            role=_ConversationRole.MODEL,
+            content='Hello',
+            thought='reasoning from somewhere else',
+        ),
+        tools=[],
+    )
+    self.assertEqual(
+        self._last_request()['input'],
+        [{'role': 'assistant', 'content': 'Hello'}],
+    )
+
+  # --- End to end -----------------------------------------------------------
+
+  def test_agent_loop_runs_against_the_mock(self):
+    """`FCAgent` should drive the whole exchange with no scripting."""
+    _get_and_register_backend()
+    agent = fc_agents.FCAgent(tools=[_get_weather])
+    turn = cast(
+        fc_types.ConversationTurn,
+        executing.run(agent('What is the weather in London?')),
+    )
+    self.assertEqual(turn.content, 'Hello')
+    self.assertEmpty(turn.calls)
+
+  def test_agent_loop_reports_a_failing_tool(self):
+    """A tool that raises is shown to the model rather than ending the run."""
+    _get_and_register_backend()
+    agent = fc_agents.FCAgent(tools=[_always_fails])
+    turn = cast(
+        fc_types.ConversationTurn,
+        executing.run(agent('What is the weather in London?')),
+    )
+    self.assertEqual(turn.content, 'Hello')
 
 
 if __name__ == '__main__':

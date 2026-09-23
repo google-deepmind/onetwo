@@ -22,6 +22,7 @@ https://developers.openai.com/api/reference/resources/embeddings/methods/create
 """
 
 from collections.abc import Mapping, Sequence
+import json
 from typing import Any, Final, TypeVar, get_args, get_origin
 
 import pydantic
@@ -31,7 +32,41 @@ _T = TypeVar('_T', bound=pydantic.BaseModel)
 
 
 # Responses API mock types.
-class OutputTextContent:
+class _Item:
+  """Base for output items, imitating the pydantic models the SDK returns.
+
+  The real items are pydantic models, so code that has to store an item and
+  hand it back to the API later reaches for `model_dump`. Providing it here
+  means such code takes the same path against the mock as against the SDK,
+  rather than falling back to whatever `__dict__` happens to hold.
+  """
+
+  def model_dump(self, exclude_none: bool = False) -> dict[str, Any]:
+    """Returns the item as a dict, recursing into nested items.
+
+    Args:
+      exclude_none: Whether to drop keys whose value is None, as the real
+        pydantic models do.
+
+    Returns:
+      The item as a plain dict.
+    """
+
+    def dump(value: Any) -> Any:
+      if isinstance(value, _Item):
+        return value.model_dump(exclude_none=exclude_none)
+      if isinstance(value, (list, tuple)):
+        return [dump(item) for item in value]
+      return value
+
+    return {
+        key: dump(value)
+        for key, value in self.__dict__.items()
+        if not (exclude_none and value is None)
+    }
+
+
+class OutputTextContent(_Item):
   """Mock for response output_text content item."""
 
   def __init__(self, text: str, logprobs: Sequence[Any] | None = None):
@@ -41,7 +76,7 @@ class OutputTextContent:
     self.logprobs = logprobs or []
 
 
-class ResponseOutputMessage:
+class ResponseOutputMessage(_Item):
   """Mock for a message item in the Responses API output."""
 
   def __init__(
@@ -56,19 +91,135 @@ class ResponseOutputMessage:
     self.content = content
 
 
+class ResponseFunctionToolCall(_Item):
+  """Mock for a function_call item in the Responses API output."""
+
+  def __init__(
+      self,
+      name: str,
+      arguments: str,
+      call_id: str,
+      status: str = 'completed',
+  ):
+    self.type = 'function_call'
+    self.name = name
+    # A JSON string, as the real API states it, rather than an object.
+    self.arguments = arguments
+    self.call_id = call_id
+    self.id = f'fc_{call_id}'
+    self.status = status
+
+
+class SummaryText(_Item):
+  """Mock for one entry of a reasoning item's summary."""
+
+  def __init__(self, text: str):
+    self.type = 'summary_text'
+    self.text = text
+
+
+class ResponseReasoningItem(_Item):
+  """Mock for a reasoning item in the Responses API output.
+
+  Carries an `id` and an opaque `encrypted_content` like the real thing, so a
+  backend that has to echo reasoning items back can be tested against it.
+  """
+
+  def __init__(
+      self,
+      summary: Sequence[SummaryText] | None = None,
+      item_id: str = 'rs_mock',
+      encrypted_content: str = 'mock-encrypted-reasoning',
+  ):
+    self.type = 'reasoning'
+    self.id = item_id
+    self.summary = summary or []
+    self.encrypted_content = encrypted_content
+
+
+OutputItem = (
+    ResponseOutputMessage | ResponseFunctionToolCall | ResponseReasoningItem
+)
+
+
+def _has_tool_result(
+    model_input: str | Sequence[Mapping[str, Any]],
+) -> bool:
+  """Says whether a tool result has already come back in this conversation.
+
+  Args:
+    model_input: The `input` of the request.
+
+  Returns:
+    True if any input item is a `function_call_output`, which is what tells a
+    second pass apart from the first.
+  """
+  if isinstance(model_input, str):
+    return False
+  return any(
+      isinstance(item, Mapping) and item.get('type') == 'function_call_output'
+      for item in model_input
+  )
+
+
+def _mock_call_for_tool(
+    tool: Mapping[str, Any],
+) -> ResponseFunctionToolCall:
+  """Invents a call to the given tool.
+
+  The arguments are built from the parameters the tool actually declares, so
+  that a caller which runs the call gets something its tool will accept. A
+  fixed argument would be rejected by any tool whose parameter is not named the
+  same, which would stop the loop before it started.
+
+  Args:
+    tool: One entry of the `tools` argument, in Responses API shape.
+
+  Returns:
+    A `function_call` item naming the tool, with one argument per declared
+    property.
+  """
+  name = str(tool.get('name', 'mock_tool'))
+  schema = tool.get('parameters') or {}
+  properties = (
+      schema.get('properties', {}) if isinstance(schema, Mapping) else {}
+  )
+  arguments = {}
+  for parameter, spec in properties.items():
+    parameter_type = spec.get('type') if isinstance(spec, Mapping) else None
+    match parameter_type:
+      case 'integer':
+        arguments[parameter] = 1
+      case 'number':
+        arguments[parameter] = 1.0
+      case 'boolean':
+        arguments[parameter] = True
+      case 'array':
+        arguments[parameter] = []
+      case 'object':
+        arguments[parameter] = {}
+      case _:
+        arguments[parameter] = 'mock argument'
+  return ResponseFunctionToolCall(
+      name=name,
+      arguments=json.dumps(arguments),
+      call_id=f'call_{name}',
+  )
+
+
 class Response:
   """Mock for the Responses API response object."""
 
   def __init__(
       self,
-      output: Sequence[ResponseOutputMessage],
+      output: Sequence[OutputItem],
       output_text: str,
   ):
     self.output = output
     self.output_text = output_text
 
 
-class InputTokensCountResponse:
+class InputTokensCountResponse(_Item):
   """Mock for the responses.input_tokens.count() response."""
 
   def __init__(self, input_tokens: int):
@@ -162,6 +313,21 @@ class ResponsesNamespace:
     logprobs = []
     if 'message.output_text.logprobs' in include:
       logprobs = [{'token': self._reply, 'logprob': -0.5}]
+
+    # Standing in for a tool-using model: the first time tools are declared,
+    # ask for the first one; once a result has come back, answer with text.
+    # Without this the loop would end on the first turn and never exercise the
+    # conversions a tool call goes through.
+    if tools and not _has_tool_result(input):
+      call = _mock_call_for_tool(tools[0])
+      reasoning_items = (
+          [ResponseReasoningItem(summary=[SummaryText('Mock reasoning.')])]
+          if reasoning
+          else []
+      )
+      del model, instructions, kwargs
+      return Response(output=[*reasoning_items, call], output_text='')
+
     del model, input, instructions, reasoning, tools, kwargs
     content = OutputTextContent(text=self._reply, logprobs=logprobs)
     message = ResponseOutputMessage(content=[content])
