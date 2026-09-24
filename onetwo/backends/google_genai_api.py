@@ -131,20 +131,6 @@ _RETRIABLE_STATUS_CODES = {
     504,  # Gateway Timeout
 }
 
-# Static prefix strings for embed task types. RETRIEVAL_DOCUMENT is excluded
-# because its prefix depends on the runtime `title` value.
-_PREFIX_FROM_TASK_TYPE: Final[dict[llm.EmbedTaskType, str]] = {
-    llm.EmbedTaskType.RETRIEVAL_QUERY: 'task: search result | query: ',
-    llm.EmbedTaskType.SEMANTIC_SIMILARITY: (
-        'task: sentence similarity | query: '
-    ),
-    llm.EmbedTaskType.CLASSIFICATION: 'task: classification | query: ',
-    llm.EmbedTaskType.CLUSTERING: 'task: clustering | query: ',
-    llm.EmbedTaskType.CODE_RETRIEVAL_QUERY: 'task: code retrieval | query: ',
-    llm.EmbedTaskType.QUESTION_ANSWERING: 'task: question answering | query: ',
-    llm.EmbedTaskType.FACT_VERIFICATION: 'task: fact checking | query: ',
-}
-
 
 def _configure_http_limits(
     threadpool_size: int,
@@ -293,29 +279,15 @@ def _convert_chunk_list_to_part_list(
   return [_part_from_chunk(c) for c in prompt]
 
 
-def _prepend_prefix_to_content(
-    prefix: str,
-    content: str | _ChunkList,
-) -> str | _ChunkList:
-  """Prepends a text prefix to content (str or ChunkList)."""
-  if isinstance(content, str):
-    return prefix + (content or 'none')
-  elif isinstance(content, content_lib.ChunkList):
-    if not content.chunks:
-      new_chunks = [content_lib.Chunk(content=prefix + 'none')]
-    else:
-      new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
-    return content_lib.ChunkList(chunks=new_chunks)
-  return content
-
-
 def _apply_embed_formatting_v2(
     prefix: str,
     content: str | _ChunkList,
     kwargs: dict[str, Any],
 ) -> tuple[str | _ChunkList, dict[str, Any]]:
   """Applies embed formatting for v2 models (prefix-based, no task_type)."""
-  content = _prepend_prefix_to_content(prefix, content)
+  content = utils.prepend_prefix_to_content(
+      prefix, content, default_for_empty_content='none'
+  )
   # For v2, we do NOT pass task_type to the API.
   kwargs.pop('task_type', None)
   return content, kwargs
@@ -337,7 +309,9 @@ def _apply_embed_formatting_v1(
 
   # Prepend title formatted consistently with v2 only if title is provided.
   if task_type == llm.EmbedTaskType.RETRIEVAL_DOCUMENT and title is not None:
-    content = _prepend_prefix_to_content(prefix, content)
+    content = utils.prepend_prefix_to_content(
+        prefix, content, default_for_empty_content='none'
+    )
 
   return content, kwargs
 
@@ -1532,11 +1506,7 @@ class GoogleGenAIAPI(
     is_v2 = 'embedding-2' in model_name
 
     # Determine formatting prefix.
-    prefix = _PREFIX_FROM_TASK_TYPE.get(task_type)  # pyrefly: ignore[bad-argument-type]
-    if task_type == llm.EmbedTaskType.RETRIEVAL_DOCUMENT or (
-        task_type is None and title is not None
-    ):
-      prefix = f'title: {title or "none"} | text: '
+    prefix = llm.prefix_for_task_type(task_type, title)
 
     # Apply formatting prefix.
     if prefix:

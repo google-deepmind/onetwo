@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import enum
 import random
-from typing import Any, TypeAlias, TypeVar
+from typing import Any, Final, TypeAlias, TypeVar
 
 from onetwo.builtins import builtins_base
 from onetwo.builtins import formatting
@@ -63,6 +63,43 @@ class EmbedTaskType(enum.StrEnum):
   CODE_RETRIEVAL_QUERY = 'CODE_RETRIEVAL_QUERY'
   QUESTION_ANSWERING = 'QUESTION_ANSWERING'
   FACT_VERIFICATION = 'FACT_VERIFICATION'
+
+
+# Static instruction prefixes that the Gemini embedding models expect for each
+# task type. `RETRIEVAL_DOCUMENT` is excluded because its prefix depends on the
+# runtime `title` value, see `prefix_for_task_type`.
+PREFIX_FROM_TASK_TYPE: Final[Mapping[EmbedTaskType | str, str]] = {
+    EmbedTaskType.RETRIEVAL_QUERY: 'task: search result | query: ',
+    EmbedTaskType.SEMANTIC_SIMILARITY: 'task: sentence similarity | query: ',
+    EmbedTaskType.CLASSIFICATION: 'task: classification | query: ',
+    EmbedTaskType.CLUSTERING: 'task: clustering | query: ',
+    EmbedTaskType.CODE_RETRIEVAL_QUERY: 'task: code retrieval | query: ',
+    EmbedTaskType.QUESTION_ANSWERING: 'task: question answering | query: ',
+    EmbedTaskType.FACT_VERIFICATION: 'task: fact checking | query: ',
+}
+
+
+def prefix_for_task_type(
+    task_type: EmbedTaskType | str | None,
+    title: str | None = None,
+) -> str | None:
+  """Returns the embedding instruction prefix for a task type, if any.
+
+  Args:
+    task_type: The task type for the embedding, or None if unspecified. Passing
+      a `title` without a `task_type` is treated as `RETRIEVAL_DOCUMENT`.
+    title: Optional title of the content, only used for `RETRIEVAL_DOCUMENT`.
+
+  Returns:
+    The prefix to prepend to the content, or None if no prefix applies.
+  """
+  if task_type == EmbedTaskType.RETRIEVAL_DOCUMENT or (
+      task_type is None and title is not None
+  ):
+    return f'title: {title or "none"} | text: '
+  if task_type is None:
+    return None
+  return PREFIX_FROM_TASK_TYPE.get(task_type)
 
 
 _UNIMPLEMENTED_ERROR = NotImplementedError(

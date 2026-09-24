@@ -2641,37 +2641,6 @@ class GoogleGenaiApiTest(
 class EmbedFormattingHelpersTest(parameterized.TestCase):
   """Tests for the embed formatting helper functions."""
 
-  # --- _prepend_prefix_to_content ---
-
-  def test_prepend_prefix_to_string(self):
-    result = google_genai_api._prepend_prefix_to_content('prefix: ', 'hello')
-    self.assertEqual(result, 'prefix: hello')
-
-  def test_prepend_prefix_to_chunk_list(self):
-    content = content_lib.ChunkList(
-        chunks=[
-            content_lib.Chunk(content='hello'),
-            content_lib.Chunk(content=b'img', content_type='image/png'),
-        ]
-    )
-    result = google_genai_api._prepend_prefix_to_content('prefix: ', content)
-    self.assertIsInstance(result, content_lib.ChunkList)
-    self.assertLen(result.chunks, 3)
-    self.assertEqual(result.chunks[0].content, 'prefix: ')
-    self.assertEqual(result.chunks[1].content, 'hello')
-    self.assertEqual(result.chunks[2].content, b'img')
-
-  def test_prepend_prefix_to_empty_string(self):
-    result = google_genai_api._prepend_prefix_to_content('prefix: ', '')
-    self.assertEqual(result, 'prefix: none')
-
-  def test_prepend_prefix_to_empty_chunk_list(self):
-    content = content_lib.ChunkList(chunks=[])
-    result = google_genai_api._prepend_prefix_to_content('prefix: ', content)
-    self.assertIsInstance(result, content_lib.ChunkList)
-    self.assertLen(result.chunks, 1)
-    self.assertEqual(result.chunks[0].content, 'prefix: none')
-
   # --- _apply_embed_formatting_v2 ---
 
   @parameterized.named_parameters(

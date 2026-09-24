@@ -819,3 +819,33 @@ def get_str_hash(key: Any, fallback_if_safe: bool = False) -> str:
   """
   bytes_value = get_bytes_for_hashing(key, fallback_if_safe)
   return hashlib.sha224(bytes_value).hexdigest()
+
+
+def prepend_prefix_to_content(
+    prefix: str,
+    content: str | content_lib.ChunkList,
+    default_for_empty_content: str = '',
+) -> str | content_lib.ChunkList:
+  """Prepends a text prefix to content (str or ChunkList).
+
+  Args:
+    prefix: The text prefix to prepend.
+    content: The content to prepend the prefix to.
+    default_for_empty_content: Text to substitute for empty content.
+
+  Returns:
+    The content with the prefix prepended (as a str if the content was a str,
+    as a ChunkList if it was a ChunkList). Content of any other type is
+    returned unchanged.
+  """
+  if isinstance(content, str):
+    return prefix + (content or default_for_empty_content)
+  elif isinstance(content, content_lib.ChunkList):
+    if not content.chunks:
+      new_chunks = [
+          content_lib.Chunk(content=prefix + default_for_empty_content)
+      ]
+    else:
+      new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
+    return content_lib.ChunkList(chunks=new_chunks)
+  return content

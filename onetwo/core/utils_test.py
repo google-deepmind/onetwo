@@ -1039,5 +1039,56 @@ class UtilsTest(parameterized.TestCase):
         asyncio.run(o.af(1, y='a'))
 
 
+class PrependPrefixToContentTest(absltest.TestCase):
+
+  def test_prepend_prefix_to_string(self):
+    result = utils.prepend_prefix_to_content('prefix: ', 'hello')
+    self.assertEqual(result, 'prefix: hello')
+
+  def test_prepend_prefix_to_chunk_list(self):
+    content = _ChunkList(
+        chunks=[
+            _Chunk(content='hello'),
+            _Chunk(content=b'img', content_type='image/png'),
+        ]
+    )
+    result = utils.prepend_prefix_to_content('prefix: ', content)
+    self.assertIsInstance(result, _ChunkList)
+    self.assertLen(result.chunks, 3)
+    self.assertEqual(result.chunks[0].content, 'prefix: ')
+    self.assertEqual(result.chunks[1].content, 'hello')
+    self.assertEqual(result.chunks[2].content, b'img')
+
+  def test_prepend_prefix_to_empty_string(self):
+    result = utils.prepend_prefix_to_content('prefix: ', '')
+    self.assertEqual(result, 'prefix: ')
+
+  def test_prepend_prefix_to_empty_string_with_default(self):
+    result = utils.prepend_prefix_to_content(
+        'prefix: ', '', default_for_empty_content='none'
+    )
+    self.assertEqual(result, 'prefix: none')
+
+  def test_prepend_prefix_to_empty_chunk_list(self):
+    result = utils.prepend_prefix_to_content('prefix: ', _ChunkList(chunks=[]))
+    self.assertIsInstance(result, _ChunkList)
+    self.assertLen(result.chunks, 1)
+    self.assertEqual(result.chunks[0].content, 'prefix: ')
+
+  def test_prepend_prefix_to_empty_chunk_list_with_default(self):
+    result = utils.prepend_prefix_to_content(
+        'prefix: ', _ChunkList(chunks=[]), default_for_empty_content='none'
+    )
+    self.assertIsInstance(result, _ChunkList)
+    self.assertLen(result.chunks, 1)
+    self.assertEqual(result.chunks[0].content, 'prefix: none')
+
+  def test_default_for_empty_content_ignored_if_content_not_empty(self):
+    result = utils.prepend_prefix_to_content(
+        'prefix: ', 'hello', default_for_empty_content='none'
+    )
+    self.assertEqual(result, 'prefix: hello')
+
+
 if __name__ == '__main__':
   absltest.main()

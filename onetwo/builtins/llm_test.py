@@ -471,5 +471,56 @@ class LlmTest(parameterized.TestCase):
     )
 
 
+class PrefixForTaskTypeTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='retrieval_query',
+          task_type=llm.EmbedTaskType.RETRIEVAL_QUERY,
+          title=None,
+          expected='task: search result | query: ',
+      ),
+      dict(
+          testcase_name='task_type_as_string',
+          task_type='CLASSIFICATION',
+          title=None,
+          expected='task: classification | query: ',
+      ),
+      dict(
+          testcase_name='retrieval_document_with_title',
+          task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          title='My title',
+          expected='title: My title | text: ',
+      ),
+      dict(
+          testcase_name='retrieval_document_without_title',
+          task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          title=None,
+          expected='title: none | text: ',
+      ),
+      dict(
+          testcase_name='title_without_task_type',
+          task_type=None,
+          title='My title',
+          expected='title: My title | text: ',
+      ),
+      dict(
+          testcase_name='no_task_type_and_no_title',
+          task_type=None,
+          title=None,
+          expected=None,
+      ),
+  )
+  def test_prefix_for_task_type(self, task_type, title, expected):
+    self.assertEqual(expected, llm.prefix_for_task_type(task_type, title))
+
+  def test_prefix_defined_for_all_task_types(self):
+    # `RETRIEVAL_DOCUMENT` is the only task type whose prefix is not static.
+    self.assertEqual(
+        set(llm.EmbedTaskType) - {llm.EmbedTaskType.RETRIEVAL_DOCUMENT},
+        set(llm.PREFIX_FROM_TASK_TYPE),
+    )
+
+
 if __name__ == '__main__':
   absltest.main()
