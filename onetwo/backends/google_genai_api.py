@@ -1334,7 +1334,7 @@ class GoogleGenAIAPI(
 
     This performs exactly one model call. Executing the calls the model asks
     for, and deciding whether to ask it again, is the job of the caller -- see
-    `onetwo.agents.function_calling.FCAgent`.
+    `onetwo.agents.agent.Agent`.
 
     Args:
       messages: The conversation so far.
@@ -1378,7 +1378,7 @@ class GoogleGenAIAPI(
         # the same as sending an empty `Tool`.
         tools=[_tool_from_specs(tools)] if tools else None,
         # The SDK will happily run its own function-calling loop. The loop
-        # lives in `FCAgent`, and two of them would be silent and horrible to
+        # lives in `Agent`, and two of them would be silent and horrible to
         # debug, so this one is turned off.
         automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
             disable=True

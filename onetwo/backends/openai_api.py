@@ -1105,7 +1105,7 @@ class OpenAIAPI(
 
     This performs exactly one model call. Executing the calls the model asks
     for, and deciding whether to ask it again, is the job of the caller -- see
-    `onetwo.agents.function_calling.FCAgent`.
+    `onetwo.agents.agent.Agent`.
 
     Args:
       messages: The conversation so far.

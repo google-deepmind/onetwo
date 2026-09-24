@@ -23,7 +23,7 @@ server declares into ordinary `llm_tool_use.Tool`s, which is the only thing the
 backends know about:
 
 ```python
-  agent = fc_agents.FCAgent(
+  agent = agent_lib.Agent(
       tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
   )
 ```
@@ -160,7 +160,7 @@ def server(url: str) -> llm_tool_use.ToolSource:
   used for one question or a thousand:
 
   ```python
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
     )
   ```

@@ -35,7 +35,7 @@ from typing import Any, cast
 
 from absl import app
 from absl import flags
-from onetwo.agents import function_calling as fc_agents
+from onetwo.agents import agent as agent_lib
 from onetwo.backends import openai_api
 from onetwo.builtins import llm
 from onetwo.core import caching
@@ -97,7 +97,7 @@ def _always_fails(location: str) -> dict[str, Any]:
 
 
 def _run_agent(
-    agent: fc_agents.FCAgent, query: str, **kwargs
+    agent: agent_lib.Agent, query: str, **kwargs
 ) -> fc_types.ConversationTurn:
   """Runs an agent and returns the turn it produced.
 
@@ -649,7 +649,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
 
-  # ============ Model-native function calling (FCAgent) ============
+  # ============ Model-native function calling (Agent) ============
   # Unlike test 12, which hands OpenAI a built-in `web_search` tool, these go
   # through `llm.generate_with_tools`, so the tools are ordinary Python
   # callables and the loop that runs them is OneTwo's.
@@ -669,7 +669,7 @@ def main(argv: Sequence[str]) -> None:
 
   print(f'13. Function calling: a single step, so nothing is executed, on '
         f'{fc_model}.')
-  agent = fc_agents.FCAgent(tools=[get_weather])
+  agent = agent_lib.Agent(tools=[get_weather])
   turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
   if not turn.calls:
     success = False
@@ -692,7 +692,7 @@ def main(argv: Sequence[str]) -> None:
       print(f'FAILURE: expected a location argument, got {dict(call.kwargs)}.')
 
   print(f'14. Function calling: the full loop, on {fc_model}.')
-  agent = fc_agents.FCAgent(tools=[get_weather])
+  agent = agent_lib.Agent(tools=[get_weather])
   final_turn = _run_agent(agent, 'What is the weather in London?')
   print(f'  Final answer: {final_turn.content}')
   if not final_turn.content:
@@ -702,7 +702,7 @@ def main(argv: Sequence[str]) -> None:
   print('14.1 Function calling: a tool that fails is reported, not raised.')
   # A tool that raises should be shown to the model rather than blowing up the
   # loop, so that it can say something sensible instead.
-  recovering_agent = fc_agents.FCAgent(
+  recovering_agent = agent_lib.Agent(
       tools=[llm_tool_use.Tool(name='get_weather', function=_always_fails)],
       max_steps=3,
   )
@@ -732,7 +732,7 @@ def main(argv: Sequence[str]) -> None:
       reasoning={'effort': 'low', 'summary': 'auto'},
   )
   backend_reasoning.register()
-  agent = fc_agents.FCAgent(tools=[get_weather])
+  agent = agent_lib.Agent(tools=[get_weather])
   first_turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
   thought = first_turn.thought
   if thought is None:

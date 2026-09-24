@@ -535,12 +535,12 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertEqual(info, {'tool_details': [detail1, detail2]})
 
   def test_reads_a_client_side_function_calling_run(self):
-    # The shape `FCAgent` produces: one stage per step, each wrapping the model
+    # The shape `Agent` produces: one stage per step, each wrapping the model
     # call it made. Only the nested `llm` builtin is read. What the agent
     # recorded on its own stage is there for a person reading the trace.
     def step(tool_calls: int, tokens: int) -> results.ExecutionResult:
       return results.ExecutionResult(
-          stage_name='FCAgent.step',
+          stage_name='Agent.step',
           # Disagrees with the stage below on purpose, to show which of the two
           # the metrics take.
           info={'llm.tools.calls': 99},

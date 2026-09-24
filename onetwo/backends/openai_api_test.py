@@ -26,7 +26,7 @@ from unittest import mock
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
-from onetwo.agents import function_calling as fc_agents
+from onetwo.agents import agent as agent_lib
 from onetwo.backends import openai_api
 from onetwo.backends import openai_mock
 from onetwo.builtins import llm
@@ -763,7 +763,7 @@ class _ScriptedClient:
 class GenerateWithToolsTest(
     parameterized.TestCase, core_test_utils.CounterAssertions
 ):
-  """Tests the single model call that `FCAgent` is built on."""
+  """Tests the single model call that `Agent` is built on."""
 
   def setUp(self):
     super().setUp()
@@ -1124,9 +1124,9 @@ class GenerateWithToolsTest(
   # --- End to end -----------------------------------------------------------
 
   def test_agent_loop_runs_against_the_mock(self):
-    """`FCAgent` should drive the whole exchange with no scripting."""
+    """`Agent` should drive the whole exchange with no scripting."""
     _get_and_register_backend()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
     turn = cast(
         fc_types.ConversationTurn,
         executing.run(agent('What is the weather in London?')),
@@ -1137,7 +1137,7 @@ class GenerateWithToolsTest(
   def test_agent_loop_reports_a_failing_tool(self):
     """A tool that raises is shown to the model rather than ending the run."""
     _get_and_register_backend()
-    agent = fc_agents.FCAgent(tools=[_always_fails])
+    agent = agent_lib.Agent(tools=[_always_fails])
     turn = cast(
         fc_types.ConversationTurn,
         executing.run(agent('What is the weather in London?')),

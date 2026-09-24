@@ -29,7 +29,7 @@ from absl import logging
 import fastmcp
 from google.genai import types as genai_types
 import mcp
-from onetwo.agents import function_calling as fc_agents
+from onetwo.agents import agent as agent_lib
 from onetwo.backends import google_genai_api
 from onetwo.builtins import composables as c
 from onetwo.builtins import formatting
@@ -159,7 +159,7 @@ def _print_summary(test_results: list[tuple[float, str, bool]]) -> bool:
 
 
 def _run_agent(
-    agent: fc_agents.FCAgent, query: str, **kwargs
+    agent: agent_lib.Agent, query: str, **kwargs
 ) -> fc_types.ConversationTurn:
   """Runs an agent and returns the turn it produced.
 
@@ -980,7 +980,7 @@ def main(argv: Sequence[str]) -> None:
         'Function calling: a single step, so nothing is executed',
         test_results,
     ) as tc:
-      agent = fc_agents.FCAgent(tools=[get_weather])
+      agent = agent_lib.Agent(tools=[get_weather])
       turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
       if not turn.calls:
         tc.fail('No FunctionCall found in response.')
@@ -998,7 +998,7 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(22):
     with _run_test(22, 'Function calling: the full loop', test_results) as tc:
-      agent = fc_agents.FCAgent(tools=[get_weather])
+      agent = agent_lib.Agent(tools=[get_weather])
       final_turn = _run_agent(agent, 'What is the weather in London?')
       print(f'- Final answer: {final_turn.content}')
       if not final_turn.content:
@@ -1006,7 +1006,7 @@ def main(argv: Sequence[str]) -> None:
 
       # A tool that raises should be reported back to the model rather than
       # blowing up the loop, so that it can say something sensible instead.
-      recovering_agent = fc_agents.FCAgent(
+      recovering_agent = agent_lib.Agent(
           tools=[llm_tool_use.Tool(name='get_weather', function=_always_fails)],
           max_steps=3,
       )

@@ -23,7 +23,7 @@ from unittest import mock
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
-from onetwo.agents import function_calling as fc_agents
+from onetwo.agents import agent as agent_lib
 from onetwo.backends import claude_api
 from onetwo.backends import claude_mock
 from onetwo.builtins import llm
@@ -1027,7 +1027,7 @@ class _ScriptedClient:
 class GenerateWithToolsTest(
     parameterized.TestCase, core_test_utils.CounterAssertions
 ):
-  """Tests the single model call that `FCAgent` is built on."""
+  """Tests the single model call that `Agent` is built on."""
 
   def setUp(self):
     super().setUp()
@@ -1301,7 +1301,7 @@ class GenerateWithToolsTest(
     )
 
   def test_runs_the_whole_loop_through_the_agent(self):
-    # What all of the above is for: `FCAgent` asks, executes, and asks again,
+    # What all of the above is for: `Agent` asks, executes, and asks again,
     # and none of that is the backend's business beyond getting the wire
     # format right.
     self._script(
@@ -1320,7 +1320,7 @@ class GenerateWithToolsTest(
         ),
     )
 
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
     # `Agent.__call__` is declared to return a union that also covers
     # `return_final_state`, which this caller never asks for.
     turn = cast(

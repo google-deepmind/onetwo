@@ -67,7 +67,7 @@ from collections.abc import Sequence
 import dataclasses
 from typing import Any, cast
 
-from onetwo.agents import function_calling as fc_agents
+from onetwo.agents import agent as agent_lib
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
@@ -105,7 +105,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
 
   Attributes:
     tools: What the model may call. May be any of the types accepted by
-      `function_calling.FCTool`.
+      `agent_lib.AgentTool`.
     max_steps: Bound on the number of model calls, so that a model that keeps
       calling tools cannot loop forever. On reaching it the strategy returns
       whatever the model last said, which may be nothing.
@@ -115,7 +115,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
       every call, e.g. `{'temperature': 0.0}`.
   """
 
-  tools: Sequence[fc_agents.FCTool] = ()
+  tools: Sequence[agent_lib.AgentTool] = ()
   max_steps: int = 100
   instructions: str = DEFAULT_INSTRUCTIONS
   generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -140,7 +140,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     """
     del query_time_kwargs
     # One question is one run of the agent.
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=self.tools,
         max_steps=self.max_steps,
         generate_kwargs=self.generate_kwargs,

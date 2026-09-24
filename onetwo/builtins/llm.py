@@ -403,7 +403,7 @@ def generate_with_tools(
   Performs a single model call in which the model may request tool calls. This
   is deliberately one step rather than a loop: the loop that executes the
   requested calls and feeds the results back lives in
-  `onetwo.agents.function_calling.FCAgent`, so that it is written once rather
+  `onetwo.agents.agent.Agent`, so that it is written once rather
   than once per backend.
 
   Implementations must:

@@ -32,7 +32,7 @@ Usage:
 
 ```python
   backend.register()
-  agent = function_calling.FCAgent(tools=[get_weather, search])
+  agent = agent_lib.Agent(tools=[get_weather, search])
   turn = ot.run(agent('What is the weather in London?'))
   print(turn.content)
 ```
@@ -41,7 +41,7 @@ A tool need not live in this process. An MCP server can be named in the same
 list, and is connected to for the length of a run:
 
 ```python
-  agent = function_calling.FCAgent(
+  agent = agent_lib.Agent(
       tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
   )
 ```
@@ -64,8 +64,8 @@ from onetwo.core import tracing
 from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import tool_schema
 
-# What a caller may name as a FC tool.
-FCTool: TypeAlias = (
+# What a caller may name as a tool of the agent.
+AgentTool: TypeAlias = (
     llm_tool_use.Tool | Callable[..., Any] | llm_tool_use.ToolSource
 )
 
@@ -112,7 +112,7 @@ def _as_tool(tool: llm_tool_use.Tool | Callable[..., Any]) -> llm_tool_use.Tool:
 
 
 @dataclasses.dataclass
-class FCStep:
+class AgentStep:
   """One model turn, together with the tool turn that answers it.
 
   A step is the unit in which the conversation grows: the model says something
@@ -140,7 +140,7 @@ class FCStep:
 
 
 @dataclasses.dataclass
-class FCState:
+class AgentState:
   """The conversation so far.
 
   Attributes:
@@ -157,13 +157,13 @@ class FCState:
   )
   num_steps: int = 0
 
-  def __add__(self, update: FCStep) -> FCState:
+  def __add__(self, update: AgentStep) -> AgentState:
     """Required overload for supporting accumulation of updates."""
     new_state = copy.deepcopy(self)
     new_state += update
     return new_state
 
-  def __iadd__(self, update: FCStep) -> FCState:
+  def __iadd__(self, update: AgentStep) -> AgentState:
     """Required overload for supporting accumulation of updates."""
     self.history.extend(update.turns)
     self.num_steps += 1
@@ -175,13 +175,13 @@ class FCState:
 
 
 @dataclasses.dataclass(frozen=True)
-class FCEnvironment:
+class AgentEnvironment:
   """The tools of one run, in the two forms the loop needs them in.
 
   Most tools are fixed when the agent is built, but not all: a tool reached
   over a connection is callable only while that connection is open, so which
   tools exist, and whether they still work, is a property of the run rather
-  than of the agent. This is that set, opened by `FCAgent.start_environment`
+  than of the agent. This is that set, opened by `Agent.start_environment`
   when a run begins and released when it ends.
 
   Attributes:
@@ -197,13 +197,13 @@ class FCEnvironment:
 
 
 @dataclasses.dataclass
-class FCAgent(
+class Agent(
     agents_base.SingleSampleAgent[
         str | Sequence[fc_types.ConversationTurn],  # _I (inputs)
         fc_types.ConversationTurn,  # _O (output)
-        FCState,  # _S (state)
-        FCStep,  # _U (update)
-        FCEnvironment,  # _E (environment)
+        AgentState,  # _S (state)
+        AgentStep,  # _U (update)
+        AgentEnvironment,  # _E (environment)
     ]
 ):
   """Agent that runs model-native function calling to completion.
@@ -240,7 +240,7 @@ class FCAgent(
       every call, e.g. `{'temperature': 0.0}`.
   """
 
-  tools: Sequence[FCTool] = ()
+  tools: Sequence[AgentTool] = ()
   max_steps: int = 10
   parallel_calls: bool = True
   stop_on_tool_error: bool = False
@@ -270,7 +270,7 @@ class FCAgent(
       self._specs.append(tool.to_spec())
 
   @contextlib.asynccontextmanager
-  async def start_environment(self) -> AsyncIterator[FCEnvironment]:
+  async def start_environment(self) -> AsyncIterator[AgentEnvironment]:
     """Gathers the tools of one run, and releases them when it ends.
 
     Overridden from base class (Agent).
@@ -288,7 +288,9 @@ class FCAgent(
       The tools of this run.
     """
     if not self._sources:
-      yield FCEnvironment(tools_by_name=self._tools_by_name, specs=self._specs)
+      yield AgentEnvironment(
+          tools_by_name=self._tools_by_name, specs=self._specs
+      )
       return
     async with contextlib.AsyncExitStack() as stack:
       tools_by_name = dict(self._tools_by_name)
@@ -299,18 +301,18 @@ class FCAgent(
       # Declarations are derived from the same mapping the calls are dispatched
       # against, so that a replaced tool is declared once, in the place the
       # tool it replaced held, rather than twice over.
-      yield FCEnvironment(
+      yield AgentEnvironment(
           tools_by_name=tools_by_name,
           specs=[tool.to_spec() for tool in tools_by_name.values()],
       )
 
-  def steps_exhausted(self, state: FCState) -> bool:
+  def steps_exhausted(self, state: AgentState) -> bool:
     """Returns whether the exchange stopped only because it ran out of steps."""
     return state.num_steps >= self.max_steps
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def _execute_call(
-      self, call: fc_types.FunctionCall, *, environment: FCEnvironment
+      self, call: fc_types.FunctionCall, *, environment: AgentEnvironment
   ) -> fc_types.FunctionResponse:
     """Runs one call requested by the model and reports what happened.
 
@@ -361,8 +363,8 @@ class FCAgent(
   async def initialize_state(
       self,
       inputs: str | Sequence[fc_types.ConversationTurn],
-      environment: FCEnvironment | None = None,
-  ) -> FCState:
+      environment: AgentEnvironment | None = None,
+  ) -> AgentState:
     """Returns a newly initialized state based on the input.
 
     Overridden from base class (Agent).
@@ -381,13 +383,13 @@ class FCAgent(
       ]
     else:
       history = list(inputs)
-    return FCState(history=history)
+    return AgentState(history=history)
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
-  @tracing.trace(name='FCAgent.step')
+  @tracing.trace(name='Agent.step')
   async def _sample_single_next_step(
-      self, *, state: FCState, environment: FCEnvironment | None = None
-  ) -> FCStep:
+      self, *, state: AgentState, environment: AgentEnvironment | None = None
+  ) -> AgentStep:
     """Performs one model call and answers whatever it asks for.
 
     Overridden from base class (SingleSampleAgent).
@@ -402,7 +404,7 @@ class FCAgent(
       The model's turn, plus the tool turn answering it if it requested calls.
     """
     if environment is None:
-      environment = FCEnvironment(
+      environment = AgentEnvironment(
           tools_by_name=self._tools_by_name, specs=self._specs
       )
     model_turn = await llm.generate_with_tools(
@@ -410,7 +412,7 @@ class FCAgent(
     )
     if not model_turn.calls:
       self._record_step_in_trace(model_turn, ())
-      return FCStep(model_turn=model_turn)
+      return AgentStep(model_turn=model_turn)
 
     executables = [
         self._execute_call(call, environment=environment)
@@ -425,7 +427,7 @@ class FCAgent(
     else:
       responses = [await executable for executable in executables]
     self._record_step_in_trace(model_turn, responses)
-    return FCStep(
+    return AgentStep(
         model_turn=model_turn,
         tool_turn=fc_types.ConversationTurn(
             role=fc_types.ConversationRole.TOOL, responses=responses
@@ -466,7 +468,7 @@ class FCAgent(
       info[fc_types.TOOL_DETAILS_INFO_KEY] = [d.to_dict() for d in details]
     tracing.update_info(info)
 
-  def is_finished(self, state: FCState) -> bool:
+  def is_finished(self, state: AgentState) -> bool:
     """Returns whether the exchange is over.
 
     Overridden from base class (Agent).
@@ -486,7 +488,9 @@ class FCAgent(
     is_model_turn = last_turn.role == fc_types.ConversationRole.MODEL
     return is_model_turn and not last_turn.calls
 
-  def extract_output(self, state: FCState) -> fc_types.ConversationTurn | None:
+  def extract_output(
+      self, state: AgentState
+  ) -> fc_types.ConversationTurn | None:
     """Returns the model's most recent turn.
 
     Overridden from base class (Agent).

@@ -21,7 +21,7 @@ from typing import Any, cast
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from onetwo.agents import function_calling as fc_agents
+from onetwo.agents import agent as agent_lib
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
@@ -35,7 +35,7 @@ _TOOL = fc_types.ConversationRole.TOOL
 # What the agent labels each of its steps in the execution trace. Spelled out
 # here rather than imported, because the label is a human-facing one that
 # nothing outside the agent is meant to match on.
-_STEP_STAGE_NAME = 'FCAgent.step'
+_STEP_STAGE_NAME = 'Agent.step'
 
 
 def _get_weather(location: str) -> dict[str, Any]:
@@ -121,7 +121,7 @@ def _fake_source(
 
 
 def _run(
-    agent: fc_agents.FCAgent,
+    agent: agent_lib.Agent,
     inputs: str | Sequence[fc_types.ConversationTurn],
     **kwargs,
 ) -> fc_types.ConversationTurn:
@@ -142,10 +142,10 @@ def _run(
 
 
 def _run_with_state(
-    agent: fc_agents.FCAgent,
+    agent: agent_lib.Agent,
     inputs: str | Sequence[fc_types.ConversationTurn],
     **kwargs,
-) -> tuple[fc_types.ConversationTurn, fc_agents.FCState]:
+) -> tuple[fc_types.ConversationTurn, agent_lib.AgentState]:
   """Runs `agent` and returns its output turn together with the final state.
 
   Args:
@@ -157,7 +157,7 @@ def _run_with_state(
     The agent's output turn and the state it ended in.
   """
   return cast(
-      tuple[fc_types.ConversationTurn, fc_agents.FCState],
+      tuple[fc_types.ConversationTurn, agent_lib.AgentState],
       executing.run(agent(inputs, return_final_state=True, **kwargs)),
   )
 
@@ -202,10 +202,10 @@ class _ScriptedBackend:
 class FCStateTest(absltest.TestCase):
 
   def test_add_appends_turns_and_counts_steps(self):
-    state = fc_agents.FCState(
+    state = agent_lib.AgentState(
         history=[fc_types.ConversationTurn(role=_USER, content='hi')]
     )
-    step = fc_agents.FCStep(
+    step = agent_lib.AgentStep(
         model_turn=_model_turn(calls=[fc_types.FunctionCall('f')]),
         tool_turn=fc_types.ConversationTurn(
             role=_TOOL, responses=[fc_types.FunctionResponse('f', response=1)]
@@ -222,8 +222,8 @@ class FCStateTest(absltest.TestCase):
       self.assertLen(state.history, 1)
 
   def test_add_without_tool_turn_appends_one_turn(self):
-    state = fc_agents.FCState()
-    new_state = state + fc_agents.FCStep(model_turn=_model_turn('done'))
+    state = agent_lib.AgentState()
+    new_state = state + agent_lib.AgentStep(model_turn=_model_turn('done'))
     self.assertLen(new_state.history, 1)
 
 
@@ -236,7 +236,7 @@ class FCAgentTest(parameterized.TestCase):
   def test_replies_without_calls_finish_immediately(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     result = _run(agent, 'Hi there')
 
@@ -252,7 +252,7 @@ class FCAgentTest(parameterized.TestCase):
   def test_declarations_carry_no_code(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     _run(agent, 'Hi there')
 
@@ -276,7 +276,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     result, state = _run_with_state(agent, 'Weather in London?')
 
@@ -315,7 +315,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=[_get_weather, _get_time], parallel_calls=parallel
     )
 
@@ -348,7 +348,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     result = _run(agent, 'Weather in London?')
 
@@ -371,7 +371,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_explode])
+    agent = agent_lib.Agent(tools=[_explode])
 
     result = _run(agent, 'Please explode')
 
@@ -393,7 +393,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_explode], stop_on_tool_error=True)
+    agent = agent_lib.Agent(tools=[_explode], stop_on_tool_error=True)
 
     with self.assertRaisesRegex(ValueError, 'boom'):
       _run(agent, 'Please explode')
@@ -403,7 +403,7 @@ class FCAgentTest(parameterized.TestCase):
         replies=[_model_turn(calls=[fc_types.FunctionCall('forbidden')])]
     )
     backend.register()
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=[
             llm_tool_use.Tool(
                 name='forbidden',
@@ -423,7 +423,7 @@ class FCAgentTest(parameterized.TestCase):
         description='Custom description.',
         irrecoverable_error_types=['PermissionError'],
     )
-    agent = fc_agents.FCAgent(tools=[tool])
+    agent = agent_lib.Agent(tools=[tool])
 
     with self.subTest('derives_the_parameters'):
       parameters = agent._specs[0].parameters or {}  # pylint: disable=protected-access
@@ -450,7 +450,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather], max_steps=3)
+    agent = agent_lib.Agent(tools=[_get_weather], max_steps=3)
 
     _, state = _run_with_state(agent, 'Weather in London?')
 
@@ -462,7 +462,7 @@ class FCAgentTest(parameterized.TestCase):
   def test_a_finished_exchange_is_not_reported_as_exhausted(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather], max_steps=3)
+    agent = agent_lib.Agent(tools=[_get_weather], max_steps=3)
 
     _, state = _run_with_state(agent, 'Hi')
 
@@ -482,7 +482,7 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     result = _run(agent, 'Weather in London?', max_steps=1)
 
@@ -494,7 +494,7 @@ class FCAgentTest(parameterized.TestCase):
   def test_accepts_an_existing_conversation(self):
     backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
     history = [
         fc_types.ConversationTurn(role=_USER, content='Capital of France?'),
         _model_turn('Paris is the capital.'),
@@ -522,16 +522,16 @@ class FCAgentTest(parameterized.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
-    initial_state = fc_agents.FCState(
+    initial_state = agent_lib.AgentState(
         history=[fc_types.ConversationTurn(role=_USER, content='Weather?')]
     )
 
     # `executing.stream` rather than `executing.run`, so that we see every
     # update rather than only the last one.
     updates = cast(
-        list[fc_agents.FCStep],
+        list[agent_lib.AgentStep],
         list(
             executing.stream(agent.stream_updates(initial_state=initial_state))
         ),
@@ -553,7 +553,7 @@ class FCAgentTest(parameterized.TestCase):
   def test_no_tools_declares_nothing(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
     backend.register()
-    agent = fc_agents.FCAgent()
+    agent = agent_lib.Agent()
 
     result = _run(agent, 'Hi')
 
@@ -589,7 +589,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=[_get_weather, _fake_source([_get_time], events=[])]
     )
 
@@ -619,7 +619,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
     )
     backend.register()
     events: list[str] = []
-    agent = fc_agents.FCAgent(tools=[_fake_source([_get_time], events)])
+    agent = agent_lib.Agent(tools=[_fake_source([_get_time], events)])
 
     result = _run(agent, 'Time in Oslo?')
 
@@ -636,7 +636,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
     backend.register()
     events: list[str] = []
-    agent = fc_agents.FCAgent(tools=[_fake_source([_get_time], events)])
+    agent = agent_lib.Agent(tools=[_fake_source([_get_time], events)])
 
     _run(agent, 'Hi')
     _run(agent, 'Hi again')
@@ -662,7 +662,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
     )
     backend.register()
     events: list[str] = []
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=[_fake_source([_explode], events)], stop_on_tool_error=True
     )
 
@@ -696,7 +696,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
     )
     backend.register()
     fresher = llm_tool_use.Tool(name='_get_time', function=_fresher_get_time)
-    agent = fc_agents.FCAgent(
+    agent = agent_lib.Agent(
         tools=[_get_time, _fake_source([fresher], events=[])]
     )
 
@@ -713,7 +713,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
   def test_a_run_without_a_source_opens_nothing(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     result = _run(agent, 'Hi')
 
@@ -740,7 +740,7 @@ class FCAgentTracingTest(absltest.TestCase):
     llm.reset_defaults()
 
   def _step_stages(
-      self, agent: fc_agents.FCAgent, inputs: str
+      self, agent: agent_lib.Agent, inputs: str
   ) -> list[results.ExecutionResult]:
     """Runs `agent` and returns the trace stage of each of its steps."""
     _, execution_result = executing.run(agent(inputs), enable_tracing=True)
@@ -769,7 +769,7 @@ class FCAgentTracingTest(absltest.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     stages = self._step_stages(agent, 'Weather in London?')
 
@@ -805,7 +805,7 @@ class FCAgentTracingTest(absltest.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_explode])
+    agent = agent_lib.Agent(tools=[_explode])
 
     stages = self._step_stages(agent, 'Please explode')
 
@@ -833,7 +833,7 @@ class FCAgentTracingTest(absltest.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_get_weather])
+    agent = agent_lib.Agent(tools=[_get_weather])
 
     stages = self._step_stages(agent, 'Weather in Paris?')
 
@@ -866,7 +866,7 @@ class FCAgentTracingTest(absltest.TestCase):
         ]
     )
     backend.register()
-    agent = fc_agents.FCAgent(tools=[_opaque_tool])
+    agent = agent_lib.Agent(tools=[_opaque_tool])
 
     stages = self._step_stages(agent, 'Go')
 

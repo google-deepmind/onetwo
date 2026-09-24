@@ -3555,7 +3555,7 @@ class GenerateWithToolsTest(
     parameterized.TestCase,
     core_test_utils.CounterAssertions,
 ):
-  """Tests the single model call that `FCAgent` is built on."""
+  """Tests the single model call that `Agent` is built on."""
 
   def setUp(self):
     super().setUp()
@@ -3647,7 +3647,7 @@ class GenerateWithToolsTest(
 
   def test_disables_the_sdks_own_function_calling_loop(self):
     # Two loops would be silent and horrible to debug, so the SDK's one is
-    # switched off and the only loop is the one in `FCAgent`.
+    # switched off and the only loop is the one in `Agent`.
     _get_and_register_backend()
 
     self._ask(
