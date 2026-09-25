@@ -294,24 +294,44 @@ def _apply_embed_formatting_v2(
 
 
 def _apply_embed_formatting_v1(
-    prefix: str,
     content: str | _ChunkList,
     task_type: llm.EmbedTaskType | str | None,
     title: str | None,
     kwargs: dict[str, Any],
 ) -> tuple[str | _ChunkList, dict[str, Any]]:
-  """Applies embed formatting for v1 models (parameter-based task_type)."""
+  """Applies embed formatting for v1 models (parameter-based task_type).
+
+  The v1 models (e.g. gemini-embedding-001) build the instruction prompt
+  server-side from the `task_type` and `title` request fields, so unlike for v2
+  no prefix is prepended to the content.
+
+  Args:
+    content: The content to be embedded.
+    task_type: The task type for the embedding, or None if unspecified. Passing
+      a `title` without a `task_type` is treated as `RETRIEVAL_DOCUMENT`.
+    title: Optional title of the content. It is only sent for
+      `RETRIEVAL_DOCUMENT`, since the API rejects it for other task types.
+    kwargs: Keyword arguments of the API call, updated in place with the
+      `task_type` and `title` to send.
+
+  Returns:
+    The content to embed and the updated kwargs.
+  """
   if task_type is None and title is not None:
     task_type = llm.EmbedTaskType.RETRIEVAL_DOCUMENT
 
-  if task_type:
-    kwargs['task_type'] = str(task_type)
+  # Always set "task_type" (possibly to None) to maintain caching compatibility
+  # with old cache keys that had "task_type" in kwargs.
+  kwargs['task_type'] = str(task_type) if task_type is not None else None
 
-  # Prepend title formatted consistently with v2 only if title is provided.
-  if task_type == llm.EmbedTaskType.RETRIEVAL_DOCUMENT and title is not None:
-    content = utils.prepend_prefix_to_content(
-        prefix, content, default_for_empty_content='none'
-    )
+  if task_type == llm.EmbedTaskType.RETRIEVAL_DOCUMENT and title:
+    kwargs['title'] = title
+
+  # The API rejects empty content, so we substitute it as for v2.
+  if isinstance(content, str) and not content:
+    content = 'none'
+  elif isinstance(content, _ChunkList) and not content.chunks:
+    content = _ChunkList([_Chunk('none')])
 
   return content, kwargs
 
@@ -1516,24 +1536,17 @@ class GoogleGenAIAPI(
     model_name = self._embed_model_name()
     is_v2 = 'embedding-2' in model_name
 
-    # Determine formatting prefix.
-    prefix = llm.prefix_for_task_type(task_type, title)
-
-    # Apply formatting prefix.
-    if prefix:
-      if is_v2:
+    if is_v2:
+      prefix = llm.prefix_for_task_type(task_type, title)
+      if prefix:
         content, kwargs = _apply_embed_formatting_v2(prefix, content, kwargs)
-      else:
-        content, kwargs = _apply_embed_formatting_v1(
-            prefix, content, task_type, title, kwargs
-        )
-
-    # To maintain caching compatibility with old cache keys that had
-    # "task_type" in kwargs.
-    if task_type is not None and not is_v2:
-      kwargs['task_type'] = str(task_type)
-    else:
+      # To maintain caching compatibility with old cache keys that had
+      # "task_type" in kwargs.
       kwargs['task_type'] = None
+    else:
+      content, kwargs = _apply_embed_formatting_v1(
+          content, task_type, title, kwargs
+      )
 
     return await self._cached_embed(content, **kwargs)
 
@@ -1567,6 +1580,8 @@ class GoogleGenAIAPI(
     embed_config_kwargs = {}
     if 'task_type' in kwargs and kwargs['task_type'] is not None:
       embed_config_kwargs['task_type'] = kwargs['task_type']
+    if 'title' in kwargs and kwargs['title'] is not None:
+      embed_config_kwargs['title'] = kwargs['title']
     if 'output_dimensionality' in kwargs:
       embed_config_kwargs['output_dimensionality'] = kwargs[
           'output_dimensionality'

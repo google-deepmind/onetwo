@@ -1752,6 +1752,23 @@ class GoogleGenaiApiTest(
           ),
       ),
       dict(
+          testcase_name='with_retrieval_document_and_title',
+          embed_kwargs={
+              'task_type': 'RETRIEVAL_DOCUMENT',
+              'title': 'My Title',
+          },
+          expected_config=genai_types.EmbedContentConfig(
+              task_type='RETRIEVAL_DOCUMENT', title='My Title'
+          ),
+      ),
+      dict(
+          testcase_name='with_title_only_defaults_to_retrieval_document',
+          embed_kwargs={'title': 'My Title'},
+          expected_config=genai_types.EmbedContentConfig(
+              task_type='RETRIEVAL_DOCUMENT', title='My Title'
+          ),
+      ),
+      dict(
           testcase_name='without_task_type',
           embed_kwargs={},
           expected_config=None,
@@ -1959,15 +1976,16 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.embed_content.assert_called_once()
     _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
 
-    # Verify the formatted text was sent
+    # Verify raw text was sent and title was passed via EmbedContentConfig
     self.assertEqual(
         mock_kwargs['contents'],
-        [genai_types.Part(text='title: My Title | text: hello')],
+        [genai_types.Part(text='hello')],
     )
-    # Verify task_type was sent in the config
     self.assertEqual(
         mock_kwargs['config'],
-        genai_types.EmbedContentConfig(task_type='RETRIEVAL_DOCUMENT'),
+        genai_types.EmbedContentConfig(
+            task_type='RETRIEVAL_DOCUMENT', title='My Title'
+        ),
     )
 
   def test_embed_v1_title_multimodal_formatting(self):
@@ -1996,11 +2014,10 @@ class GoogleGenaiApiTest(
     self._mock_genai_client.models.embed_content.assert_called_once()
     _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
 
-    # Verify the chunks were prepended with the title prefix chunk
+    # Verify the chunks were sent unprefixed and title was passed via config
     self.assertEqual(
         mock_kwargs['contents'],
         [
-            genai_types.Part(text='title: My Title | text: '),
             genai_types.Part(text='hello'),
             genai_types.Part(
                 inline_data=genai_types.Blob(
@@ -2009,11 +2026,57 @@ class GoogleGenaiApiTest(
             ),
         ],
     )
-    # Verify task_type was sent in the config (v1 behavior)
     self.assertEqual(
         mock_kwargs['config'],
-        genai_types.EmbedContentConfig(task_type='RETRIEVAL_DOCUMENT'),
+        genai_types.EmbedContentConfig(
+            task_type='RETRIEVAL_DOCUMENT', title='My Title'
+        ),
     )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='string_without_task_type',
+          content='',
+          embed_kwargs={},
+          expected_config=None,
+      ),
+      dict(
+          testcase_name='string_retrieval_document_with_title',
+          content='',
+          embed_kwargs={
+              'task_type': 'RETRIEVAL_DOCUMENT',
+              'title': 'My Title',
+          },
+          expected_config=genai_types.EmbedContentConfig(
+              task_type='RETRIEVAL_DOCUMENT', title='My Title'
+          ),
+      ),
+      dict(
+          testcase_name='chunk_list_retrieval_query',
+          content=content_lib.ChunkList(chunks=[]),
+          embed_kwargs={'task_type': 'RETRIEVAL_QUERY'},
+          expected_config=genai_types.EmbedContentConfig(
+              task_type='RETRIEVAL_QUERY'
+          ),
+      ),
+  )
+  def test_embed_v1_empty_content(self, content, embed_kwargs, expected_config):
+    _ = _get_and_register_backend(
+        embed_model_name='models/gemini-embedding-001'
+    )
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+
+    _ = executing.run(llm.embed(content=content, **embed_kwargs))
+
+    self._mock_genai_client.models.embed_content.assert_called_once()
+    _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+    # The API rejects empty content, so it is replaced with 'none'.
+    self.assertEqual(mock_kwargs['contents'], [genai_types.Part(text='none')])
+    self.assertEqual(mock_kwargs['config'], expected_config)
 
   def test_embed_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried in embed."""
@@ -2690,8 +2753,9 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
           content='hello',
           task_type=llm_lib.EmbedTaskType.RETRIEVAL_DOCUMENT,
           title='My Title',
-          expected_content='title: My Title | text: hello',
+          expected_content='hello',
           expected_task_type='RETRIEVAL_DOCUMENT',
+          expected_title='My Title',
       ),
       dict(
           testcase_name='retrieval_document_with_title_chunk_list',
@@ -2702,11 +2766,11 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
           title='My Title',
           expected_content=content_lib.ChunkList(
               chunks=[
-                  content_lib.Chunk(content='title: My Title | text: '),
                   content_lib.Chunk(content='hello'),
               ]
           ),
           expected_task_type='RETRIEVAL_DOCUMENT',
+          expected_title='My Title',
       ),
       dict(
           testcase_name='retrieval_document_no_title',
@@ -2715,14 +2779,16 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
           title=None,
           expected_content='hello',
           expected_task_type='RETRIEVAL_DOCUMENT',
+          expected_title=None,
       ),
       dict(
           testcase_name='title_only_defaults_to_document',
           content='hello',
           task_type=None,
           title='My Title',
-          expected_content='title: My Title | text: hello',
+          expected_content='hello',
           expected_task_type='RETRIEVAL_DOCUMENT',
+          expected_title='My Title',
       ),
       dict(
           testcase_name='retrieval_query',
@@ -2731,6 +2797,7 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
           title=None,
           expected_content='hello',
           expected_task_type='RETRIEVAL_QUERY',
+          expected_title=None,
       ),
       dict(
           testcase_name='no_task_type_no_title',
@@ -2739,26 +2806,56 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
           title=None,
           expected_content='hello',
           expected_task_type=None,
+          expected_title=None,
       ),
       dict(
           testcase_name='retrieval_document_empty_title_empty_content',
           content='',
           task_type=llm_lib.EmbedTaskType.RETRIEVAL_DOCUMENT,
           title='',
-          expected_content='title: none | text: none',
+          expected_content='none',
           expected_task_type='RETRIEVAL_DOCUMENT',
+          expected_title=None,
+      ),
+      dict(
+          testcase_name='no_task_type_empty_content',
+          content='',
+          task_type=None,
+          title=None,
+          expected_content='none',
+          expected_task_type=None,
+          expected_title=None,
+      ),
+      dict(
+          testcase_name='retrieval_query_empty_chunk_list',
+          content=content_lib.ChunkList(chunks=[]),
+          task_type=llm_lib.EmbedTaskType.RETRIEVAL_QUERY,
+          title=None,
+          expected_content=content_lib.ChunkList(
+              chunks=[content_lib.Chunk(content='none')]
+          ),
+          expected_task_type='RETRIEVAL_QUERY',
+          expected_title=None,
       ),
   )
   def test_apply_embed_formatting_v1(
-      self, content, task_type, title, expected_content, expected_task_type
+      self,
+      content,
+      task_type,
+      title,
+      expected_content,
+      expected_task_type,
+      expected_title,
   ):
-    prefix = f'title: {title or "none"} | text: '
     kwargs = {}
     result_content, result_kwargs = google_genai_api._apply_embed_formatting_v1(
-        prefix, content, task_type, title, kwargs
+        content, task_type, title, kwargs
     )
     self.assertEqual(result_content, expected_content)
-    self.assertEqual(result_kwargs.get('task_type'), expected_task_type)
+    # "task_type" is always set, for caching compatibility.
+    self.assertIn('task_type', result_kwargs)
+    self.assertEqual(result_kwargs['task_type'], expected_task_type)
+    self.assertEqual(result_kwargs.get('title'), expected_title)
 
 
 def _make_fc_part(name: str, args: dict[str, Any]):
@@ -2833,8 +2930,13 @@ class UpdateTraceInfoFromUsageMetadataTest(absltest.TestCase):
         tool_use_prompt_token_count=tool_use_prompt_token_count,
     )
 
-  def _make_part(self, has_function_call=False, thought=None, text=None,
-                 function_response=None):
+  def _make_part(
+      self,
+      has_function_call=False,
+      thought=None,
+      text=None,
+      function_response=None,
+  ):
     part = mock.Mock()
     part.thought = thought
     part.text = text

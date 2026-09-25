@@ -15,6 +15,7 @@
 from collections.abc import Iterator, Sequence
 import contextlib
 import dataclasses
+
 import json
 import math
 import os
@@ -1311,7 +1312,11 @@ def main(argv: Sequence[str]) -> None:
             f' {v1_cache._cache_data.counters}'
         )
 
-      # Test with title (v1 formats title only if provided)
+      # Test with title. For v1, the server formats the title into the prompt
+      # from the `title` field of the request, so it must not be prepended to
+      # the content: manually formatted content is a different request, which
+      # the server would format a second time (see test 35). So the old and
+      # new ways must not share a cache entry.
       # Old way: manually prepended title
       title = 'Caching Guide'
       formatted_content = f'title: {title} | text: {doc_content}'
@@ -1333,9 +1338,9 @@ def main(argv: Sequence[str]) -> None:
           )
       )  # pytype: disable=wrong-keyword-args
 
-      if v1_cache._cache_data.counters.get('get_hit', 0) != 1:
+      if v1_cache._cache_data.counters.get('get_hit', 0) != 0:
         tc.fail(
-            'Expected 1 cache hit for v1 RETRIEVAL_DOCUMENT (with title), got:'
+            'Expected no cache hit for v1 RETRIEVAL_DOCUMENT (with title), got:'
             f' {v1_cache._cache_data.counters}'
         )
 
@@ -1557,9 +1562,7 @@ def main(argv: Sequence[str]) -> None:
 
       # Sequential executing.run calls now succeed because the thread-local
       # event loop and MCP transport sockets persist across calls.
-      result_text, add_called, _ = executing.run(
-          _run_mcp_add_test()
-      )
+      result_text, add_called, _ = executing.run(_run_mcp_add_test())
       print(f'Second run MCP result: {result_text}')
       if '20' not in result_text:
         tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
@@ -1606,12 +1609,8 @@ def main(argv: Sequence[str]) -> None:
         for detail in details:
           pprint.pprint(detail, indent=4)
         # Should have function_call entries but no thought entries.
-        call_entries = [
-            d for d in details if d.get('type') == 'function_call'
-        ]
-        thought_entries = [
-            d for d in details if d.get('type') == 'thought'
-        ]
+        call_entries = [d for d in details if d.get('type') == 'function_call']
+        thought_entries = [d for d in details if d.get('type') == 'thought']
         if not call_entries:
           tc.fail('No function_call entries in llm.tools.details.')
         if thought_entries:
@@ -1623,6 +1622,122 @@ def main(argv: Sequence[str]) -> None:
             f'Tool details: {len(call_entries)} calls,'
             f' {len(thought_entries)} thoughts'
         )
+
+  if _should_run_test(35):
+    try:
+      with _run_test(
+          35,
+          'Check title and empty content for gemini-embedding-001 (v1)',
+          test_results,
+      ) as tc:
+        # v1 models build the instruction prompt server-side from the
+        # `task_type` and `title` fields of the request, e.g.
+        # 'title: {title} | text: {content}' for RETRIEVAL_DOCUMENT. So the
+        # backend must send the content as is, and the title only with
+        # RETRIEVAL_DOCUMENT, the only task type that the API accepts it for.
+        v1_model = 'gemini-embedding-001'
+        v1_backend = google_genai_api.GoogleGenAIAPI(
+            embed_model_name=v1_model,
+            api_key=api_key,
+            vertexai=vertexai,
+            project=project,
+            location=location,
+            threadpool_size=_THREADPOOL_SIZE.value,
+            cache=caching.SimpleFunctionCache(),
+            max_retries=5,
+        )
+        v1_backend.register()
+        # Identical requests get the same embedding, up to numerical noise.
+        min_cosine_sim = 0.9999
+
+        def _embed_v1(content: str, **kwargs: Any) -> Sequence[float]:
+          return executing.run(llm.embed(content=content, **kwargs))
+
+        def _check_same_embedding(
+            check: str, embedding1: Sequence[float], embedding2: Sequence[float]
+        ) -> None:
+          cosine_sim = sum(x * y for x, y in zip(embedding1, embedding2)) / (
+              math.sqrt(sum(x * x for x in embedding1))
+              * math.sqrt(sum(y * y for y in embedding2))
+          )
+          print(f'{check}: cosine similarity {cosine_sim:.6f}.')
+          if cosine_sim < min_cosine_sim:
+            tc.fail(
+                f'{check}: expected the same embedding, got cosine similarity'
+                f' {cosine_sim:.6f}.'
+            )
+
+        title = 'Spanner Vector Search Guide'
+        document = (
+            'Spanner supports approximate nearest neighbor search over vector'
+            ' embeddings.'
+        )
+        query = 'How do I find similar vectors in Spanner?'
+
+        # 1. RETRIEVAL_DOCUMENT with a title sends the same request as calling
+        # the API directly with the title in the `title` field. Prepending the
+        # title to the content instead makes the server format it a second
+        # time: 'title: none | text: title: {title} | text: {content}'.
+        document_with_title = _embed_v1(
+            document,
+            task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+            title=title,
+        )
+        genai_client = v1_backend._genai_client  # pylint: disable=protected-access
+        response = genai_client.models.embed_content(
+            model=v1_model,
+            contents=document,
+            config=genai_types.EmbedContentConfig(
+                task_type='RETRIEVAL_DOCUMENT', title=title
+            ),
+        )
+        embeddings = response.embeddings
+        direct_embedding = embeddings[0].values if embeddings else None
+        if not direct_embedding:
+          raise ValueError('The direct API call returned no embedding.')
+        _check_same_embedding(
+            'RETRIEVAL_DOCUMENT with title vs direct API call',
+            document_with_title,
+            direct_embedding,
+        )
+
+        # 2. A title without a task type implies RETRIEVAL_DOCUMENT. Without a
+        # task type, the server would use its default, RETRIEVAL_QUERY.
+        _check_same_embedding(
+            'Title only vs RETRIEVAL_DOCUMENT with title',
+            _embed_v1(document, title=title),
+            document_with_title,
+        )
+
+        # 3. The title is not sent with other task types, which the API rejects.
+        _check_same_embedding(
+            'RETRIEVAL_QUERY with title vs without title',
+            _embed_v1(
+                query, task_type=llm.EmbedTaskType.RETRIEVAL_QUERY, title=title
+            ),
+            _embed_v1(query, task_type=llm.EmbedTaskType.RETRIEVAL_QUERY),
+        )
+
+        # 4. Empty content, which the API rejects, is embedded as 'none'.
+        empty_content_cases = {
+            'no task type': {},
+            'RETRIEVAL_QUERY': {
+                'task_type': llm.EmbedTaskType.RETRIEVAL_QUERY,
+            },
+            'RETRIEVAL_DOCUMENT with title': {
+                'task_type': llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+                'title': title,
+            },
+        }
+        for case, embed_kwargs in empty_content_cases.items():
+          try:
+            embedding = _embed_v1('', **embed_kwargs)
+          except Exception as e:  # pylint: disable=broad-except
+            tc.fail(f'Empty content ({case}): {type(e).__name__}: {e}')
+          else:
+            print(f'Empty content ({case}): dimension {len(embedding)}.')
+    finally:
+      backend.register()
 
   if _SAVE_CACHE.value:
     cache.save(overwrite=True)
