@@ -680,6 +680,9 @@ class GoogleGenAIAPI(
       calls to `llm.generate_object`.
     generate_content_kwargs: Additional default parameter values to apply in
       calls to `llm.generate_content`.
+    generate_with_tools_kwargs: Additional default parameter values to apply in
+      calls to `llm.generate_with_tools` (e.g. `thinking_config` or
+      `safety_settings`).
     embed_kwargs: Additional default parameter values to apply in calls to
       `llm.embed`.
   """
@@ -720,6 +723,9 @@ class GoogleGenAIAPI(
       default_factory=dict
   )
   generate_content_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict
+  )
+  generate_with_tools_kwargs: dict[str, Any] = dataclasses.field(
       default_factory=dict
   )
   embed_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -794,6 +800,7 @@ class GoogleGenAIAPI(
           stop=self.stop,
           top_p=self.top_p,
           top_k=self.top_k,
+          **self.generate_with_tools_kwargs,
       )
     if register_embed:
       llm.embed.configure(self.embed, **self.embed_kwargs)
@@ -1368,6 +1375,10 @@ class GoogleGenAIAPI(
       **kwargs,
   ) -> function_calling.ConversationTurn:
     self._counters['generate_with_tools'] += 1
+    # Defaults shared with `llm.chat` (e.g. via `generate_with_tools_kwargs`)
+    # may carry an automatic function calling config. It is always disabled
+    # below, so drop it rather than failing on a duplicate keyword.
+    kwargs.pop('automatic_function_calling', None)
     generation_config = genai_types.GenerateContentConfig(
         temperature=temperature,
         max_output_tokens=max_tokens,

@@ -3659,6 +3659,37 @@ class GenerateWithToolsTest(
     config = self._last_call_kwargs()['config']
     self.assertTrue(config.automatic_function_calling.disable)
 
+  def test_applies_the_backends_generate_with_tools_kwargs(self):
+    thinking_config = genai_types.ThinkingConfig(thinking_budget=-1)
+    # Backends often share one set of defaults across `chat` and
+    # `generate_with_tools`, including an automatic function calling config
+    # that only makes sense for `chat`.
+    _get_and_register_backend(
+        generate_with_tools_kwargs={
+            'thinking_config': thinking_config,
+            'automatic_function_calling': (
+                genai_types.AutomaticFunctionCallingConfig(
+                    maximum_remote_calls=3
+                )
+            ),
+        }
+    )
+
+    self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER, content='Hi.'
+        )
+    )
+
+    config = self._last_call_kwargs()['config']
+    with self.subTest('forwards_the_defaults_to_the_request'):
+      self.assertEqual(config.thinking_config, thinking_config)
+    with self.subTest('keeps_the_sdks_own_loop_disabled'):
+      self.assertEqual(
+          config.automatic_function_calling,
+          genai_types.AutomaticFunctionCallingConfig(disable=True),
+      )
+
   def test_declares_the_tools_as_json_schema(self):
     _get_and_register_backend()
 
