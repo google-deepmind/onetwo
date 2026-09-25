@@ -25,7 +25,7 @@ import dataclasses
 import http
 import math
 import pprint
-from typing import Any, Final, TypeAlias, TypeVar, Union
+from typing import Any, Final, TypeAlias, TypeVar, Union, cast
 
 from absl import logging
 from etils import epath
@@ -328,10 +328,17 @@ def _apply_embed_formatting_v1(
     kwargs['title'] = title
 
   # The API rejects empty content, so we substitute it as for v2.
-  if isinstance(content, str) and not content:
-    content = 'none'
-  elif isinstance(content, _ChunkList) and not content.chunks:
-    content = _ChunkList([_Chunk('none')])
+  # For v1, the SDK sends each text part as its own instance, so multi-chunk
+  # text ChunkLists must be joined into a single chunk.
+  if isinstance(content, str):
+    if not content:
+      content = 'none'
+  elif isinstance(content, _ChunkList):
+    if not content.chunks:
+      content = _ChunkList([_Chunk('none')])
+    elif all(isinstance(c.content, str) for c in content.chunks):
+      joined = ''.join(cast(str, c.content) for c in content.chunks)
+      content = _ChunkList([_Chunk(joined if joined else 'none')])
 
   return content, kwargs
 

@@ -2078,6 +2078,33 @@ class GoogleGenaiApiTest(
     self.assertEqual(mock_kwargs['contents'], [genai_types.Part(text='none')])
     self.assertEqual(mock_kwargs['config'], expected_config)
 
+  def test_embed_v1_multi_chunk_text(self):
+    _ = _get_and_register_backend(
+        embed_model_name='models/gemini-embedding-001'
+    )
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+
+    content = content_lib.ChunkList(
+        chunks=[
+            content_lib.Chunk(content='hello '),
+            content_lib.Chunk(content='world'),
+        ]
+    )
+
+    _ = executing.run(llm.embed(content=content))
+
+    self._mock_genai_client.models.embed_content.assert_called_once()
+    _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+    # Multi-chunk text ChunkLists are joined into a single Part to prevent the
+    # SDK from sending multiple instances to the Vertex AI predict API.
+    self.assertEqual(
+        mock_kwargs['contents'], [genai_types.Part(text='hello world')]
+    )
+
   def test_embed_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried in embed."""
     self._mock_genai_client.models.embed_content.side_effect = (
@@ -2835,6 +2862,40 @@ class EmbedFormattingHelpersTest(parameterized.TestCase):
               chunks=[content_lib.Chunk(content='none')]
           ),
           expected_task_type='RETRIEVAL_QUERY',
+          expected_title=None,
+      ),
+      dict(
+          testcase_name='retrieval_document_multi_chunk_text_joined',
+          content=content_lib.ChunkList(
+              chunks=[
+                  content_lib.Chunk(content='hello '),
+                  content_lib.Chunk(content='world'),
+              ]
+          ),
+          task_type=llm_lib.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          title='My Title',
+          expected_content=content_lib.ChunkList(
+              chunks=[
+                  content_lib.Chunk(content='hello world'),
+              ]
+          ),
+          expected_task_type='RETRIEVAL_DOCUMENT',
+          expected_title='My Title',
+      ),
+      dict(
+          testcase_name='multi_chunk_empty_text_joined_to_none',
+          content=content_lib.ChunkList(
+              chunks=[
+                  content_lib.Chunk(content=''),
+                  content_lib.Chunk(content=''),
+              ]
+          ),
+          task_type=None,
+          title=None,
+          expected_content=content_lib.ChunkList(
+              chunks=[content_lib.Chunk(content='none')]
+          ),
+          expected_task_type=None,
           expected_title=None,
       ),
   )
