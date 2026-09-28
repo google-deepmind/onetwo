@@ -1358,6 +1358,13 @@ class GoogleGenAIAPI(
 
   @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.generate_with_tools')
+  @caching.cache_method(  # Cache this method.
+      name='generate_with_tools',
+      is_sampled=True,  # Two calls with same args may return different replies.
+      cache_key_maker=lambda: caching.CacheKeyMaker(
+          hashed=['messages', 'tools']
+      ),
+  )
   async def generate_with_tools(
       self,
       messages: Sequence[function_calling.ConversationTurn],

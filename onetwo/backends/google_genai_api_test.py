@@ -4024,6 +4024,43 @@ class GenerateWithToolsTest(
     with self.subTest('resends_the_signature_verbatim'):
       self.assertEqual(resent[0].thought_signature, b'opaque')
 
+  def test_is_cached_across_save_and_load(self):
+    backend = _get_and_register_backend()
+    self._reply_with(
+        genai_types.Part(
+            function_call=genai_types.FunctionCall(
+                name='_get_weather', id='c1', args={'location': 'London'}
+            ),
+            thought_signature=b'opaque',
+        )
+    )
+    question = function_calling.ConversationTurn(
+        role=function_calling.ConversationRole.USER,
+        content='Weather in London?',
+    )
+    first = self._ask(question)
+    again = self._ask(question)
+
+    generate_content = self._mock_genai_client.models.generate_content
+    with self.subTest('calls_the_model_once_for_the_same_request'):
+      self.assertEqual(generate_content.call_count, 1)
+      self.assertEqual(again, first)
+
+    cache_filename = self.create_tempfile().full_path
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
+    handler.save(cache_filename=cache_filename, overwrite=True)
+    fresh_handler = _get_and_register_backend().cache
+    assert isinstance(fresh_handler, caching.SimpleFunctionCache)
+    fresh_handler.load(cache_filename=cache_filename)
+    loaded = self._ask(question)
+
+    with self.subTest('replays_the_reply_from_file'):
+      self.assertEqual(generate_content.call_count, 1)
+      self.assertEqual(loaded, first)
+    with self.subTest('keeps_the_signature_through_the_file'):
+      self.assertEqual(loaded.calls[0].thought_signature, b'opaque')
+
 
 if __name__ == '__main__':
   absltest.main()

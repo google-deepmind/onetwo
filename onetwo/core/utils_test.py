@@ -25,12 +25,16 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
 from onetwo.core import content as content_lib
+from onetwo.core import function_calling
 from onetwo.core import utils
 import PIL.Image
 
 _Chunk: TypeAlias = content_lib.Chunk
 _ChunkList: TypeAlias = content_lib.ChunkList
 _Message: TypeAlias = content_lib.Message
+_Turn: TypeAlias = function_calling.ConversationTurn
+_Role: TypeAlias = function_calling.ConversationRole
+_Call: TypeAlias = function_calling.FunctionCall
 
 # Extra tolerance added to upper-bound timing assertions to prevent flaky
 # failures caused by scheduling jitter on shared test infrastructure.
@@ -883,6 +887,27 @@ class UtilsTest(parameterized.TestCase):
           np.array([1, 2, 3]),
           np.array([1, 2, 3]),
           np.array([3, 2, 1]),
+      ),
+      (
+          'conversation_turn',
+          [
+              _Turn(role=_Role.USER, content='Hi'),
+              _Turn(role=_Role.MODEL, calls=(_Call('f', kwargs={'a': 1}),)),
+          ],
+          [
+              _Turn(role=_Role.USER, content='Hi'),
+              _Turn(role=_Role.MODEL, calls=(_Call('f', kwargs={'a': 1}),)),
+          ],
+          [
+              _Turn(role=_Role.USER, content='Hi'),
+              _Turn(role=_Role.MODEL, calls=(_Call('f', kwargs={'a': 2}),)),
+          ],
+      ),
+      (
+          'tool_spec',
+          function_calling.ToolSpec('f', 'Does f.', {'type': 'object'}),
+          function_calling.ToolSpec('f', 'Does f.', {'type': 'object'}),
+          function_calling.ToolSpec('g', 'Does f.', {'type': 'object'}),
       ),
   )
   def test_get_hash(self, key, similar_key, other_key):

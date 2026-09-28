@@ -197,6 +197,55 @@ class FunctionResponse:
   id: str = ''
 
 
+FunctionCallingType: TypeAlias = (
+    ToolSpec | ConversationTurn | FunctionCall | FunctionResponse
+)
+
+_TYPES: Final[tuple[type[Any], ...]] = (
+    ToolSpec,
+    ConversationTurn,
+    FunctionCall,
+    FunctionResponse,
+)
+_TYPES_BY_NAME: Final[Mapping[str, type[Any]]] = {
+    cls.__name__: cls for cls in _TYPES
+}
+
+
+def is_function_calling_type(value: Any) -> bool:
+  """Returns whether `value` is a `FunctionCallingType`."""
+  return isinstance(value, _TYPES)
+
+
+def to_dict(value: FunctionCallingType) -> dict[str, Any]:
+  """Returns the fields of `value`, tagged with its type under '__type__'.
+
+  This is shallow: field values are returned as they are, so that the caller
+  can encode them with whatever it uses for everything else (e.g. the cache
+  encodes tuples, chunks and bytes in its own way). `from_dict` is the inverse.
+
+  Args:
+    value: A `ToolSpec`, `ConversationTurn`, `FunctionCall` or
+      `FunctionResponse`.
+  """
+  fields = {f.name: getattr(value, f.name) for f in dataclasses.fields(value)}
+  return {'__type__': type(value).__name__, **fields}
+
+
+def from_dict(d: Mapping[str, Any]) -> FunctionCallingType:
+  """Rebuilds the value that `to_dict` turned into `d`."""
+  fields = {k: v for k, v in d.items() if k != '__type__'}
+  cls = _TYPES_BY_NAME[d['__type__']]
+  if cls is ConversationTurn:
+    fields['role'] = ConversationRole(fields['role'])
+  return cls(**fields)
+
+
+def is_function_calling_dict(d: Mapping[str, Any]) -> bool:
+  """Returns whether `d` was produced by `to_dict`."""
+  return d.get('__type__') in _TYPES_BY_NAME
+
+
 # Keys under which a function-calling exchange is recorded in the execution
 # trace, through `tracing.update_info`.
 TOOL_CALLS_INFO_KEY: Final[str] = 'llm.tools.calls'

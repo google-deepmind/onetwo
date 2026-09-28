@@ -20,6 +20,7 @@ class `MyClass` decorated with `dataclass` assertEqual(MyClass(1), MyClass(1))
 passes.
 """
 
+import json
 from typing import Any, TypeAlias
 
 from absl.testing import absltest
@@ -672,6 +673,15 @@ class MessageTest(parameterized.TestCase):
 
     decoded = content_lib.from_json_compatible(encoded)
     self.assertEqual(decoded, container)
+
+  def test_bytes_in_metadata_survive_json(self):
+    chunk = _Chunk(content='thought', metadata={'signature': b'\x00\xff'})
+
+    encoded = json.dumps(content_lib.to_json_compatible(chunk))
+
+    self.assertEqual(
+        chunk, content_lib.from_json_compatible(json.loads(encoded))
+    )
 
   def test_to_json_compatible_error_on_invalid_content(self):
     chunk = _Chunk(content='valid')

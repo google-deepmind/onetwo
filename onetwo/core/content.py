@@ -660,6 +660,8 @@ def to_json_compatible(arg: Any) -> Any:
     return obj
   if isinstance(arg, ChunkList):
     return {'__type__': 'ChunkList', 'chunks': to_json_compatible(arg.chunks)}
+  if isinstance(arg, bytes):
+    return {'__type__': 'bytes', 'data': _b64enc(arg)}
   return arg
 
 
@@ -685,5 +687,7 @@ def from_json_compatible(arg: Any) -> Any:
         )
       case 'ChunkList':
         return ChunkList(chunks=res.get('chunks'))
+      case 'bytes':
+        return _b64dec(res['data'])
     return res
   return arg

@@ -29,6 +29,7 @@ from onetwo.core import caching
 from onetwo.core import constants
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import sampling
 from onetwo.core import updating
 from onetwo.core import utils
@@ -1005,6 +1006,48 @@ class CacheDataTest(parameterized.TestCase):
         'key7': [('val7', ('a', 'b')), ('val9', ('a', 'b'))],
     }
     cache_data.values_by_key = copy.deepcopy(values_by_key)
+    json_serialized = cache_data.to_json()
+    decoded = caching._CacheData.from_json(
+        json_serialized,
+        infer_missing=True,
+    )
+    self.assertEqual(decoded.values_by_key, values_by_key)
+
+  def test_encode_function_calling_types(self):
+    cache_data = caching._CacheData()
+    signed_thought = content_lib.ChunkList([
+        content_lib.Chunk(
+            'Let me look it up.',
+            metadata={function_calling.THOUGHT_SIGNATURE_KEY: b'\x00sig'},
+        )
+    ])
+    values_by_key = {
+        'key1': [
+            function_calling.ConversationTurn(
+                role=function_calling.ConversationRole.MODEL,
+                thought=signed_thought,
+                calls=(
+                    function_calling.FunctionCall(
+                        'search',
+                        args=(1, 'a'),
+                        kwargs={'query': 'Alien director'},
+                        id='call-1',
+                        thought_signature=b'\xffsig',
+                    ),
+                ),
+            ),
+            function_calling.ConversationTurn(
+                role=function_calling.ConversationRole.TOOL,
+                responses=(
+                    function_calling.FunctionResponse(
+                        'search', response={'name': 'Ridley Scott'}, id='call-1'
+                    ),
+                ),
+            ),
+        ],
+        'key2': [function_calling.ToolSpec('search', 'Searches.', {})],
+    }
+    cache_data.values_by_key = copy.deepcopy(values_by_key)  # pyrefly: ignore[bad-assignment]
     json_serialized = cache_data.to_json()
     decoded = caching._CacheData.from_json(
         json_serialized,

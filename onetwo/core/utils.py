@@ -31,6 +31,7 @@ from typing import Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeV
 
 from onetwo.core import content as content_lib
 from onetwo.core import executing_impl
+from onetwo.core import function_calling
 import PIL.Image
 
 _T = TypeVar('_T')
@@ -742,7 +743,7 @@ def get_bytes_for_hashing(key: Any, fallback_if_safe: bool = False) -> bytes:
   # types, so that the bytes encoding happens at the outmost level.
   def _recurse(key: Any) -> Any:
     match key:
-      case int() | float() | bool() | str() | bytes():
+      case None | int() | float() | bool() | str() | bytes():
         return key
       case list():
         return [_recurse(k) for k in key]
@@ -770,6 +771,8 @@ def get_bytes_for_hashing(key: Any, fallback_if_safe: bool = False) -> bytes:
         return [_recurse(chunk) for chunk in key.chunks]
       case content_lib.Message():
         return f'Message(role={key.role}, content={_recurse(key.content)})'
+      case _ if function_calling.is_function_calling_type(key):
+        return _recurse(function_calling.to_dict(key))
       # case Hashable():
       #   Let us never add this case! This means we want to rely on `__hash__`
       #   method of the type, but as pointed out above doing so is often

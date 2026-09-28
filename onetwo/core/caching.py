@@ -36,6 +36,7 @@ from etils import epath
 from onetwo.core import constants
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.core import function_calling
 from onetwo.core import utils
 
 _DEFAULT_SAMPLING_KEY: Final[str] = ''
@@ -79,7 +80,9 @@ def _hint_tuple_encoder(arg: Any) -> Any:
 
   * Tuples are converted to JSON arrays with a flag to later properly decode
     them back into tuples. Inspired by http://stackoverflow.com/q/15721363.
-  * ChunkList, Chunk: delegated to content_lib.to_json_compatible.
+  * ChunkList, Chunk, bytes: delegated to content_lib.to_json_compatible.
+  * Function-calling types (e.g. ConversationTurn): converted with
+    function_calling.to_dict, whose fields are then encoded as above.
 
   Args:
     arg: Any JSON-compatible object (i.e., on which `json.dumps` can be called)
@@ -98,8 +101,10 @@ def _hint_tuple_encoder(arg: Any) -> Any:
     return [_hint_tuple_encoder(value) for value in arg]
   if isinstance(arg, dict):
     return {key: _hint_tuple_encoder(value) for key, value in arg.items()}
-  if isinstance(arg, (content_lib.Chunk, content_lib.ChunkList)):
+  if isinstance(arg, (content_lib.Chunk, content_lib.ChunkList, bytes)):
     return content_lib.to_json_compatible(arg)
+  if function_calling.is_function_calling_type(arg):
+    return _hint_tuple_encoder(function_calling.to_dict(arg))
   return arg
 
 
@@ -108,9 +113,11 @@ def _hint_tuple_decoder(arg: Any) -> Any:
   if isinstance(arg, dict):
     if '__tuple__' in arg:
       return tuple(_hint_tuple_decoder(value) for value in arg['items'])
-    res = {key: _hint_tuple_decoder(value) for key, value in arg.items()}
-    if arg.get('__type__') in ('Chunk', 'ChunkList'):
+    if arg.get('__type__') in ('Chunk', 'ChunkList', 'bytes'):
       return content_lib.from_json_compatible(arg)
+    res = {key: _hint_tuple_decoder(value) for key, value in arg.items()}
+    if function_calling.is_function_calling_dict(res):
+      return function_calling.from_dict(res)
     return res
   if isinstance(arg, list):
     return [_hint_tuple_decoder(value) for value in arg]

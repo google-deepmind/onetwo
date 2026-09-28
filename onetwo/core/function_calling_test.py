@@ -528,5 +528,52 @@ class ToolShapesTest(parameterized.TestCase):
     )
 
 
+class ToDictTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('tool_spec', function_calling.ToolSpec('search', 'Searches.', {})),
+      (
+          'turn',
+          function_calling.ConversationTurn(
+              role=function_calling.ConversationRole.MODEL,
+              content='Hi',
+              calls=(function_calling.FunctionCall('f', id='1'),),
+          ),
+      ),
+      (
+          'call',
+          function_calling.FunctionCall(
+              'f', args=(1,), kwargs={'a': 2}, thought_signature=b'sig'
+          ),
+      ),
+      ('response', function_calling.FunctionResponse('f', error='boom')),
+  )
+  def test_round_trip(self, value):
+    d = function_calling.to_dict(value)
+
+    self.assertTrue(function_calling.is_function_calling_type(value))
+    self.assertTrue(function_calling.is_function_calling_dict(d))
+    self.assertEqual(value, function_calling.from_dict(d))
+
+  def test_role_is_restored_from_its_string_value(self):
+    d = function_calling.to_dict(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.TOOL
+        )
+    )
+    d['role'] = 'tool'  # As it would be after a trip through JSON.
+
+    turn = function_calling.from_dict(d)
+
+    assert isinstance(turn, function_calling.ConversationTurn)
+    self.assertIs(function_calling.ConversationRole.TOOL, turn.role)
+
+  def test_other_values_are_not_function_calling_types(self):
+    self.assertFalse(function_calling.is_function_calling_type({'a': 1}))
+    self.assertFalse(
+        function_calling.is_function_calling_dict({'__type__': 'Chunk'})
+    )
+
+
 if __name__ == '__main__':
   absltest.main()
