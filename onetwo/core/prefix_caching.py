@@ -77,6 +77,11 @@ class CachedChunkList(content_lib.ChunkList):
       backend will automatically populate this field.
     cache_ttl: Optional TTL (Time-to-Live) string for the cache (e.g., "300s").
       If None, the server's default TTL will be used.
+    refresh_cache: If True (default), every call with a `cache_name` first
+      updates the cache's TTL, and recreates the cache if it no longer exists.
+      If False, an existing `cache_name` is used as is, without any cache RPC.
+      Use this for a cache shared by many concurrent callers whose lifetime is
+      managed elsewhere, to avoid one update RPC per call.
   """
 
   def __init__(
@@ -88,11 +93,13 @@ class CachedChunkList(content_lib.ChunkList):
       cache_chunk_count: int,
       cache_name: str | None = None,
       cache_ttl: str | None = None,
+      refresh_cache: bool = True,
   ):
     super().__init__(chunks)
     self.cache_chunk_count = cache_chunk_count
     self.cache_name = cache_name
     self.cache_ttl = cache_ttl
+    self.refresh_cache = refresh_cache
 
     if self.cache_chunk_count < 1 or self.cache_chunk_count > len(self.chunks):
       raise ValueError(
@@ -108,6 +115,7 @@ class CachedChunkList(content_lib.ChunkList):
         and self.cache_chunk_count == other.cache_chunk_count  # pyrefly: ignore[missing-attribute]
         and self.cache_name == other.cache_name  # pyrefly: ignore[missing-attribute]
         and self.cache_ttl == other.cache_ttl  # pyrefly: ignore[missing-attribute]
+        and self.refresh_cache == other.refresh_cache  # pyrefly: ignore[missing-attribute]
     )
 
   def __repr__(self) -> str:
@@ -133,6 +141,7 @@ class CachedChunkList(content_lib.ChunkList):
         cache_chunk_count=self.cache_chunk_count,
         cache_name=self.cache_name,
         cache_ttl=self.cache_ttl,
+        refresh_cache=self.refresh_cache,
     )
 
   def __radd__(

@@ -1231,6 +1231,8 @@ class GoogleGenAIAPI(
     kwargs = {}
     if prompt.cache_ttl:
       kwargs['ttl'] = prompt.cache_ttl
+    if prompt.cache_name and not prompt.refresh_cache:
+      return prompt.cache_name
     if prompt.cache_name:
       # Update the TTL and return the name of the cache.
       try:

@@ -2526,6 +2526,31 @@ class GoogleGenaiApiTest(
       _, kwargs = gc_mock.call_args
       self.assertEqual(kwargs['config'].cached_content, 'cachedContents/abc')
 
+  def test_generate_content_with_cached_chunk_list_no_refresh(self):
+    _ = _get_and_register_backend()
+    gc_mock = self._mock_genai_client.models.generate_content
+    caches_mock = self._mock_genai_client.caches
+
+    prompt = prefix_caching.CachedChunkList(
+        chunks=[_Chunk('prefix'), _Chunk('suffix')],
+        cache_chunk_count=1,
+        cache_name='cachedContents/abc',
+        cache_ttl='300s',
+        refresh_cache=False,
+    )
+
+    executing.run(llm.generate_content(prompt=prompt))
+
+    with self.subTest('DoesNotUpdateOrCreateCache'):
+      caches_mock.update.assert_not_called()
+      caches_mock.create.assert_not_called()
+
+    with self.subTest('CallsGenerateWithCache'):
+      gc_mock.assert_called_once()
+      _, kwargs = gc_mock.call_args
+      self.assertEqual(kwargs['contents'][0].parts[0].text, 'suffix')
+      self.assertEqual(kwargs['config'].cached_content, 'cachedContents/abc')
+
   def test_generate_content_with_cached_chunk_list_cache_expired(self):
     _ = _get_and_register_backend()
     gc_mock = self._mock_genai_client.models.generate_content
