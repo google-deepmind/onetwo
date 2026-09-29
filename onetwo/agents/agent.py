@@ -55,7 +55,6 @@ import copy
 import dataclasses
 from typing import Any, TypeAlias
 
-
 from onetwo.agents import agents_base
 from onetwo.builtins import llm
 from onetwo.core import executing
@@ -68,6 +67,19 @@ from onetwo.stdlib.tool_use import tool_schema
 AgentTool: TypeAlias = (
     llm_tool_use.Tool | Callable[..., Any] | llm_tool_use.ToolSource
 )
+
+DEFAULT_FINAL_INSTRUCTION = (
+    'You can no longer use tools. Answer now, using what you have found so far.'
+)
+
+
+def _answered(state: AgentState) -> bool:
+  """Returns whether the model's latest turn is a reply without tool calls."""
+  if not state.history:
+    return False
+  last_turn = state.history[-1]
+  is_model_turn = last_turn.role == fc_types.ConversationRole.MODEL
+  return is_model_turn and not last_turn.calls
 
 
 def _traced(response: fc_types.FunctionResponse) -> Any:
@@ -113,30 +125,38 @@ def _as_tool(tool: llm_tool_use.Tool | Callable[..., Any]) -> llm_tool_use.Tool:
 
 @dataclasses.dataclass
 class AgentStep:
-  """One model turn, together with the tool turn that answers it.
+  """One model turn, together with the turns around it.
 
-  A step is the unit in which the conversation grows: the model says something
-  (possibly requesting calls), and the calls it requested are answered. The
-  final step of an exchange has no `tool_turn`, since the model asked for
-  nothing.
+  A step is the unit in which the conversation grows. It appends up to three
+  turns, in this order: `[user_turn, model_turn, tool_turn]`, leaving out those
+  that are None. The model says something (possibly requesting calls), and the
+  calls it requested are answered. The final step of an exchange has no
+  `tool_turn`, since the model asked for nothing.
 
   Attributes:
     model_turn: What the model replied, with `role=MODEL`.
     tool_turn: The results of the calls requested in `model_turn`, with
       `role=TOOL`, or None if no calls were requested (or none were executed).
+    user_turn: A turn with `role=USER` that the agent itself sends the model
+      ahead of `model_turn`, or None. It is currently set only on the call made
+      with `Agent.final_instruction` once `max_steps` has run out, but is the
+      place for any other turn the agent needs to inject in the future. The
+      user's own request is not one: it opens the history instead.
   """
 
   model_turn: fc_types.ConversationTurn
   tool_turn: fc_types.ConversationTurn | None = None
+  user_turn: fc_types.ConversationTurn | None = None
 
   @property
   def turns(self) -> list[fc_types.ConversationTurn]:
     """Returns the turns this step appends to the conversation."""
-    return [self.model_turn] + ([self.tool_turn] if self.tool_turn else [])
+    turns = [self.user_turn, self.model_turn, self.tool_turn]
+    return [turn for turn in turns if turn is not None]
 
   def __hash__(self) -> int:
     """Required in case we want to compare updates for deduplication."""
-    return hash((str(self.model_turn), str(self.tool_turn)))
+    return hash(tuple(str(turn) for turn in self.turns))
 
 
 @dataclasses.dataclass
@@ -196,6 +216,8 @@ class AgentEnvironment:
   specs: Sequence[fc_types.ToolSpec]
 
 
+# TODO: Improve the system prompt to inform the agent about the
+# number of tool calls available to it.
 @dataclasses.dataclass
 class Agent(
     agents_base.SingleSampleAgent[
@@ -209,8 +231,9 @@ class Agent(
   """Agent that runs model-native function calling to completion.
 
   The exchange ends when the model replies without requesting any call, or when
-  `max_steps` steps have been taken. Use `steps_exhausted` to tell those two
-  apart: the second means the model was still working when it was cut off.
+  it has used up `max_steps` (see `final_instruction` for giving it one last
+  chance to answer). Use `steps_exhausted` to tell those apart: it means the
+  model was still working when it was cut off.
 
   A single step is available by asking for one, which is how to inspect what
   the model wants to call without running it:
@@ -227,8 +250,14 @@ class Agent(
       process. A `ToolSource` may be listed among them to stand in for tools
       that must be fetched when a run starts, such as those of an MCP server:
       `tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]`.
-    max_steps: Bound on the number of model calls, so that a model which keeps
-      asking for tools cannot loop forever.
+    max_steps: Bound on the number of steps in which the model may call tools,
+      so that a model which keeps asking for them cannot loop forever.
+    final_instruction: If set, and the model is still calling tools when
+      `max_steps` runs out, it is given one more call, without tools and with
+      this instruction, to answer from what it has found so far, e.g. 'Answer
+      now, using what you have found.'. The instruction is recorded in the
+      conversation like any other user turn. By default the exchange is cut off
+      instead.
     parallel_calls: Whether to execute the calls of a single turn concurrently.
       Models routinely request several at once and tools are usually IO-bound,
       so this is on by default. Results are always reported in the order the
@@ -242,6 +271,7 @@ class Agent(
 
   tools: Sequence[AgentTool] = ()
   max_steps: int = 10
+  final_instruction: str = ''
   parallel_calls: bool = True
   stop_on_tool_error: bool = False
   generate_kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
@@ -307,8 +337,8 @@ class Agent(
       )
 
   def steps_exhausted(self, state: AgentState) -> bool:
-    """Returns whether the exchange stopped only because it ran out of steps."""
-    return state.num_steps >= self.max_steps
+    """Returns whether the exchange ran out of steps without an answer."""
+    return state.num_steps >= self.max_steps and not _answered(state)
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def _execute_call(
@@ -407,12 +437,23 @@ class Agent(
       environment = AgentEnvironment(
           tools_by_name=self._tools_by_name, specs=self._specs
       )
+    # Past the budget is only reached with a `final_instruction` (see
+    # `is_finished`). Tools are withheld and the model is told so: a model
+    # that has been calling tools all along goes on doing so otherwise,
+    # declared or not.
+    is_final_call = state.num_steps >= self.max_steps
+    messages, tools, user_turn = state.history, environment.specs, None
+    if is_final_call:
+      user_turn = fc_types.ConversationTurn(
+          role=fc_types.ConversationRole.USER, content=self.final_instruction
+      )
+      messages, tools = messages + [user_turn], ()
     model_turn = await llm.generate_with_tools(
-        messages=state.history, tools=environment.specs, **self.generate_kwargs
+        messages=messages, tools=tools, **self.generate_kwargs
     )
-    if not model_turn.calls:
+    if not model_turn.calls or is_final_call:
       self._record_step_in_trace(model_turn, ())
-      return AgentStep(model_turn=model_turn)
+      return AgentStep(model_turn=model_turn, user_turn=user_turn)
 
     executables = [
         self._execute_call(call, environment=environment)
@@ -475,18 +516,16 @@ class Agent(
 
     The exchange is over once the model replies without requesting any call. A
     turn that contains both text and calls is not final: the model is thinking
-    aloud on its way to using a tool.
+    aloud on its way to using a tool. It is also over once `max_steps` steps
+    have been taken, plus one when there is a `final_instruction` to give.
 
     Args:
       state: Current state of the agent.
     """
-    if state.num_steps >= self.max_steps:
+    if _answered(state):
       return True
-    if not state.history:
-      return False
-    last_turn = state.history[-1]
-    is_model_turn = last_turn.role == fc_types.ConversationRole.MODEL
-    return is_model_turn and not last_turn.calls
+    budget = self.max_steps + (1 if self.final_instruction else 0)
+    return state.num_steps >= budget
 
   def extract_output(
       self, state: AgentState

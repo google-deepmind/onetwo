@@ -226,6 +226,14 @@ class FCStateTest(absltest.TestCase):
     new_state = state + agent_lib.AgentStep(model_turn=_model_turn('done'))
     self.assertLen(new_state.history, 1)
 
+  def test_add_puts_the_user_turn_before_the_model_turn(self):
+    state = agent_lib.AgentState()
+    new_state = state + agent_lib.AgentStep(
+        model_turn=_model_turn('done'),
+        user_turn=fc_types.ConversationTurn(role=_USER, content='Answer now.'),
+    )
+    self.assertEqual([turn.role for turn in new_state.history], [_USER, _MODEL])
+
 
 class FCAgentTest(parameterized.TestCase):
 
@@ -467,6 +475,85 @@ class FCAgentTest(parameterized.TestCase):
     _, state = _run_with_state(agent, 'Hi')
 
     self.assertFalse(agent.steps_exhausted(state))
+
+  def test_final_instruction_gives_one_last_call_without_tools(self):
+    call = fc_types.FunctionCall('_get_weather', kwargs={'location': 'London'})
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[call]),
+            _model_turn(calls=[call]),
+            _model_turn('15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(
+        tools=[_get_weather], max_steps=2, final_instruction='Answer now.'
+    )
+
+    result, state = _run_with_state(agent, 'Weather in London?')
+
+    with self.subTest('returns_the_final_answer'):
+      self.assertEqual(result.content, '15 degrees.')
+    with self.subTest('calls_the_model_once_more_than_max_steps'):
+      self.assertLen(backend.seen_messages, 3)
+    with self.subTest('offers_no_tools_on_the_final_call'):
+      self.assertEqual(backend.seen_tools[2], [])
+    with self.subTest('sends_the_instruction_last'):
+      last_message = backend.seen_messages[2][-1]
+      self.assertEqual(
+          (last_message.role, last_message.content), (_USER, 'Answer now.')
+      )
+    with self.subTest('records_the_instruction_in_the_history'):
+      self.assertEqual(
+          [turn.role for turn in state.history],
+          [_USER, _MODEL, _TOOL, _MODEL, _TOOL, _USER, _MODEL],
+      )
+    with self.subTest('is_not_reported_as_exhausted'):
+      self.assertFalse(agent.steps_exhausted(state))
+
+  def test_calls_requested_on_the_final_call_are_not_executed(self):
+    # A model that keeps asking for tools even once it has none.
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            )
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(
+        tools=[_get_weather], max_steps=1, final_instruction='Answer now.'
+    )
+
+    _, state = _run_with_state(agent, 'Weather in London?')
+
+    with self.subTest('stops_after_the_final_call'):
+      self.assertLen(backend.seen_messages, 2)
+    with self.subTest('does_not_answer_the_final_calls'):
+      self.assertEqual(
+          [turn.role for turn in state.history],
+          [_USER, _MODEL, _TOOL, _USER, _MODEL],
+      )
+    with self.subTest('reports_that_it_ran_out_of_steps'):
+      self.assertTrue(agent.steps_exhausted(state))
+
+  def test_final_instruction_is_unused_when_the_model_answers_in_time(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
+    backend.register()
+    agent = agent_lib.Agent(
+        tools=[_get_weather], max_steps=3, final_instruction='Answer now.'
+    )
+
+    _, state = _run_with_state(agent, 'Hi')
+
+    with self.subTest('calls_the_model_once'):
+      self.assertLen(backend.seen_messages, 1)
+    with self.subTest('does_not_record_the_instruction'):
+      self.assertEqual([turn.role for turn in state.history], [_USER, _MODEL])
 
   def test_a_single_step_exposes_the_calls_without_running_them(self):
     backend = _ScriptedBackend(
