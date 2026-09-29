@@ -59,6 +59,7 @@ from mcp.client import session as client_session
 from mcp.client import stdio
 from mcp.client import streamable_http
 from onetwo.stdlib.tool_use import llm_tool_use
+from onetwo.stdlib.tool_use import mcp_http
 
 
 # TODO: Extend to handle multimodal content.
@@ -169,9 +170,12 @@ async def mcp_session(url: str) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
   Yields:
     One tool per tool the server declares, valid until the session closes.
   """
-  async with streamable_http.streamable_http_client(url) as (read, write, _):
-    async with _session_tools(read, write) as tools:
-      yield tools
+  async with mcp_http.client() as http_client:
+    async with streamable_http.streamable_http_client(
+        url, http_client=http_client
+    ) as (read, write, _):
+      async with _session_tools(read, write) as tools:
+        yield tools
 
 
 @contextlib.asynccontextmanager
