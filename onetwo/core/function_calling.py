@@ -17,7 +17,8 @@
 These types describe *which tools are available*, *what the model asked for*,
 and *what the tools returned*. They are deliberately free of any rendering,
 parsing, execution or transport concerns, and depend only on the standard
-library and `onetwo.core.content`, so that they can be shared by:
+library, `onetwo.core.content` and, to read them back from a trace,
+`onetwo.core.results`, so that they can be shared by:
 
   * the text-parsing tool-use strategies in `onetwo.stdlib.tool_use`, which
     recover a `FunctionCall` from prose emitted by the model, and
@@ -55,6 +56,7 @@ import enum
 from typing import Any, Final, TypeAlias
 
 from onetwo.core import content as content_lib
+from onetwo.core import results
 
 
 # Key under which a chunk of `ConversationTurn.thought` carries the opaque
@@ -314,3 +316,43 @@ class ThoughtDetail:
 ToolCallDetail: TypeAlias = (
     FunctionCallDetail | FunctionResponseDetail | ThoughtDetail
 )
+
+
+def collect_tool_call_details(
+    execution_result: results.ExecutionResult,
+) -> list[dict[str, Any]]:
+  """Returns every tool call detail recorded in the trace, in call order.
+
+  Details are recorded under `llm.tools.details` by whichever stage knows about
+  the calls. Where that is depends on who runs the tools:
+
+  *   When the backend runs them itself (e.g. Gemini automatic function
+      calling), the LLM stage records the calls together with their responses.
+  *   When `onetwo.agents.agent.Agent` runs them, each `Agent.step` stage
+      records the calls of that step together with their responses. The LLM
+      stage nested in it records the same calls again, without responses, since
+      the model only asked for them.
+
+  So a stage that records details is taken to describe every call made within
+  it, and its sub-stages are not searched: this reports each call once, and
+  from the stage that saw its response. The details of every such stage are
+  collected, not only those of the first one found.
+
+  Args:
+    execution_result: Root of the execution trace tree.
+
+  Returns:
+    The recorded details, as dicts (see `ToolCallDetail.to_dict`).
+  """
+  details: list[dict[str, Any]] = []
+
+  def _traverse(node: results.ExecutionResult) -> None:
+    recorded = node.info.get(TOOL_DETAILS_INFO_KEY)
+    if recorded is not None:
+      details.extend(d for d in recorded if isinstance(d, dict))
+      return
+    for stage in node.stages:
+      _traverse(stage)
+
+  _traverse(execution_result)
+  return details

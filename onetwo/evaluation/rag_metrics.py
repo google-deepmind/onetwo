@@ -429,46 +429,6 @@ def _find_info_value(stage: results.ExecutionResult, key: str) -> Any | None:
   return None
 
 
-def _collect_tool_call_details(
-    execution_result: results.ExecutionResult,
-) -> list[dict[str, Any]]:
-  """Returns every tool call detail recorded in the trace, in call order.
-
-  Details are recorded under `llm.tools.details` by whichever stage knows about
-  the calls. Where that is depends on who runs the tools:
-
-  *   When the backend runs them itself (e.g. Gemini automatic function
-      calling), the LLM stage records the calls together with their responses.
-  *   When `onetwo.agents.agent.Agent` runs them, each `Agent.step` stage
-      records the calls of that step together with their responses. The LLM
-      stage nested in it records the same calls again, without responses, since
-      the model only asked for them.
-
-  So a stage that records details is taken to describe every call made within
-  it, and its sub-stages are not searched: this reports each call once, and
-  from the stage that saw its response. Unlike `_find_info_value`, it collects
-  the details of every such stage rather than only the first one found.
-
-  Args:
-    execution_result: Root of the execution trace tree.
-
-  Returns:
-    The recorded details, as dicts (see `fc_types.ToolCallDetail.to_dict`).
-  """
-  details: list[dict[str, Any]] = []
-
-  def _traverse(node: results.ExecutionResult) -> None:
-    recorded = node.info.get(fc_types.TOOL_DETAILS_INFO_KEY)
-    if recorded is not None:
-      details.extend(d for d in recorded if isinstance(d, dict))
-      return
-    for stage in node.stages:
-      _traverse(stage)
-
-  _traverse(execution_result)
-  return details
-
-
 def _get_counts_from_info(
     execution_result: results.ExecutionResult,
     *,
@@ -701,7 +661,7 @@ def tool_details(
   if execution_result is None:
     return 0.0, {}
 
-  details = _collect_tool_call_details(execution_result)
+  details = fc_types.collect_tool_call_details(execution_result)
   return float(len(details)), {'tool_details': details}
 
 

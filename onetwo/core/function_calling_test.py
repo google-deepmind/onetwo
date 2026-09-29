@@ -15,11 +15,13 @@
 """Tests for the core function calling data types."""
 
 import dataclasses
+from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.core import content as content_lib
 from onetwo.core import function_calling
+from onetwo.core import results
 
 
 @dataclasses.dataclass(frozen=True)
@@ -572,6 +574,42 @@ class ToDictTest(parameterized.TestCase):
     self.assertFalse(function_calling.is_function_calling_type({'a': 1}))
     self.assertFalse(
         function_calling.is_function_calling_dict({'__type__': 'Chunk'})
+    )
+
+
+class CollectToolCallDetailsTest(absltest.TestCase):
+
+  def test_reads_each_call_once_from_the_stage_that_answered_it(self):
+    def call(name: str, response: str | None = None) -> dict[str, Any]:
+      return function_calling.FunctionCallDetail(
+          name=name, args={}, response=response
+      ).to_dict()
+
+    def step(name: str) -> results.ExecutionResult:
+      # As `Agent` records it: the step has the answered call, and the model
+      # call nested in it repeats it without the response.
+      key = function_calling.TOOL_DETAILS_INFO_KEY
+      return results.ExecutionResult(
+          stage_name='Agent.step',
+          info={key: [call(name, response=f'{name} result')]},
+          stages=[
+              results.ExecutionResult(
+                  stage_name='llm.generate_with_tools',
+                  info={key: [call(name)]},
+              )
+          ],
+      )
+
+    trace = results.ExecutionResult(
+        stage_name='Agent', stages=[step('search'), step('read')]
+    )
+
+    self.assertEqual(
+        function_calling.collect_tool_call_details(trace),
+        [
+            call('search', response='search result'),
+            call('read', response='read result'),
+        ],
     )
 
 
