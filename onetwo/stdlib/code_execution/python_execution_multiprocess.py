@@ -126,9 +126,9 @@ async def handle_hook_message(
   logging.info('Sandbox hook call: %s', str(message))
   try:
     res = await utils.call_and_maybe_await(
-        hooks[message['hook']],
-        *message['args'],
-        **message['kwargs'],
+        hooks[message['hook']],  # pyrefly: ignore[bad-index]
+        *message['args'],  # pyrefly: ignore[bad-index]
+        **message['kwargs'],  # pyrefly: ignore[bad-index]
     )
     reply[DATA_KEY] = res
     logging.info('Sandbox hook result: %s', str(res))
@@ -145,7 +145,7 @@ async def handle_hook_message(
     reply[EXCEPTION_KEY] = {
         python_execution.EX_CLASS_KEY: e.__class__.__name__,
         EX_ARGS_KEY: e.args,
-        python_execution.EX_HOOK_NAME_KEY: message['hook'],
+        python_execution.EX_HOOK_NAME_KEY: message['hook'],  # pyrefly: ignore[bad-index]
     }
     try:
       _ = json.dumps(reply)

@@ -530,7 +530,7 @@ class ReActPromptComposable(ReActPromptProtocol):
     return e  # pyrefly: ignore[bad-return]
 
   @executing.make_executable
-  async def __call__(
+  async def __call__(  # pyrefly: ignore[bad-override]
       self,
       force_finish: bool,
       exemplars: list[ReActState],

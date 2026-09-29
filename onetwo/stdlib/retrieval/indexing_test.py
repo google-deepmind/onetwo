@@ -532,7 +532,7 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     class SemicolonChunker(chunking.Chunker):
 
       @executing.make_executable(copy_self=False)
-      async def __call__(self, document: Document) -> list[Document]:
+      async def __call__(self, document: Document) -> list[Document]:  # pyrefly: ignore[bad-override]
         parts = [
             p.strip() for p in str(document.content).split(';') if p.strip()
         ]

@@ -141,7 +141,7 @@ Input: qN
     )
 
     # To get the final state, we can simply sum the updates.
-    state_2 = functools.reduce(lambda s, u: s + u, updates, state_0)
+    state_2 = functools.reduce(lambda s, u: s + u, updates, state_0)  # pyrefly: ignore[unsupported-operation]
 
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
@@ -150,7 +150,7 @@ Input: qN
         )
     )
     state_4 = functools.reduce(
-        lambda s, u: s + u, second_round_of_updates, state_2
+        lambda s, u: s + u, second_round_of_updates, state_2  # pyrefly: ignore[unsupported-operation]
     )
 
     with self.subTest('should_stop_when_reaching_max_steps'):

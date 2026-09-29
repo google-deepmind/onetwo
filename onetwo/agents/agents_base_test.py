@@ -152,7 +152,7 @@ class AgentTest(parameterized.TestCase):
     )
 
     # To get the final state, we can simply sum the updates.
-    state_2 = functools.reduce(lambda s, u: s + u, updates, state_0)
+    state_2 = functools.reduce(lambda s, u: s + u, updates, state_0)  # pyrefly: ignore[unsupported-operation]
 
     # Now let's run for another 2 steps.
     second_round_of_updates = list(
@@ -161,7 +161,7 @@ class AgentTest(parameterized.TestCase):
         )
     )
     state_4 = functools.reduce(
-        lambda s, u: s + u, second_round_of_updates, state_2
+        lambda s, u: s + u, second_round_of_updates, state_2  # pyrefly: ignore[unsupported-operation]
     )
 
     # Now we'll request it to run for another 2 steps, but we expect it to only
@@ -173,7 +173,7 @@ class AgentTest(parameterized.TestCase):
         )
     )
     state_5 = functools.reduce(
-        lambda s, u: s + u, third_round_of_updates, state_4
+        lambda s, u: s + u, third_round_of_updates, state_4  # pyrefly: ignore[unsupported-operation]
     )
 
     with self.subTest('should_run_for_the_specified_max_steps'):
