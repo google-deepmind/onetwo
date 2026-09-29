@@ -28,6 +28,10 @@ backends know about:
   )
 ```
 
+A server that speaks stdio instead, as many local ones do, is named by its
+command line and started for each run: `mcp_tools.stdio_server(['node',
+'index.js'])`.
+
 Because the result is a plain `Tool`, every backend that can offer a tool to a
 model can offer an MCP tool -- there is nothing MCP-specific left downstream of
 this module, and nothing here that is specific to a backend, a strategy or an
@@ -45,13 +49,14 @@ same thing with the lifetime in the caller's hands:
 ```
 """
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 import contextlib
 import functools
 from typing import Any
 
 from mcp import types as mcp_types
 from mcp.client import session as client_session
+from mcp.client import stdio
 from mcp.client import streamable_http
 from onetwo.stdlib.tool_use import llm_tool_use
 
@@ -136,6 +141,25 @@ def tool_from_declaration(
 
 
 @contextlib.asynccontextmanager
+async def _session_tools(
+    read: Any, write: Any
+) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
+  """Opens a session over a transport and yields the tools it declares.
+
+  Args:
+    read: The transport's stream of messages from the server.
+    write: The transport's stream of messages to the server.
+
+  Yields:
+    One tool per tool the server declares, valid until the session closes.
+  """
+  async with client_session.ClientSession(read, write) as session:
+    await session.initialize()
+    declared = await session.list_tools()
+    yield [tool_from_declaration(session, tool) for tool in declared.tools]
+
+
+@contextlib.asynccontextmanager
 async def mcp_session(url: str) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
   """Connects to an MCP server and yields the tools it declares.
 
@@ -146,10 +170,37 @@ async def mcp_session(url: str) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
     One tool per tool the server declares, valid until the session closes.
   """
   async with streamable_http.streamable_http_client(url) as (read, write, _):
-    async with client_session.ClientSession(read, write) as session:
-      await session.initialize()
-      declared = await session.list_tools()
-      yield [tool_from_declaration(session, tool) for tool in declared.tools]
+    async with _session_tools(read, write) as tools:
+      yield tools
+
+
+@contextlib.asynccontextmanager
+async def stdio_session(
+    command: Sequence[str], env: Mapping[str, str] | None = None
+) -> AsyncIterator[Sequence[llm_tool_use.Tool]]:
+  """Starts an MCP server as a subprocess and yields the tools it declares.
+
+  The server is spoken to over its stdin and stdout, and is stopped when the
+  session closes.
+
+  Args:
+    command: The server's command line, executable first, as for `subprocess`.
+    env: The server's environment. By default, only the variables the MCP SDK
+      deems safe to inherit, such as `HOME` and `PATH`, are passed on.
+
+  Yields:
+    One tool per tool the server declares, valid until the session closes.
+  """
+  if not command:
+    raise ValueError('An MCP server command must name an executable.')
+  params = stdio.StdioServerParameters(
+      command=command[0],
+      args=list(command[1:]),
+      env=dict(env) if env is not None else None,
+  )
+  async with stdio.stdio_client(params) as (read, write):
+    async with _session_tools(read, write) as tools:
+      yield tools
 
 
 def server(url: str) -> llm_tool_use.ToolSource:
@@ -172,3 +223,31 @@ def server(url: str) -> llm_tool_use.ToolSource:
     A source that yields the server's tools for the length of one run.
   """
   return llm_tool_use.ToolSource(open=functools.partial(mcp_session, url))
+
+
+def stdio_server(
+    command: Sequence[str], env: Mapping[str, str] | None = None
+) -> llm_tool_use.ToolSource:
+  """Returns a local server named as a source of tools, like `server`.
+
+  For servers that speak stdio rather than HTTP. Nothing is started here: the
+  server is started when a run begins and stopped when it ends, so each run
+  gets its own process:
+
+  ```python
+    agent = agent_lib.Agent(
+        tools=[mcp_tools.stdio_server(['node', 'server/dist/index.js'])]
+    )
+  ```
+
+  Args:
+    command: The server's command line, executable first, as for `subprocess`.
+    env: The server's environment. By default, only the variables the MCP SDK
+      deems safe to inherit, such as `HOME` and `PATH`, are passed on.
+
+  Returns:
+    A source that yields the server's tools for the length of one run.
+  """
+  return llm_tool_use.ToolSource(
+      open=functools.partial(stdio_session, command, env)
+  )

@@ -12,15 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for `mcp_tools`, against a real MCP server running in-process."""
+"""Tests for `mcp_tools`, against a real MCP server, in-process or over stdio."""
 
 import asyncio
+import os
+import sys
 from typing import Any
 
 from absl.testing import absltest
 from mcp.server.fastmcp import server as fastmcp_server
 from mcp.shared import memory
 from onetwo.stdlib.tool_use import mcp_tools
+
+# Run this file with this argument to serve `_server()` over stdio instead.
+_SERVE = '--serve_stdio'
 
 
 def _server() -> fastmcp_server.FastMCP:
@@ -132,6 +137,37 @@ class McpToolsTest(absltest.TestCase):
     self.assertIsNotNone(message)
     self.assertIn('No such document: nope', message)
 
+  def test_a_stdio_server_is_started_and_its_tools_work(self):
+    # The server is this file, run again as a subprocess in serving mode. A
+    # hermetic Python has no separate interpreter to run it with, but then the
+    # file has been built into an executable beside it, which serves as well.
+    if sys.executable:
+      command = [sys.executable, __file__, _SERVE]
+    else:
+      command = [os.path.splitext(__file__)[0], _SERVE]
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+
+    async def body():
+      async with mcp_tools.stdio_session(command, env=env) as tools:
+        by_name = {tool.name: tool for tool in tools}
+        return sorted(by_name), await by_name['shout'](word='hello')
+
+    names, shouted = asyncio.run(body())
+
+    self.assertEqual(['lookup', 'search', 'shout'], names)
+    self.assertEqual('HELLO', shouted)
+
+  def test_a_stdio_command_must_name_an_executable(self):
+    async def body():
+      async with mcp_tools.stdio_session([]):
+        pass
+
+    with self.assertRaises(ValueError):
+      asyncio.run(body())
+
 
 if __name__ == '__main__':
-  absltest.main()
+  if _SERVE in sys.argv:
+    _server().run('stdio')
+  else:
+    absltest.main()
