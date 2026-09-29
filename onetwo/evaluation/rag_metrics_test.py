@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.backends import backend_registry
@@ -536,41 +536,69 @@ class MetricsLibTest(parameterized.TestCase):
 
   def test_reads_a_client_side_function_calling_run(self):
     # The shape `Agent` produces: one stage per step, each wrapping the model
-    # call it made. Only the nested `llm` builtin is read. What the agent
-    # recorded on its own stage is there for a person reading the trace.
-    def step(tool_calls: int, tokens: int) -> results.ExecutionResult:
+    # call it made. Counts and tokens are read from the nested model call. The
+    # calls themselves are read from the agent's own stage, which is the only
+    # one that saw what the tools returned.
+    def step(calls: list[str], tokens: int) -> results.ExecutionResult:
+      requested = [
+          {'type': 'function_call', 'name': name, 'args': {}} for name in calls
+      ]
+      answered = [
+          dict(detail, response=f'{detail["name"]} result')
+          for detail in requested
+      ]
+      agent_info: dict[str, Any] = {'llm.tools.calls': 99}
+      llm_info: dict[str, Any] = {
+          'llm.tools.calls': len(calls),
+          'llm.tokens.prompt': tokens,
+      }
+      if calls:
+        agent_info['llm.tools.details'] = answered
+        llm_info['llm.tools.details'] = requested
       return results.ExecutionResult(
           stage_name='Agent.step',
           # Disagrees with the stage below on purpose, to show which of the two
           # the metrics take.
-          info={'llm.tools.calls': 99},
+          info=agent_info,
           stages=[
               results.ExecutionResult(
                   stage_name='GoogleGenAIAPI.generate_with_tools',
-                  info={
-                      'llm.tools.calls': tool_calls,
-                      'llm.tokens.prompt': tokens,
-                  },
+                  info=llm_info,
               )
           ],
       )
 
     trace = results.ExecutionResult(
-        stage_name='root', stages=[step(2, 100), step(0, 250)]
+        stage_name='root',
+        stages=[
+            step(['search', 'read'], 100),
+            step(['read'], 200),
+            step([], 250),
+        ],
     )
 
     with self.subTest('counts_one_llm_call_per_step'):
       self.assertEqual(
-          rag_metrics.num_llm_calls(None, None, execution_result=trace), 2.0
+          rag_metrics.num_llm_calls(None, None, execution_result=trace), 3.0
       )
     with self.subTest('counts_the_tools_the_model_call_reported'):
       self.assertEqual(
-          rag_metrics.num_tool_calls(None, None, execution_result=trace), 2.0
+          rag_metrics.num_tool_calls(None, None, execution_result=trace), 3.0
       )
     with self.subTest('reads_tokens_from_the_model_call'):
       self.assertEqual(
           rag_metrics.total_input_tokens(None, None, execution_result=trace),
-          350.0,
+          550.0,
+      )
+    with self.subTest('reports_every_call_once_with_its_response'):
+      _, info = rag_metrics.tool_details(None, None, execution_result=trace)
+      self.assertEqual(
+          [(d['name'], d.get('response')) for d in info['tool_details']],
+          [
+              ('search', 'search result'),
+              ('read', 'read result'),
+              ('read', 'read result'),
+          ],
       )
 
   def test_reads_a_bare_generate_with_tools_call(self):
