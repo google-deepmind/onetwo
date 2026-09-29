@@ -504,7 +504,7 @@ class MCPStrategyTest(parameterized.TestCase):
       ),
   )
   def test_extract_cited_doc_ids(self, answer, expected):
-    self.assertEqual(mcp_strategies._extract_cited_doc_ids(answer), expected)
+    self.assertEqual(mcp_strategies.extract_cited_doc_ids(answer), expected)
 
 
 class MCPStrategyErrorResilienceTest(parameterized.TestCase):

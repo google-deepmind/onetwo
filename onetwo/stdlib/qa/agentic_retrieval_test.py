@@ -18,10 +18,12 @@ from collections.abc import AsyncIterator, Callable, Sequence
 import contextlib
 import dataclasses
 import functools
+import re
 from typing import Any
 
 from absl.testing import absltest
 from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
 from onetwo.stdlib.qa import agentic_retrieval
@@ -256,7 +258,6 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     backend.register()
     strategy = agentic_retrieval.AgenticRetrievalStrategy(
         tools=[_corpus_source({'capital of France': [_DOCS['d1']]}, queries)],
-        instructions=agentic_retrieval.RETRIEVAL_INSTRUCTIONS,
     )
 
     result = executing.run(strategy('What is the capital of France?'))
@@ -279,10 +280,13 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       first_turn = backend.seen_messages[0][0]
       self.assertEqual(first_turn.role, _USER)
       self.assertIn('What is the capital of France?', str(first_turn.content))
-    with self.subTest('passes_on_the_instructions_it_was_given'):
-      self.assertIn(
-          agentic_retrieval.RETRIEVAL_INSTRUCTIONS,
-          str(backend.seen_messages[0][0].content),
+    with self.subTest('sends_the_default_prompt'):
+      self.assertEqual(
+          first_turn.content,
+          agentic_retrieval.DEFAULT_MCP_QUERY_TEMPLATE.format(
+              question='What is the capital of France?',
+              additional_instructions='',
+          ),
       )
 
   def test_each_question_gets_its_own_tools(self):
@@ -371,6 +375,42 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     with self.subTest('and_it_is_not_reported'):
       self.assertEmpty(result.docs)
 
+  def test_reports_the_documents_found_in_the_answer_when_asked(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='capital of France')]),
+            _model_turn('Paris [d1], not Berlin [d2].'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_corpus_source({'capital of France': [_DOCS['d1']]})],
+        doc_ids_from_answer=lambda answer: re.findall(r'\[(\w+)\]', answer),
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    self.assertEqual([doc.doc_id for doc in result.docs], ['d1', 'd2'])
+
+  def test_does_not_look_for_documents_in_an_empty_answer(self):
+    backend = _ScriptedBackend(
+        replies=[_model_turn(calls=[_call('search', query='france')])]
+    )
+    backend.register()
+    answers_seen = []
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_corpus_source({'france': [_DOCS['d1']]})],
+        max_steps=1,
+        doc_ids_from_answer=lambda answer: answers_seen.append(answer) or [],
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('reports_no_documents'):
+      self.assertEmpty(result.docs)
+    with self.subTest('never_calls_the_parser'):
+      self.assertEmpty(answers_seen)
+
   def test_mixes_shared_tools_with_per_question_ones(self):
     backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
     backend.register()
@@ -410,11 +450,6 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       self.assertEqual(result.answer, 'Paris.')
     with self.subTest('declares_no_tools'):
       self.assertEmpty(backend.seen_tools[0])
-    with self.subTest('passes_on_the_default_instructions'):
-      self.assertIn(
-          agentic_retrieval.DEFAULT_INSTRUCTIONS,
-          str(backend.seen_messages[0][0].content),
-      )
 
   def test_the_model_may_search_as_many_times_as_it_wants(self):
     # The point of the loop: the second query is one the caller never wrote
@@ -483,7 +518,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
 
     self.assertEqual(result.answer, 'Paris.')
 
-  def test_running_out_of_steps_returns_what_the_model_last_said(self):
+  def test_running_out_of_steps_returns_no_answer(self):
     backend = _ScriptedBackend(
         replies=[_model_turn(calls=[_call('search', query='france')])]
     )
@@ -499,6 +534,98 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       self.assertLen(backend.seen_messages, 2)
     with self.subTest('has_no_answer_to_report'):
       self.assertEmpty(result.answer)
+
+  def test_text_alongside_a_pending_call_is_not_the_answer(self):
+    # On reaching `max_steps` the last turn may still request a tool call,
+    # with some thinking aloud next to it; that text is not a final answer.
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                'Let me search for [d1].',
+                calls=[_call('search', query='france')],
+            )
+        ]
+    )
+    backend.register()
+    answers_seen = []
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_corpus_source({'france': [_DOCS['d1']]})],
+        max_steps=1,
+        doc_ids_from_answer=lambda answer: answers_seen.append(answer) or [],
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('has_no_answer_to_report'):
+      self.assertEmpty(result.answer)
+    with self.subTest('reports_no_documents'):
+      self.assertEmpty(result.docs)
+    with self.subTest('never_calls_the_parser'):
+      self.assertEmpty(answers_seen)
+
+  def test_a_query_template_is_filled_in(self):
+    template = 'Look it up.{additional_instructions}\nQ: {question} {{end}}'
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        query_template=template
+    )
+
+    executing.run(strategy('Capital of France?'))
+    without_additional = backend.seen_messages[0][0].content
+    backend.seen_messages.clear()
+    executing.run(
+        strategy('Capital of France?', additional_instructions='Be brief.')
+    )
+    with_additional = backend.seen_messages[0][0].content
+
+    with self.subTest('fills_in_the_question'):
+      self.assertEqual(
+          without_additional, 'Look it up.\nQ: Capital of France? {end}'
+      )
+    with self.subTest('puts_additional_instructions_on_their_own_line'):
+      self.assertEqual(
+          with_additional, 'Look it up.\nBe brief.\nQ: Capital of France? {end}'
+      )
+
+  def test_a_query_template_takes_the_text_of_a_chunk_list_question(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        query_template='{additional_instructions}Q: {question} {{end}}'
+    )
+    question = content_lib.ChunkList(['Capital of ', 'France?'])
+
+    executing.run(strategy(question))
+
+    self.assertEqual(
+        backend.seen_messages[0][0].content, 'Q: Capital of France? {end}'
+    )
+
+  def test_a_query_template_without_a_question_is_rejected(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        query_template='{additional_instructions}'
+    )
+
+    with self.assertRaisesRegex(ValueError, 'question'):
+      executing.run(strategy('Capital of France?'))
+
+  def test_a_query_template_need_not_take_additional_instructions(self):
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        query_template='Answer: {question}'
+    )
+
+    executing.run(
+        strategy('Capital of France?', additional_instructions='Be brief.')
+    )
+
+    self.assertEqual(
+        backend.seen_messages[0][0].content, 'Answer: Capital of France?'
+    )
 
   def test_is_available_from_the_strategy_registry(self):
     with self.subTest('can_be_built_by_name'):

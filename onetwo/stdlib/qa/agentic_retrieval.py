@@ -34,18 +34,22 @@ and is discovered at run time.
 ```python
   strategy = agentic_retrieval.AgenticRetrievalStrategy(
       tools=[mcp_tools.server('http://host:8777/mcp')],
-      instructions=agentic_retrieval.RETRIEVAL_INSTRUCTIONS,
   )
   result = ot.run(strategy('What is the population of the capital of France?'))
   print(result.answer)
 ```
 
-Note: `StrategyResult.docs` is always empty, so the retrieval metrics in
+Note: By default `StrategyResult.docs` is empty, so the retrieval metrics in
 `rag_metrics` i.e. recall@k does not apply here, and only the answer-level ones,
 such as an AI rater's accuracy, are meaningful. That is a gap rather than an
 oversight: what a tool returned could be recovered by looking for document ids
 in the finished conversation, but feeding that to recall@k would produce a
 number that looks comparable to a single-shot strategy and is not.
+
+A caller whose prompt asks the model to cite its evidence can instead pass
+`doc_ids_from_answer` to report the documents the answer cites, e.g.
+`mcp_strategies.extract_cited_doc_ids`. That measures what the model relied on,
+not what it retrieved, and is the same quantity the `'mcp'` strategy reports.
 
 TODO: Work out what retrieval quality means for an agentic loop,
 and report it. Three things need deciding before a number is worth having:
@@ -63,7 +67,7 @@ The strategy is registered as `'agentic_retrieval'`, so it can also be built
 through `strategies_lib.get_strategy('agentic_retrieval', tools=[...])`.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
 from typing import Any, cast
 
@@ -73,29 +77,36 @@ from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
 from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.retrieval import retrieval_data_structures
 
+_Document = retrieval_data_structures.Document
 _PromptContent = str | content_lib.ChunkList
 _StrategyResult = qa.StrategyResult
 
 
-# What the model is told before the question when it is given arbitrary tools.
-DEFAULT_INSTRUCTIONS = (
-    'Answer the question using the tools available to you. Use them as many'
-    ' times as you need to. When you have enough to answer, reply with the'
-    ' answer in prose rather than with another tool call.'
-)
-
-# The same, to pass as `instructions` when the tools search a corpus. It says
-# nothing about how to search, since choosing that is the whole point of
-# handing over the tools, and it names no tool, since which ones exist is the
-# caller's business -- an MCP server is discovered at run time.
-RETRIEVAL_INSTRUCTIONS = (
-    'Answer the question using the tools available to you to search for'
-    ' relevant passages. Search as many times as you need to, rewording the'
-    ' query if the results are not useful, and read a passage in full when'
-    ' its summary looks promising and a tool will give you the rest. When you'
-    ' have enough to answer, reply with the answer in prose rather than with'
-    ' another tool call.'
+# What the model is sent before it has made any tool call. The same prompt as
+# `mcp_strategies.default_qa_template_mcp`, copied rather than imported so that
+# this module does not depend on the MCP client libraries, and kept identical so
+# that the two strategies differ only in how tools are called. It is a
+# minimally-modified version of the prompt from the BrowseComp-Plus paper
+# (https://arxiv.org/abs/2508.06600). Its wording refers to an MCP server, hence
+# the name; `tools` need not be MCP tools, in which case a different
+# `query_template` may be more appropriate.
+DEFAULT_MCP_QUERY_TEMPLATE = (
+    'You are a deep research agent. You need to answer the given question by'
+    ' interacting with an MCP server, using the tools provided. Please perform'
+    ' reasoning and use the tools in a step by step, interleaved manner. You'
+    ' may use the tools multiple times. {additional_instructions}'
+    '\n\n'
+    'Question: {question}'
+    '\n\n'
+    'Your response should be in the following format:\n'
+    'Explanation: {{your explanation for your final answer. For this'
+    ' explanation section only, you should cite your evidence documents inline'
+    ' by enclosing their docids in square brackets [] at the end of sentences.'
+    ' For example, [20].}}\n'
+    'Exact Answer: {{your succinct, final answer}}\n'
+    'Confidence: {{your confidence score between 0% and 100% for your answer}}'
 )
 
 
@@ -107,18 +118,55 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     tools: What the model may call. May be any of the types accepted by
       `agent_lib.AgentTool`.
     max_steps: Bound on the number of model calls, so that a model that keeps
-      calling tools cannot loop forever. On reaching it the strategy returns
-      whatever the model last said, which may be nothing.
-    instructions: What the model is told before the question. See
-      `RETRIEVAL_INSTRUCTIONS` for wording that suits a index.
+      calling tools cannot loop forever. On reaching it the strategy returns no
+      answer if the model's last turn still requests tool calls.
+    query_template: What the model is sent before it has made any tool call. A
+      `str.format` template with a `{question}` placeholder and, optionally, an
+      `{additional_instructions}` one, the latter filled with whatever
+      `additional_instructions` the question is asked with, on a line of its
+      own, or with nothing. Literal braces must be doubled.
     generate_kwargs: Generation parameters passed through to the backend on
       every call, e.g. `{'temperature': 0.0}`.
+    doc_ids_from_answer: If set, called on the final answer for the ids of the
+      documents to report in `StrategyResult.docs`, e.g.
+      `mcp_strategies.extract_cited_doc_ids` for the ones the answer cites. If
+      not, no documents are reported; see the module docstring for why.
   """
 
   tools: Sequence[agent_lib.AgentTool] = ()
   max_steps: int = 100
-  instructions: str = DEFAULT_INSTRUCTIONS
+  query_template: str = DEFAULT_MCP_QUERY_TEMPLATE
   generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  doc_ids_from_answer: Callable[[str], Sequence[str]] | None = None
+
+  def _first_turn_content(
+      self, question: _PromptContent, additional_instructions: str
+  ) -> str:
+    """Returns what the model is sent before it has made any tool call.
+
+    Args:
+      question: The question to answer.
+      additional_instructions: Extra instructions for this question, or `''`.
+
+    Returns:
+      `query_template`, filled in.
+
+    Raises:
+      ValueError: If `query_template` has no `{question}` placeholder.
+    """
+    if '{question}' not in self.query_template:
+      raise ValueError(
+          'query_template must contain a {question} placeholder, got:'
+          f' {self.query_template!r}'
+      )
+    instructions_block = (
+        f'\n{additional_instructions}' if additional_instructions else ''
+    )
+    # TODO` keeps the text
+    # of a `ChunkList` but replaces any non-text chunk with a placeholder.
+    return self.query_template.format(
+        question=str(question), additional_instructions=instructions_block
+    )
 
   @executing.make_executable(copy_self=False)
   async def __call__(
@@ -130,14 +178,21 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
 
     Args:
       question: The question to answer.
-      **query_time_kwargs: Accepted for consistency with the other strategies
-        and ignored: which tools to use and how is the model's decision here, so
-        there is nothing left for the caller to pass through.
+      **query_time_kwargs: `additional_instructions`, if given, is a string
+        added to what the model is told before the question, e.g. to describe
+        the corpus the tools search. Anything else is accepted for consistency
+        with the other strategies and ignored: which tools to use and how is the
+        model's decision here, so there is nothing left for the caller to pass
+        through.
 
     Returns:
-      The model's answer, and no documents. See the module docstring for why
-      `docs` is empty and what would have to be settled to fill it.
+      The model's answer, and the documents `doc_ids_from_answer` finds in it,
+      or none if it is not set. See the module docstring for why `docs` is
+      empty by default and what would have to be settled to fill it.
     """
+    additional_instructions = query_time_kwargs.pop(
+        'additional_instructions', ''
+    )
     del query_time_kwargs
     # One question is one run of the agent.
     agent = agent_lib.Agent(
@@ -145,16 +200,24 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         max_steps=self.max_steps,
         generate_kwargs=self.generate_kwargs,
     )
-    opening = f'{self.instructions}\n\nQUESTION:\n'
     turn = fc_types.ConversationTurn(
-        role=fc_types.ConversationRole.USER, content=opening + question
+        role=fc_types.ConversationRole.USER,
+        content=self._first_turn_content(question, additional_instructions),
     )
     final_turn = cast(fc_types.ConversationTurn | None, await agent([turn]))
 
     answer = ''
-    if final_turn is not None and final_turn.content:
+    # A turn that still requests tool calls, e.g. because `max_steps` was
+    # reached, is not a final answer, even if it has some text alongside.
+    if final_turn is not None and final_turn.content and not final_turn.calls:
       answer = str(final_turn.content)
-    return _StrategyResult(answer=answer, docs=[])
+    docs = []
+    if self.doc_ids_from_answer is not None and answer:
+      docs = [
+          _Document(doc_id=doc_id)
+          for doc_id in self.doc_ids_from_answer(answer)
+      ]
+    return _StrategyResult(answer=answer, docs=docs)
 
 
 strategies_lib.register_strategy('agentic_retrieval', AgenticRetrievalStrategy)

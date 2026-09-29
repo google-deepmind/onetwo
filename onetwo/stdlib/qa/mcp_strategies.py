@@ -67,7 +67,7 @@ default_qa_template_mcp = (
 )
 
 
-def _extract_cited_doc_ids(answer: str) -> list[str]:
+def extract_cited_doc_ids(answer: str) -> list[str]:
   """Extracts unique cited document IDs from the answer.
 
   Parses bracket-enclosed citations from the model's response text and returns
@@ -631,7 +631,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
             answer=answer_str,
             docs=[
                 qa._Document(doc_id=d)
-                for d in _extract_cited_doc_ids(answer_str)
+                for d in extract_cited_doc_ids(answer_str)
             ],
         )
       logging.exception('Error during GoogleGenAIMCPStrategy execution')
@@ -640,7 +640,7 @@ class GoogleGenAIMCPStrategy(qa.QAStrategy[_PromptContent, StrategyResult]):
     return StrategyResult(
         answer=answer_str,
         docs=[
-            qa._Document(doc_id=d) for d in _extract_cited_doc_ids(answer_str)
+            qa._Document(doc_id=d) for d in extract_cited_doc_ids(answer_str)
         ],
     )
 
