@@ -497,6 +497,20 @@ class ContentTest(parameterized.TestCase):
     self.assertEqual('hello world<ctrl> done', l.to_simple_string())
 
   @parameterized.named_parameters(
+      ('str', 'str'),
+      ('ctrl', 'ctrl'),
+      ('text_plain', 'text/plain'),
+      ('text_markdown', 'text/markdown'),
+      ('text_html', 'text/html'),
+  )
+  def test_chunk_with_str_content_type_renders_content(self, content_type):
+    chunk = _Chunk('abc', content_type=content_type)
+    self.assertEqual('abc', str(chunk))
+    self.assertEqual('Chunk(abc, role=None)', repr(chunk))
+    self.assertEqual('xabc', str(_ChunkList(['x', chunk])))
+    self.assertEqual('xabc', _ChunkList(['x', chunk]).to_simple_string())
+
+  @parameterized.named_parameters(
       ('empty_str', '', True),
       ('empty_bytes', b'', True),
       ('empty_pil', PIL.Image.Image(), True),

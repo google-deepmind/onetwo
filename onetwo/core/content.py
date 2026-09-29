@@ -137,6 +137,22 @@ def _get_content_type_prefix(content_type: str) -> str:
   return 'Unknown'
 
 
+def _is_str_content_type(content_type: str) -> bool:
+  """Returns whether content_type denotes string content.
+
+  The entries of `_CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']` are prefixes,
+  so e.g. 'text/plain' and 'text/markdown' are string content types, like
+  'str' and 'ctrl'.
+
+  Args:
+    content_type: The content_type to check.
+  """
+  return (
+      _get_content_type_prefix(content_type)
+      in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']
+  )
+
+
 class PredefinedRole(enum.Enum):
   """Predefined roles for a message.
 
@@ -219,7 +235,7 @@ class Chunk:
 
   def __str__(self) -> str:
     # This function is lossless on string and lossy on byte content.
-    if self.content_type in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']:
+    if _is_str_content_type(self.content_type):
       return cast(str, self.content)
     else:
       return f'<{self.content_type}>'
@@ -228,7 +244,7 @@ class Chunk:
     # For debug purposes. This function is lossless on string and lossy on any
     # other content. To idea is to have a concise representation of the chunks
     # that can be used for debugging.
-    if self.content_type in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']:
+    if _is_str_content_type(self.content_type):
       return f'Chunk({self.content}, role={self.role})'
     else:
       return f'Chunk(<{self.content_type}>, role={self.role})'
@@ -558,7 +574,8 @@ class ChunkList:
   def to_simple_string(self) -> str:
     """Converts the chunk list to a string whithout the multimodal elements.
 
-    This includes the strings and the control tokens (content_type 'ctrl').
+    This includes the strings (content_type 'str' or 'text/*') and the control
+    tokens (content_type 'ctrl').
 
     Returns:
       A string containing all the string elements of the chunk list.
@@ -566,7 +583,7 @@ class ChunkList:
     return ''.join([
         str(chunk)
         for chunk in self.chunks
-        if chunk.content_type in _CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']
+        if _is_str_content_type(chunk.content_type)
     ])
 
 
