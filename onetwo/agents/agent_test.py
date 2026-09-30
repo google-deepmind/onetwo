@@ -964,6 +964,102 @@ class FCAgentTracingTest(absltest.TestCase):
     # answered for a stage's inputs and outputs.
     self.assertIsInstance(detail['response'], _Opaque)
 
+  def test_formats_the_thoughts_and_calls_of_a_run(self):
+    backend = _ScriptedBackend(
+        replies=[
+            fc_types.ConversationTurn(
+                role=_MODEL,
+                thought='I should look that up.',
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    ),
+                    fc_types.FunctionCall(
+                        '_explode', kwargs={'reason': 'boom'}
+                    ),
+                ],
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather, _explode])
+
+    _, execution_result = executing.run(
+        agent('Weather in London?'), enable_tracing=True
+    )
+
+    self.assertEqual(
+        agent_lib.format_tool_calls(execution_result),
+        "thought: I should look that up.\n"
+        "_get_weather({'location': 'London'})\n"
+        "  -> {'location': 'London', 'temp': 15}\n"
+        "_explode({'reason': 'boom'})\n"
+        '  !! ValueError: boom',
+    )
+
+  def test_format_cuts_long_results(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather])
+
+    _, execution_result = executing.run(
+        agent('Weather in London?'), enable_tracing=True
+    )
+
+    with self.subTest('keeps_the_ellipsis_within_max_chars'):
+      self.assertEqual(
+          agent_lib.format_tool_calls(execution_result, max_chars=10),
+          "_get_weather({'location': 'London'})\n  -> {'locat...",
+      )
+    with self.subTest('cuts_without_an_ellipsis_when_it_does_not_fit'):
+      self.assertEqual(
+          agent_lib.format_tool_calls(execution_result, max_chars=2),
+          "_get_weather({'location': 'London'})\n  -> {'",
+      )
+
+  def test_format_shows_every_kind_of_detail_a_backend_records(self):
+    # As a backend that runs the tools itself records them: on the model call,
+    # possibly with a response it could not match to any call.
+    trace = results.ExecutionResult(
+        stage_name='llm.generate_text',
+        info={
+            fc_types.TOOL_DETAILS_INFO_KEY: [
+                fc_types.FunctionCallDetail(
+                    name='now', response='12:00'
+                ).to_dict(),
+                fc_types.FunctionResponseDetail(
+                    name='search', response='found'
+                ).to_dict(),
+            ]
+        },
+    )
+
+    self.assertEqual(
+        agent_lib.format_tool_calls(trace),
+        'now()\n  -> 12:00\nsearch (no matching call)\n  -> found',
+    )
+
+  def test_format_rejects_a_detail_of_unknown_type(self):
+    trace = results.ExecutionResult(
+        stage_name='llm.generate_text',
+        info={fc_types.TOOL_DETAILS_INFO_KEY: [{'type': 'something_new'}]},
+    )
+
+    with self.assertRaisesRegex(ValueError, 'something_new'):
+      agent_lib.format_tool_calls(trace)
+
 
 if __name__ == '__main__':
   absltest.main()

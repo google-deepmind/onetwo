@@ -33,7 +33,7 @@ Usage:
 ```python
   backend.register()
   agent = agent_lib.Agent(tools=[get_weather, search])
-  turn = ot.run(agent('What is the weather in London?'))
+  result = ot.run(agent('What is the weather in London?'))
   print(turn.content)
 ```
 
@@ -44,6 +44,13 @@ list, and is connected to for the length of a run:
   agent = agent_lib.Agent(
       tools=[get_weather, mcp_tools.server('http://localhost:8777/mcp')]
   )
+```
+
+To see what the model called and what came back, run with tracing:
+
+```python
+  result, trace = ot.run(agent(question), enable_tracing=True)
+  print(agent_lib.format_tool_calls(trace))
 ```
 """
 
@@ -59,6 +66,7 @@ from onetwo.agents import agents_base
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
+from onetwo.core import results
 from onetwo.core import tracing
 from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import tool_schema
@@ -541,3 +549,58 @@ class Agent(
       if turn.role == fc_types.ConversationRole.MODEL:
         return turn
     return None
+
+
+def _clip(value: Any, max_chars: int) -> str:
+  """Returns `value` as text of at most `max_chars` characters."""
+  text = str(value)
+  if len(text) <= max_chars:
+    return text
+  if max_chars < len('...'):
+    return text[:max_chars]
+  return text[: max_chars - len('...')] + '...'
+
+
+def format_tool_calls(
+    execution_result: results.ExecutionResult, max_chars: int = 160
+) -> str:
+  """Returns the thoughts and tool calls recorded in a trace, in order.
+
+  Each call is shown with what it returned, or with why it failed:
+
+    thought: I should look that up.
+    get_weather({'location': 'London'})
+      -> {'temp': 15}
+    explode({'reason': 'boom'})
+      !! ValueError: boom
+
+  A call without arguments is shown as `name()`. Calls are not grouped by step,
+  since the trace details do not say where one step ends.
+
+  Args:
+    execution_result: The trace of a run, as returned by `ot.run` with
+      `enable_tracing=True`.
+    max_chars: Longer thoughts, results and errors are cut to this length.
+
+  Returns:
+    One line per thought and per call, and one per call's outcome.
+  """
+  lines = []
+  for detail in fc_types.collect_tool_call_details(execution_result):
+    detail_type = detail.get('type')
+    if detail_type == 'thought':
+      lines.append(f'thought: {_clip(detail.get("text", ""), max_chars)}')
+      continue
+    if detail_type == 'function_call':
+      lines.append(f'{detail["name"]}({detail.get("args") or ""})')
+    elif detail_type == 'function_response':
+      # A response the backend could not match to any call it recorded.
+      lines.append(f'{detail["name"]} (no matching call)')
+    else:
+      raise ValueError(f'Unknown detail type: {detail_type}')
+    response = detail.get('response')
+    if isinstance(response, dict) and set(response) == {'error'}:
+      lines.append(f'  !! {_clip(response["error"], max_chars)}')
+    else:
+      lines.append(f'  -> {_clip(response, max_chars)}')
+  return '\n'.join(lines)
