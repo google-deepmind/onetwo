@@ -162,6 +162,105 @@ def make_recall_at_k(
   return recall_at_k
 
 
+def _golden_rank(
+    retrieved_ids: Sequence[str], golden_ids: Sequence[str]
+) -> int | None:
+  """Returns the 1-based rank of the first golden document, if retrieved."""
+  golden = set(golden_ids)
+  for rank, doc_id in enumerate(retrieved_ids, start=1):
+    if doc_id in golden:
+      return rank
+  return None
+
+
+def make_mrr_at_k(
+    k: int | None = None,
+    golden_doc_ids_extractor: Callable[[_ExampleDict], list[str]] | None = None,
+    strip_chunk_suffix: bool = True,
+) -> Callable[..., tuple[float, dict[str, Any]]]:
+  """Returns an mrr@k (Mean Reciprocal Rank) metric function for RAG evaluation.
+
+  Usage example:
+    ```python
+    mrr_at_2 = make_mrr_at_k(k=2)
+
+    prediction = StrategyResult(
+        answer='Generated answer',
+        docs=[Document(doc_id='doc_2'), Document(doc_id='doc_1')],
+    )
+    example = {
+        'metadata': {
+            'golden_doc_ids': ['doc_1'],
+        }
+    }
+
+    score, info = mrr_at_2(
+        target='',
+        prediction=prediction,
+        example=example,
+    )
+    # score: 0.5 ('doc_1' is at rank 2)
+    # info: {'golden_doc_ids': ['doc_1'],
+    #        'retrieved_doc_ids': ['doc_2', 'doc_1'],
+    #        'golden_rank': 2}
+    ```
+
+  Args:
+    k: The number of retrieved documents to consider. If None, all retrieved
+      documents are considered.
+    golden_doc_ids_extractor: A function that takes the dataset example and
+      returns a list of golden document IDs (as strings). If None, defaults to
+      using the 'golden_doc_ids' field in the example's 'metadata' field.
+    strip_chunk_suffix: If True, strips the '_chunkNNN' suffix from retrieved
+      document IDs before matching against golden document IDs.
+
+  Returns:
+    A metric function (conforming to `evaluation.MetricFunction`) that takes the
+    target, prediction, and example, and returns a tuple of mrr@k score and
+    extra_info_dict (containing golden_doc_ids, retrieved_doc_ids, and
+    golden_rank).
+  """
+  golden_doc_ids_extractor = (
+      golden_doc_ids_extractor or _default_golden_doc_ids_extractor
+  )
+
+  def mrr_at_k(
+      target: str,
+      prediction: StrategyResult,
+      example: _ExampleDict | None = None,
+  ) -> tuple[float, dict[str, Any]]:
+    """Computes reciprocal rank at k of retrieved doc_ids against golden docs."""
+    del target  # Unused.
+    if prediction is None:
+      return 0.0, {}
+    if not example:
+      raise ValueError('Example is required to retrieve golden_doc_ids.')
+
+    gold_ids = [str(gid) for gid in golden_doc_ids_extractor(example)]
+    if not gold_ids:
+      return 1.0, {}
+
+    retrieved_ids = [doc.doc_id for doc in prediction.docs]
+    if k is not None:
+      retrieved_ids = retrieved_ids[:k]
+    retrieved_ids = [str(rid) for rid in retrieved_ids]
+
+    original_retrieved_ids = retrieved_ids.copy()
+    if strip_chunk_suffix:
+      retrieved_ids = [_strip_chunk_suffix(rid) for rid in retrieved_ids]
+
+    rank = _golden_rank(retrieved_ids, gold_ids)
+    score = 1.0 / rank if rank is not None else 0.0
+    extra_evaluation_info = {
+        'golden_doc_ids': gold_ids,
+        'retrieved_doc_ids': original_retrieved_ids,
+        'golden_rank': rank,
+    }
+    return score, extra_evaluation_info
+
+  return mrr_at_k
+
+
 def make_accuracy_critic(
     backend_config: backend_registry.GenerateBackendConfig | None = None,
     runtime_kwargs: dict[str, Any] | None = None,

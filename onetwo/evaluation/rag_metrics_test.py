@@ -183,6 +183,44 @@ class MetricsLibTest(parameterized.TestCase):
     self.assertEqual(score, 0.0)
     self.assertEqual(info, {})
 
+  @parameterized.named_parameters(
+      ('mrr_at_1_rank_1', 1, ['doc1', 'doc2'], ['doc1'], 1.0, 1),
+      ('mrr_at_1_rank_2_outside_k', 1, ['doc1', 'doc2'], ['doc2'], 0.0, None),
+      ('mrr_at_5_rank_2_chunked', 5, ['doc1', 'doc2_chunk1'], ['doc2'], 0.5, 2),
+      ('mrr_all_rank_2', None, ['doc1', 'doc2'], ['doc2'], 0.5, 2),
+      ('mrr_not_found', 5, ['doc1', 'doc2'], ['doc99'], 0.0, None),
+      ('mrr_empty_gold', 5, ['doc1'], [], 1.0, None),
+  )
+  def test_mrr_at_k_calculation(
+      self, k, prediction_doc_ids, golden_doc_ids, expected_mrr, expected_rank
+  ):
+    example = {'metadata': {'golden_doc_ids': golden_doc_ids}}
+    prediction = StrategyResult(
+        answer='some answer',
+        docs=[
+            retrieval_data_structures.Document(doc_id=d)
+            for d in prediction_doc_ids
+        ],
+    )
+    mrr_fn = rag_metrics.make_mrr_at_k(k=k)
+    mrr, extra_info = mrr_fn(target='', prediction=prediction, example=example)
+    self.assertAlmostEqual(mrr, expected_mrr)
+    if golden_doc_ids:
+      self.assertEqual(extra_info['golden_doc_ids'], golden_doc_ids)
+      self.assertEqual(extra_info['golden_rank'], expected_rank)
+    else:
+      self.assertEqual(extra_info, {})
+
+  def test_mrr_at_k_none_prediction(self):
+    mrr_fn = rag_metrics.make_mrr_at_k(k=5)
+    score, info = mrr_fn(
+        target='',
+        prediction=None,
+        example={'metadata': {'golden_doc_ids': ['doc1']}},
+    )
+    self.assertEqual(score, 0.0)
+    self.assertEqual(info, {})
+
   def test_accuracy_critic_none_prediction(self):
     accuracy_critic_fn = rag_metrics.make_accuracy_critic()
     score, info = executing.run(
@@ -677,6 +715,7 @@ class MetricsLibTest(parameterized.TestCase):
         target='a', prediction='b', execution_result=trace
     )
     self.assertEqual(elapsed, 0.0)
+
 
 if __name__ == '__main__':
   absltest.main()
