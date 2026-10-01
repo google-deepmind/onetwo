@@ -509,6 +509,18 @@ class PrefixForTaskTypeTest(parameterized.TestCase):
           title=None,
           expected=None,
       ),
+      dict(
+          testcase_name='no_task_type_and_empty_title',
+          task_type=None,
+          title='',
+          expected=None,
+      ),
+      dict(
+          testcase_name='retrieval_document_with_empty_title',
+          task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
+          title='',
+          expected='title: none | text: ',
+      ),
   )
   def test_prefix_for_task_type(self, task_type, title, expected):
     self.assertEqual(expected, llm.prefix_for_task_type(task_type, title))

@@ -87,14 +87,16 @@ def prefix_for_task_type(
 
   Args:
     task_type: The task type for the embedding, or None if unspecified. Passing
-      a `title` without a `task_type` is treated as `RETRIEVAL_DOCUMENT`.
+      a non-empty `title` without a `task_type` is treated as
+      `RETRIEVAL_DOCUMENT`; an empty or missing `title` without a `task_type`
+      results in no prefix.
     title: Optional title of the content, only used for `RETRIEVAL_DOCUMENT`.
 
   Returns:
     The prefix to prepend to the content, or None if no prefix applies.
   """
   if task_type == EmbedTaskType.RETRIEVAL_DOCUMENT or (
-      task_type is None and title is not None
+      task_type is None and title
   ):
     return f'title: {title or "none"} | text: '
   if task_type is None:
