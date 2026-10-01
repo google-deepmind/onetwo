@@ -14,18 +14,20 @@
 
 """In-memory index runner implementation."""
 
-from typing import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
-from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import executing
-from onetwo.stdlib.retrieval import chunking
-from onetwo.stdlib.retrieval import corpus_rewriting
-from onetwo.stdlib.retrieval import document_formatting
+from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 from onetwo.stdlib.retrieval import serialization
+
+# `builtin_index_specs` is imported above only so that the built-in specs are
+# registered in `index_spec_registry` whenever this runner is available.
 
 
 class LocalIndexRunner(
@@ -34,33 +36,12 @@ class LocalIndexRunner(
         Iterable[retrieval_data_structures.Document] | str,
     ]
 ):
-  """In-memory index runner."""
+  """In-memory index runner.
 
-  def _get_tokenizer_backend(
-      self,
-  ) -> sentencepiece_tokenizer.SentencePieceTokenizer:
-    tokenizer = sentencepiece_tokenizer.SentencePieceTokenizer(
-        model_name="GEMINI3_G145"
-    )
-    tokenizer.register()
-    return tokenizer
-
-  def _get_chunker(
-      self,
-      spec: index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
-  ) -> chunking.Chunker:
-    if spec.max_chunk_size is None:
-      return chunking.NoChunking()
-    if getattr(spec, "chunking_strategy", "words") == "words":
-      return chunking.ChunkByMaxWords(
-          max_words_per_chunk=spec.max_chunk_size,
-          overlap_window=spec.overlap_window,
-      )
-    return chunking.ChunkByMaxTokens(
-        max_tokens_per_chunk=spec.max_chunk_size,
-        overlap_window=spec.overlap_window,
-        tokenizer_backend=self._get_tokenizer_backend(),
-    )
+  Supports every spec registered in `index_spec_registry`, including custom
+  specs registered by user code. (The Beam runner only supports the built-in
+  embedding specs.)
+  """
 
   @executing.make_executable(copy_self=False)
   async def build_index(
@@ -68,104 +49,26 @@ class LocalIndexRunner(
       spec: index_build_interface.IndexSpec,
       docs: Iterable[retrieval_data_structures.Document] | str,
       output_dir: str | None = None,
+      runtime_kwargs: Mapping[str, Any] | None = None,
       **kwargs,
   ) -> indexing.Index:
-    """Builds a DocumentIndex in memory."""
+    """Builds a DocumentIndex in memory and optionally saves it."""
     if isinstance(docs, str):
       docs = serialization.load_documents(
           docs, doc_class=retrieval_data_structures.Document
       )
 
-    runtime_kwargs = {}
-    if isinstance(spec, index_build_interface.EmbeddingBasedDocumentIndexSpec):
-      runtime_kwargs = spec.runtime_kwargs
-
-    if isinstance(
-        spec, index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec
-    ):
-      chunker = self._get_chunker(spec)
-      if spec.format_str is None:
-        formatter = document_formatting.NoFormatting()
-      else:
-        formatter = document_formatting.TextDocumentFormatter(
-            format_str=spec.format_str
-        )
-      rewriter = corpus_rewriting.SequentialCorpusRewriter(
-          rewriters=[
-              corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
-              corpus_rewriting.FormattingCorpusRewriter(formatter=formatter),
-          ]
-      )
-
-      extractor = graph_lib.GraphRAGEntityAndTriplesExtractor(
-          extraction_prompt=graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT.format(
-              entity_types=", ".join(graphrag_prompts.DEFAULT_ENTITY_TYPES)
-          ),
-          generate_backend_config=spec.generate_backend_config,
-          runtime_kwargs=runtime_kwargs,
-      )
-      inner_index = graphrag_indexing.HippoRAGDocumentIndex(
-          entity_and_triples_extractor=extractor,
-          embed_backend_config=spec.embed_backend_config,
-          generate_backend_config=spec.generate_backend_config,
-          similarity_threshold=spec.similarity_threshold,
-          ignore_triples=spec.ignore_triples,
-          ignore_similarity_edges=spec.ignore_similarity_edges,
-          runtime_kwargs=runtime_kwargs,
-      )
-      index = indexing.RewritingEmbeddingBasedDocumentIndex(
-          rewriter=rewriter,
-          inner_index=inner_index,  # pyrefly: ignore[bad-argument-type]
-      )
-    elif isinstance(
-        spec,
-        index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
-    ):
-      embed_backend_config = spec.embed_backend_config
-      chunker = self._get_chunker(spec)
-
-      if spec.format_str is None:
-        formatter = document_formatting.NoFormatting()
-      else:
-        formatter = document_formatting.TextDocumentFormatter(
-            format_str=spec.format_str
-        )
-      rewriter = corpus_rewriting.SequentialCorpusRewriter(
-          rewriters=[
-              corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
-              corpus_rewriting.FormattingCorpusRewriter(formatter=formatter),
-          ]
-      )
-      inner_index = indexing.EmbeddingBasedDocumentIndex(
-          embed_backend_config=embed_backend_config,
-          query_task_type=spec.query_task_type,
-          document_task_type=spec.document_task_type,
-          searcher=index_build_interface.make_searcher(spec.searcher_config),
-          serializer_type=spec.serializer_type,
-          runtime_kwargs=runtime_kwargs,
-      )
-      index = indexing.RewritingEmbeddingBasedDocumentIndex(
-          rewriter=rewriter,
-          inner_index=inner_index,
-          serializer_type=spec.serializer_type,
-      )
-    elif isinstance(
-        spec, index_build_interface.EmbeddingBasedDocumentIndexSpec
-    ):
-      index = indexing.EmbeddingBasedDocumentIndex(
-          embed_backend_config=spec.embed_backend_config,
-          query_task_type=spec.query_task_type,
-          document_task_type=spec.document_task_type,
-          searcher=index_build_interface.make_searcher(spec.searcher_config),
-          serializer_type=spec.serializer_type,
-          runtime_kwargs=runtime_kwargs,
-      )
-    else:
-      raise ValueError(f"Unsupported spec type: {type(spec)}")
-
+    index = index_spec_registry.make_index(spec, runtime_kwargs)
     await index.add_docs(docs)
 
     if output_dir:
-      index.save(output_dir)
+      save = getattr(index, 'save', None)
+      if not callable(save):
+        raise TypeError(
+            f'{type(index).__name__} (built for {type(spec).__name__}) does'
+            ' not implement save(base_path), so it cannot be written to'
+            f' output_dir={output_dir!r}.'
+        )
+      save(output_dir)
 
     return index

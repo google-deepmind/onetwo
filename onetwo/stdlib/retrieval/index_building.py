@@ -15,14 +15,18 @@
 """Index building utilities."""
 
 import getpass
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from etils import epath
 from onetwo.core import executing
 
+from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
+
+# `builtin_index_specs` is imported above so that the built-in specs are
+# registered in `index_spec_registry` for every user of this module.
 
 IndexSpec = index_build_interface.IndexSpec
 SearcherConfig = index_build_interface.SearcherConfig
@@ -57,6 +61,7 @@ async def build_index(
     docs: Iterable[retrieval_data_structures.Document] | str,
     output_dir: str | None = None,
     runner: str = "local",
+    runtime_kwargs: Mapping[str, Any] | None = None,
     **kwargs,
 ) -> Any:
   """Builds an index using the specified runner.
@@ -66,6 +71,8 @@ async def build_index(
     docs: Documents to index.
     output_dir: Optional directory to save the built index.
     runner: The runner to use (e.g., "local").
+    runtime_kwargs: Environment-specific settings and credentials for the
+      index's backends (e.g. API key). Not saved with the index.
     **kwargs: Runner-specific arguments.
 
   Returns:
@@ -82,6 +89,7 @@ async def build_index(
       spec=spec,
       docs=docs,
       output_dir=output_dir,
+      runtime_kwargs=runtime_kwargs,
       **kwargs,
   )
 

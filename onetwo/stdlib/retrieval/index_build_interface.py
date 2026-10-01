@@ -167,7 +167,11 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
 class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
-  """Specification for building a HippoRAGDocumentIndex.
+  """Base specification holding the HippoRAGDocumentIndex fields.
+
+  This spec is not directly buildable: it has no factory registered in
+  `index_spec_registry`, so building an index from it raises a `KeyError`. Use
+  `SimpleRewritingHippoRAGDocumentIndexSpec` to build a HippoRAG index.
 
   Attributes:
     generate_backend_config: Configuration for the generation backend (LLM).

@@ -286,13 +286,14 @@ class LocalIndexRunnerTest(parameterized.TestCase):
       index = ot.run(runner.build_index(spec=spec, docs=docs_path))
       self.assertEqual(index.num_docs, 2)
 
-  def test_get_tokenizer_backend(self):
+  def test_build_index_raises_for_bare_hipporag_spec(self):
     runner = local_index_runner.LocalIndexRunner()
-    tokenizer = runner._get_tokenizer_backend()
-    self.assertIsInstance(
-        tokenizer, sentencepiece_tokenizer.SentencePieceTokenizer
+    spec = index_build_interface.HippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
     )
-    self.assertEqual(tokenizer.model_name, 'GEMINI3_G145')
+    with self.assertRaisesRegex(KeyError, 'HippoRAGDocumentIndexSpec'):
+      ot.run(runner.build_index(spec=spec, docs=[]))
 
   def test_index_spec_serialization(self):
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
