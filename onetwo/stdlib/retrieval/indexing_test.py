@@ -27,6 +27,7 @@ from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import searchers
 
 Document = retrieval_data_structures.Document
 
@@ -153,6 +154,32 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     results = list(ot.run(index(query, max_results=1)))
     self.assertLen(results, 1)
     self.assertEqual(results[0].doc_id, 'doc1')
+
+  def test_retrieve_doc_score_matches_searcher_scores(self):
+    """Tests that retrieve_doc_score scores like the searcher does."""
+    docs = [Document(doc_id='doc1', content='hello')]
+    doc_embed = np.array([3.0, 4.0])
+    query_embed = np.array([1.0, 0.0])
+    for normalize_embeds, expected_score in ((False, 3.0), (True, 0.6)):
+      with self.subTest(f'normalize_embeds={normalize_embeds}'):
+        # Order: doc (add_docs), query (retrieve), query (retrieve_doc_score).
+        mock_embed_fn.embeddings = [doc_embed, query_embed, query_embed]  # pyrefly: ignore[missing-attribute]
+        mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
+        index = indexing.EmbeddingBasedIndex(
+            searcher=searchers.BruteForceSearcher(
+                normalize_embeds=normalize_embeds
+            )
+        )
+        ot.run(index.add_docs(docs))
+
+        [(_, searcher_score)] = ot.run(
+            index.retrieve_doc_indices_and_scores('hello')
+        )
+        score = ot.run(index.retrieve_doc_score('hello', 0))
+
+        self.assertIsInstance(score, float)
+        self.assertAlmostEqual(score, expected_score)
+        self.assertAlmostEqual(score, searcher_score)
 
   def test_localized_backend_initialization(self):
     """Tests that localized backend arguments correctly lazily configure the backend."""

@@ -739,13 +739,27 @@ class EmbeddingBasedIndex(
 
   @executing.make_executable(copy_self=False)
   async def retrieve_doc_score(self, query: QueryT, doc_index: int) -> float:
-    """Returns similarity score of the document at `doc_index` for a query."""
+    """Returns similarity score of the document at `doc_index` for a query.
+
+    The score is computed the same way as in `retrieve_doc_indices_and_scores`:
+    a dot product, with both embeddings L2-normalized first if the searcher
+    has `normalize_embeds` set.
+
+    Args:
+      query: The query used for scoring.
+      doc_index: Index of the document, compatible with `get_docs()`.
+    """
     if doc_index < 0 or doc_index >= len(self._doc_embeddings):
       return 0.0
-    query_embedding = await self._calculate_query_embedding(query)
-    query_embedding = np.array([query_embedding])
+    query_embedding = np.asarray(await self._calculate_query_embedding(query))
     doc_embedding = self._doc_embeddings[doc_index]
-    return np.dot(query_embedding, doc_embedding)
+    if getattr(self.searcher, 'normalize_embeds', False):
+      # Same epsilon as `BruteForceSearcher`.
+      query_embedding = query_embedding / (
+          np.linalg.norm(query_embedding) + 1e-10
+      )
+      doc_embedding = doc_embedding / (np.linalg.norm(doc_embedding) + 1e-10)
+    return float(np.dot(query_embedding, doc_embedding))
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.retrieve_with_scores')
