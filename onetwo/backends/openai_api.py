@@ -25,11 +25,11 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import io
 import json
-import math
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, get_origin
 
 from onetwo.backends import backends_base
+
 import openai
 
 from onetwo.builtins import formatting
@@ -1185,6 +1185,22 @@ class OpenAIAPI(
 
   @executing.make_executable
   @tracing.trace(name='OpenAIAPI.embed')
+  async def embed(
+      self,
+      content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
+      *,
+      normalize: bool = True,
+      **kwargs,
+  ) -> Sequence[float]:
+    """See builtins.llm.embed and `_cached_embed` for the supported kwargs."""
+    embedding = await self._cached_embed(content, task_type, title, **kwargs)
+    # Normalize after the cache so that the cache holds the raw model output.
+    if normalize:
+      return utils.l2_normalize_embedding(embedding)
+    return embedding
+
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
@@ -1195,7 +1211,7 @@ class OpenAIAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def embed(
+  def _cached_embed(
       self,
       content: str | content_lib.ChunkList,
       task_type: llm.EmbedTaskType | str | None = None,
@@ -1218,9 +1234,6 @@ class OpenAIAPI(
       output_dimensionality: Maximum number of dimensions for the output
         embedding vector. Mapped to the OpenAI ``dimensions`` parameter. Only
         supported by text-embedding-3 and later models.
-      normalize: If True, re-normalize the embedding vector to unit norm. Useful
-        when using ``output_dimensionality`` with models that return truncated
-        non-unit-norm vectors.
 
     Returns:
       A sequence of floats representing the embedding vector.
@@ -1270,12 +1283,6 @@ class OpenAIAPI(
           'OpenAIAPI.embed returned empty embedding vector for request:\n'
           f'{pprint.pformat(text)[:100]}'
       )
-
-    # Optionally re-normalize to unit norm (useful for truncated embeddings).
-    if kwargs.get('normalize', False):
-      norm = math.sqrt(sum(v * v for v in values))
-      if norm > 0 and not math.isclose(norm, 1.0, rel_tol=1e-6):
-        values = [v / norm for v in values]
 
     return values
 

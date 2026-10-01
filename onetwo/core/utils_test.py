@@ -1115,5 +1115,41 @@ class PrependPrefixToContentTest(absltest.TestCase):
     self.assertEqual(result, 'prefix: hello')
 
 
+class L2NormalizeEmbeddingTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('not_normalized', (1, 2, 2), [1 / 3, 2 / 3, 2 / 3]),
+      ('outside_tolerance', (1.0 + 1e-5, 0.0), [1.0, 0.0]),
+      ('numpy_array', np.array([3.0, 4.0], dtype=np.float32), [0.6, 0.8]),
+  )
+  def test_l2_normalize_embedding(self, embedding, expected):
+    result = utils.l2_normalize_embedding(embedding)
+
+    with self.subTest('returns_list_of_floats'):
+      self.assertIsInstance(result, list)
+      self.assertTrue(all(isinstance(v, float) for v in result))
+    with self.subTest('returns_expected_values'):
+      self.assertSequenceAlmostEqual(expected, result, places=12)
+
+  @parameterized.named_parameters(
+      ('zero', [0.0, 0.0]),
+      ('unit_norm', [0.6, 0.8]),
+      # Norm is 1 + 5e-7, i.e. within the relative tolerance of 1e-6.
+      ('almost_unit_norm', [1.0 + 5e-7, 0.0]),
+  )
+  def test_l2_normalize_embedding_returns_embedding_unchanged(self, embedding):
+    self.assertSequenceEqual(embedding, utils.l2_normalize_embedding(embedding))
+
+  @parameterized.named_parameters(
+      ('empty', [], 'empty or not 1-D'),
+      ('not_1d', [[0.6, 0.8]], 'empty or not 1-D'),
+      ('nan', [float('nan'), 1.0], 'norm nan'),
+      ('inf', [float('inf'), 1.0], 'norm inf'),
+  )
+  def test_l2_normalize_embedding_raises(self, embedding, error_regex):
+    with self.assertRaisesRegex(ValueError, error_regex):
+      utils.l2_normalize_embedding(embedding)
+
+
 if __name__ == '__main__':
   absltest.main()

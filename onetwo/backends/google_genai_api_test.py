@@ -1582,6 +1582,93 @@ class GoogleGenaiApiTest(
           Counter(add_new=1, get_miss=1),
       )
 
+  def test_embed_normalizes_by_default_and_caches_raw_values(self):
+    backend = _get_and_register_backend()
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
+    raw_embedding = [v * 2.0 for v in _MOCK_EMBEDDING]
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=raw_embedding)]
+        )
+    )
+
+    normalized = executing.run(llm.embed(content='Something'))
+    # Same request with normalize=False: served from the cache, which holds
+    # the raw backend output since normalization happens after the backend.
+    raw = executing.run(llm.embed(content='Something', normalize=False))
+
+    with self.subTest('default_result_is_normalized'):
+      self.assertSequenceAlmostEqual(_MOCK_EMBEDDING, normalized)
+    with self.subTest('normalize_false_returns_raw_cached_value'):
+      self.assertEqual(raw_embedding, raw)
+    with self.subTest('normalize_does_not_affect_cache_key'):
+      self._mock_genai_client.models.embed_content.assert_called_once()
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=1, get_miss=1, get_hit=1),
+      )
+
+  def test_embed_normalizes_truncated_embedding(self):
+    # gemini-embedding-001 returns the first `output_dimensionality` values of
+    # the native unit-norm vector, which are not unit-norm themselves.
+    _ = _get_and_register_backend()
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[
+                genai_types.ContentEmbedding(values=_MOCK_EMBEDDING[:3])
+            ]
+        )
+    )
+
+    res = executing.run(llm.embed(content='Something', output_dimensionality=3))
+
+    with self.subTest('result_is_normalized'):
+      self.assertSequenceAlmostEqual([1 / 3, 2 / 3, 2 / 3], res)
+    with self.subTest('output_dimensionality_is_sent_but_normalize_is_not'):
+      _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+      self.assertEqual(
+          genai_types.EmbedContentConfig(output_dimensionality=3),
+          mock_kwargs['config'],
+      )
+
+  @parameterized.named_parameters(
+      ('configured_true', True, _MOCK_EMBEDDING),
+      ('configured_false', False, [v * 2.0 for v in _MOCK_EMBEDDING]),
+  )
+  def test_embed_uses_configured_normalize_default(self, normalize, expected):
+    _ = _get_and_register_backend()
+    llm.embed.update(normalize=normalize)
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[
+                genai_types.ContentEmbedding(
+                    values=[v * 2.0 for v in _MOCK_EMBEDDING]
+                )
+            ]
+        )
+    )
+
+    res = executing.run(llm.embed(content='Something'))
+
+    with self.subTest('returns_expected_result'):
+      self.assertSequenceAlmostEqual(expected, res)
+    with self.subTest('normalize_is_not_sent_to_the_api'):
+      _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+      self.assertIsNone(mock_kwargs['config'])
+
+  def test_embed_zero_embedding_is_returned_unchanged(self):
+    _ = _get_and_register_backend()
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=[0.0, 0.0])]
+        )
+    )
+
+    res = executing.run(llm.embed(content='Something'))
+
+    self.assertEqual([0.0, 0.0], res)
+
   def test_embed_caching_compatibility(self):
     def make_expected_hash(
         content: str, task_type: str | None, has_task_type: bool = True

@@ -25,7 +25,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import function_calling
 
-
 _T = TypeVar('_T')
 
 _Message: TypeAlias = content_lib.Message
@@ -520,6 +519,30 @@ class PrefixForTaskTypeTest(parameterized.TestCase):
         set(llm.EmbedTaskType) - {llm.EmbedTaskType.RETRIEVAL_DOCUMENT},
         set(llm.PREFIX_FROM_TASK_TYPE),
     )
+
+
+class EmbedTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('default', {}, True),
+      ('normalize', {'normalize': True}, True),
+      ('do_not_normalize', {'normalize': False}, False),
+  )
+  def test_embed_passes_normalize_to_the_implementation(
+      self, embed_kwargs, expected_normalize
+  ):
+    @executing.make_executable
+    def fake_embed(
+        content: str | _ChunkList, *, normalize: bool = True, **kwargs
+    ) -> Sequence[float]:
+      del content, kwargs
+      return [1.0] if normalize else [0.0]
+
+    llm.embed.configure(fake_embed)
+
+    result = executing.run(llm.embed('hello', **embed_kwargs))
+
+    self.assertEqual([1.0] if expected_normalize else [0.0], result)
 
 
 if __name__ == '__main__':

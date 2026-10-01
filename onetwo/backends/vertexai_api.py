@@ -521,6 +521,22 @@ class VertexAIAPI(
 
   @executing.make_executable
   @tracing.trace(name='VertexAIAPI.embed')
+  async def embed(
+      self,
+      content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
+      *,
+      normalize: bool = True,
+      **kwargs,
+  ) -> Sequence[float]:
+    """See builtins.llm.embed."""
+    embedding = await self._cached_embed(content, task_type, title, **kwargs)
+    # Normalize after the cache so that the cache holds the raw model output.
+    if normalize:
+      return utils.l2_normalize_embedding(embedding)
+    return embedding
+
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
@@ -530,14 +546,14 @@ class VertexAIAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def embed(
+  def _cached_embed(
       self,
       content: str | content_lib.ChunkList,
       task_type: llm.EmbedTaskType | str | None = None,
       title: str | None = None,
       **kwargs,
   ) -> Sequence[float]:
-    """See builtins.llm.embed."""
+    """Inner cached method for llm.embed."""
     self._counters['embed'] += 1
     del title, task_type, kwargs
 

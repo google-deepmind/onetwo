@@ -16,7 +16,7 @@
 
 import asyncio
 import collections
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 import copy
 import dataclasses
 import functools
@@ -24,11 +24,13 @@ import hashlib
 import inspect
 import io
 import logging
+import math
 import random
 import threading
 import time
 from typing import Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar, cast, overload
 
+import numpy as np
 from onetwo.core import content as content_lib
 from onetwo.core import executing_impl
 from onetwo.core import function_calling
@@ -852,3 +854,46 @@ def prepend_prefix_to_content(
       new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
     return content_lib.ChunkList(chunks=new_chunks)
   return content
+
+
+_UNIT_NORM_REL_TOL: Final[float] = 1e-6
+
+
+def l2_normalize_embedding(embedding: Sequence[float]) -> list[float]:
+  """Returns the embedding scaled to unit L2 norm.
+
+  Embeddings that are already unit-norm (within a relative tolerance of 1e-6)
+  and zero embeddings are returned unchanged (as a list of floats).
+
+  This is the helper that backends implementing the `llm.embed` builtin use to
+  honour its `normalize` argument.
+
+  Computation is done in float64: it is as fast as float32 here (converting
+  from and to Python lists dominates the cost) and keeps the result exact up to
+  float64 rounding.
+
+  Args:
+    embedding: A flat sequence of numbers.
+
+  Returns:
+    The embedding divided by its L2 norm, as a list of floats.
+
+  Raises:
+    ValueError: If the embedding is empty or not 1-D, or its norm is not
+      finite.
+  """
+  values = np.asarray(embedding, dtype=np.float64)
+  if values.ndim != 1 or values.size == 0:
+    raise ValueError(
+        'Cannot L2-normalize an embedding that is empty or not 1-D (shape'
+        f' {values.shape}).'
+    )
+  norm = float(np.linalg.norm(values))
+  if not math.isfinite(norm):
+    raise ValueError(
+        f'Cannot L2-normalize an embedding with norm {norm} (dimension'
+        f' {values.size}).'
+    )
+  if norm == 0.0 or math.isclose(norm, 1.0, rel_tol=_UNIT_NORM_REL_TOL):
+    return values.tolist()
+  return (values / norm).tolist()

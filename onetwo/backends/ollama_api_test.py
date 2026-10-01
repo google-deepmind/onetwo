@@ -339,6 +339,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     res = executing.run(
         llm.embed(  # pytype: disable=wrong-keyword-args
             content='Some text',
+            normalize=False,
         )
     )
     with self.subTest('returns_correct_result'):
@@ -349,7 +350,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       )
     expected_backend_counters = collections.Counter({
         'embed': 1,
-        'embed_batches': 1,
+        '_cached_embed_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
@@ -386,7 +387,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     handler: caching.SimpleFunctionCache = getattr(backend, '_cache_handler')
     expected_backend_counters = collections.Counter({
         'embed': 1,
-        'embed_batches': 1,
+        '_cached_embed_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls_1'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
@@ -418,6 +419,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         llm.embed(  # pytype: disable=wrong-keyword-args
             content='Some text',
             output_dimensionality=5,
+            normalize=False,
         )
     )
     self.assertLen(res, 5)

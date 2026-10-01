@@ -38,7 +38,6 @@ from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import sampling
 
-
 Message: TypeAlias = content_lib.Message
 Chunk: TypeAlias = content_lib.Chunk
 ChunkList: TypeAlias = content_lib.ChunkList
@@ -549,13 +548,13 @@ class VertexAIAPITest(
   def test_embed_text(self, *args, **kwargs):
     _ = _get_and_register_backend()
     content = 'something'
-    result = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+    result = executing.run(llm.embed(content=content, normalize=False))
     self.assertEqual(result, [0.0])
 
   def test_embed_chunk_list(self, *args, **kwargs):
     _ = _get_and_register_backend()
     content = content_lib.ChunkList(['something'])
-    result = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+    result = executing.run(llm.embed(content=content, normalize=False))
     self.assertEqual(result, [0.0])
 
   def test_uses_credentials(self, *args, **kwargs):

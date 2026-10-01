@@ -24,7 +24,6 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import io
 import logging
-import math
 import pprint
 from typing import Any, Final, Type, TypeVar, Union
 
@@ -466,6 +465,22 @@ class OllamaAPI(
 
   @executing.make_executable
   @tracing.trace(name='OllamaAPI.embed')
+  async def embed(
+      self,
+      content: str | content_lib.ChunkList,
+      task_type: llm.EmbedTaskType | str | None = None,
+      title: str | None = None,
+      *,
+      normalize: bool = True,
+      **kwargs,
+  ) -> Sequence[float]:
+    """See builtins.llm.embed and `_cached_embed` for the supported kwargs."""
+    embedding = await self._cached_embed(content, task_type, title, **kwargs)
+    # Normalize after the cache so that the cache holds the raw model output.
+    if normalize:
+      return utils.l2_normalize_embedding(embedding)
+    return embedding
+
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
       is_sampled=False,
@@ -476,7 +491,7 @@ class OllamaAPI(
       batch_size=utils.FromInstance('batch_size'),
       wrapper=batching.add_logging,
   )
-  def embed(
+  def _cached_embed(
       self,
       content: str | content_lib.ChunkList,
       task_type: llm.EmbedTaskType | str | None = None,
@@ -500,9 +515,6 @@ class OllamaAPI(
         embedding vector. Mapped to the Ollama ``dimensions`` parameter. Only
         supported by models that support dimensionality truncation.
       truncate: If True, truncate the input to the model's maximum token length.
-      normalize: If True, re-normalize the embedding vector to unit norm. Useful
-        when using ``output_dimensionality`` with models that return truncated
-        non-unit-norm vectors.
 
     Returns:
       A sequence of floats representing the embedding vector.
@@ -553,11 +565,5 @@ class OllamaAPI(
           f'{pprint.pformat(text)[:100]}'
       )
     values = response.embeddings[0]
-
-    # Optionally re-normalize to unit norm (useful for truncated embeddings).
-    if kwargs.get('normalize', False):
-      norm = math.sqrt(sum(v * v for v in values))
-      if norm > 0 and not math.isclose(norm, 1.0, rel_tol=1e-6):
-        values = [v / norm for v in values]
 
     return values

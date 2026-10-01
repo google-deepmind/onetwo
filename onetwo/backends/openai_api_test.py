@@ -506,7 +506,7 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
         self.assertIsInstance(v, float)
     expected_backend_counters = collections.Counter({
         'embed': 1,
-        'embed_batches': 1,
+        '_cached_embed_batches': 1,
     })
     with self.subTest('sends_correct_number_of_api_calls'):
       self.assertCounterEqual(backend._counters, expected_backend_counters)
@@ -520,21 +520,17 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     self.assertLen(result, dim)
 
-  def test_embed_with_normalize(self):
-    """Verifies that normalize=True produces a unit-norm vector."""
+  def test_embed_normalizes_by_default(self):
+    """Verifies that llm.embed returns a unit-norm vector by default."""
     _get_and_register_backend()
-    result = executing.run(
-        llm.embed(content='Something', normalize=True)  # pytype: disable=wrong-keyword-args
-    )
+    result = executing.run(llm.embed(content='Something'))
     norm = math.sqrt(sum(v * v for v in result))
     self.assertAlmostEqual(norm, 1.0, places=6)
 
   def test_embed_without_normalize(self):
-    """Verifies that without normalize, the vector is NOT unit-norm."""
+    """Verifies that with normalize=False, the raw backend output is returned."""
     _get_and_register_backend()
-    result = executing.run(
-        llm.embed(content='Something')  # pytype: disable=wrong-keyword-args
-    )
+    result = executing.run(llm.embed(content='Something', normalize=False))
     norm = math.sqrt(sum(v * v for v in result))
     # The mock returns non-unit-norm vectors by design.
     self.assertNotAlmostEqual(norm, 1.0, places=2)
@@ -794,9 +790,7 @@ class GenerateWithToolsTest(
 
   def _ask(self, *messages, **kwargs):
     return executing.run(
-        llm.generate_with_tools(
-            messages=list(messages), **kwargs
-        )
+        llm.generate_with_tools(messages=list(messages), **kwargs)
     )
 
   # --- Tool declarations ----------------------------------------------------

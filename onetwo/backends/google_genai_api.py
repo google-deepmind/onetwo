@@ -23,7 +23,6 @@ import collections
 from collections.abc import Mapping, Sequence
 import dataclasses
 import http
-import math
 import pprint
 from typing import Any, Final, TypeAlias, TypeVar, Union, cast
 
@@ -1135,14 +1134,14 @@ class GoogleGenAIAPI(
       stop: Sequences where the model should stop generating.
       top_k: Number of highest-probability tokens to consider at each step.
       top_p: Cumulative probability threshold for nucleus sampling.
-      include_details: If True, returns content with additional metadata
-        (e.g., safety ratings, finish reason).
-      healing_option: Token healing strategy (currently unsupported, will
-        log a warning if set to anything other than NONE).
+      include_details: If True, returns content with additional metadata (e.g.,
+        safety ratings, finish reason).
+      healing_option: Token healing strategy (currently unsupported, will log a
+        warning if set to anything other than NONE).
       **kwargs: Additional genai-specific arguments passed to
-        GenerateContentConfig. Common examples include ``tools`` (a sequence
-        of tool declarations enabling function-calling or MCP tool usage)
-        and ``cached_content`` (for server-side prefix caching).
+        GenerateContentConfig. Common examples include ``tools`` (a sequence of
+        tool declarations enabling function-calling or MCP tool usage) and
+        ``cached_content`` (for server-side prefix caching).
 
     Returns:
       A sequence of generated content, one per candidate.
@@ -1546,6 +1545,8 @@ class GoogleGenAIAPI(
       content: str | content_lib.ChunkList,
       task_type: llm.EmbedTaskType | str | None = None,
       title: str | None = None,
+      *,
+      normalize: bool = True,
       **kwargs,
   ) -> Sequence[float]:
     """See builtins.llm.embed."""
@@ -1564,7 +1565,14 @@ class GoogleGenAIAPI(
           content, task_type, title, kwargs
       )
 
-    return await self._cached_embed(content, **kwargs)
+    embedding = await self._cached_embed(content, **kwargs)
+    # Normalize after the cache so that the cache holds the raw model output.
+    # For gemini-embedding-001, the API returns truncated vectors when
+    # output_dimensionality is set, without re-normalizing them, see
+    # https://ai.google.dev/gemini-api/docs/embeddings#quality-for-smaller-dimensions
+    if normalize:
+      return utils.l2_normalize_embedding(embedding)
+    return embedding
 
   @caching.cache_method(  # Cache this deterministic method.
       name='embed',
@@ -1634,18 +1642,7 @@ class GoogleGenAIAPI(
     if self.project:
       trace_info['llm.gcp_project'] = self.project
     tracing.update_info(trace_info)
-    values = response.embeddings[0].values
-    # For gemini-embedding-001, the API returns truncated vectors when
-    # output_dimensionality is set, without re-normalizing them.
-    # Following
-    # https://ai.google.dev/gemini-api/docs/embeddings#quality-for-smaller-dimensions
-    # truncated embeddings for gemini-embedding-001 need to be re-normalized.
-    # For gemini-embedding-2, the api already returns unit-norm embeddings.
-    if 'normalize' in kwargs and kwargs['normalize']:
-      norm = math.sqrt(sum(v * v for v in values))
-      if norm > 0 and not math.isclose(norm, 1.0, rel_tol=1e-6):
-        values = [v / norm for v in values]
-    return values
+    return response.embeddings[0].values
 
   @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.count_tokens')

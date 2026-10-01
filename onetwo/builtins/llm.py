@@ -214,9 +214,18 @@ def embed(
     content: str | _ChunkList,
     task_type: EmbedTaskType | str | None = None,
     title: str | None = None,
+    *,
+    normalize: bool = True,
     **kwargs,
 ) -> Sequence[float]:
   """Interface of the embed built-in function.
+
+  Implementations must return an L2-normalized (unit norm) embedding unless
+  `normalize` is False, so that dot products between embeddings are cosine
+  similarities. Since the defaults of this signature are not passed to the
+  implementations, implementations must declare `normalize: bool = True`
+  themselves. They should normalize with `utils.l2_normalize_embedding` (from
+  `onetwo.core`) after any caching, so that caches hold the raw model output.
 
   Args:
     content: The content (string or ChunkList) to be embedded.
@@ -226,12 +235,14 @@ def embed(
       content jointly into "title: {title} | text: {content}" if the task type
       RETRIEVAL_DOCUMENT is passed, see
       https://ai.google.dev/gemini-api/docs/embeddings#task-types-embeddings-2.
+    normalize: If True (default), the returned embedding is L2-normalized. Set
+      to False to get the raw output of the model.
     **kwargs: Optional arguments to be passed to the embed function.
 
   Returns:
-    A Sequence of floats.
+    A Sequence of floats, with unit L2 norm if `normalize` is True.
   """
-  del content, task_type, title, kwargs
+  del content, task_type, title, normalize, kwargs
   raise _UNIMPLEMENTED_ERROR
 
 
