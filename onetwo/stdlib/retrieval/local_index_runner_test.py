@@ -39,6 +39,7 @@ from onetwo.backends import backends_test_utils
 from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import batching
 from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import index_building  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures

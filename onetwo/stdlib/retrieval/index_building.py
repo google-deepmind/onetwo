@@ -16,7 +16,7 @@
 
 import getpass
 import json
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Awaitable, Callable, Iterable, Mapping, cast
 
 from absl import logging
 from etils import epath
@@ -25,6 +25,7 @@ from onetwo.core import executing
 from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_spec_registry
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
@@ -148,6 +149,45 @@ def read_index_spec(
   if not spec_path.exists():
     return None
   return index_spec_registry.spec_from_dict(json.loads(spec_path.read_text()))
+
+
+def load_index(
+    index_directory: str,
+    runtime_kwargs: Mapping[str, Any] | None = None,
+) -> indexing.DocumentIndex:
+  """Loads an index saved by `build_index`, whatever its spec type.
+
+  The index type is determined by the `index_spec.json` written next to the
+  index. Directories without that file (built before specs were saved) are
+  loaded as an `EmbeddingBasedDocumentIndex`.
+
+  Args:
+    index_directory: Directory of the saved index.
+    runtime_kwargs: Environment-specific settings and credentials for the
+      index's backends (e.g. API key).
+
+  Returns:
+    The loaded index.
+
+  Raises:
+    KeyError: If the saved spec type is not registered (e.g. the module that
+      registers a custom spec has not been imported).
+    TypeError: If the index built for the spec does not implement `load`.
+  """
+  runtime_kwargs = dict(runtime_kwargs or {})
+  spec = read_index_spec(index_directory)
+  if spec is None:
+    index = indexing.EmbeddingBasedDocumentIndex(runtime_kwargs=runtime_kwargs)
+  else:
+    index = index_spec_registry.make_index(spec, runtime_kwargs)
+  load = getattr(index, "load", None)
+  if not callable(load):
+    raise TypeError(
+        f"{type(index).__name__} (built for {type(spec).__name__}) does not"
+        f" implement load(base_path), so {index_directory!r} cannot be loaded."
+    )
+  executing.run(cast(Callable[[str], Awaitable[Any]], load)(index_directory))
+  return index
 
 
 register_runner("local", local_index_runner.LocalIndexRunner)

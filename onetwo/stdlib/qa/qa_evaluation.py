@@ -33,13 +33,12 @@ from typing import Any
 
 from etils import epath
 from onetwo.backends import backend_registry
-from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.core import routing
 from onetwo.evaluation import evaluation as ot_evaluation
 from onetwo.stdlib.qa import qa_spec
 from onetwo.stdlib.qa import strategies_lib
-from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import index_building
 
 
 def evaluate_qa(
@@ -72,10 +71,9 @@ def evaluate_qa(
       gen_backend.register()
 
     if rag_spec.index_path:
-      index = indexing.EmbeddingBasedDocumentIndex(
-          runtime_kwargs=runtime_kwargs_dict
+      index = index_building.load_index(
+          rag_spec.index_path, runtime_kwargs=runtime_kwargs_dict
       )
-      ot_executing.run(index.load(rag_spec.index_path))
     else:
       index = None
 
