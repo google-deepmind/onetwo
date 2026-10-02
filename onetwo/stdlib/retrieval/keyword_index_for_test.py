@@ -133,14 +133,24 @@ def make_keyword_index(
 
 
 @contextlib.contextmanager
-def registered_keyword_index_spec() -> Iterator[None]:
+def registered_keyword_index_spec(name: str | None = None) -> Iterator[None]:
   """Registers `KeywordDocumentIndexSpec` for the duration of the context.
 
   The registry is restored on exit, including any other registrations made
   inside the context, so that tests don't leak registrations.
+
+  Args:
+    name: Name to register the spec under. Defaults to the class name.
+
+  Yields:
+    None.
   """
-  with mock.patch.dict(index_spec_registry._INDEX_SPEC_REGISTRY):  # pylint: disable=protected-access
+  # pylint: disable=protected-access
+  with mock.patch.dict(
+      index_spec_registry._REGISTRATIONS_BY_NAME
+  ), mock.patch.dict(index_spec_registry._REGISTRATIONS_BY_TYPE):
+    # pylint: enable=protected-access
     index_spec_registry.register_index_spec(
-        KeywordDocumentIndexSpec, make_keyword_index
+        KeywordDocumentIndexSpec, make_keyword_index, name=name
     )
     yield

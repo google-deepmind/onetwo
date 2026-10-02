@@ -83,6 +83,10 @@ class IndexSpec(dataclasses_json.DataClassJsonMixin, abc.ABC):
     stable_json = json.dumps(json_dict, sort_keys=True)
     return hashlib.md5(stable_json.encode("utf-8")).hexdigest()[:8]
 
+  def __str__(self) -> str:
+    """Returns a compact, path-friendly string (used in index output paths)."""
+    return f"{type(self).__name__}__hash_{self.get_stable_hash()}"
+
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)

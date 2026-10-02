@@ -13,13 +13,16 @@
 # limitations under the License.
 
 import dataclasses
+import json
 from typing import Any, cast
 from unittest import mock
 
 from absl.testing import absltest
 import dataclasses_json
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
+from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import keyword_index_for_test
@@ -39,10 +42,7 @@ class IndexSpecRegistryTest(absltest.TestCase):
 
   def test_builtin_specs_are_registered(self):
     self.assertContainsSubset(
-        [
-            'EmbeddingBasedDocumentIndexSpec',
-            'SimpleRewritingEmbeddingBasedDocumentIndexSpec',
-        ],
+        ['embedding', 'simple_rewriting_embedding'],
         index_spec_registry.list_index_specs(),
     )
 
@@ -73,7 +73,7 @@ class IndexSpecRegistryTest(absltest.TestCase):
         KeyError, 'No index factory registered for KeywordDocumentIndexSpec'
     ) as cm:
       index_spec_registry.make_index(KeywordDocumentIndexSpec())
-    self.assertIn('EmbeddingBasedDocumentIndexSpec', str(cm.exception))
+    self.assertIn("'embedding'", str(cm.exception))
 
   def test_unregistered_subclass_does_not_fall_back_to_parent(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
@@ -118,6 +118,72 @@ class IndexSpecRegistryTest(absltest.TestCase):
     self.assertEqual(index.num_docs, 2)
     results = ot.run(index.retrieve('What is in Spain?', max_results=1))
     self.assertEqual([doc.doc_id for doc in results], ['d2'])
+
+  def test_register_with_name(self):
+    self.enter_context(
+        keyword_index_for_test.registered_keyword_index_spec(name='keyword')
+    )
+
+    self.assertIn('keyword', index_spec_registry.list_index_specs())
+    self.assertNotIn(
+        'KeywordDocumentIndexSpec', index_spec_registry.list_index_specs()
+    )
+    self.assertIsInstance(
+        index_spec_registry.make_index(KeywordDocumentIndexSpec()),
+        keyword_index_for_test.KeywordDocumentIndex,
+    )
+
+  def test_register_duplicate_name_raises(self):
+    self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
+    with self.assertRaisesRegex(ValueError, 'name .* already registered'):
+      index_spec_registry.register_index_spec(
+          _SubclassedKeywordSpec,
+          keyword_index_for_test.make_keyword_index,
+          name='KeywordDocumentIndexSpec',
+      )
+
+  def test_spec_dict_round_trip(self):
+    self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
+    spec = KeywordDocumentIndexSpec(lowercase=False)
+
+    spec_dict = index_spec_registry.spec_to_dict(spec)
+
+    self.assertEqual(
+        spec_dict,
+        {
+            'spec_type': 'KeywordDocumentIndexSpec',
+            'spec': {'lowercase': False},
+        },
+    )
+    self.assertEqual(index_spec_registry.spec_from_dict(spec_dict), spec)
+
+  def test_builtin_spec_dict_round_trip_excludes_runtime_kwargs(self):
+    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='SomeEmbedder', model_name='some-model'
+        ),
+        max_chunk_size=128,
+        runtime_kwargs={'api_key': 'secret'},
+    )
+
+    spec_dict = index_spec_registry.spec_to_dict(spec)
+
+    self.assertEqual(spec_dict['spec_type'], 'simple_rewriting_embedding')
+    self.assertNotIn('secret', json.dumps(spec_dict))
+    self.assertEqual(
+        index_spec_registry.spec_from_dict(spec_dict),
+        dataclasses.replace(spec, runtime_kwargs={}),
+    )
+
+  def test_spec_to_dict_unregistered_raises(self):
+    with self.assertRaisesRegex(KeyError, 'KeywordDocumentIndexSpec'):
+      index_spec_registry.spec_to_dict(KeywordDocumentIndexSpec())
+
+  def test_default_str_is_path_friendly(self):
+    spec = KeywordDocumentIndexSpec()
+    self.assertEqual(
+        str(spec), f'KeywordDocumentIndexSpec__hash_{spec.get_stable_hash()}'
+    )
 
 
 if __name__ == '__main__':

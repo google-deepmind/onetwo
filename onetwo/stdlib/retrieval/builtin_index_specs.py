@@ -122,9 +122,10 @@ def make_simple_rewriting_embedding_index(
 
 
 index_spec_registry.register_index_spec(
-    EmbeddingBasedDocumentIndexSpec, make_embedding_index
+    EmbeddingBasedDocumentIndexSpec, make_embedding_index, name='embedding'
 )
 index_spec_registry.register_index_spec(
     SimpleRewritingEmbeddingBasedDocumentIndexSpec,
     make_simple_rewriting_embedding_index,
+    name='simple_rewriting_embedding',
 )
