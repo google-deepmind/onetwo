@@ -78,21 +78,6 @@ def build_index(
   Returns:
     The output directory path where the index was saved.
   """
-  if docs_path:
-    if dataset_name not in docs_path:
-      raise ValueError(
-          f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
-      )
-    docs = docs_path
-    print(f'Using documents from path: {docs}')
-  else:
-    print(f'Loading dataset {dataset_name}...')
-    docs = datasets.load_documents(
-        dataset_name,
-        max_number_of_documents=max_documents,
-    )
-    print(f'Loaded {len(docs)} documents.')
-
   # Construct spec
   if isinstance(embed_kwargs, str):
     embed_kwargs = json.loads(embed_kwargs)
@@ -149,6 +134,56 @@ def build_index(
         runtime_kwargs=rt_kwargs,
     )
 
+  return build_index_from_spec(
+      spec=spec,
+      dataset_name=dataset_name,
+      output_directory=output_directory,
+      max_documents=max_documents,
+      docs_path=docs_path,
+  )
+
+
+def build_index_from_spec(
+    spec: index_build_interface.IndexSpec,
+    dataset_name: str,
+    output_directory: str,
+    runtime_kwargs: Mapping[str, Any] | None = None,
+    max_documents: int | None = None,
+    docs_path: str | None = None,
+) -> str:
+  """Builds and saves the index described by `spec` for the specified dataset.
+
+  Use this for custom indexes: register the spec type and its index factory in
+  `index_spec_registry`, then pass an instance of the spec here. The spec is
+  used as-is.
+
+  Args:
+    spec: Spec of the index to build.
+    dataset_name: Name of the dataset to load from the registry.
+    output_directory: Directory pattern where the built index will be saved.
+    runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed
+      to the index factory; not saved with the index.
+    max_documents: Max documents to index.
+    docs_path: Optional path to documents.
+
+  Returns:
+    The output directory path where the index was saved.
+  """
+  if docs_path:
+    if dataset_name not in docs_path:
+      raise ValueError(
+          f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
+      )
+    docs = docs_path
+    print(f'Using documents from path: {docs}')
+  else:
+    print(f'Loading dataset {dataset_name}...')
+    docs = datasets.load_documents(
+        dataset_name,
+        max_number_of_documents=max_documents,
+    )
+    print(f'Loaded {len(docs)} documents.')
+
   out_dir = index_building.resolve_index_output_directory(
       output_directory_pattern=output_directory,
       dataset_name=dataset_name,
@@ -164,6 +199,7 @@ def build_index(
           docs=docs,
           output_dir=out_dir,
           runner='local',
+          runtime_kwargs=runtime_kwargs,
       )
   )
   print(f'Index built and saved to {out_dir}.')

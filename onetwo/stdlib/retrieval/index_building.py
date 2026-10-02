@@ -15,13 +15,16 @@
 """Index building utilities."""
 
 import getpass
+import json
 from typing import Any, Callable, Iterable, Mapping
 
+from absl import logging
 from etils import epath
 from onetwo.core import executing
 
 from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
@@ -41,6 +44,9 @@ SimpleRewritingHippoRAGDocumentIndexSpec = (
 )
 
 IndexRunner = index_build_interface.IndexRunner
+
+# Name of the file, written next to a saved index, that describes its spec.
+INDEX_SPEC_FILENAME = "index_spec.json"
 
 _RUNNER_REGISTRY: dict[
     str, Callable[[], index_build_interface.IndexRunner[Any, Any]]
@@ -85,13 +91,63 @@ async def build_index(
     )
 
   runner_impl = _RUNNER_REGISTRY[runner]()
-  return await runner_impl.build_index(
+  result = await runner_impl.build_index(
       spec=spec,
       docs=docs,
       output_dir=output_dir,
       runtime_kwargs=runtime_kwargs,
       **kwargs,
   )
+  if output_dir:
+    if index_spec_registry.is_registered(spec):
+      save_index_spec(spec, output_dir)
+    else:
+      logging.warning(
+          "Not writing %s to %s: %s is not registered in index_spec_registry,"
+          " so the index cannot be loaded from its directory alone.",
+          INDEX_SPEC_FILENAME,
+          output_dir,
+          type(spec).__name__,
+      )
+  return result
+
+
+def save_index_spec(
+    spec: index_build_interface.IndexSpec, index_directory: str
+) -> None:
+  """Writes `spec` to `index_directory/index_spec.json`.
+
+  Args:
+    spec: A spec whose exact type is registered in `index_spec_registry`.
+    index_directory: Directory of the saved index.
+  """
+  path = epath.Path(index_directory)
+  path.mkdir(parents=True, exist_ok=True)
+  (path / INDEX_SPEC_FILENAME).write_text(
+      json.dumps(index_spec_registry.spec_to_dict(spec), indent=2)
+  )
+
+
+def read_index_spec(
+    index_directory: str,
+) -> index_build_interface.IndexSpec | None:
+  """Reads the spec saved by `save_index_spec`.
+
+  Args:
+    index_directory: Directory of the saved index.
+
+  Returns:
+    The saved spec, or None if `index_directory` has no `index_spec.json`
+    (e.g. indexes built before specs were saved).
+
+  Raises:
+    KeyError: If the saved spec type is not registered (e.g. the module that
+      registers a custom spec has not been imported).
+  """
+  spec_path = epath.Path(index_directory) / INDEX_SPEC_FILENAME
+  if not spec_path.exists():
+    return None
+  return index_spec_registry.spec_from_dict(json.loads(spec_path.read_text()))
 
 
 register_runner("local", local_index_runner.LocalIndexRunner)
