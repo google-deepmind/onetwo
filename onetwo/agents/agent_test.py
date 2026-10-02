@@ -23,6 +23,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.agents import agent as agent_lib
 from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
 from onetwo.core import results
@@ -122,7 +123,7 @@ def _fake_source(
 
 def _run(
     agent: agent_lib.Agent,
-    inputs: str | Sequence[fc_types.ConversationTurn],
+    inputs: str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],
     **kwargs,
 ) -> fc_types.ConversationTurn:
   """Runs `agent` and returns the turn it produced.
@@ -143,7 +144,7 @@ def _run(
 
 def _run_with_state(
     agent: agent_lib.Agent,
-    inputs: str | Sequence[fc_types.ConversationTurn],
+    inputs: str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],
     **kwargs,
 ) -> tuple[fc_types.ConversationTurn, agent_lib.AgentState]:
   """Runs `agent` and returns its output turn together with the final state.
@@ -594,6 +595,23 @@ class FCAgentTest(parameterized.TestCase):
       self.assertLen(backend.seen_messages[0], 3)
     with self.subTest('answers_the_last_question'):
       self.assertEqual(result.content, 'Paris.')
+
+  def test_accepts_a_multimodal_question(self):
+    backend = _ScriptedBackend(replies=[_model_turn('A puffin.')])
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather])
+    question = content_lib.ChunkList([
+        content_lib.Chunk(b'<png bytes>', content_type='image/png'),
+        content_lib.Chunk('What bird is this?'),
+    ])
+
+    result = _run(agent, question)
+
+    self.assertEqual(
+        backend.seen_messages[0],
+        [fc_types.ConversationTurn(role=_USER, content=question)],
+    )
+    self.assertEqual(result.content, 'A puffin.')
 
   def test_streams_one_update_per_step(self):
     backend = _ScriptedBackend(

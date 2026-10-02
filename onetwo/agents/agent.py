@@ -64,6 +64,7 @@ from typing import Any, TypeAlias
 
 from onetwo.agents import agents_base
 from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
 from onetwo.core import results
@@ -229,7 +230,7 @@ class AgentEnvironment:
 @dataclasses.dataclass
 class Agent(
     agents_base.SingleSampleAgent[
-        str | Sequence[fc_types.ConversationTurn],  # _I (inputs)
+        str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],  # _I
         fc_types.ConversationTurn,  # _O (output)
         AgentState,  # _S (state)
         AgentStep,  # _U (update)
@@ -400,7 +401,7 @@ class Agent(
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def initialize_state(
       self,
-      inputs: str | Sequence[fc_types.ConversationTurn],
+      inputs: str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],
       environment: AgentEnvironment | None = None,
   ) -> AgentState:
     """Returns a newly initialized state based on the input.
@@ -408,12 +409,13 @@ class Agent(
     Overridden from base class (Agent).
 
     Args:
-      inputs: Either the user's request, or a conversation to continue.
+      inputs: Either the user's request, as text or as multimodal content, or a
+        conversation to continue.
       environment: Unused; the state of an exchange does not depend on which
         tools are available to it.
     """
     del environment
-    if isinstance(inputs, str):
+    if isinstance(inputs, (str, content_lib.ChunkList)):
       history = [
           fc_types.ConversationTurn(
               role=fc_types.ConversationRole.USER, content=inputs
