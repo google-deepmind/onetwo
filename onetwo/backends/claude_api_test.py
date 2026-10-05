@@ -1045,10 +1045,10 @@ class GenerateWithToolsTest(
   def _last_request(self) -> dict[str, Any]:
     return self._messages.requests[-1]
 
-  def _ask(self, *messages, **kwargs):
+  def _ask(self, *turns, **kwargs):
     return executing.run(
         llm.generate_with_tools(
-            messages=list(messages), tools=[_WEATHER_SPEC], **kwargs
+            turns=list(turns), tools=[_WEATHER_SPEC], **kwargs
         )
     )
 
@@ -1131,7 +1131,7 @@ class GenerateWithToolsTest(
 
     executing.run(
         llm.generate_with_tools(
-            messages=[self._question()],
+            turns=[self._question()],
             tools=[_ToolSpec(name='ping', description='Pings.')],
         )
     )
@@ -1145,7 +1145,7 @@ class GenerateWithToolsTest(
     self._script(claude_mock.Message(content=[claude_mock.TextBlock('Hi.')]))
 
     executing.run(
-        llm.generate_with_tools(messages=[self._question()], tools=[])
+        llm.generate_with_tools(turns=[self._question()], tools=[])
     )
 
     # Advertising an empty list is not the same as advertising nothing.

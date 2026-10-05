@@ -3859,10 +3859,10 @@ class GenerateWithToolsTest(
     _, kwargs = self._mock_genai_client.models.generate_content.call_args
     return kwargs
 
-  def _ask(self, *messages, **kwargs):
+  def _ask(self, *turns, **kwargs):
     return executing.run(
         llm.generate_with_tools(
-            messages=list(messages), tools=[_WEATHER_SPEC], **kwargs
+            turns=list(turns), tools=[_WEATHER_SPEC], **kwargs
         )
     )
 
@@ -3992,7 +3992,7 @@ class GenerateWithToolsTest(
 
     executing.run(
         llm.generate_with_tools(
-            messages=[
+            turns=[
                 function_calling.ConversationTurn(
                     role=function_calling.ConversationRole.USER, content='Hi.'
                 )

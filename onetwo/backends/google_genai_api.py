@@ -1363,12 +1363,12 @@ class GoogleGenAIAPI(
       name='generate_with_tools',
       is_sampled=True,  # Two calls with same args may return different replies.
       cache_key_maker=lambda: caching.CacheKeyMaker(
-          hashed=['messages', 'tools']
+          hashed=['turns', 'tools']
       ),
   )
   async def generate_with_tools(
       self,
-      messages: Sequence[function_calling.ConversationTurn],
+      turns: Sequence[function_calling.ConversationTurn],
       tools: Sequence[function_calling.ToolSpec],
       **kwargs,
   ) -> function_calling.ConversationTurn:
@@ -1379,14 +1379,14 @@ class GoogleGenAIAPI(
     `onetwo.agents.agent.Agent`.
 
     Args:
-      messages: The conversation so far.
+      turns: The conversation so far.
       tools: Declarations of the tools the model may call.
       **kwargs: Generation parameters, e.g. `temperature` or `max_tokens`.
 
     Returns:
       The single turn the model replied with.
     """
-    return await self._generate_with_tools(messages, tools, **kwargs)
+    return await self._generate_with_tools(turns, tools, **kwargs)
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
@@ -1399,7 +1399,7 @@ class GoogleGenAIAPI(
   )
   def _generate_with_tools(
       self,
-      messages: Sequence[function_calling.ConversationTurn],
+      turns: Sequence[function_calling.ConversationTurn],
       tools: Sequence[function_calling.ToolSpec],
       *,
       temperature: float | None = None,
@@ -1434,7 +1434,7 @@ class GoogleGenAIAPI(
     model_name = self._generate_model_name()
     response = self._genai_client.models.generate_content(
         model=model_name,
-        contents=_contents_from_turns(messages),
+        contents=_contents_from_turns(turns),
         config=generation_config,
     )
     _raise_if_empty_response(response)

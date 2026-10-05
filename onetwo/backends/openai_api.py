@@ -1097,7 +1097,7 @@ class OpenAIAPI(
   @tracing.trace(name='OpenAIAPI.generate_with_tools')
   async def generate_with_tools(
       self,
-      messages: Sequence[function_calling.ConversationTurn],
+      turns: Sequence[function_calling.ConversationTurn],
       tools: Sequence[function_calling.ToolSpec],
       **kwargs,
   ) -> function_calling.ConversationTurn:
@@ -1108,7 +1108,7 @@ class OpenAIAPI(
     `onetwo.agents.agent.Agent`.
 
     Args:
-      messages: The conversation so far.
+      turns: The conversation so far.
       tools: Declarations of the tools the model may call.
       **kwargs: Generation parameters, e.g. `max_tokens`, or any Responses API
         parameter such as `reasoning`.
@@ -1116,7 +1116,7 @@ class OpenAIAPI(
     Returns:
       The single turn the model replied with.
     """
-    return await self._generate_with_tools(messages, tools, **kwargs)
+    return await self._generate_with_tools(turns, tools, **kwargs)
 
   # Not cached, unlike the other generation methods: a cache key is built by
   # hashing the arguments, and `ConversationTurn` is not something
@@ -1130,7 +1130,7 @@ class OpenAIAPI(
   )
   def _generate_with_tools(
       self,
-      messages: Sequence[function_calling.ConversationTurn],
+      turns: Sequence[function_calling.ConversationTurn],
       tools: Sequence[function_calling.ToolSpec],
       *,
       max_tokens: int | None = None,
@@ -1148,7 +1148,7 @@ class OpenAIAPI(
 
     api_kwargs: dict[str, Any] = {
         'model': self.model_name,
-        'input': _input_from_turns(messages),
+        'input': _input_from_turns(turns),
     }
     if max_tokens is not None:
       api_kwargs['max_output_tokens'] = max_tokens

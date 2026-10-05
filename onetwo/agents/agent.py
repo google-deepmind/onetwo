@@ -84,9 +84,9 @@ DEFAULT_FINAL_INSTRUCTION = (
 
 def _answered(state: AgentState) -> bool:
   """Returns whether the model's latest turn is a reply without tool calls."""
-  if not state.history:
+  if not state.turns:
     return False
-  last_turn = state.history[-1]
+  last_turn = state.turns[-1]
   is_model_turn = last_turn.role == fc_types.ConversationRole.MODEL
   return is_model_turn and not last_turn.calls
 
@@ -150,7 +150,7 @@ class AgentStep:
       ahead of `model_turn`, or None. It is currently set only on the call made
       with `Agent.final_instruction` once `max_steps` has run out, but is the
       place for any other turn the agent needs to inject in the future. The
-      user's own request is not one: it opens the history instead.
+      user's own request is not one: it opens `AgentState.turns` instead.
   """
 
   model_turn: fc_types.ConversationTurn
@@ -173,7 +173,7 @@ class AgentState:
   """The conversation so far.
 
   Attributes:
-    history: Every turn exchanged, in order, starting with the user's request.
+    turns: Every turn exchanged, in order, starting with the user's request.
       This is what is sent to the model on the next call, so anything the model
       needs to see again -- including its own earlier calls and thoughts -- must
       be kept here.
@@ -181,7 +181,7 @@ class AgentState:
       length of the exchange.
   """
 
-  history: list[fc_types.ConversationTurn] = dataclasses.field(
+  turns: list[fc_types.ConversationTurn] = dataclasses.field(
       default_factory=list
   )
   num_steps: int = 0
@@ -194,13 +194,13 @@ class AgentState:
 
   def __iadd__(self, update: AgentStep) -> AgentState:
     """Required overload for supporting accumulation of updates."""
-    self.history.extend(update.turns)
+    self.turns.extend(update.turns)
     self.num_steps += 1
     return self
 
   def __hash__(self) -> int:
     """Required in case we want to compare states for deduplication."""
-    return hash(tuple(str(turn) for turn in self.history))
+    return hash(tuple(str(turn) for turn in self.turns))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -416,14 +416,14 @@ class Agent(
     """
     del environment
     if isinstance(inputs, (str, content_lib.ChunkList)):
-      history = [
+      turns = [
           fc_types.ConversationTurn(
               role=fc_types.ConversationRole.USER, content=inputs
           )
       ]
     else:
-      history = list(inputs)
-    return AgentState(history=history)
+      turns = list(inputs)
+    return AgentState(turns=turns)
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   @tracing.trace(name='Agent.step')
@@ -452,14 +452,14 @@ class Agent(
     # that has been calling tools all along goes on doing so otherwise,
     # declared or not.
     is_final_call = state.num_steps >= self.max_steps
-    messages, tools, user_turn = state.history, environment.specs, None
+    turns, tools, user_turn = state.turns, environment.specs, None
     if is_final_call:
       user_turn = fc_types.ConversationTurn(
           role=fc_types.ConversationRole.USER, content=self.final_instruction
       )
-      messages, tools = messages + [user_turn], ()
+      turns, tools = turns + [user_turn], ()
     model_turn = await llm.generate_with_tools(
-        messages=messages, tools=tools, **self.generate_kwargs
+        turns=turns, tools=tools, **self.generate_kwargs
     )
     if not model_turn.calls or is_final_call:
       self._record_step_in_trace(model_turn, ())
@@ -547,7 +547,7 @@ class Agent(
     Args:
       state: Current (presumably final) state of the agent.
     """
-    for turn in reversed(state.history):
+    for turn in reversed(state.turns):
       if turn.role == fc_types.ConversationRole.MODEL:
         return turn
     return None

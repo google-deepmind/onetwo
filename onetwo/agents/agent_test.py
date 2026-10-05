@@ -175,7 +175,7 @@ class _ScriptedBackend:
   replies: list[fc_types.ConversationTurn] = dataclasses.field(
       default_factory=list
   )
-  seen_messages: list[list[fc_types.ConversationTurn]] = dataclasses.field(
+  seen_turns: list[list[fc_types.ConversationTurn]] = dataclasses.field(
       default_factory=list
   )
   seen_tools: list[list[fc_types.ToolSpec]] = dataclasses.field(
@@ -189,14 +189,14 @@ class _ScriptedBackend:
   @executing.make_executable(copy_self=False)
   async def generate_with_tools(
       self,
-      messages: Sequence[fc_types.ConversationTurn],
+      turns: Sequence[fc_types.ConversationTurn],
       tools: Sequence[fc_types.ToolSpec],
       **kwargs,
   ) -> fc_types.ConversationTurn:
     del kwargs
-    self.seen_messages.append(list(messages))
+    self.seen_turns.append(list(turns))
     self.seen_tools.append(list(tools))
-    index = min(len(self.seen_messages) - 1, len(self.replies) - 1)
+    index = min(len(self.seen_turns) - 1, len(self.replies) - 1)
     return self.replies[index]
 
 
@@ -204,7 +204,7 @@ class FCStateTest(absltest.TestCase):
 
   def test_add_appends_turns_and_counts_steps(self):
     state = agent_lib.AgentState(
-        history=[fc_types.ConversationTurn(role=_USER, content='hi')]
+        turns=[fc_types.ConversationTurn(role=_USER, content='hi')]
     )
     step = agent_lib.AgentStep(
         model_turn=_model_turn(calls=[fc_types.FunctionCall('f')]),
@@ -216,16 +216,16 @@ class FCStateTest(absltest.TestCase):
     new_state = state + step
 
     with self.subTest('appends_both_turns'):
-      self.assertLen(new_state.history, 3)
+      self.assertLen(new_state.turns, 3)
     with self.subTest('counts_the_step'):
       self.assertEqual(new_state.num_steps, 1)
     with self.subTest('leaves_the_original_untouched'):
-      self.assertLen(state.history, 1)
+      self.assertLen(state.turns, 1)
 
   def test_add_without_tool_turn_appends_one_turn(self):
     state = agent_lib.AgentState()
     new_state = state + agent_lib.AgentStep(model_turn=_model_turn('done'))
-    self.assertLen(new_state.history, 1)
+    self.assertLen(new_state.turns, 1)
 
   def test_add_puts_the_user_turn_before_the_model_turn(self):
     state = agent_lib.AgentState()
@@ -233,7 +233,7 @@ class FCStateTest(absltest.TestCase):
         model_turn=_model_turn('done'),
         user_turn=fc_types.ConversationTurn(role=_USER, content='Answer now.'),
     )
-    self.assertEqual([turn.role for turn in new_state.history], [_USER, _MODEL])
+    self.assertEqual([turn.role for turn in new_state.turns], [_USER, _MODEL])
 
 
 class FCAgentTest(parameterized.TestCase):
@@ -252,7 +252,7 @@ class FCAgentTest(parameterized.TestCase):
     with self.subTest('returns_the_model_turn'):
       self.assertEqual(result.content, 'Hello!')
     with self.subTest('calls_the_model_once'):
-      self.assertLen(backend.seen_messages, 1)
+      self.assertLen(backend.seen_turns, 1)
     with self.subTest('declares_the_tool'):
       self.assertEqual(
           [spec.name for spec in backend.seen_tools[0]], ['_get_weather']
@@ -292,17 +292,17 @@ class FCAgentTest(parameterized.TestCase):
     with self.subTest('returns_the_final_answer'):
       self.assertEqual(result.content, 'It is 15 degrees in London.')
     with self.subTest('sends_the_tool_result_back_to_the_model'):
-      second_call_messages = backend.seen_messages[1]
-      tool_turn = second_call_messages[-1]
+      second_call_turns = backend.seen_turns[1]
+      tool_turn = second_call_turns[-1]
       self.assertEqual(tool_turn.role, _TOOL)
       self.assertEqual(
           tool_turn.responses[0].response, {'location': 'London', 'temp': 15}
       )
     with self.subTest('matches_the_response_to_the_call_id'):
       self.assertEqual(tool_turn.responses[0].id, 'c1')
-    with self.subTest('history_has_user_model_tool_model'):
+    with self.subTest('turns_are_user_model_tool_model'):
       self.assertEqual(
-          [turn.role for turn in state.history], [_USER, _MODEL, _TOOL, _MODEL]
+          [turn.role for turn in state.turns], [_USER, _MODEL, _TOOL, _MODEL]
       )
 
   @parameterized.named_parameters(
@@ -330,7 +330,7 @@ class FCAgentTest(parameterized.TestCase):
 
     _run(agent, 'Tell me about London and Oslo')
 
-    responses = backend.seen_messages[1][-1].responses
+    responses = backend.seen_turns[1][-1].responses
     self.assertEqual(
         [response.function_name for response in responses],
         ['_get_weather', '_get_time'],
@@ -362,7 +362,7 @@ class FCAgentTest(parameterized.TestCase):
     result = _run(agent, 'Weather in London?')
 
     with self.subTest('tells_the_model_what_went_wrong'):
-      error = backend.seen_messages[1][-1].responses[0].error or ''
+      error = backend.seen_turns[1][-1].responses[0].error or ''
       self.assertIn('Unknown tool', error)
       self.assertIn('_get_weather', error)
     with self.subTest('the_exchange_survives_and_completes'):
@@ -386,7 +386,7 @@ class FCAgentTest(parameterized.TestCase):
 
     with self.subTest('reports_the_error_to_the_model'):
       self.assertEqual(
-          backend.seen_messages[1][-1].responses[0].error, 'ValueError: boom'
+          backend.seen_turns[1][-1].responses[0].error, 'ValueError: boom'
       )
     with self.subTest('completes_the_exchange'):
       self.assertEqual(result.content, 'Sorry, that failed.')
@@ -464,7 +464,7 @@ class FCAgentTest(parameterized.TestCase):
     _, state = _run_with_state(agent, 'Weather in London?')
 
     with self.subTest('performs_exactly_max_steps_model_calls'):
-      self.assertLen(backend.seen_messages, 3)
+      self.assertLen(backend.seen_turns, 3)
     with self.subTest('reports_that_it_ran_out_of_steps'):
       self.assertTrue(agent.steps_exhausted(state))
 
@@ -496,17 +496,17 @@ class FCAgentTest(parameterized.TestCase):
     with self.subTest('returns_the_final_answer'):
       self.assertEqual(result.content, '15 degrees.')
     with self.subTest('calls_the_model_once_more_than_max_steps'):
-      self.assertLen(backend.seen_messages, 3)
+      self.assertLen(backend.seen_turns, 3)
     with self.subTest('offers_no_tools_on_the_final_call'):
       self.assertEqual(backend.seen_tools[2], [])
     with self.subTest('sends_the_instruction_last'):
-      last_message = backend.seen_messages[2][-1]
+      last_turn_sent = backend.seen_turns[2][-1]
       self.assertEqual(
-          (last_message.role, last_message.content), (_USER, 'Answer now.')
+          (last_turn_sent.role, last_turn_sent.content), (_USER, 'Answer now.')
       )
-    with self.subTest('records_the_instruction_in_the_history'):
+    with self.subTest('records_the_instruction_in_the_turns'):
       self.assertEqual(
-          [turn.role for turn in state.history],
+          [turn.role for turn in state.turns],
           [_USER, _MODEL, _TOOL, _MODEL, _TOOL, _USER, _MODEL],
       )
     with self.subTest('is_not_reported_as_exhausted'):
@@ -533,10 +533,10 @@ class FCAgentTest(parameterized.TestCase):
     _, state = _run_with_state(agent, 'Weather in London?')
 
     with self.subTest('stops_after_the_final_call'):
-      self.assertLen(backend.seen_messages, 2)
+      self.assertLen(backend.seen_turns, 2)
     with self.subTest('does_not_answer_the_final_calls'):
       self.assertEqual(
-          [turn.role for turn in state.history],
+          [turn.role for turn in state.turns],
           [_USER, _MODEL, _TOOL, _USER, _MODEL],
       )
     with self.subTest('reports_that_it_ran_out_of_steps'):
@@ -552,9 +552,9 @@ class FCAgentTest(parameterized.TestCase):
     _, state = _run_with_state(agent, 'Hi')
 
     with self.subTest('calls_the_model_once'):
-      self.assertLen(backend.seen_messages, 1)
+      self.assertLen(backend.seen_turns, 1)
     with self.subTest('does_not_record_the_instruction'):
-      self.assertEqual([turn.role for turn in state.history], [_USER, _MODEL])
+      self.assertEqual([turn.role for turn in state.turns], [_USER, _MODEL])
 
   def test_a_single_step_exposes_the_calls_without_running_them(self):
     backend = _ScriptedBackend(
@@ -577,22 +577,22 @@ class FCAgentTest(parameterized.TestCase):
     with self.subTest('returns_the_requested_calls'):
       self.assertEqual(result.calls[0].function_name, '_get_weather')
     with self.subTest('does_not_call_the_model_again'):
-      self.assertLen(backend.seen_messages, 1)
+      self.assertLen(backend.seen_turns, 1)
 
   def test_accepts_an_existing_conversation(self):
     backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather])
-    history = [
+    prior_turns = [
         fc_types.ConversationTurn(role=_USER, content='Capital of France?'),
         _model_turn('Paris is the capital.'),
         fc_types.ConversationTurn(role=_USER, content='Say it in one word.'),
     ]
 
-    result = _run(agent, history)
+    result = _run(agent, prior_turns)
 
     with self.subTest('keeps_the_conversation'):
-      self.assertLen(backend.seen_messages[0], 3)
+      self.assertLen(backend.seen_turns[0], 3)
     with self.subTest('answers_the_last_question'):
       self.assertEqual(result.content, 'Paris.')
 
@@ -608,7 +608,7 @@ class FCAgentTest(parameterized.TestCase):
     result = _run(agent, question)
 
     self.assertEqual(
-        backend.seen_messages[0],
+        backend.seen_turns[0],
         [fc_types.ConversationTurn(role=_USER, content=question)],
     )
     self.assertEqual(result.content, 'A puffin.')
@@ -630,7 +630,7 @@ class FCAgentTest(parameterized.TestCase):
     agent = agent_lib.Agent(tools=[_get_weather])
 
     initial_state = agent_lib.AgentState(
-        history=[fc_types.ConversationTurn(role=_USER, content='Weather?')]
+        turns=[fc_types.ConversationTurn(role=_USER, content='Weather?')]
     )
 
     # `executing.stream` rather than `executing.run`, so that we see every
@@ -706,7 +706,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
           ['_get_time', '_get_weather'],
       )
     with self.subTest('executes_the_one_from_the_source'):
-      tool_turn = backend.seen_messages[1][-1]
+      tool_turn = backend.seen_turns[1][-1]
       self.assertEqual(tool_turn.responses[0].response, '12:00 in Paris')
     with self.subTest('answers'):
       self.assertEqual(result.content, 'It is noon in Paris.')
@@ -732,7 +732,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
       self.assertEqual(events, ['open', 'close'])
     with self.subTest('the_tool_worked_while_it_was_open'):
       self.assertEqual(
-          backend.seen_messages[1][-1].responses[0].response, '12:00 in Oslo'
+          backend.seen_turns[1][-1].responses[0].response, '12:00 in Oslo'
       )
     with self.subTest('answers'):
       self.assertEqual(result.content, 'It is noon in Oslo.')
@@ -812,7 +812,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
           [spec.name for spec in backend.seen_tools[0]], ['_get_time']
       )
     with self.subTest('calls_the_one_from_the_source'):
-      tool_turn = backend.seen_messages[1][-1]
+      tool_turn = backend.seen_turns[1][-1]
       self.assertEqual(tool_turn.responses[0].response, '13:00 in Rome')
 
   def test_a_run_without_a_source_opens_nothing(self):

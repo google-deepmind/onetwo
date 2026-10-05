@@ -999,7 +999,7 @@ class ClaudeAPI(
   @tracing.trace(name='ClaudeAPI.generate_with_tools')
   async def generate_with_tools(
       self,
-      messages: Sequence[function_calling.ConversationTurn],
+      turns: Sequence[function_calling.ConversationTurn],
       tools: Sequence[function_calling.ToolSpec],
       **kwargs,
   ) -> function_calling.ConversationTurn:
@@ -1010,7 +1010,7 @@ class ClaudeAPI(
     `onetwo.agents.agent.Agent`.
 
     Args:
-      messages: The conversation so far.
+      turns: The conversation so far.
       tools: Declarations of the tools the model may call.
       **kwargs: Generation parameters, e.g. `max_tokens`, or any Anthropic
         parameter such as `thinking`.
@@ -1018,7 +1018,7 @@ class ClaudeAPI(
     Returns:
       The single turn the model replied with.
     """
-    return await self._generate_with_tools(messages, tools, **kwargs)
+    return await self._generate_with_tools(turns, tools, **kwargs)
 
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
   @batching.batch_method_with_threadpool(
@@ -1027,7 +1027,7 @@ class ClaudeAPI(
   )
   def _generate_with_tools(
       self,
-      messages: Sequence[function_calling.ConversationTurn],
+      turns: Sequence[function_calling.ConversationTurn],
       tools: Sequence[function_calling.ToolSpec],
       *,
       max_tokens: int | None = None,
@@ -1045,7 +1045,7 @@ class ClaudeAPI(
     api_kwargs: dict[str, Any] = {
         'model': self.model_name,
         'max_tokens': max_tokens or self.max_tokens or DEFAULT_MAX_TOKENS,
-        'messages': _messages_from_turns(messages),
+        'messages': _messages_from_turns(turns),
     }
     if stop is not None:
       if filtered := _filtered_stop_sequences(stop):

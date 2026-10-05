@@ -180,7 +180,7 @@ class _ScriptedBackend:
   replies: list[fc_types.ConversationTurn] = dataclasses.field(
       default_factory=list
   )
-  seen_messages: list[list[fc_types.ConversationTurn]] = dataclasses.field(
+  seen_turns: list[list[fc_types.ConversationTurn]] = dataclasses.field(
       default_factory=list
   )
   seen_tools: list[list[fc_types.ToolSpec]] = dataclasses.field(
@@ -194,14 +194,14 @@ class _ScriptedBackend:
   @executing.make_executable(copy_self=False)
   async def generate_with_tools(
       self,
-      messages: Sequence[fc_types.ConversationTurn],
+      turns: Sequence[fc_types.ConversationTurn],
       tools: Sequence[fc_types.ToolSpec],
       **kwargs,
   ) -> fc_types.ConversationTurn:
     del kwargs
-    self.seen_messages.append(list(messages))
+    self.seen_turns.append(list(turns))
     self.seen_tools.append(list(tools))
-    index = min(len(self.seen_messages) - 1, len(self.replies) - 1)
+    index = min(len(self.seen_turns) - 1, len(self.replies) - 1)
     return self.replies[index]
 
 
@@ -273,11 +273,11 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       )
     with self.subTest('a_tool_result_reaches_the_model_unchanged'):
       self.assertEqual(
-          _responses_in(backend.seen_messages[-1])[-1].response,
+          _responses_in(backend.seen_turns[-1])[-1].response,
           _DOCS['d1'].text,
       )
     with self.subTest('puts_the_question_in_the_first_turn'):
-      first_turn = backend.seen_messages[0][0]
+      first_turn = backend.seen_turns[0][0]
       self.assertEqual(first_turn.role, _USER)
       self.assertIn('What is the capital of France?', str(first_turn.content))
     with self.subTest('sends_the_default_prompt'):
@@ -310,11 +310,11 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
         _model_turn(calls=[_call('read', doc_id='d1')]),
         _model_turn('I do not know.'),
     ]
-    backend.seen_messages.clear()
+    backend.seen_turns.clear()
     executing.run(strategy('And of Germany?'))
 
     with self.subTest('the_second_question_cannot_read_the_firsts_passage'):
-      error = _responses_in(backend.seen_messages[-1])[-1].error or ''
+      error = _responses_in(backend.seen_turns[-1])[-1].error or ''
       self.assertIn('d1', error)
     with self.subTest('the_corpus_itself_is_shared'):
       # One corpus served both questions; only the tools were rebuilt.
@@ -370,7 +370,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     with self.subTest('still_answers'):
       self.assertEqual(result.answer, 'Paris.')
     with self.subTest('the_tool_did_return_a_document'):
-      returned = _responses_in(backend.seen_messages[-1])[-1].response
+      returned = _responses_in(backend.seen_turns[-1])[-1].response
       self.assertEqual([hit['doc_id'] for hit in returned], ['d1'])
     with self.subTest('and_it_is_not_reported'):
       self.assertEmpty(result.docs)
@@ -503,7 +503,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     with self.subTest('the_model_is_told_what_went_wrong'):
       # The second step is the one that read a document that does not exist;
       # its error reaches the model in the conversation sent next.
-      responses = _responses_in(backend.seen_messages[2])
+      responses = _responses_in(backend.seen_turns[2])
       error = responses[-1].error or ''
       self.assertIn('d9', error)
 
@@ -531,7 +531,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     result = executing.run(strategy('What is the capital of France?'))
 
     with self.subTest('stops_at_the_bound'):
-      self.assertLen(backend.seen_messages, 2)
+      self.assertLen(backend.seen_turns, 2)
     with self.subTest('has_no_answer_to_report'):
       self.assertEmpty(result.answer)
 
@@ -572,12 +572,12 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
 
     executing.run(strategy('Capital of France?'))
-    without_additional = backend.seen_messages[0][0].content
-    backend.seen_messages.clear()
+    without_additional = backend.seen_turns[0][0].content
+    backend.seen_turns.clear()
     executing.run(
         strategy('Capital of France?', additional_instructions='Be brief.')
     )
-    with_additional = backend.seen_messages[0][0].content
+    with_additional = backend.seen_turns[0][0].content
 
     with self.subTest('fills_in_the_question'):
       self.assertEqual(
@@ -599,7 +599,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     executing.run(strategy(question))
 
     self.assertEqual(
-        backend.seen_messages[0][0].content, 'Q: Capital of France? {end}'
+        backend.seen_turns[0][0].content, 'Q: Capital of France? {end}'
     )
 
   def test_a_query_template_without_a_question_is_rejected(self):
@@ -624,7 +624,7 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     )
 
     self.assertEqual(
-        backend.seen_messages[0][0].content, 'Answer: Capital of France?'
+        backend.seen_turns[0][0].content, 'Answer: Capital of France?'
     )
 
   def test_is_available_from_the_strategy_registry(self):

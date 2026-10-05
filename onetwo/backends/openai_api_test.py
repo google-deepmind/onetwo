@@ -788,9 +788,9 @@ class GenerateWithToolsTest(
   def _last_request(self) -> dict[str, Any]:
     return self._responses.requests[-1]
 
-  def _ask(self, *messages, **kwargs):
+  def _ask(self, *turns, **kwargs):
     return executing.run(
-        llm.generate_with_tools(messages=list(messages), **kwargs)
+        llm.generate_with_tools(turns=list(turns), **kwargs)
     )
 
   # --- Tool declarations ----------------------------------------------------
@@ -866,7 +866,7 @@ class GenerateWithToolsTest(
     backend._client = _ScriptedClient(responses)  # pyrefly: ignore[bad-assignment]
     executing.run(
         llm.generate_with_tools(
-            messages=[
+            turns=[
                 _ConversationTurn(role=_ConversationRole.USER, content='News?')
             ],
             tools=[_ToolSpec(name='now')],

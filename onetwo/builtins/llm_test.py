@@ -449,7 +449,7 @@ class LlmTest(parameterized.TestCase):
   def test_generate_with_tools(self):
     llm.reset_defaults()
     with self.assertRaises(NotImplementedError):
-      executing.run(llm.generate_with_tools(messages=[], tools=[]))
+      executing.run(llm.generate_with_tools(turns=[], tools=[]))
 
     expected = function_calling.ConversationTurn(
         role=function_calling.ConversationRole.MODEL, content='Done'
@@ -457,16 +457,16 @@ class LlmTest(parameterized.TestCase):
 
     @executing.make_executable
     def fake_impl(
-        messages: Sequence[function_calling.ConversationTurn],
+        turns: Sequence[function_calling.ConversationTurn],
         tools: Sequence[function_calling.ToolSpec],
         **kwargs,
     ) -> function_calling.ConversationTurn:
-      del messages, tools, kwargs
+      del turns, tools, kwargs
       return expected
 
     llm.generate_with_tools.configure(fake_impl)
     self.assertEqual(
-        expected, executing.run(llm.generate_with_tools(messages=[], tools=[]))
+        expected, executing.run(llm.generate_with_tools(turns=[], tools=[]))
     )
 
 
