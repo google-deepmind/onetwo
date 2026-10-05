@@ -141,6 +141,28 @@ class ConversationTurn:
   responses: Sequence['FunctionResponse'] = ()
   thought: str | content_lib.ChunkList | None = None
 
+  def __repr__(self) -> str:
+    """Returns the role and the fields that are set, leaving out empty ones.
+
+    A turn only fills in the fields of its role -- a TOOL turn has nothing but
+    `responses` -- and the generated repr would spell out every other one as
+    `None` or `()`, burying what a printed conversation says under what it does
+    not. A field that is left out is None or empty, so nothing is lost.
+    """
+    role = self.role
+    if isinstance(role, ConversationRole):
+      parts = [f'role={type(role).__name__}.{role.name}']
+    else:
+      parts = [f'role={role!r}']
+    for field in dataclasses.fields(self):
+      if field.name == 'role':
+        continue
+      value = getattr(self, field.name)
+      if value is None or (isinstance(value, (tuple, list)) and not value):
+        continue
+      parts.append(f'{field.name}={value!r}')
+    return f'{type(self).__name__}({", ".join(parts)})'
+
 
 @dataclasses.dataclass
 class FunctionCall:

@@ -258,6 +258,72 @@ class ConversationTurnTest(parameterized.TestCase):
     with self.assertRaises(dataclasses.FrozenInstanceError):
       turn.thought = 'new thought'  # pyrefly: ignore[read-only]
 
+  @parameterized.named_parameters(
+      (
+          'user_turn',
+          function_calling.ConversationTurn(
+              role=function_calling.ConversationRole.USER, content='Hi'
+          ),
+          "ConversationTurn(role=ConversationRole.USER, content='Hi')",
+      ),
+      (
+          'model_turn_with_a_thought_and_a_call',
+          function_calling.ConversationTurn(
+              role=function_calling.ConversationRole.MODEL,
+              calls=(function_calling.FunctionCall('search', id='c1'),),
+              thought='Look it up.',
+          ),
+          (
+              'ConversationTurn(role=ConversationRole.MODEL,'
+              " calls=(FunctionCall(function_name='search', args=(),"
+              " kwargs={}, id='c1'),), thought='Look it up.')"
+          ),
+      ),
+      (
+          'tool_turn',
+          function_calling.ConversationTurn(
+              role=function_calling.ConversationRole.TOOL,
+              responses=[
+                  function_calling.FunctionResponse('search', response='42')
+              ],
+          ),
+          (
+              'ConversationTurn(role=ConversationRole.TOOL,'
+              " responses=[FunctionResponse(function_name='search',"
+              " response='42', error=None, id='')])"
+          ),
+      ),
+      (
+          'calls_given_as_an_empty_list',
+          function_calling.ConversationTurn(
+              role=function_calling.ConversationRole.MODEL,
+              content='Done.',
+              calls=[],
+          ),
+          "ConversationTurn(role=ConversationRole.MODEL, content='Done.')",
+      ),
+      (
+          'empty_content_is_not_none',
+          function_calling.ConversationTurn(
+              role=function_calling.ConversationRole.MODEL, content=''
+          ),
+          "ConversationTurn(role=ConversationRole.MODEL, content='')",
+      ),
+  )
+  def test_repr_leaves_out_empty_fields(self, turn, expected):
+    self.assertEqual(expected, repr(turn))
+
+  def test_repr_of_multimodal_content(self):
+    chunks = content_lib.ChunkList([content_lib.Chunk('hello')])
+    turn = function_calling.ConversationTurn(
+        role=function_calling.ConversationRole.USER, content=chunks
+    )
+
+    self.assertEqual(
+        f'ConversationTurn(role=ConversationRole.USER, content={chunks!r})',
+        repr(turn),
+    )
+
 
 class ToolShapesTest(parameterized.TestCase):
   """Shows how the types express the tools we expect agents to be given.
