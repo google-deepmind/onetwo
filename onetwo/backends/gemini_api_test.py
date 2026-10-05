@@ -216,11 +216,11 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     """
     backend = _get_and_register_backend()
     prompt_text = 'Something'
-    res = executing.run(  # pyrefly: ignore[no-matching-overload]
+    res = executing.run(
         check_length_and_generate(
-            prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-            stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-            max_tokens=512,  # pyrefly: ignore[unexpected-keyword]
+            prompt_text=prompt_text,
+            stop=['\n\n'],
+            max_tokens=512,
         )
     )
     # pytype hint.
@@ -243,11 +243,11 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
           expected_cache_counters,
       )
     # Same query to see if it has been cached.
-    res = executing.run(  # pyrefly: ignore[no-matching-overload]
+    res = executing.run(
         check_length_and_generate(
-            prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-            stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-            max_tokens=512,  # pyrefly: ignore[unexpected-keyword]
+            prompt_text=prompt_text,
+            stop=['\n\n'],
+            max_tokens=512,
         )
     )
     with self.subTest('returns_correct_result_2'):
@@ -261,11 +261,11 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
           expected_cache_counters,
       )
     # Same query but different parameters, run generate request again.
-    res = executing.run(  # pyrefly: ignore[no-matching-overload]
+    res = executing.run(
         check_length_and_generate(
-            prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-            stop=['different'],  # pyrefly: ignore[unexpected-keyword]
-            max_tokens=512,  # pyrefly: ignore[unexpected-keyword]
+            prompt_text=prompt_text,
+            stop=['different'],
+            max_tokens=512,
         )
     )
     with self.subTest('returns_correct_result_3'):
@@ -292,10 +292,10 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     prompt_text = 'Something'
     exe = executing.par_iter(
         sampling.repeat(
-            executable=check_length_and_generate(  # pyrefly: ignore[bad-argument-type]
-                prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-                temperature=0.5,  # pyrefly: ignore[unexpected-keyword]
-                stop=['.'],  # pyrefly: ignore[unexpected-keyword]
+            executable=check_length_and_generate(
+                prompt_text=prompt_text,
+                temperature=0.5,
+                stop=['.'],
             ),
             num_repeats=5,
         )
@@ -334,10 +334,10 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     # One more run of repeat to hit the `get_hit_miss_sample` counter.
     exe = executing.par_iter(
         sampling.repeat(
-            executable=check_length_and_generate(  # pyrefly: ignore[bad-argument-type]
-                prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-                temperature=0.5,  # pyrefly: ignore[unexpected-keyword]
-                stop=['.'],  # pyrefly: ignore[unexpected-keyword]
+            executable=check_length_and_generate(
+                prompt_text=prompt_text,
+                temperature=0.5,
+                stop=['.'],
             ),
             num_repeats=6,  # 6th value will hit get_hit_miss_sample counter.
         )
@@ -363,12 +363,12 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
   def test_batched_generate_and_count_tokens(self):
     backend = _get_and_register_backend()
-    exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-        check_length_and_generate(prompt_text='Something a'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something b'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something c'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something d'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something f'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+    exe = executing.par_iter([
+        check_length_and_generate(prompt_text='Something a'),
+        check_length_and_generate(prompt_text='Something b'),
+        check_length_and_generate(prompt_text='Something c'),
+        check_length_and_generate(prompt_text='Something d'),
+        check_length_and_generate(prompt_text='Something f'),
     ])
     res = executing.run(exe)
     # pytype hint.
@@ -396,12 +396,12 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_identical_batched_generate_and_count_tokens(self):
 
     backend = _get_and_register_backend()
-    exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+    exe = executing.par_iter([
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
     ])
     res = executing.run(exe)
     # pytype hint.
@@ -429,25 +429,25 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_generate_raises_exception(self):
     _ = _get_and_register_backend()
     exe = check_length_and_generate(
-        prompt_text='Something',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        max_token_count=_MOCK_COUNT_TOKENS_RETURN - 1,  # pyrefly: ignore[unexpected-keyword]
+        prompt_text='Something',
+        max_token_count=_MOCK_COUNT_TOKENS_RETURN - 1,
     )
     with self.subTest('executable_raises_value_error'):
       with self.assertRaisesRegex(ValueError, 'Prompt has too many tokens*'):
-        _ = executing.run(exe)  # pyrefly: ignore[no-matching-overload]
+        _ = executing.run(exe)
     exe = check_length_and_generate(
-        prompt_text='raise_exception',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+        prompt_text='raise_exception',
     )
     with self.subTest('generate_raises_value_error'):
       with self.assertRaisesRegex(
           ValueError, 'GeminiAPI.generate_content raised er*'
       ):
-        _ = executing.run(exe)  # pyrefly: ignore[no-matching-overload]
-    exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-        check_length_and_generate(prompt_text='a'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='raise_exception b'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+        _ = executing.run(exe)
+    exe = executing.par_iter([
+        check_length_and_generate(prompt_text='a'),
+        check_length_and_generate(prompt_text='raise_exception b'),
         check_length_and_generate(
-            prompt_text='c',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+            prompt_text='c',
         ),
     ])
     with self.subTest('batched_generate_raises_value_error'):
@@ -532,18 +532,18 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         )
     ]
     with self.subTest('uses_backend_default'):
-      llm.chat(messages=messages)  # pytype: disable=wrong-keyword-args
-      res = executing.run(llm.chat(messages=messages))  # pytype: disable=wrong-keyword-args
+      llm.chat(messages=messages)
+      res = executing.run(llm.chat(messages=messages))
       self.assertEqual(res, 'a 0.1')
 
     with self.subTest('uses_updated_default'):
       llm.chat.update(temperature=0.2)
-      res = executing.run(llm.chat(messages=messages))  # pytype: disable=wrong-keyword-args
+      res = executing.run(llm.chat(messages=messages))
       self.assertEqual(res, 'a 0.2')
 
     with self.subTest('uses_override'):
       res = executing.run(
-          llm.chat(messages=messages, temperature=0.3)  # pytype: disable=wrong-keyword-args
+          llm.chat(messages=messages, temperature=0.3)
       )
       self.assertEqual(res, 'a 0.3')
 
@@ -551,24 +551,24 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend(temperature=0.1)
     self.generate_content_response_function = RespondWithTextAndTemperature('a')
     with self.subTest('uses_backend_default'):
-      res = executing.run(llm.instruct(prompt='Something'))  # pytype: disable=wrong-keyword-args
+      res = executing.run(llm.instruct(prompt='Something'))
       self.assertEqual(res, 'a 0.1')
 
     with self.subTest('uses_updated_default'):
       llm.instruct.update(temperature=0.2)
-      res = executing.run(llm.instruct(prompt='Something'))  # pytype: disable=wrong-keyword-args
+      res = executing.run(llm.instruct(prompt='Something'))
       self.assertEqual(res, 'a 0.2')
 
     with self.subTest('uses_override'):
       res = executing.run(
-          llm.instruct(prompt='Something', temperature=0.3)  # pytype: disable=wrong-keyword-args
+          llm.instruct(prompt='Something', temperature=0.3)
       )
       self.assertEqual(res, 'a 0.3')
 
   def test_truncation(self):
     _ = _get_and_register_backend()
     result = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='something', include_details=True, max_tokens=2
         )
     )
@@ -655,7 +655,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
 
     # Test llm.generate_text.
-    executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+    executable = llm.generate_text(
         prompt=prompt,
         healing_option=healing_option,
     )
@@ -679,7 +679,7 @@ class GeminiAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
     msg_user = _Message(role=_PredefinedRole.USER, content=prompt)
     msg_model = _Message(role=_PredefinedRole.MODEL, content='I am model!')
-    executable = llm.chat(  # pytype: disable=wrong-keyword-args
+    executable = llm.chat(
         messages=[msg_model, msg_user],
         healing_option=healing_option,
     )

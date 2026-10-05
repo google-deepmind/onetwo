@@ -958,7 +958,7 @@ class OpenAIAPI(
     else:
       messages = [
           content_lib.Message(
-              content=prompt,  # pyrefly: ignore[bad-argument-type]
+              content=prompt,
               role=content_lib.PredefinedRole.USER,
           )
       ]
@@ -1043,12 +1043,12 @@ class OpenAIAPI(
       target_cls = cls
       is_wrapped = False
 
-    serializable_result = await self._generate_object_internal(  # pyrefly: ignore[bad-argument-type, not-async]  # pytype: disable=wrong-keyword-args
-        prompt=prompt,  # pyrefly: ignore[unexpected-keyword]
-        cls=target_cls,  # pyrefly: ignore[unexpected-keyword]
-        temperature=temperature,  # pyrefly: ignore[unexpected-keyword]
-        max_tokens=max_tokens,  # pyrefly: ignore[unexpected-keyword]
-        top_p=top_p,  # pyrefly: ignore[unexpected-keyword]
+    serializable_result = await self._generate_object_internal(
+        prompt=prompt,
+        cls=target_cls,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
     )
 
     value = serializable_result['value'] if is_wrapped else serializable_result
@@ -1071,7 +1071,7 @@ class OpenAIAPI(
     # Remove kwargs that are not supported by the OpenAI API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Responses API via client.responses.create.
-    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
+    return await self.chat_via_api(messages, **kwargs)
 
   @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
@@ -1116,7 +1116,7 @@ class OpenAIAPI(
     Returns:
       The single turn the model replied with.
     """
-    return await self._generate_with_tools(messages, tools, **kwargs)  # pyrefly: ignore[bad-argument-count, not-async]
+    return await self._generate_with_tools(messages, tools, **kwargs)
 
   # Not cached, unlike the other generation methods: a cache key is built by
   # hashing the arguments, and `ConversationTurn` is not something
@@ -1286,7 +1286,7 @@ class OpenAIAPI(
 
     return values
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name='OpenAIAPI.count_tokens')
   @caching.cache_method(  # Cache this deterministic method.
       name='count_tokens',
@@ -1313,7 +1313,7 @@ class OpenAIAPI(
     Returns:
       The number of input tokens.
     """
-    return await self._count_tokens(content)  # pytype: disable=wrong-arg-count
+    return await self._count_tokens(content)
 
   @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))

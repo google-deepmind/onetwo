@@ -65,7 +65,7 @@ class FormattersTest(parameterized.TestCase):
   ):
     async def wrapper():
       formatter_class = formatting.FORMATTER_CLASS_BY_NAME[formatter]
-      formatter_instance = formatter_class()  # pytype: disable=not-instantiable
+      formatter_instance = formatter_class()
       result = formatter_instance.format(messages)
       return result
 

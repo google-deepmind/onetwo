@@ -31,7 +31,7 @@ def main(argv):
     tokenizer.register()
 
     print('Tokenizing "Hello world"...')
-    tokens = await llm.tokenize('Hello world')  # pytype: disable=wrong-arg-count
+    tokens = await llm.tokenize('Hello world')
     print(f'Token IDs: {tokens}')
 
     if list(tokens) != expected_tokens:
@@ -41,7 +41,7 @@ def main(argv):
       return False
 
     print('Detokenizing back to text...')
-    text = await llm.detokenize(tokens)  # pytype: disable=wrong-arg-count
+    text = await llm.detokenize(tokens)
     print(f'Detokenized text: "{text}"')
 
     if text == 'Hello world':

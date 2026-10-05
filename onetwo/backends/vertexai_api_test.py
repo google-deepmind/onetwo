@@ -215,11 +215,11 @@ class VertexAIAPITest(
     """
     backend = _get_and_register_backend()
     prompt_text = 'Something'
-    res = executing.run(  # pyrefly: ignore[no-matching-overload]
+    res = executing.run(
         check_length_and_generate(
-            prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-            stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-            max_tokens=512,  # pyrefly: ignore[unexpected-keyword]
+            prompt_text=prompt_text,
+            stop=['\n\n'],
+            max_tokens=512,
         )
     )
     # pytype hint.
@@ -242,11 +242,11 @@ class VertexAIAPITest(
           expected_cache_counters,
       )
     # Same query to see if it has been cached.
-    res = executing.run(  # pyrefly: ignore[no-matching-overload]
+    res = executing.run(
         check_length_and_generate(
-            prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-            stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-            max_tokens=512,  # pyrefly: ignore[unexpected-keyword]
+            prompt_text=prompt_text,
+            stop=['\n\n'],
+            max_tokens=512,
         )
     )
     with self.subTest('returns_correct_result_2'):
@@ -260,11 +260,11 @@ class VertexAIAPITest(
           expected_cache_counters,
       )
     # Same query but different parameters, run generate request again.
-    res = executing.run(  # pyrefly: ignore[no-matching-overload]
+    res = executing.run(
         check_length_and_generate(
-            prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-            stop=['different'],  # pyrefly: ignore[unexpected-keyword]
-            max_tokens=512,  # pyrefly: ignore[unexpected-keyword]
+            prompt_text=prompt_text,
+            stop=['different'],
+            max_tokens=512,
         )
     )
     with self.subTest('returns_correct_result_3'):
@@ -291,10 +291,10 @@ class VertexAIAPITest(
     prompt_text = 'Something'
     exe = executing.par_iter(
         sampling.repeat(
-            executable=check_length_and_generate(  # pyrefly: ignore[bad-argument-type]
-                prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-                temperature=0.5,  # pyrefly: ignore[unexpected-keyword]
-                stop=['.'],  # pyrefly: ignore[unexpected-keyword]
+            executable=check_length_and_generate(
+                prompt_text=prompt_text,
+                temperature=0.5,
+                stop=['.'],
             ),
             num_repeats=5,
         )
@@ -333,10 +333,10 @@ class VertexAIAPITest(
     # One more run of repeat to hit the `get_hit_miss_sample` counter.
     exe = executing.par_iter(
         sampling.repeat(
-            executable=check_length_and_generate(  # pyrefly: ignore[bad-argument-type]
-                prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-                temperature=0.5,  # pyrefly: ignore[unexpected-keyword]
-                stop=['.'],  # pyrefly: ignore[unexpected-keyword]
+            executable=check_length_and_generate(
+                prompt_text=prompt_text,
+                temperature=0.5,
+                stop=['.'],
             ),
             num_repeats=6,  # 6th value will hit get_hit_miss_sample counter.
         )
@@ -363,12 +363,12 @@ class VertexAIAPITest(
   def test_identical_batched_generate_and_count_tokens(self, *args, **kwargs):
 
     backend = _get_and_register_backend()
-    exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='Something'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+    exe = executing.par_iter([
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
+        check_length_and_generate(prompt_text='Something'),
     ])
     res = executing.run(exe)
     # pytype hint.
@@ -396,25 +396,25 @@ class VertexAIAPITest(
   def test_generate_raises_exception(self, *args, **kwargs):
     _ = _get_and_register_backend()
     exe = check_length_and_generate(
-        prompt_text='Something',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        max_token_count=_MOCK_COUNT_TOKENS_RETURN - 1,  # pyrefly: ignore[unexpected-keyword]
+        prompt_text='Something',
+        max_token_count=_MOCK_COUNT_TOKENS_RETURN - 1,
     )
     with self.subTest('executable_raises_value_error'):
       with self.assertRaisesRegex(ValueError, 'Prompt has too many tokens*'):
-        _ = executing.run(exe)  # pyrefly: ignore[no-matching-overload]
+        _ = executing.run(exe)
     exe = check_length_and_generate(
-        prompt_text='raise_exception',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+        prompt_text='raise_exception',
     )
     with self.subTest('generate_raises_value_error'):
       with self.assertRaisesRegex(
           ValueError, 'VertexAI.Model.generate_content raised er*'
       ):
-        _ = executing.run(exe)  # pyrefly: ignore[no-matching-overload]
-    exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-        check_length_and_generate(prompt_text='a'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-        check_length_and_generate(prompt_text='raise_exception b'),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+        _ = executing.run(exe)
+    exe = executing.par_iter([
+        check_length_and_generate(prompt_text='a'),
+        check_length_and_generate(prompt_text='raise_exception b'),
         check_length_and_generate(
-            prompt_text='c',  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+            prompt_text='c',
         ),
     ])
     with self.subTest('batched_generate_raises_value_error'):

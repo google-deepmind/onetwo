@@ -147,7 +147,7 @@ def main(argv: Sequence[str]) -> None:
       Question: Differentiate $\\frac{1}{\\log(x)}$.
     """
     res = ot.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
             max_tokens=_MAX_TOKENS.value,
         )
@@ -159,7 +159,7 @@ def main(argv: Sequence[str]) -> None:
     print('1.1 Same query to see if it has been cached.')
     counters_before = dict(backend._counters)
     res = ot.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
             max_tokens=_MAX_TOKENS.value,
         )
@@ -180,7 +180,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('1.2 Same query but different parameters, run requests again.')
     res = ot.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
             max_tokens=_MAX_TOKENS.value,
         )
@@ -193,7 +193,7 @@ def main(argv: Sequence[str]) -> None:
     print('2. Repeated generate request.')
     exe = ot.par_iter(
         sampling.repeat(
-            executable=llm.generate_text(  # pytype: disable=wrong-arg-count
+            executable=llm.generate_text(
                 'Today is', max_tokens=_MAX_TOKENS.value
             ),
             num_repeats=5,
@@ -206,9 +206,9 @@ def main(argv: Sequence[str]) -> None:
 
     print('3. Three batched generate queries.')
     exe = ot.par_iter([
-        llm.generate_text(prompt='In summer', max_tokens=_MAX_TOKENS.value),  # pytype: disable=wrong-keyword-args
-        llm.generate_text(prompt='In winter', max_tokens=_MAX_TOKENS.value),  # pytype: disable=wrong-keyword-args
-        llm.generate_text(prompt='In autumn', max_tokens=_MAX_TOKENS.value),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In summer', max_tokens=_MAX_TOKENS.value),
+        llm.generate_text(prompt='In winter', max_tokens=_MAX_TOKENS.value),
+        llm.generate_text(prompt='In autumn', max_tokens=_MAX_TOKENS.value),
     ])
     res = ot.run(exe)
     if _PRINT_DEBUG.value:
@@ -218,7 +218,7 @@ def main(argv: Sequence[str]) -> None:
     # ==================== include_details ====================
     print('4. Check that include_details returns text and score.')
     res = ot.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='In winter',
             max_tokens=_MAX_TOKENS.value,
             include_details=True,
@@ -235,7 +235,7 @@ def main(argv: Sequence[str]) -> None:
     print('5. Calling generate_texts to get multiple samples.')
     prompt = """How to say "I am hungry" in French?"""
     res = ot.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(
             prompt=prompt,
             samples=3,
             max_tokens=_MAX_TOKENS.value,
@@ -251,7 +251,7 @@ def main(argv: Sequence[str]) -> None:
     # ==================== chat ====================
     print('6. Calling chat.')
     res = ot.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 content_lib.Message(
                     role=content_lib.PredefinedRole.SYSTEM,
@@ -280,7 +280,7 @@ def main(argv: Sequence[str]) -> None:
     # ==================== Sampling parameters ====================
     print('7. Generate with temperature.')
     res = ot.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='Tell me a fun fact about penguins.',
             max_tokens=_MAX_TOKENS.value,
             temperature=0.9,
@@ -292,7 +292,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('7.1 Generate with top_k and top_p.')
     res = ot.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='Tell me a fun fact about dolphins.',
             max_tokens=_MAX_TOKENS.value,
             top_k=40,
@@ -326,7 +326,7 @@ def main(argv: Sequence[str]) -> None:
             ),
         ]
         res = ot.run(
-            llm.chat(  # pytype: disable=wrong-keyword-args
+            llm.chat(
                 messages=messages,
                 max_tokens=_MAX_TOKENS.value,
             )
@@ -343,7 +343,7 @@ def main(argv: Sequence[str]) -> None:
   else:
     print('9. Check that embed is working (plain string).')
     res = ot.run(
-        llm.embed(content='The quick brown fox jumps over the lazy dog.')  # pytype: disable=wrong-keyword-args
+        llm.embed(content='The quick brown fox jumps over the lazy dog.')
     )
     if not isinstance(res, (list, tuple)) or not all(
         isinstance(x, float) for x in res
@@ -371,7 +371,7 @@ def main(argv: Sequence[str]) -> None:
             )
         ]
     )
-    res_chunks = ot.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+    res_chunks = ot.run(llm.embed(content=content))
     if not isinstance(res_chunks, (list, tuple)) or not all(
         isinstance(x, float) for x in res_chunks
     ):
@@ -383,7 +383,7 @@ def main(argv: Sequence[str]) -> None:
     print('9.2 Same query to see if embed is cached.')
     counters_before = dict(backend._counters)
     res_cached = ot.run(
-        llm.embed(content='The quick brown fox jumps over the lazy dog.')  # pytype: disable=wrong-keyword-args
+        llm.embed(content='The quick brown fox jumps over the lazy dog.')
     )
     counters_after = dict(backend._counters)
     if counters_before != counters_after:
@@ -401,12 +401,12 @@ def main(argv: Sequence[str]) -> None:
 
     print('10. Embedding norm check (default and normalized).')
     embed_content = 'The quick brown fox jumps over the lazy dog.'
-    res = ot.run(llm.embed(content=embed_content))  # pytype: disable=wrong-keyword-args
+    res = ot.run(llm.embed(content=embed_content))
     vec_norm = math.sqrt(sum(x * x for x in res))
     print(f'  Default vector length={len(res)} | norm={vec_norm:.6f}')
 
     res_norm = ot.run(
-        llm.embed(content=embed_content, normalize=True)  # pytype: disable=wrong-keyword-args
+        llm.embed(content=embed_content, normalize=True)
     )
     vec_norm_2 = math.sqrt(sum(x * x for x in res_norm))
     print(f'  Normalized vector length={len(res_norm)} | norm={vec_norm_2:.6f}')
@@ -416,9 +416,9 @@ def main(argv: Sequence[str]) -> None:
 
     print('11. Three batched embed queries.')
     exe = ot.par_iter([
-        llm.embed(content='In summer'),  # pytype: disable=wrong-keyword-args
-        llm.embed(content='In winter'),  # pytype: disable=wrong-keyword-args
-        llm.embed(content='In autumn'),  # pytype: disable=wrong-keyword-args
+        llm.embed(content='In summer'),
+        llm.embed(content='In winter'),
+        llm.embed(content='In autumn'),
     ])
     res = ot.run(exe)
     if len(res) != 3:
@@ -433,9 +433,9 @@ def main(argv: Sequence[str]) -> None:
           print(f'  embed[{i}]: {len(emb)} floats.')
 
     print('12. Embedding similarity check.')
-    emb_a = ot.run(llm.embed(content='The cat sat on the mat.'))  # pytype: disable=wrong-keyword-args
-    emb_b = ot.run(llm.embed(content='A kitten was sitting on a rug.'))  # pytype: disable=wrong-keyword-args
-    emb_c = ot.run(llm.embed(content='Quantum physics is fascinating.'))  # pytype: disable=wrong-keyword-args
+    emb_a = ot.run(llm.embed(content='The cat sat on the mat.'))
+    emb_b = ot.run(llm.embed(content='A kitten was sitting on a rug.'))
+    emb_c = ot.run(llm.embed(content='Quantum physics is fascinating.'))
 
     # Cosine similarity helper.
     def _cosine_sim(u, v):
@@ -464,7 +464,7 @@ def main(argv: Sequence[str]) -> None:
           ' normalization...'
       )
       res_truncated = ot.run(
-          llm.embed(  # pytype: disable=wrong-keyword-args
+          llm.embed(
               content='The cat sat on the mat.',
               output_dimensionality=target_dim,
               normalize=True,

@@ -302,14 +302,14 @@ def main(argv: Sequence[str]) -> None:
     load_end = time.time()
     print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def generate_contents_direct(backend, **kwargs):
-    return await backend._generate_contents(**kwargs)  # pytype: disable=wrong-keyword-args
+    return await backend._generate_contents(**kwargs)
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def check_and_complete(prompt_text, **other_args):
     # TODO: Where should we store 8196 and model name?
-    token_count = await llm.count_tokens(  # pytype: disable=wrong-keyword-args
+    token_count = await llm.count_tokens(
         content=prompt_text,
     )
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
@@ -321,7 +321,7 @@ def main(argv: Sequence[str]) -> None:
       )
       print(warning_msg)
       logging.warning(warning_msg)
-    res = await llm.generate_text(prompt=prompt_text, **other_args)  # pytype: disable=wrong-keyword-args
+    res = await llm.generate_text(prompt=prompt_text, **other_args)
     return res
 
   time1 = time.time()
@@ -337,34 +337,34 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(1):
     with _run_test(1, 'A single generate query', test_results):
-      res = executing.run(  # pyrefly: ignore[no-matching-overload]
+      res = executing.run(
           check_and_complete(
-              prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-              stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-              max_tokens=300,  # pyrefly: ignore[unexpected-keyword]
+              prompt_text=prompt_text,
+              stop=['\n\n'],
+              max_tokens=300,
           )
       )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
         pprint.pprint(res)
       print('1.1 Same query to see if it has been cached.')
-      res = executing.run(  # pyrefly: ignore[no-matching-overload]
+      res = executing.run(
           check_and_complete(
-              prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-              stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-              max_tokens=300,  # pyrefly: ignore[unexpected-keyword]
+              prompt_text=prompt_text,
+              stop=['\n\n'],
+              max_tokens=300,
           )
       )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
         pprint.pprint(res)
       print('1.2 Same query but different parameters, run requests again.')
-      res = executing.run(  # pyrefly: ignore[no-matching-overload]
+      res = executing.run(
           check_and_complete(
-              prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-              temperature=0.0,  # pyrefly: ignore[unexpected-keyword]
-              stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-              max_tokens=300,  # pyrefly: ignore[unexpected-keyword]
+              prompt_text=prompt_text,
+              temperature=0.0,
+              stop=['\n\n'],
+              max_tokens=300,
           )
       )
       if _PRINT_DEBUG.value:
@@ -375,8 +375,8 @@ def main(argv: Sequence[str]) -> None:
     with _run_test(2, 'Repeated generate request', test_results):
       exe = executing.par_iter(
           sampling.repeat(
-              executable=check_and_complete(  # pyrefly: ignore[bad-argument-type]
-                  'Today is', temperature=0.5, max_tokens=300, stop=['.']  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+              executable=check_and_complete(
+                  'Today is', temperature=0.5, max_tokens=300, stop=['.']
               ),
               num_repeats=5,
           )
@@ -388,10 +388,10 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(3):
     with _run_test(3, 'Three batched generate queries', test_results):
-      exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-          check_and_complete(prompt_text='In summer', max_tokens=300),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-          check_and_complete(prompt_text='In winter', max_tokens=300),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-          check_and_complete(prompt_text='In autumn', max_tokens=300),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      exe = executing.par_iter([
+          check_and_complete(prompt_text='In summer', max_tokens=300),
+          check_and_complete(prompt_text='In winter', max_tokens=300),
+          check_and_complete(prompt_text='In autumn', max_tokens=300),
       ])
       res = executing.run(exe)
       if _PRINT_DEBUG.value:
@@ -405,9 +405,9 @@ def main(argv: Sequence[str]) -> None:
       value_error_raised = False
       try:
         # This call should fail and raise ValueError in _batch_generate.
-        _ = executing.run(  # pyrefly: ignore[no-matching-overload]
+        _ = executing.run(
             check_and_complete(
-                ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))  # pyrefly: ignore[bad-argument-type]
+                ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))
             )
         )
       except ValueError as err:
@@ -436,11 +436,11 @@ def main(argv: Sequence[str]) -> None:
         'Three batched generate queries, one of which does not fit',
         test_results,
     ) as tc:
-      exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-          check_and_complete(prompt_text='In summer', max_tokens=300),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-          check_and_complete(prompt_text='In winter', max_tokens=300),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      exe = executing.par_iter([
+          check_and_complete(prompt_text='In summer', max_tokens=300),
+          check_and_complete(prompt_text='In winter', max_tokens=300),
           check_and_complete(
-              ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))  # pyrefly: ignore[bad-argument-type]
+              ', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))
           ),
       ])
       value_error_raised = False
@@ -467,17 +467,17 @@ def main(argv: Sequence[str]) -> None:
     with _run_test(6.1, 'Generate an image', test_results) as tc:
       with routing.RegistryContext():
         image_backend.register()
-        res = executing.run(  # pyrefly: ignore[no-matching-overload]
+        res = executing.run(
             generate_contents_direct(
-                image_backend,  # pyrefly: ignore[bad-argument-type]
-                prompt="""Create a picture of a banana disguised as superhero.""",  # pyrefly: ignore[unexpected-keyword]
-                temperature=2,  # pyrefly: ignore[unexpected-keyword]
-                safety_settings=google_genai_api.SAFETY_DISABLED,  # pyrefly: ignore[unexpected-keyword]
+                image_backend,
+                prompt="""Create a picture of a banana disguised as superhero.""",
+                temperature=2,
+                safety_settings=google_genai_api.SAFETY_DISABLED,
             )
         )[0]
       has_image = False
       for ch in res:
-        if ch.content_type.startswith('image/'):  # pytype: disable=attribute-error
+        if ch.content_type.startswith('image/'):
           has_image = True
       print('- Has image: ', has_image)
       if not has_image:
@@ -492,20 +492,20 @@ def main(argv: Sequence[str]) -> None:
     with _run_test(6.2, 'Generate candidates', test_results):
       with routing.RegistryContext():
         candidates_backend.register()
-        res = executing.run(  # pyrefly: ignore[no-matching-overload]
+        res = executing.run(
             generate_contents_direct(
-                candidates_backend,  # pyrefly: ignore[bad-argument-type]
-                prompt="""How are you doing? In one word.""",  # pyrefly: ignore[unexpected-keyword]
-                samples=3,  # pyrefly: ignore[unexpected-keyword]
-                temperature=2,  # pyrefly: ignore[unexpected-keyword]
-                response_mime_type='application/json',  # pyrefly: ignore[unexpected-keyword]
-                response_schema={  # pyrefly: ignore[unexpected-keyword]
+                candidates_backend,
+                prompt="""How are you doing? In one word.""",
+                samples=3,
+                temperature=2,
+                response_mime_type='application/json',
+                response_schema={
                     'type': 'STRING',
                     'pattern': (
                         '(terrible|excellent|well|average|meh|bad|awesome)'
                     ),
                 },
-                safety_settings=google_genai_api.SAFETY_DISABLED,  # pyrefly: ignore[unexpected-keyword]
+                safety_settings=google_genai_api.SAFETY_DISABLED,
             )
         )
       uniq = len({str(r): False for r in res})
@@ -542,7 +542,7 @@ def main(argv: Sequence[str]) -> None:
   if _should_run_test(9):
     with _run_test(9, 'Check that generate_texts is working', test_results):
       res = executing.run(
-          llm.generate_texts(  # pytype: disable=wrong-keyword-args
+          llm.generate_texts(
               prompt=prompt_text,
               samples=3,
               stop=['\n\n'],
@@ -557,7 +557,7 @@ def main(argv: Sequence[str]) -> None:
     with _run_test(10, 'Formatting', test_results) as tc:
       print('10.1 Check that chat is working (API formatting).')
       res = executing.run(
-          llm.chat(  # pytype: disable=wrong-keyword-args
+          llm.chat(
               messages=[
                   content_lib.Message(
                       role=content_lib.PredefinedRole.USER,
@@ -583,7 +583,7 @@ def main(argv: Sequence[str]) -> None:
 
       print('10.2 Check that chat completes the model prefix.')
       res = executing.run(
-          llm.chat(  # pytype: disable=wrong-keyword-args
+          llm.chat(
               messages=[
                   content_lib.Message(
                       role=content_lib.PredefinedRole.USER,
@@ -611,7 +611,7 @@ def main(argv: Sequence[str]) -> None:
 
       print('10.3 Check that chat is working (Default formatting).')
       res = executing.run(
-          llm.chat(  # pytype: disable=wrong-keyword-args
+          llm.chat(
               messages=[
                   content_lib.Message(
                       role=content_lib.PredefinedRole.SYSTEM,
@@ -641,7 +641,7 @@ def main(argv: Sequence[str]) -> None:
 
       print('10.4 Check that chat is working (API formatting) with chunk list.')
       res = executing.run(
-          llm.chat(  # pytype: disable=wrong-keyword-args
+          llm.chat(
               messages=[
                   content_lib.Message(
                       role=content_lib.PredefinedRole.USER,
@@ -758,7 +758,7 @@ def main(argv: Sequence[str]) -> None:
   if _should_run_test(13):
     with _run_test(13, 'Check thinking config', test_results):
       res = executing.run(
-          llm.generate_text(  # pytype: disable=wrong-keyword-args
+          llm.generate_text(
               prompt='solve x^2 + 4x + 4 = 0',
               thinking_config=genai_types.ThinkingConfig(
                   include_thoughts=True,
@@ -779,7 +779,7 @@ def main(argv: Sequence[str]) -> None:
                 )
             ]
         )
-        res = executing.run(llm.tokenize(content=content))  # pytype: disable=wrong-keyword-args
+        res = executing.run(llm.tokenize(content=content))
         if _PRINT_DEBUG.value:
           print('Returned value(s):')
           pprint.pprint(res)
@@ -799,7 +799,7 @@ def main(argv: Sequence[str]) -> None:
               )
           ]
       )
-      res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+      res = executing.run(llm.embed(content=content))
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
         result_string = str(res)
@@ -821,7 +821,7 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       prompt = 'What is the height of the Eiffel Tower? (in m)'
       result = executing.run(
-          llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=int)
       )
       if _PRINT_DEBUG.value:
         print('Returned value:', result)
@@ -840,7 +840,7 @@ def main(argv: Sequence[str]) -> None:
     ) as tc:
       prompt = 'Provide information about the capital of France.'
       result = executing.run(
-          llm.generate_object(prompt=prompt, cls=CityInfo)  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=CityInfo)
       )
       assert isinstance(result, CityInfo)
 
@@ -872,7 +872,7 @@ def main(argv: Sequence[str]) -> None:
           ' dog". Provide the output as a list of word-count objects.'
       )
       result = executing.run(
-          llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=list[WordCount])
       )
 
       if _PRINT_DEBUG.value:
@@ -922,7 +922,7 @@ def main(argv: Sequence[str]) -> None:
       including a short description, prep time in minutes, and a list of
       ingredients."""
       result = executing.run(
-          llm.generate_object(prompt=prompt, cls=pydantic_recipe)  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=pydantic_recipe)
       )
 
       if _PRINT_DEBUG.value:
@@ -950,7 +950,7 @@ def main(argv: Sequence[str]) -> None:
         20, 'Check llm.generate_object in chat mode', test_results
     ) as tc:
       result = executing.run(
-          llm.generate_object(  # pytype: disable=wrong-keyword-args
+          llm.generate_object(
               prompt=[
                   content_lib.Message(
                       role=content_lib.PredefinedRole.USER,
@@ -1018,7 +1018,7 @@ def main(argv: Sequence[str]) -> None:
 
   if _should_run_test(23):
     with _run_test(23, 'Check usage_metadata in trace', test_results) as tc:
-      executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+      executable = llm.generate_text(
           prompt='Explain photosynthesis.',
           max_tokens=1000,
       )
@@ -1109,7 +1109,7 @@ def main(argv: Sequence[str]) -> None:
           embed_kwargs['output_dimensionality'] = dim  # pyrefly: ignore[bad-assignment]
 
         res = executing.run(
-            llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args
+            llm.embed(content=embed_content, **embed_kwargs)
         )
         vec_norm = math.sqrt(sum(x * x for x in res))
         norm_ok = abs(vec_norm - 1.0) < tolerance
@@ -1153,7 +1153,7 @@ def main(argv: Sequence[str]) -> None:
         )
         # Call embed without specifying output_dimensionality explicitly.
         res = executing.run(
-            llm.embed(content=embed_content_25)  # pytype: disable=wrong-keyword-args
+            llm.embed(content=embed_content_25)
         )
       vec_norm = math.sqrt(sum(x * x for x in res))
       norm_ok = abs(vec_norm - 1.0) < 1e-3
@@ -1189,7 +1189,7 @@ def main(argv: Sequence[str]) -> None:
       )
 
       print('- First call (cache creation/miss)...')
-      executable = llm.generate_text(prompt=prompt, max_tokens=50)  # pytype: disable=wrong-keyword-args
+      executable = llm.generate_text(prompt=prompt, max_tokens=50)
       _, trace1 = executing.run(executable, enable_tracing=True)
 
       print(f'- Populated cache_name: {prompt.cache_name}')
@@ -1224,7 +1224,7 @@ def main(argv: Sequence[str]) -> None:
               '\nWhat fruit did I repeat in the context? answer in one word.'
           ),
       ]
-      executable2 = llm.generate_text(prompt=prompt, max_tokens=50)  # pytype: disable=wrong-keyword-args
+      executable2 = llm.generate_text(prompt=prompt, max_tokens=50)
       _, trace2 = executing.run(executable2, enable_tracing=True)
 
       # Verify second call cached tokens.
@@ -1291,8 +1291,8 @@ def main(argv: Sequence[str]) -> None:
       # 1. Old way: manually formatted content, RETRIEVAL_DOCUMENT task type
       # passed in kwargs (for v1).
       _ = executing.run(
-          llm.embed(content=doc_content, task_type='RETRIEVAL_DOCUMENT')  # pytype: disable=wrong-keyword-args
-      )  # pytype: disable=wrong-keyword-args
+          llm.embed(content=doc_content, task_type='RETRIEVAL_DOCUMENT')
+      )
 
       # 2. New way: pass title and task_type to llm.embed.
       # For v1, if title is None, it should not format the content, and pass
@@ -1300,11 +1300,11 @@ def main(argv: Sequence[str]) -> None:
       # So the inputs to _cached_embed should be identical.
       _ = executing.run(
           llm.embed(
-              content=doc_content,  # pytype: disable=wrong-keyword-args
+              content=doc_content,
               title=None,
               task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
           )
-      )  # pytype: disable=wrong-keyword-args
+      )
 
       if v1_cache._cache_data.counters.get('get_hit', 0) != 1:
         tc.fail(
@@ -1326,17 +1326,17 @@ def main(argv: Sequence[str]) -> None:
       v1_backend.cache = v1_cache
 
       _ = executing.run(
-          llm.embed(content=formatted_content, task_type='RETRIEVAL_DOCUMENT')  # pytype: disable=wrong-keyword-args
-      )  # pytype: disable=wrong-keyword-args
+          llm.embed(content=formatted_content, task_type='RETRIEVAL_DOCUMENT')
+      )
 
       # New way: pass title and task_type
       _ = executing.run(
           llm.embed(
-              content=doc_content,  # pytype: disable=wrong-keyword-args
+              content=doc_content,
               title=title,
               task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
           )
-      )  # pytype: disable=wrong-keyword-args
+      )
 
       if v1_cache._cache_data.counters.get('get_hit', 0) != 0:
         tc.fail(
@@ -1349,15 +1349,15 @@ def main(argv: Sequence[str]) -> None:
       v1_backend.cache = v1_cache
       # Old way: content raw, task_type in kwargs
       _ = executing.run(
-          llm.embed(content=doc_content, task_type='SEMANTIC_SIMILARITY')  # pytype: disable=wrong-keyword-args
-      )  # pytype: disable=wrong-keyword-args
+          llm.embed(content=doc_content, task_type='SEMANTIC_SIMILARITY')
+      )
       # New way: content raw, task_type as enum
       _ = executing.run(
           llm.embed(
-              content=doc_content,  # pytype: disable=wrong-keyword-args
+              content=doc_content,
               task_type=llm.EmbedTaskType.SEMANTIC_SIMILARITY,
           )
-      )  # pytype: disable=wrong-keyword-args
+      )
 
       if v1_cache._cache_data.counters.get('get_hit', 0) != 1:
         tc.fail(
@@ -1391,16 +1391,16 @@ def main(argv: Sequence[str]) -> None:
         # Old way: manual formatting for v2
         title = 'Caching Guide'
         formatted_content = f'title: {title} | text: {doc_content}'
-        _ = executing.run(llm.embed(content=formatted_content))  # pytype: disable=wrong-keyword-args
+        _ = executing.run(llm.embed(content=formatted_content))
 
         # New way: pass title and task_type
         _ = executing.run(
             llm.embed(
-                content=doc_content,  # pytype: disable=wrong-keyword-args
+                content=doc_content,
                 title=title,
                 task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
             )
-        )  # pytype: disable=wrong-keyword-args
+        )
 
         if v2_cache._cache_data.counters.get('get_hit', 0) != 1:
           tc.fail(
@@ -1412,14 +1412,14 @@ def main(argv: Sequence[str]) -> None:
         v2_cache = caching.SimpleFunctionCache()
         v2_backend.cache = v2_cache
         formatted_content_no_title = f'title: none | text: {doc_content}'
-        _ = executing.run(llm.embed(content=formatted_content_no_title))  # pytype: disable=wrong-keyword-args
+        _ = executing.run(llm.embed(content=formatted_content_no_title))
         _ = executing.run(
             llm.embed(
-                content=doc_content,  # pytype: disable=wrong-keyword-args
+                content=doc_content,
                 title=None,
                 task_type=llm.EmbedTaskType.RETRIEVAL_DOCUMENT,
             )
-        )  # pytype: disable=wrong-keyword-args
+        )
 
         if v2_cache._cache_data.counters.get('get_hit', 0) != 1:
           tc.fail(
@@ -1434,15 +1434,15 @@ def main(argv: Sequence[str]) -> None:
         formatted_similarity = (
             f'task: sentence similarity | query: {doc_content}'
         )
-        _ = executing.run(llm.embed(content=formatted_similarity))  # pytype: disable=wrong-keyword-args
+        _ = executing.run(llm.embed(content=formatted_similarity))
 
         # New way: pass task_type
         _ = executing.run(
             llm.embed(
-                content=doc_content,  # pytype: disable=wrong-keyword-args
+                content=doc_content,
                 task_type=llm.EmbedTaskType.SEMANTIC_SIMILARITY,
             )
-        )  # pytype: disable=wrong-keyword-args
+        )
 
         if v2_cache._cache_data.counters.get('get_hit', 0) != 1:
           tc.fail(
@@ -1452,7 +1452,7 @@ def main(argv: Sequence[str]) -> None:
     finally:
       backend.register()
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def _run_mcp_add_test(
       include_thoughts: bool = True,
   ) -> tuple[str, bool, bool]:
@@ -1477,7 +1477,7 @@ def main(argv: Sequence[str]) -> None:
 
     async with McpClient(mcp_server) as mcp_client:
       session = mcp_client.session
-      result = await llm.generate_content(  # pytype: disable=wrong-keyword-args
+      result = await llm.generate_content(
           prompt=(
               'First, use the add tool to compute 2 + 3. Then, use the'
               ' multiply tool to compute 4 * (2 + 3). Report both results.'

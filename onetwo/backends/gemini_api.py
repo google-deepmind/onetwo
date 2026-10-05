@@ -450,9 +450,9 @@ class GeminiAPI(
   ) -> str:
     """See builtins.llm.chat."""
     if formatter == formatting.FormatterName.API:
-      return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
+      return await self.chat_via_api(messages, **kwargs)
     else:
-      return await llm.default_chat(messages, formatter, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      return await llm.default_chat(messages, formatter, **kwargs)
 
   @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.

@@ -840,8 +840,8 @@ class GoogleGenaiApiTest(
     mock_generate_content.return_value = mock_response
 
     with self.subTest('PopulateCache'):
-      obj1 = executing.run(  # pyrefly: ignore[no-matching-overload]
-          backend1.generate_object(prompt='some prompt', cls=MyData)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+      obj1 = executing.run(
+          backend1.generate_object(prompt='some prompt', cls=MyData)
       )
       mock_generate_content.assert_called_once()
       self.assertEqual(obj1, test_object)
@@ -849,8 +849,8 @@ class GoogleGenaiApiTest(
       self.assertEqual(backend1._counters['generate_contents'], 1)
 
     with self.subTest('CacheHitSameBackend'):
-      obj2 = executing.run(  # pyrefly: ignore[no-matching-overload]
-          backend1.generate_object(prompt='some prompt', cls=MyData)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+      obj2 = executing.run(
+          backend1.generate_object(prompt='some prompt', cls=MyData)
       )
       self.assertEqual(mock_generate_content.call_count, 1)
       self.assertEqual(obj2, test_object)
@@ -867,8 +867,8 @@ class GoogleGenaiApiTest(
 
     with self.subTest('CacheHitNewBackend'):
       # This call should hit the loaded cache
-      obj3 = executing.run(  # pyrefly: ignore[no-matching-overload]
-          backend2.generate_object(prompt='some prompt', cls=MyData)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+      obj3 = executing.run(
+          backend2.generate_object(prompt='some prompt', cls=MyData)
       )
       self.assertEqual(obj3, test_object)
       self.assertIsInstance(obj3, MyData)
@@ -2464,8 +2464,8 @@ class GoogleGenaiApiTest(
 
     def generate_contents(samples: int, **kwargs):
       """Demonstrates generating multiple candidates e.g. generate_texts()."""
-      return executing.run(  # pyrefly: ignore[no-matching-overload]
-          backend._generate_contents(samples=samples, **kwargs)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+      return executing.run(
+          backend._generate_contents(samples=samples, **kwargs)
       )
 
     gc_mock.return_value = genai_types.GenerateContentResponse(

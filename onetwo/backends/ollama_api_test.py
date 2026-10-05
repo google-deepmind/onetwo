@@ -337,7 +337,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_embed(self):
     backend = _get_and_register_backend()
     res = executing.run(
-        llm.embed(  # pytype: disable=wrong-keyword-args
+        llm.embed(
             content='Some text',
             normalize=False,
         )
@@ -367,7 +367,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         ]
     )
     res = executing.run(
-        llm.embed(  # pytype: disable=wrong-keyword-args
+        llm.embed(
             content=content,
         )
     )
@@ -380,7 +380,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     prompt_text = 'Some text'
     _ = executing.run(
-        llm.embed(  # pytype: disable=wrong-keyword-args
+        llm.embed(
             content=prompt_text,
         )
     )
@@ -400,7 +400,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
 
     # Same query to see if it has been cached.
     _ = executing.run(
-        llm.embed(  # pytype: disable=wrong-keyword-args
+        llm.embed(
             content=prompt_text,
         )
     )
@@ -416,7 +416,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_embed_with_dimensions(self):
     _ = _get_and_register_backend()
     res = executing.run(
-        llm.embed(  # pytype: disable=wrong-keyword-args
+        llm.embed(
             content='Some text',
             output_dimensionality=5,
             normalize=False,
@@ -428,7 +428,7 @@ class OllamaAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
   def test_embed_normalize(self):
     _ = _get_and_register_backend()
     res = executing.run(
-        llm.embed(  # pytype: disable=wrong-keyword-args
+        llm.embed(
             content='Some text',
             normalize=True,
         )

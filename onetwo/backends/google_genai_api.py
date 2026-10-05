@@ -214,7 +214,7 @@ def _contents_from_prompt(prompt: llm.Prompt) -> list[genai_types.Content]:
       role = content_lib.PredefinedRole.USER
     part = _part_from_chunk(chunk)
     if content and content[-1].role == role:
-      content[-1].parts.append(part)  # pytype: disable=attribute-error
+      content[-1].parts.append(part)  # pyrefly: ignore[missing-attribute]
     else:
       content.append(genai_types.Content(parts=[part], role=role))  # pyrefly: ignore[bad-argument-type]
 
@@ -962,15 +962,15 @@ class GoogleGenAIAPI(
           'type': 'STRING',
           'pattern': decoding_constraint,
       }
-    res = await self.generate_content(  # pyrefly: ignore[bad-argument-type, not-async]
-        prompt=prompt,  # pyrefly: ignore[unexpected-keyword]
-        temperature=temperature,  # pyrefly: ignore[unexpected-keyword]
-        max_tokens=max_tokens,  # pyrefly: ignore[unexpected-keyword]
-        stop=stop,  # pyrefly: ignore[unexpected-keyword]
-        top_k=top_k,  # pyrefly: ignore[unexpected-keyword]
-        top_p=top_p,  # pyrefly: ignore[unexpected-keyword]
-        include_details=include_details,  # pyrefly: ignore[unexpected-keyword]
-        healing_option=healing_option,  # pyrefly: ignore[unexpected-keyword]
+    res = await self.generate_content(
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        include_details=include_details,
+        healing_option=healing_option,
         **kwargs,
     )
 
@@ -990,7 +990,7 @@ class GoogleGenAIAPI(
   @executing.make_executable
   async def generate_content(self, prompt: llm.Prompt, **kwargs) -> llm.Content:
     """See builtins.llm.generate_content."""
-    return (await self._generate_contents(prompt, samples=1, **kwargs))[0]  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async, unexpected-keyword]
+    return (await self._generate_contents(prompt, samples=1, **kwargs))[0]
 
   def _prepare_generation_config_and_contents(
       self,
@@ -1076,18 +1076,18 @@ class GoogleGenAIAPI(
       )
 
     # Bug fix for Gemini b/454877141: Clean up conflated candidates.
-    c0 = response.candidates[0].content  # pyrefly: ignore[unsupported-operation]
-    for ci in range(len(response.candidates) - 1, 0, -1):  # pyrefly: ignore[bad-argument-type]
-      c = response.candidates[ci].content  # pyrefly: ignore[unsupported-operation]
-      off = len(c0.parts) - len(c.parts)  # pyrefly: ignore[missing-attribute]
-      for pi in range(len(c.parts) - 1, -1, -1):  # pyrefly: ignore[missing-attribute]
+    c0 = response.candidates[0].content
+    for ci in range(len(response.candidates) - 1, 0, -1):
+      c = response.candidates[ci].content
+      off = len(c0.parts) - len(c.parts)
+      for pi in range(len(c.parts) - 1, -1, -1):
         idx = off + pi
-        if 0 <= idx < len(c0.parts):  # pyrefly: ignore[missing-attribute]
-          if c.parts[pi] == c0.parts[idx]:  # pyrefly: ignore[missing-attribute]
-            c0.parts.pop()  # pyrefly: ignore[missing-attribute]
+        if 0 <= idx < len(c0.parts):
+          if c.parts[pi] == c0.parts[idx]:
+            c0.parts.pop()
 
     contents_with_details = [
-        _chunks_with_details_from_candidate(c) for c in response.candidates  # pyrefly: ignore[not-iterable]
+        _chunks_with_details_from_candidate(c) for c in response.candidates
     ]
 
     results = (
@@ -1171,7 +1171,7 @@ class GoogleGenAIAPI(
           **kwargs,
       )
 
-    return await self._generate_contents_inner(  # pyrefly: ignore[bad-return]
+    return await self._generate_contents_inner(
         prompt=prompt,
         samples=samples,
         temperature=temperature,
@@ -1434,7 +1434,7 @@ class GoogleGenAIAPI(
     model_name = self._generate_model_name()
     response = self._genai_client.models.generate_content(
         model=model_name,
-        contents=_contents_from_turns(messages),  # pyrefly: ignore[bad-argument-type]
+        contents=_contents_from_turns(messages),
         config=generation_config,
     )
     _raise_if_empty_response(response)
@@ -1506,14 +1506,14 @@ class GoogleGenAIAPI(
     """
     kwargs['response_mime_type'] = 'application/json'
     kwargs['response_schema'] = cls
-    result = await self.generate_content(  # pyrefly: ignore[bad-argument-type, not-async]
-        prompt=prompt,  # pyrefly: ignore[unexpected-keyword]
-        temperature=temperature,  # pyrefly: ignore[unexpected-keyword]
-        max_tokens=max_tokens,  # pyrefly: ignore[unexpected-keyword]
-        stop=stop,  # pyrefly: ignore[unexpected-keyword]
-        top_k=top_k,  # pyrefly: ignore[unexpected-keyword]
-        top_p=top_p,  # pyrefly: ignore[unexpected-keyword]
-        healing_option=healing_option,  # pyrefly: ignore[unexpected-keyword]
+    result = await self.generate_content(
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stop=stop,
+        top_k=top_k,
+        top_p=top_p,
+        healing_option=healing_option,
         **kwargs,
     )
     adapter = TypeAdapter(cls)
@@ -1530,13 +1530,13 @@ class GoogleGenAIAPI(
     """See builtins.llm.chat."""
     if formatter == formatting.FormatterName.API:
       self._counters['chat'] += 1
-      result = await self.generate_content(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await self.generate_content(messages, **kwargs)
       return str(result if 'include_details' not in kwargs else result[0])
     else:
       if self.replace_unsupported_roles:
         for m in messages:
           m.role = _normalize_role(m.role)
-      return await llm.default_chat(messages, formatter, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      return await llm.default_chat(messages, formatter, **kwargs)
 
   @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.embed', skip=['output'])
@@ -1584,7 +1584,7 @@ class GoogleGenAIAPI(
       self, content: str | content_lib.ChunkList, **kwargs
   ) -> Sequence[float]:
     """Inner cached method for llm.embed."""
-    return await self._embed(content, **kwargs)  # pyrefly: ignore[bad-return]
+    return await self._embed(content, **kwargs)
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
@@ -1653,7 +1653,7 @@ class GoogleGenAIAPI(
   )
   async def count_tokens(self, content: str | content_lib.ChunkList) -> int:
     """See builtins.llm.count_tokens."""
-    return await self._count_tokens(content)  # pyrefly: ignore[bad-return]
+    return await self._count_tokens(content)
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),
@@ -1690,7 +1690,7 @@ class GoogleGenAIAPI(
       self, content: str | content_lib.ChunkList
   ) -> Sequence[int]:
     """See builtins.llm.tokenize."""
-    return await self._tokenize(content)  # pyrefly: ignore[bad-return]
+    return await self._tokenize(content)
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),

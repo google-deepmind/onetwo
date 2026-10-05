@@ -960,7 +960,7 @@ class ClaudeAPI(
     # Remove kwargs that are not supported by the Claude API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Messages API via client.messages.create.
-    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
+    return await self.chat_via_api(messages, **kwargs)
 
   @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.
@@ -1082,7 +1082,7 @@ class ClaudeAPI(
     Returns:
       The number of input tokens.
     """
-    return await self._count_tokens(content)  # pytype: disable=wrong-arg-count
+    return await self._count_tokens(content)
 
   @utils.rate_limit_method(qps=utils.FromInstance('max_qps'))
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))

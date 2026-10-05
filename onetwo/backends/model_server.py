@@ -73,10 +73,10 @@ class ModelServer:
       batching._enable_batching.set(False)  # pylint: disable=protected-access
 
       try:
-        res = await llm.tokenize(content)  # pytype: disable=wrong-arg-count
+        res = await llm.tokenize(content)
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
-      return res  # pytype: disable=bad-return-type
+      return res  # pyrefly: ignore[bad-return]
 
     @self._app.post('/generate_text')
     async def _generate_text(
@@ -92,7 +92,7 @@ class ModelServer:
       # onetwo.run().
       batching._enable_batching.set(False)  # pylint: disable=protected-access
       try:
-        res = await llm.generate_text(  # pytype: disable=wrong-keyword-args
+        res = await llm.generate_text(
             prompt=prompt,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -101,9 +101,9 @@ class ModelServer:
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
       if include_details:
-        return res  # pytype: disable=bad-return-type
+        return res  # pyrefly: ignore[bad-return]
       else:
-        return res, {}  # pytype: disable=bad-return-type
+        return res, {}  # pyrefly: ignore[bad-return]
 
     @self._app.post('/count_tokens')
     async def _count_tokens(
@@ -116,7 +116,7 @@ class ModelServer:
       # onetwo.run().
       batching._enable_batching.set(False)  # pylint: disable=protected-access
       try:
-        res = await llm.count_tokens(content)  # pytype: disable=wrong-arg-count
+        res = await llm.count_tokens(content)
       except Exception as exception:  # pylint: disable=broad-exception-caught
         raise _get_http_exception(exception) from exception
       return res

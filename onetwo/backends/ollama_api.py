@@ -366,7 +366,7 @@ class OllamaAPI(
       **kwargs,
   ) -> str | tuple[str, Mapping[str, Any]]:
     """See builtins.llm.generate_text."""
-    text, details = await self._generate_text_with_details(  # pytype: disable=wrong-arg-count
+    text, details = await self._generate_text_with_details(
         prompt=prompt, **kwargs
     )
     if include_details:
@@ -440,7 +440,7 @@ class OllamaAPI(
     # Remove kwargs that are not supported by the Ollama API.
     kwargs.pop('formatter_kwargs', None)
     # Use native Chat API via client.chat.
-    return await self.chat_via_api(messages, **kwargs)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]  # pytype: disable=wrong-arg-count
+    return await self.chat_via_api(messages, **kwargs)
 
   @executing.make_executable
   @caching.cache_method(  # Cache this stochastic method.

@@ -206,7 +206,7 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     with self.subTest('returns_correct_result'):
       self.assertEqual(res[0], openai_mock._DEFAULT_REPLY)
     with self.subTest('returns_correct_score'):
-      self.assertEqual(res[1]['score'], -0.5)  # pyrefly: ignore[bad-index]
+      self.assertEqual(res[1]['score'], -0.5)
 
   def test_generate_text_prepends_prefix(self):
     """Verifies that generate_text prepends the completion prefix."""
@@ -331,8 +331,8 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     ) as mock_responses_parse:
 
       with self.subTest('PopulateCache'):
-        obj1 = executing.run(  # pyrefly: ignore[no-matching-overload]
-            backend1.generate_object(  # pytype: disable=wrong-keyword-args
+        obj1 = executing.run(
+            backend1.generate_object(
                 prompt='Describe a city', cls=CityInfoTestData
             )
         )
@@ -342,8 +342,8 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
         self.assertEqual(backend1._counters['generate_object'], 1)
 
       with self.subTest('CacheHitSameBackend'):
-        obj2 = executing.run(  # pyrefly: ignore[no-matching-overload]
-            backend1.generate_object(  # pytype: disable=wrong-keyword-args
+        obj2 = executing.run(
+            backend1.generate_object(
                 prompt='Describe a city', cls=CityInfoTestData
             )
         )
@@ -371,8 +371,8 @@ class OpenAIAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
             autospec=True,
             return_value=mock_response,
         ) as mock_responses_parse_new:
-          obj3 = executing.run(  # pyrefly: ignore[no-matching-overload]
-              backend2.generate_object(  # pytype: disable=wrong-keyword-args
+          obj3 = executing.run(
+              backend2.generate_object(
                   prompt='Describe a city', cls=CityInfoTestData
               )
           )
@@ -497,7 +497,7 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     """Verifies that embed returns a list of floats."""
     backend = _get_and_register_backend()
     result = executing.run(
-        llm.embed(content='Hello, world!')  # pytype: disable=wrong-keyword-args
+        llm.embed(content='Hello, world!')
     )
     with self.subTest('returns_list_of_floats'):
       self.assertIsInstance(result, (list, tuple))
@@ -516,7 +516,7 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     _ = _get_and_register_backend()
     dim = 5
     result = executing.run(
-        llm.embed(content='Hello', output_dimensionality=dim)  # pytype: disable=wrong-keyword-args
+        llm.embed(content='Hello', output_dimensionality=dim)
     )
     self.assertLen(result, dim)
 
@@ -543,7 +543,7 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
         content_lib.Chunk('world!'),
     ])
     result = executing.run(
-        llm.embed(content=chunks)  # pytype: disable=wrong-keyword-args
+        llm.embed(content=chunks)
     )
     self.assertIsInstance(result, (list, tuple))
     self.assertNotEmpty(result)
@@ -558,7 +558,7 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
         ValueError, 'OpenAIAPI.embed only supports text content'
     ):
       executing.run(
-          llm.embed(content=chunks)  # pytype: disable=wrong-keyword-args
+          llm.embed(content=chunks)
       )
 
   def test_embed_caching(self):
@@ -566,11 +566,11 @@ class EmbedTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     backend = _get_and_register_backend()
     content_text = 'Cache me!'
     # First call.
-    result1 = executing.run(llm.embed(content=content_text))  # pytype: disable=wrong-keyword-args
+    result1 = executing.run(llm.embed(content=content_text))
     with self.subTest('first_call_hits_api'):
       self.assertEqual(backend._counters['embed'], 1)
     # Second call with same content should be cached.
-    result2 = executing.run(llm.embed(content=content_text))  # pytype: disable=wrong-keyword-args
+    result2 = executing.run(llm.embed(content=content_text))
     with self.subTest('second_call_is_cached'):
       self.assertEqual(backend._counters['embed'], 1)
     with self.subTest('results_are_equal'):
@@ -629,7 +629,7 @@ class CountTokensTest(
     """Verifies that count_tokens returns a positive int for various inputs."""
     backend = _get_and_register_backend()
     result = executing.run(
-        llm.count_tokens(content=content)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=content)
     )
     with self.subTest('returns_int'):
       self.assertIsInstance(result, int)
@@ -650,10 +650,10 @@ class CountTokensTest(
         _Message(content=text, role=_PredefinedRole.USER),
     ]
     count_text = executing.run(
-        llm.count_tokens(content=text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=text)
     )
     count_messages = executing.run(
-        llm.count_tokens(content=messages)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=messages)
     )
     # Messages should have overhead (per-message + reply primer tokens).
     self.assertGreater(count_messages, count_text)
@@ -664,13 +664,13 @@ class CountTokensTest(
     content_text = 'Cache me!'
     # First call.
     result1 = executing.run(
-        llm.count_tokens(content=content_text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=content_text)
     )
     with self.subTest('first_call_hits_api'):
       self.assertEqual(backend._counters['count_tokens'], 1)
     # Second call with same content should be cached.
     result2 = executing.run(
-        llm.count_tokens(content=content_text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=content_text)
     )
     with self.subTest('second_call_is_cached'):
       self.assertEqual(backend._counters['count_tokens'], 1)

@@ -156,7 +156,7 @@ def main(argv: Sequence[str]) -> None:
       Question: Differentiate $\\frac{1}{\\log(x)}$.
     """
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
             max_tokens=25,
         )
@@ -168,7 +168,7 @@ def main(argv: Sequence[str]) -> None:
     print('1.1 Same query to see if it has been cached.')
     counters_before = backend._counters
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
             max_tokens=25,
         )
@@ -189,7 +189,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('1.2 Same query but different parameters, run requests again.')
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt=prompt,
             temperature=0.0,
             max_tokens=25,
@@ -202,7 +202,7 @@ def main(argv: Sequence[str]) -> None:
     print('2. Repeated generate request.')
     exe = executing.par_iter(
         sampling.repeat(
-            executable=llm.generate_text(  # pytype: disable=wrong-arg-count
+            executable=llm.generate_text(
                 'Today is', temperature=0.5, max_tokens=25
             ),
             num_repeats=5,
@@ -215,9 +215,9 @@ def main(argv: Sequence[str]) -> None:
 
     print('3. Three batched generate queries.')
     exe = executing.par_iter([
-        llm.generate_text(prompt='In summer', max_tokens=25),  # pytype: disable=wrong-keyword-args
-        llm.generate_text(prompt='In winter', max_tokens=27),  # pytype: disable=wrong-keyword-args
-        llm.generate_text(prompt='In autumn', max_tokens=29),  # pytype: disable=wrong-keyword-args
+        llm.generate_text(prompt='In summer', max_tokens=25),
+        llm.generate_text(prompt='In winter', max_tokens=27),
+        llm.generate_text(prompt='In autumn', max_tokens=29),
     ])
     res = executing.run(exe)
     if _PRINT_DEBUG.value:
@@ -226,7 +226,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('4. Check that include_details returns text and score.')
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='In winter',
             max_tokens=25,
             include_details=True,
@@ -242,7 +242,7 @@ def main(argv: Sequence[str]) -> None:
     print('5. Calling generate_texts to get multiple samples.')
     prompt = """How to say "I am hungry" in French?"""
     res = executing.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(
             prompt=prompt,
             samples=3,
             temperature=0.5,
@@ -258,7 +258,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6. Calling instruct: without fewshots.')
     res = executing.run(
-        llm.instruct(  # pytype: disable=wrong-keyword-args
+        llm.instruct(
             prompt='Compose a sentence starting with H.',
             temperature=0.5,
             max_tokens=50,
@@ -270,7 +270,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6.1 Calling instruct: with fewshots.')
     res = executing.run(
-        llm.instruct(  # pytype: disable=wrong-keyword-args
+        llm.instruct(
             prompt='Compose a sentence starting with H.',
             temperature=0.5,
             max_tokens=50,
@@ -283,7 +283,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6.2 Calling instruct and providing the prefix: without fewshots.')
     res = executing.run(
-        llm.instruct(  # pytype: disable=wrong-keyword-args
+        llm.instruct(
             prompt='Compose a sentence starting with H.',
             assistant_prefix='His',
             temperature=0.5,
@@ -296,7 +296,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('6.2 Calling instruct and providing the prefix: with fewshots.')
     res = executing.run(
-        llm.instruct(  # pytype: disable=wrong-keyword-args
+        llm.instruct(
             prompt='Compose a sentence starting with H.',
             assistant_prefix='His',
             temperature=0.5,
@@ -310,7 +310,7 @@ def main(argv: Sequence[str]) -> None:
 
     print('7. Calling chat.')
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 content_lib.Message(
                     role=content_lib.PredefinedRole.SYSTEM,
@@ -351,7 +351,7 @@ def main(argv: Sequence[str]) -> None:
     print('8. Generate object.')
     prompt = """What is the capital of France?"""
     res = executing.run(
-        llm.generate_object(  # pytype: disable=wrong-keyword-args
+        llm.generate_object(
             prompt=prompt,
             cls=CityInfo,
         )
@@ -376,7 +376,7 @@ def main(argv: Sequence[str]) -> None:
         ),
     ]
     res = executing.run(
-        llm.generate_object(  # pytype: disable=wrong-keyword-args
+        llm.generate_object(
             prompt=prompt,
             cls=CityInfo,
         )
@@ -396,7 +396,7 @@ def main(argv: Sequence[str]) -> None:
           content_lib.Chunk(content=image_bytes, content_type='image/jpeg'),
       ])
       res = executing.run(
-          llm.instruct(  # pytype: disable=wrong-keyword-args
+          llm.instruct(
               prompt=prompt,
           )
       )
@@ -405,7 +405,7 @@ def main(argv: Sequence[str]) -> None:
         pprint.pprint(res)
       print('9.2 Generate text with image (chat).')
       res = executing.run(
-          llm.chat(  # pytype: disable=wrong-keyword-args
+          llm.chat(
               messages=[
                   content_lib.Message(
                       content=prompt, role=content_lib.PredefinedRole.USER
@@ -423,7 +423,7 @@ def main(argv: Sequence[str]) -> None:
     prompt = 'What is the height of the Eiffel Tower? (in m)'
     try:
       res = executing.run(
-          llm.generate_object(prompt=prompt, cls=int)  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=int)
       )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
@@ -446,7 +446,7 @@ def main(argv: Sequence[str]) -> None:
     )
     try:
       res = executing.run(
-          llm.generate_object(prompt=prompt, cls=list[WordCount])  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=list[WordCount])
       )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
@@ -462,7 +462,7 @@ def main(argv: Sequence[str]) -> None:
     prompt = 'Return the first 3 prime numbers as a list of integers.'
     try:
       res = executing.run(
-          llm.generate_object(prompt=prompt, cls=list[int])  # pytype: disable=wrong-keyword-args
+          llm.generate_object(prompt=prompt, cls=list[int])
       )
       if _PRINT_DEBUG.value:
         print('Returned value(s):')
@@ -475,7 +475,7 @@ def main(argv: Sequence[str]) -> None:
     print('10. Count tokens with string input.')
     text = 'The quick brown fox jumps over the lazy dog.'
     res = executing.run(
-        llm.count_tokens(content=text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=text)
     )
     if not isinstance(res, int) or res <= 0:
       success = False
@@ -489,7 +489,7 @@ def main(argv: Sequence[str]) -> None:
         content_lib.Chunk('world!'),
     ])
     res_chunks = executing.run(
-        llm.count_tokens(content=chunks)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=chunks)
     )
     if not isinstance(res_chunks, int) or res_chunks <= 0:
       success = False
@@ -513,7 +513,7 @@ def main(argv: Sequence[str]) -> None:
         ),
     ]
     res_msgs = executing.run(
-        llm.count_tokens(content=messages)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=messages)
     )
     if not isinstance(res_msgs, int) or res_msgs <= 0:
       success = False
@@ -524,7 +524,7 @@ def main(argv: Sequence[str]) -> None:
     print('10.3 Count tokens caching check.')
     counters_before = dict(backend._counters)
     res_cached = executing.run(
-        llm.count_tokens(content=text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=text)
     )
     counters_after = dict(backend._counters)
     if counters_before != counters_after:
@@ -549,7 +549,7 @@ def main(argv: Sequence[str]) -> None:
           content_lib.Chunk(content=image_bytes, content_type='image/jpeg'),
       ])
       res_img = executing.run(
-          llm.count_tokens(content=image_chunks)  # pytype: disable=wrong-keyword-args
+          llm.count_tokens(content=image_chunks)
       )
       if not isinstance(res_img, int) or res_img <= 0:
         success = False
@@ -587,7 +587,7 @@ def main(argv: Sequence[str]) -> None:
     )
     backend_r.register()
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='How many r\'s are in the word "strawberry"?',
         )
     )
@@ -615,7 +615,7 @@ def main(argv: Sequence[str]) -> None:
   )
   backend_t.register()
   res = executing.run(
-      llm.generate_text(  # pytype: disable=wrong-keyword-args
+      llm.generate_text(
           prompt='Who won the latest Formula 1 race?',
       )
   )
@@ -625,7 +625,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('12.1 Chat with tools.')
   res = executing.run(
-      llm.chat(  # pytype: disable=wrong-keyword-args
+      llm.chat(
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.USER,
@@ -640,7 +640,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('12.2 Generate text with tools but prompt that does not need them.')
   res = executing.run(
-      llm.generate_text(  # pytype: disable=wrong-keyword-args
+      llm.generate_text(
           prompt='Write a haiku about the ocean.',
           max_tokens=100,
       )
@@ -787,7 +787,7 @@ def main(argv: Sequence[str]) -> None:
           )
       ]
   )
-  res = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+  res = executing.run(llm.embed(content=content))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     result_string = str(res)
@@ -806,7 +806,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('15.1 Same query to see if it has been cached.')
   counters_before = dict(backend_embed._counters)
-  res_cached = executing.run(llm.embed(content=content))  # pytype: disable=wrong-keyword-args
+  res_cached = executing.run(llm.embed(content=content))
   counters_after = dict(backend_embed._counters)
   if counters_before != counters_after:
     success = False
@@ -849,7 +849,7 @@ def main(argv: Sequence[str]) -> None:
       embed_kwargs['output_dimensionality'] = dim  # pyrefly: ignore[bad-assignment]
 
     res = executing.run(
-        llm.embed(content=embed_content, **embed_kwargs)  # pytype: disable=wrong-keyword-args
+        llm.embed(content=embed_content, **embed_kwargs)
     )
     vec_norm = math.sqrt(sum(x * x for x in res))
     norm_ok = abs(vec_norm - 1.0) < tolerance

@@ -193,7 +193,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res[0], claude_mock._DEFAULT_REPLY)
     with self.subTest('returns_correct_score'):
       # Claude does not provide logprobs, so score should be 0.0.
-      self.assertEqual(res[1]['score'], 0.0)  # pyrefly: ignore[bad-index]
+      self.assertEqual(res[1]['score'], 0.0)
 
   def test_chat_with_system_message(self):
     """Verifies that system messages are extracted to the system param."""
@@ -299,7 +299,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     backend.register()
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='Solve x^2 + 4x + 4 = 0',
             max_tokens=512,
             include_details=True,
@@ -309,13 +309,13 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
       self.assertEqual(res[0], claude_mock._DEFAULT_REPLY)
     with self.subTest('returns_thinking'):
       self.assertIn('thinking_output', res[1])
-      self.assertEqual(res[1]['thinking_output'], claude_mock._DEFAULT_THINKING)  # pyrefly: ignore[bad-index]
+      self.assertEqual(res[1]['thinking_output'], claude_mock._DEFAULT_THINKING)
 
   def test_generate_without_thinking(self):
     """Verifies that thinking is absent from details when not enabled."""
     _get_and_register_backend()
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='Hello',
             max_tokens=512,
             include_details=True,
@@ -337,7 +337,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     backend.register()
     res = executing.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(
             prompt='Hello',
             samples=2,
             max_tokens=512,
@@ -362,7 +362,7 @@ class ClaudeAPITest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     backend.register()
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 _Message(content='Hello', role=_PredefinedRole.USER),
             ],
@@ -401,7 +401,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     backend.register()
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 _Message(
                     content='Search for AAPL stock price',
@@ -430,7 +430,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     )
     backend.register()
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 _Message(
                     content='What is the weather?',
@@ -458,7 +458,7 @@ class ToolUseTest(parameterized.TestCase, core_test_utils.CounterAssertions):
     """Verifies that chat without tools returns plain text as before."""
     _get_and_register_backend()
     res = executing.run(
-        llm.chat(  # pytype: disable=wrong-keyword-args
+        llm.chat(
             messages=[
                 _Message(content='Hello', role=_PredefinedRole.USER),
             ],
@@ -779,7 +779,7 @@ class CountTokensTest(
     """Verifies that count_tokens returns a positive int for various inputs."""
     backend = _get_and_register_backend()
     result = executing.run(
-        llm.count_tokens(content=content)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=content)
     )
     with self.subTest('returns_int'):
       self.assertIsInstance(result, int)
@@ -805,10 +805,10 @@ class CountTokensTest(
         _Message(content='How are you?', role=_PredefinedRole.USER),
     ]
     count_single = executing.run(
-        llm.count_tokens(content=single_message)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=single_message)
     )
     count_multi = executing.run(
-        llm.count_tokens(content=multi_messages)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=multi_messages)
     )
     # More messages should have more tokens (per-message overhead).
     self.assertGreater(count_multi, count_single)
@@ -819,13 +819,13 @@ class CountTokensTest(
     content_text = 'Cache me!'
     # First call.
     result1 = executing.run(
-        llm.count_tokens(content=content_text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=content_text)
     )
     with self.subTest('first_call_hits_api'):
       self.assertEqual(backend._counters['count_tokens'], 1)
     # Second call with same content should be cached.
     result2 = executing.run(
-        llm.count_tokens(content=content_text)  # pytype: disable=wrong-keyword-args
+        llm.count_tokens(content=content_text)
     )
     with self.subTest('second_call_is_cached'):
       self.assertEqual(backend._counters['count_tokens'], 1)
@@ -900,7 +900,7 @@ class StopSequenceFilteringTest(parameterized.TestCase):
         'create',
         wraps=backend._client.messages.create,
     ) as mock_create:
-      backend._messages_create(messages=messages, stop=stop)  # pytype: disable=wrong-keyword-args
+      backend._messages_create(messages=messages, stop=stop)
       mock_create.assert_called_once()
       call_kwargs = mock_create.call_args[1]
       if expected_stop_sequences is None:
@@ -920,7 +920,7 @@ class StopSequenceFilteringTest(parameterized.TestCase):
         'create',
         wraps=backend._client.messages.create,
     ) as mock_create:
-      backend._messages_create(messages=messages, stop=None)  # pytype: disable=wrong-keyword-args
+      backend._messages_create(messages=messages, stop=None)
       mock_create.assert_called_once()
       call_kwargs = mock_create.call_args[1]
       self.assertNotIn('stop_sequences', call_kwargs)
@@ -930,7 +930,7 @@ class StopSequenceFilteringTest(parameterized.TestCase):
     messages = self._make_messages()
 
     with self.assertLogs(level='WARNING') as log_ctx:
-      backend._messages_create(messages=messages, stop=['\n', '.'])  # pytype: disable=wrong-keyword-args
+      backend._messages_create(messages=messages, stop=['\n', '.'])
 
     self.assertTrue(
         any('whitespace-only stop sequence' in msg for msg in log_ctx.output),
@@ -942,13 +942,13 @@ class StopSequenceFilteringTest(parameterized.TestCase):
     backend = self._make_backend()
     messages = self._make_messages()
     # No warning should be raised — verify the call succeeds without error.
-    backend._messages_create(messages=messages, stop=['.', '!'])  # pytype: disable=wrong-keyword-args
+    backend._messages_create(messages=messages, stop=['.', '!'])
 
   def test_generate_text_with_whitespace_stop(self):
     _get_and_register_backend()
     # This was the original user error scenario.
     res = executing.run(
-        llm.generate_text(  # pytype: disable=wrong-keyword-args
+        llm.generate_text(
             prompt='What is the capital of France?',
             max_tokens=50,
             stop=['\n'],
@@ -959,7 +959,7 @@ class StopSequenceFilteringTest(parameterized.TestCase):
   def test_instruct_with_newline_stop(self):
     _get_and_register_backend()
     res = executing.run(
-        llm.instruct(  # pytype: disable=wrong-arg-count
+        llm.instruct(
             'Question: What is 2+2?\nAnswer:',
             stop=['\n'],
         )
@@ -969,7 +969,7 @@ class StopSequenceFilteringTest(parameterized.TestCase):
   def test_generate_texts_with_whitespace_stop(self):
     _get_and_register_backend()
     res = executing.run(
-        llm.generate_texts(  # pytype: disable=wrong-keyword-args
+        llm.generate_texts(
             prompt='Hello',
             samples=2,
             max_tokens=25,

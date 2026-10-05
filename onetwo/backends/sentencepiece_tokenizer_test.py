@@ -62,7 +62,7 @@ class SentencePieceTokenizerTest(
         model_name='ignored',
     ) as backend:
       tokenize_executable = [
-          llm.tokenize(f'hello world {idx}') for idx in range(10)  # pytype: disable=wrong-arg-count
+          llm.tokenize(f'hello world {idx}') for idx in range(10)
       ]
       tokenize_result = executing.run(executing.parallel(*tokenize_executable))
 
@@ -70,7 +70,7 @@ class SentencePieceTokenizerTest(
         self.assertEqual(tokenize_result, [_MOCK_TOKENIZED] * 10)
 
       detokenize_executable = [
-          llm.detokenize([1, 2, 3, 4] + [idx]) for idx in range(10)  # pytype: disable=wrong-arg-count
+          llm.detokenize([1, 2, 3, 4] + [idx]) for idx in range(10)
       ]
       detokenize_result = executing.run(
           executing.parallel(*detokenize_executable)

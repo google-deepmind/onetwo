@@ -68,10 +68,10 @@ def main(argv: Sequence[str]) -> None:
     load_end = time.time()
     print('Spent %.4fsec loading cache.' % (load_end - load_start))
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def check_and_complete(prompt_text, **other_args):
     # TODO: Where should we store 8196 and model name?
-    token_count = await llm.count_tokens(  # pytype: disable=wrong-keyword-args
+    token_count = await llm.count_tokens(
         content=prompt_text,
     )
     logging.info('Token count %d for prompt:\n%s\n', token_count, prompt_text)
@@ -83,7 +83,7 @@ def main(argv: Sequence[str]) -> None:
       )
       print(warning_msg)
       logging.warning(warning_msg)
-    res = await llm.generate_text(prompt=prompt_text, **other_args)  # pytype: disable=wrong-keyword-args
+    res = await llm.generate_text(prompt=prompt_text, **other_args)
     return res
 
   time1 = time.time()
@@ -97,37 +97,37 @@ def main(argv: Sequence[str]) -> None:
     Answer: 12.
     Question: Differentiate $\\frac{1}{\\log(x)}$.
   """
-  res = executing.run(check_and_complete(  # pyrefly: ignore[no-matching-overload]
-      prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-      max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
+  res = executing.run(check_and_complete(
+      prompt_text=prompt_text,
+      stop=['\n\n'],
+      max_tokens=5,
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.1 Same query to see if it has been cached.')
-  res = executing.run(check_and_complete(  # pyrefly: ignore[no-matching-overload]
-      prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-      max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
+  res = executing.run(check_and_complete(
+      prompt_text=prompt_text,
+      stop=['\n\n'],
+      max_tokens=5,
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('1.2 Same query but different parameters, run requests again.')
-  res = executing.run(check_and_complete(  # pyrefly: ignore[no-matching-overload]
-      prompt_text=prompt_text,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      temperature=0.,  # pyrefly: ignore[unexpected-keyword]
-      stop=['\n\n'],  # pyrefly: ignore[unexpected-keyword]
-      max_tokens=5,  # pyrefly: ignore[unexpected-keyword]
+  res = executing.run(check_and_complete(
+      prompt_text=prompt_text,
+      temperature=0.,
+      stop=['\n\n'],
+      max_tokens=5,
   ))
   if _PRINT_DEBUG.value:
     print('Returned value(s):')
     pprint.pprint(res)
   print('2. Repeated generate request.')
   exe = executing.par_iter(sampling.repeat(
-      executable=check_and_complete(  # pyrefly: ignore[bad-argument-type]
-          'Today is', temperature=0.5, max_tokens=5, stop=['.']  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+      executable=check_and_complete(
+          'Today is', temperature=0.5, max_tokens=5, stop=['.']
       ),
       num_repeats=5,
   ))
@@ -136,10 +136,10 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
   print('3. Three batched generate queries.')
-  exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-      check_and_complete(prompt_text='In summer', max_tokens=5),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      check_and_complete(prompt_text='In winter', max_tokens=7),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      check_and_complete(prompt_text='In autumn', max_tokens=9),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+  exe = executing.par_iter([
+      check_and_complete(prompt_text='In summer', max_tokens=5),
+      check_and_complete(prompt_text='In winter', max_tokens=7),
+      check_and_complete(prompt_text='In autumn', max_tokens=9),
   ])
   res = executing.run(exe)
   if _PRINT_DEBUG.value:
@@ -149,8 +149,8 @@ def main(argv: Sequence[str]) -> None:
   value_error_raised = False
   try:
     # This call should fail and raise ValueError in _batch_generate.
-    _ = executing.run(  # pyrefly: ignore[no-matching-overload]
-        check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS)))))  # pyrefly: ignore[bad-argument-type]
+    _ = executing.run(
+        check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS)))))
     )
   except ValueError as err:
     if 'GeminiAPI.generate_content raised' not in repr(err):
@@ -164,10 +164,10 @@ def main(argv: Sequence[str]) -> None:
     print('ValueError not raised.')
 
   print('5. Three batched generate queries, one of which does not fit.')
-  exe = executing.par_iter([  # pyrefly: ignore[bad-argument-type]
-      check_and_complete(prompt_text='In summer', max_tokens=1),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      check_and_complete(prompt_text='In winter', max_tokens=32),  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-      check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),  # pyrefly: ignore[bad-argument-type]
+  exe = executing.par_iter([
+      check_and_complete(prompt_text='In summer', max_tokens=1),
+      check_and_complete(prompt_text='In winter', max_tokens=32),
+      check_and_complete(', '.join(map(str, list(range(_MAX_INPUT_TOKENS))))),
   ])
   value_error_raised = False
   try:
@@ -184,7 +184,7 @@ def main(argv: Sequence[str]) -> None:
     print('ValueError not raised.')
 
   print('6.1 Safety settings: default may raise warnings')
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]  # pytype: disable=wrong-arg-count
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]
   executable = executing.par_iter(execs)
   value_error_raised = False
   try:
@@ -206,7 +206,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('6.2 Safety settings: disable safety settings')
   llm.generate_text.update(safety_settings=gemini_api.SAFETY_DISABLED)
-  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]  # pytype: disable=wrong-arg-count
+  execs = [llm.generate_text(f'Question: {d}+{d}?\nAnswer:') for d in range(3)]
   executable = executing.par_iter(execs)
 
   res = executing.run(executable)
@@ -216,7 +216,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('7.1 Generate text without healing.')
   # Expect something weird to happen.
-  executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+  executable = llm.generate_text(
       prompt='When I sat on ',
       temperature=0.,
       max_tokens=10,
@@ -227,7 +227,7 @@ def main(argv: Sequence[str]) -> None:
     print('Returned value(s):')
     pprint.pprint(res)
   print('7.2 Generate text with space healing.')
-  executable = llm.generate_text(  # pytype: disable=wrong-keyword-args
+  executable = llm.generate_text(
       prompt='When I sat on ',
       temperature=0.,
       max_tokens=10,
@@ -260,7 +260,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('9. Check that generate_texts is working.')
   res = executing.run(
-      llm.generate_texts(  # pytype: disable=wrong-keyword-args
+      llm.generate_texts(
           prompt=prompt_text,
           samples=3,
           stop=['\n\n'],
@@ -273,7 +273,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('10.1 Check that chat is working (API formatting).')
   res = executing.run(
-      llm.chat(  # pytype: disable=wrong-keyword-args
+      llm.chat(
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.USER,
@@ -299,7 +299,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('10.2 Check that chat completes the model prefix.')
   res = executing.run(
-      llm.chat(  # pytype: disable=wrong-keyword-args
+      llm.chat(
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.USER,
@@ -323,7 +323,7 @@ def main(argv: Sequence[str]) -> None:
 
   print('10.3 Check that chat is working (Default formatting).')
   res = executing.run(
-      llm.chat(  # pytype: disable=wrong-keyword-args
+      llm.chat(
           messages=[
               content_lib.Message(
                   role=content_lib.PredefinedRole.SYSTEM,

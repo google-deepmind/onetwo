@@ -166,7 +166,7 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
   @batching.batchable_method(
       implementation=utils.FromInstance('_batch_tokenize'),
   )
-  def _batchable_tokenize(self, content: str) -> Sequence[int]:  # pyrefly: ignore[bad-return]
+  def _batchable_tokenize(self, content: str) -> Sequence[int]:
     return []
 
   @batching.batch_method(batch_size=utils.FromInstance('batch_size'))
@@ -182,7 +182,7 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
   @batching.batchable_method(
       implementation=utils.FromInstance('_batch_detokenize'),
   )
-  def _batchable_detokenize(self, tokens: Sequence[int]) -> Sequence[str]:  # pyrefly: ignore[bad-return]
+  def _batchable_detokenize(self, tokens: Sequence[int]) -> Sequence[str]:
     return []
 
   @batching.batch_method(batch_size=utils.FromInstance('batch_size'))
