@@ -91,7 +91,7 @@ class PythonSandboxForTest(python_execution.PythonSandbox):
     """See base class (PythonSandbox)."""
     return True
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def run(self, code: str) -> _SandboxResult:
     """See base class (PythonSandbox)."""
     self.requests.append(code)

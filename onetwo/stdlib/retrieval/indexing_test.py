@@ -219,7 +219,7 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
         self.called_embed = False
 
       @executing.make_executable(copy_self=False)
-      async def embed(self, content: str | content_lib.ChunkList, **kwargs):  # pyrefly: ignore[bad-override]
+      async def embed(self, content: str | content_lib.ChunkList, **kwargs):
         self.called_embed = True
         return np.array([0.5, 0.5])
 

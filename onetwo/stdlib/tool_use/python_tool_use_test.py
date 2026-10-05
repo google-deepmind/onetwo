@@ -367,7 +367,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
         tools=[llm_tool_use.Tool(name='add', function=add_function)]
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
-      result = executing.run(  # pyrefly: ignore[no-matching-overload]
+      result = executing.run(
           env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
       )
 
@@ -414,7 +414,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
         tools=[llm_tool_use.Tool(name='add', function=lambda x, y: x + y)]
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
-      result = executing.run(  # pyrefly: ignore[no-matching-overload]
+      result = executing.run(
           env.run_code(sandbox_state=tuple(), code='add("a", "b")')
       )
 
@@ -433,7 +433,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     config = python_tool_use.PythonToolUseEnvironmentConfig()
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       with self.assertRaises(ValueError):
-        executing.run(  # pyrefly: ignore[no-matching-overload]
+        executing.run(
             env.run_tool(tool_name='add', tool_args=['a', 'b'], tool_kwargs={})
         )
 
@@ -444,7 +444,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
     )
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
       with self.assertRaises(TypeError):
-        executing.run(  # pyrefly: ignore[no-matching-overload]
+        executing.run(
             env.run_tool(tool_name='double', tool_args=[], tool_kwargs={'y': 3})
         )
 
@@ -483,7 +483,7 @@ class PythonToolUseEnvironmentTest(parameterized.TestCase):
 
     start_time = time.monotonic()
     with python_tool_use.PythonToolUseEnvironment(config=config) as env:
-      result = executing.run(  # pyrefly: ignore[no-matching-overload]
+      result = executing.run(
           env.run_code(
               sandbox_state=("search_result = 'Tübingen 91,877'",),
               code='firstnumber(search_result)',

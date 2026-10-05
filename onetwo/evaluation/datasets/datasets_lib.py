@@ -291,7 +291,7 @@ class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
           if not line:
             continue
           try:
-            doc = _Document.from_json(line)  # pyrefly: ignore[missing-attribute]
+            doc = _Document.from_json(line)
             if not doc.doc_id:
               missing_doc_id_count += 1
               # Generate a deterministic ID if missing.

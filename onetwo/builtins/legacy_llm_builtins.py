@@ -248,10 +248,8 @@ def _generate_texts(
 generate_text = cast(GenerateTextCallable, _generate_text)
 generate_texts = cast(GenerateTextsCallable, _generate_texts)
 
-# pytype: disable=protected-access
 _generate_text._name = 'onetwo.builtins.llm.generate_text'  # pylint: disable=protected-access
 _generate_texts._name = 'onetwo.builtins.llm.generate_texts'  # pylint: disable=protected-access
-# pytype: enable=protected-access
 
 
 @executing.make_executable
@@ -303,7 +301,7 @@ def _default_generate_texts(
         'The implementation of generate_text should return an Executable.'
     )
   executables = sampling.repeat(executable, samples)
-  return executing.par_iter(executables)  # pytype: disable=bad-return-type
+  return executing.par_iter(executables)  # pyrefly: ignore[bad-return]
 
 
 def reset_defaults() -> None:

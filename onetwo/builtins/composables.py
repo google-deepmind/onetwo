@@ -30,7 +30,7 @@ section_start = composing.section_start
 section_end = composing.section_end
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 def f(
     context: composing.Context, content: str, role: content_lib.RoleType = None
 ) -> content_lib.Chunk:
@@ -45,7 +45,7 @@ def f(
   return content_lib.Chunk(content, role=role)
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 def c(
     context: composing.Context, content: Any, role: content_lib.RoleType = None
 ) -> content_lib.ChunkList:
@@ -64,7 +64,7 @@ def c(
     return content_lib.ChunkList([content_lib.Chunk(content, role=role)])
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 async def j(
     context: composing.Context,
     template: str,
@@ -72,9 +72,9 @@ async def j(
     role: content_lib.RoleType = None,
 ) -> content_lib.Chunk:
   """Composable version of a jinja formatted prompt using context vars."""
-  result = await prompt_templating.JinjaTemplateWithCallbacks(  # pyrefly: ignore[not-async]
+  result = await prompt_templating.JinjaTemplateWithCallbacks(
       name=name, text=template
-  ).render(**context.variables)  # pyrefly: ignore[bad-argument-type]
+  ).render(**context.variables)
   # We extract the output variables from the template and store them into the
   # context.
   for key, value in result.items():
@@ -83,13 +83,13 @@ async def j(
   return content_lib.Chunk(result[prompt_templating.PROMPT_PREFIX], role=role)
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 def generate_text(context: composing.Context, **kwargs):
   """Composable version of the llm.generate_text function."""
   return llm.generate_text(context.prefix, **kwargs)
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 async def chat(
     context: composing.Context,
     **kwargs,
@@ -126,13 +126,13 @@ async def select(
   return value, options[index][1]  # pyrefly: ignore[bad-index]
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 def generate_object(context: composing.Context, cls: type[Any], **kwargs):
   """Composable version of the llm.generate_object function."""
   return llm.generate_object(context.prefix, cls, **kwargs)
 
 
-@composing.make_composable  # pytype: disable=wrong-arg-types
+@composing.make_composable
 async def instruct(
     context: composing.Context, assistant_prefix: str | None = None, **kwargs
 ):

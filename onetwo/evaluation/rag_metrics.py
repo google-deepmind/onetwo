@@ -304,10 +304,10 @@ def make_accuracy_critic(
     with routing.RegistryContext():
       if backend is not None:
         backend.register()
-      return await evaluation.structured_evaluation_critic(  # pyrefly: ignore[not-async]
-          target=target,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-          prediction=prediction.answer,  # pyrefly: ignore[unexpected-keyword]
-          example=example,  # pyrefly: ignore[unexpected-keyword]
+      return await evaluation.structured_evaluation_critic(
+          target=target,
+          prediction=prediction.answer,
+          example=example,
       )
 
   return accuracy_critic_fn

@@ -78,7 +78,7 @@ class RetrievalDataStructuresTest(parameterized.TestCase):
         url='https://example.com',
         metadata={'key': 'val'},
     )
-    json_str = doc.to_json()  # pyrefly: ignore[missing-attribute]
+    json_str = doc.to_json()
     self.assertEqual(
         json.loads(json_str),
         {
@@ -90,7 +90,7 @@ class RetrievalDataStructuresTest(parameterized.TestCase):
         },
     )
     self.assertEqual(
-        retrieval_data_structures.Document.from_json(json_str), doc  # pyrefly: ignore[missing-attribute]
+        retrieval_data_structures.Document.from_json(json_str), doc
     )
 
   def test_document_to_json_multimodal_succeeds(self):
@@ -103,10 +103,10 @@ class RetrievalDataStructuresTest(parameterized.TestCase):
         ]),
         metadata={'keys': ['a', 'b']},
     )
-    json_str = multimodal_doc.to_json()  # pyrefly: ignore[missing-attribute]
+    json_str = multimodal_doc.to_json()
     self.assertIsInstance(json_str, str)
 
-    restored = retrieval_data_structures.Document.from_json(json_str)  # pyrefly: ignore[missing-attribute]
+    restored = retrieval_data_structures.Document.from_json(json_str)
     self.assertEqual(restored.doc_id, multimodal_doc.doc_id)
     self.assertEqual(restored.title, multimodal_doc.title)
     self.assertIsInstance(restored.content, content_lib.ChunkList)

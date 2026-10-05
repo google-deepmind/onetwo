@@ -29,7 +29,7 @@ async def answer_included_async(target: str, prediction: str):
   return answer_included_sync(target, prediction)
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def answer_included_executable(target: str, prediction: str):
   return answer_included_sync(target, prediction)
 
@@ -51,7 +51,7 @@ class DistributionMetricsTest(parameterized.TestCase):
   ):
     metric = distribution_metrics.AccuracyAtK(k=k)
     actual = executing.run(
-        metric(target=target, prediction=predicted_distribution)  # pytype: disable=wrong-keyword-args
+        metric(target=target, prediction=predicted_distribution)
     )
     self.assertEqual(expected, actual)
 
@@ -66,13 +66,13 @@ class DistributionMetricsTest(parameterized.TestCase):
     )
 
     actual = executing.run(
-        metric(target='b', prediction=[('=a', 0.5), ('=b', 0.3), ('=c', 0.2)])  # pytype: disable=wrong-keyword-args
+        metric(target='b', prediction=[('=a', 0.5), ('=b', 0.3), ('=c', 0.2)])
     )
     with self.subTest('correct_at_2'):
       self.assertEqual(1.0, actual, actual)
 
     actual = executing.run(
-        metric(target='c', prediction=[('=a', 0.5), ('=b', 0.3), ('=c', 0.2)])  # pytype: disable=wrong-keyword-args
+        metric(target='c', prediction=[('=a', 0.5), ('=b', 0.3), ('=c', 0.2)])
     )
     with self.subTest('wrong_at_2'):
       self.assertEqual(0.0, actual, actual)

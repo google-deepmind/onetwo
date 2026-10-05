@@ -540,7 +540,7 @@ def f1(a, b, c):
   return a + b + c
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def f2(a, b, c):
   """Executable test hook."""
   return a + b + c
@@ -624,7 +624,7 @@ class PythonSandboxSafeSubsetTest(
 
     @sb.start()
     async def wrapper(code: str):
-      result = await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await sb.run(code)
       return result
 
     result = asyncio.run(wrapper(code))
@@ -670,7 +670,7 @@ class PythonSandboxSafeSubsetTest(
 
     @sb.start()
     async def wrapper(code: str):
-      result = await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await sb.run(code)
       return result
 
     result = asyncio.run(wrapper(code))
@@ -742,7 +742,7 @@ class PythonSandboxSafeSubsetTest(
 
     @sb.start()
     async def wrapper(code: str):
-      result = await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await sb.run(code)
       return result
 
     result = asyncio.run(wrapper(code))
@@ -804,7 +804,7 @@ class PythonSandboxSafeSubsetTest(
 
     @sb.start()
     async def wrapper(code: str):
-      result = await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await sb.run(code)
       return result
 
     result = asyncio.run(wrapper(code))
@@ -815,7 +815,7 @@ class PythonSandboxSafeSubsetTest(
 
     @sb.start()
     async def wrapper(code: str):
-      result = await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await sb.run(code)
       return result
 
     result = None
@@ -843,7 +843,7 @@ class PythonSandboxSafeSubsetTest(
     @sb.start()
     async def wrapper():
       await sb.set_variables(var1=[], var2=0)
-      result = await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      result = await sb.run(code)
       variables = await sb.get_variables('var1', 'var2')
       return result, variables
 
@@ -1001,11 +1001,11 @@ class PythonSandboxSafeSubsetMultiProcessTest(parameterized.TestCase):
 
     async def main():
       async with sandbox.start() as sb:
-        res1 = await sb.run('a = 10')  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+        res1 = await sb.run('a = 10')
         self.assertEqual(res1.execution_status, _ExecutionStatus.SUCCESS)
-        res2 = await sb.run('print(a + 5)')  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+        res2 = await sb.run('print(a + 5)')
         self.assertEqual(res2.stdout, '15\n')
-        res3 = await sb.run('a')  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+        res3 = await sb.run('a')
         self.assertEqual(res3.final_expression_value, 10)
 
     asyncio.run(main())
@@ -1066,7 +1066,7 @@ class PythonSandboxSafeSubsetMultiProcessTest(parameterized.TestCase):
         variables = await sb.get_variables('x', 'y', 'z')
         self.assertEqual(variables, {'x': 10, 'y': 'hello', 'z': None})
 
-        result = await sb.run('print(x + 5)\nz = y + " world"')  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+        result = await sb.run('print(x + 5)\nz = y + " world"')
         self.assertEqual(result.stdout, '15\n')
 
         variables = await sb.get_variables('x', 'y', 'z')
@@ -1109,7 +1109,7 @@ print("Var check: " + my_var)
 {{'hook_result': hook_result, 'my_var': my_var}}
       """
       async with sandbox.start() as sb:
-        return await sb.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+        return await sb.run(code)
 
     async def main():
       tasks = [run_in_sandbox(i, sb) for i, sb in enumerate(sandboxes)]

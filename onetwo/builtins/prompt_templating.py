@@ -141,7 +141,7 @@ class JinjaTemplateWithCallbacks(templating.JinjaTemplate):
             function=callback_fn,
             pass_context=callback_pass_context,
         )
-    outputs = await mock_prompt.render(**inputs)  # pyrefly: ignore[bad-argument-type, not-async]
+    outputs = await mock_prompt.render(**inputs)
     try:
       result = outputs[_DRY_RUN_PREFIX_VAR]
     except KeyError as exc:

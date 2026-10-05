@@ -114,7 +114,7 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
     """Overridden from base class (CorpusRewriter)."""
     chunked_corpus = []
     for chunks in await executing.parallel(
-        *[self.chunker(document) for document in corpus]  # pyrefly: ignore[bad-argument-type]
+        *[self.chunker(document) for document in corpus]
     ):
       chunked_corpus.extend(chunks)
     return chunked_corpus
@@ -146,7 +146,7 @@ class FormattingCorpusRewriter(CorpusRewriter[DocT]):
   ) -> Iterable[DocT]:
     """Overridden from base class (CorpusRewriter)."""
     return await executing.parallel(
-        *[self.formatter(document) for document in corpus]  # pyrefly: ignore[bad-argument-type]
+        *[self.formatter(document) for document in corpus]
     )
 
 

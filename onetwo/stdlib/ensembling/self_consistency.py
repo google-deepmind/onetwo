@@ -166,7 +166,7 @@ class SelfConsistency(Generic[_O, _Bucket]):
   representative_output_selector: (
       Callable[[_Bucket, _PredictionsWithScores], _O | None]
       | Callable[[_Bucket, _PredictionsWithScores], Awaitable[_O | None]]
-  ) = select_first_highest_scoring_output  # pyrefly: ignore[bad-assignment]
+  ) = select_first_highest_scoring_output
 
   @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
@@ -174,8 +174,8 @@ class SelfConsistency(Generic[_O, _Bucket]):
       self, *args: _Args.args, **kwargs: _Args.kwargs  # pyrefly: ignore[not-a-type]
   ) -> list[tuple[_O, float]]:
     # Generate samples.
-    result_objects = await self.sampler(  # pyrefly: ignore[not-async]
-        *args, num_samples=self.num_samples, **kwargs  # pyrefly: ignore[unexpected-keyword]
+    result_objects = await self.sampler(
+        *args, num_samples=self.num_samples, **kwargs
     )
 
     # Create mapping of bucket to list of (output, score) tuples.
@@ -229,7 +229,7 @@ class ExtractConsensus(Generic[_O]):
       self, *args: _Args.args, **kwargs: _Args.kwargs  # pyrefly: ignore[not-a-type]
   ) -> _O | None:
     """Returns the consensus output, or None if the distribution is empty."""
-    predicted_distribution = await self.inner(*args, **kwargs)  # pyrefly: ignore[invalid-param-spec]
+    predicted_distribution = await self.inner(*args, **kwargs)
     if predicted_distribution:
       return predicted_distribution[0][0]
     else:

@@ -189,7 +189,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
       config_path = path / self.embed_backend_config_json_name
       with config_path.open('w') as f:
         try:
-          f.write(state.embed_backend_config.to_json())  # pyrefly: ignore[missing-attribute]
+          f.write(state.embed_backend_config.to_json())
         except TypeError as e:
           raise TypeError(
               'Failed to serialize EmbedBackendConfig to JSON. Ensure all '
@@ -269,7 +269,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     if config_path.exists():
       with config_path.open('r') as f:
         json_str = f.read()
-      embed_backend_config = backend_registry.EmbedBackendConfig.from_json(  # pyrefly: ignore[missing-attribute]
+      embed_backend_config = backend_registry.EmbedBackendConfig.from_json(
           json_str
       )
 

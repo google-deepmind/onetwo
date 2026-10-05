@@ -556,7 +556,7 @@ class PythonSandboxSafeSubset(python_execution.PythonSandbox):
     allowed_callables.update(self.hooks)
     return allowed_callables
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def run(self, code: str) -> python_execution.SandboxResult:
     """See base class (PythonSandbox)."""
     # Precheck code syntax.

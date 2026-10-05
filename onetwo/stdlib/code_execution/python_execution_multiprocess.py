@@ -255,7 +255,7 @@ class BaseMultiProcessSandbox(python_execution.PythonSandbox, abc.ABC):
     """
     raise NotImplementedError
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def run(self, code: str) -> _SandboxResult:
     """Runs the code in the sandbox, handling timeouts and hook messages.
 
@@ -422,7 +422,7 @@ def _sandbox_process_target(
 
     async def execute_in_inner_sandbox():
       await inner_sandbox.set_variables(**context)
-      sandbox_result = await inner_sandbox.run(code)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      sandbox_result = await inner_sandbox.run(code)
       # Retrieve all variables from the inner sandbox's context,
       if hasattr(inner_sandbox, 'context'):
         updated_context = await inner_sandbox.get_variables(

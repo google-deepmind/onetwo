@@ -205,7 +205,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
     sandbox = MockMultiProcessSandbox()
     sandbox.mock_result_queue.put('{"stdout": "OK"}')
 
-    result = executing.run(sandbox.run('print("Hello")'))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
+    result = executing.run(sandbox.run('print("Hello")'))
 
     self.assertEqual(sandbox.mock_requests, ['print("Hello")'])
     self.assertEqual(result.stdout, '{"stdout": "OK"}')
@@ -214,7 +214,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
     """Tests the run method handling a syntax error in the code."""
     sandbox = MockMultiProcessSandbox()
     code = 'a = 1 +'
-    result = executing.run(sandbox.run(code))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
+    result = executing.run(sandbox.run(code))
 
     self.assertEqual(result.execution_status, _ExecutionStatus.COMPILE_ERROR)
     self.assertIn('SyntaxError', result.status_message)
@@ -227,7 +227,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
     )
 
     with mock.patch.object(asyncio, 'sleep', autospec=True):
-      result = executing.run(sandbox.run('print("Timeout")'))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
+      result = executing.run(sandbox.run('print("Timeout")'))
 
     self.assertEqual(result.execution_status, _ExecutionStatus.SANDBOX_TIMEOUT)
     self.assertEqual(
@@ -272,7 +272,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
           'handle_hook_message',
           wraps=python_execution_multiprocess.handle_hook_message,
       ) as wrapped_handle:
-        result = executing.run(sandbox.run('call_hook()'))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
+        result = executing.run(sandbox.run('call_hook()'))
 
         wrapped_handle.assert_awaited_once()
         self.assertTrue(hook_called)
@@ -300,7 +300,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
       )
 
       with mock.patch.object(asyncio, 'sleep', autospec=True):
-        result = executing.run(sandbox.run('call_hook()'))  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
+        result = executing.run(sandbox.run('call_hook()'))
 
         mock_handle.assert_awaited_once()
         self.assertEqual(result, error_result)

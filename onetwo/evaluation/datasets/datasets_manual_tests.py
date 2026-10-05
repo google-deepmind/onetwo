@@ -77,7 +77,7 @@ def main(argv: Sequence[str]) -> None:
     print(f'   Example [{i}] metadata: {example.get("metadata")}')
 
   print(f'\n2. Loading documents from {_DATASET_NAME.value}...')
-  documents = list(ot.run(loader.load_documents()))  # pyrefly: ignore[missing-attribute]
+  documents = list(ot.run(loader.load_documents()))
   print(f'   Loaded {len(documents)} documents.')
   for i, document in enumerate(documents[:3]):
     print(f'   Document [{i}] doc_id: {document.doc_id}')

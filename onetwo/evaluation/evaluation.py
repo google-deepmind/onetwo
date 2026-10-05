@@ -355,11 +355,11 @@ async def _evaluate_example(
         (
             prediction,
             final_state,
-        ), execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async]
-            strategy, *args, **kwargs, return_final_state=True  # pyrefly: ignore[unexpected-keyword]
+        ), execution_result = await _execute_with_tracing(
+            strategy, *args, **kwargs, return_final_state=True
         )
       else:
-        prediction, execution_result = await _execute_with_tracing(  # pyrefly: ignore[not-async, invalid-param-spec]
+        prediction, execution_result = await _execute_with_tracing(  # pyrefly: ignore[invalid-param-spec]
             strategy, *args, **kwargs
         )
     else:
@@ -604,19 +604,19 @@ def evaluate(
 
   executables = (
       _evaluate_example(
-          strategy=strategy,  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
-          example=example,  # pyrefly: ignore[unexpected-keyword]
-          inputs_extractor=inputs_extractor,  # pyrefly: ignore[unexpected-keyword]
-          target_extractor=target_extractor,  # pyrefly: ignore[unexpected-keyword]
-          metric_functions=metric_functions,  # pyrefly: ignore[unexpected-keyword]
-          output_final_states=output_final_states,  # pyrefly: ignore[unexpected-keyword]
-          enable_tracing=enable_tracing,  # pyrefly: ignore[unexpected-keyword]
-          chunk_size=chunk_size,  # pyrefly: ignore[unexpected-keyword]
+          strategy=strategy,
+          example=example,
+          inputs_extractor=inputs_extractor,
+          target_extractor=target_extractor,
+          metric_functions=metric_functions,
+          output_final_states=output_final_states,
+          enable_tracing=enable_tracing,
+          chunk_size=chunk_size,
       )
       for example in examples
   )
   eval_executable = executing.par_iter(
-      executables=executables, chunk_size=chunk_size  # pyrefly: ignore[bad-argument-type]
+      executables=executables, chunk_size=chunk_size
   )
 
   with executing.safe_stream(eval_executable, iteration_depth=1) as iterator:

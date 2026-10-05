@@ -46,7 +46,7 @@ class MockRetriever(retrieval.Retriever[str, _Document]):
     self._documents = documents
 
   @executing.make_executable
-  async def retrieve(self, query: str, **kwargs) -> Iterable[_Document]:  # pyrefly: ignore[bad-override]
+  async def retrieve(self, query: str, **kwargs) -> Iterable[_Document]:
     max_results = kwargs.get('max_results')
     if max_results is not None:
       return self._documents[:max_results]

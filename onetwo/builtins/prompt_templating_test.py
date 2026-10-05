@@ -73,7 +73,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    result = executing.run(prompt.render(question=question))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(question=question))
 
     with self.subTest('should_generate_only_the_expected_prompts'):
       self.assertEmpty(backend.unexpected_prompts)
@@ -115,9 +115,9 @@ class PromptTemplatingTest(parameterized.TestCase):
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    result = executing.run(  # pyrefly: ignore[no-matching-overload]
-        prompt.render(  # pyrefly: ignore[bad-argument-type]
-            example_questions=example_questions, example_answers=example_answers  # pyrefly: ignore[unexpected-keyword]
+    result = executing.run(
+        prompt.render(
+            example_questions=example_questions, example_answers=example_answers
         )
     )
 
@@ -153,14 +153,14 @@ class PromptTemplatingTest(parameterized.TestCase):
         iterable_replies=True,
     )
     backend.register()
-    result = executing.run(prompt_template.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    result = executing.run(prompt_template.render())
     with self.subTest('should_return_correct_results_on_run'):
       self.assertEqual(result[PROMPT_PREFIX], 'testoko', pprint.pformat(result))
       self.assertEqual(result['answer'], 'ok', pprint.pformat(result))
       self.assertEqual(result['short_answer'], 'o', pprint.pformat(result))
 
     result_stream = []
-    with executing.safe_stream(prompt_template.render_stream()) as iterator:  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    with executing.safe_stream(prompt_template.render_stream()) as iterator:
       for update in iterator:
         result_stream.append(copy.deepcopy(update))
 
@@ -226,9 +226,9 @@ class PromptTemplatingTest(parameterized.TestCase):
 
     expected_final_prefix = expected_request + expected_reply_text_stripped
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    result = executing.run(  # pyrefly: ignore[no-matching-overload]
-        prompt.render(  # pyrefly: ignore[bad-argument-type]
-            exemplars=[  # pyrefly: ignore[unexpected-keyword]
+    result = executing.run(
+        prompt.render(
+            exemplars=[
                 {
                     'question': 'What is 1 + 2?',
                     'answer': 'The answer is 3.',
@@ -238,7 +238,7 @@ class PromptTemplatingTest(parameterized.TestCase):
                     'answer': 'The answer is 6.',
                 },
             ],
-            question=question,  # pyrefly: ignore[unexpected-keyword]
+            question=question,
         )
     )
 
@@ -289,7 +289,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    executables = sampling.repeat_and_execute(prompt.render(), num_repeats=5)  # pyrefly: ignore[bad-argument-type]
+    executables = sampling.repeat_and_execute(prompt.render(), num_repeats=5)
     results = executing.run(executables)
 
     with self.subTest('produces_correct_filled_template'):
@@ -335,7 +335,7 @@ class PromptTemplatingTest(parameterized.TestCase):
       pass
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    result = executing.run(prompt.render())
 
     with self.subTest('should_generate_only_the_expected_prompts'):
       self.assertEmpty(backend.unexpected_prompts)
@@ -372,9 +372,9 @@ class PromptTemplatingTest(parameterized.TestCase):
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    result = executing.run(  # pyrefly: ignore[no-matching-overload]
-        prompt.render(  # pyrefly: ignore[bad-argument-type]
-            example_questions=example_questions, example_answers=example_answers  # pyrefly: ignore[unexpected-keyword]
+    result = executing.run(
+        prompt.render(
+            example_questions=example_questions, example_answers=example_answers
         )
     )
 
@@ -420,7 +420,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     backend.register()
 
     prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-    result = executing.run(prompt.render(prefix=prefix, cls=cls))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(prefix=prefix, cls=cls))
 
     with self.subTest('should_generate_only_the_expected_prompts'):
       self.assertEmpty(backend.unexpected_prompts)
@@ -456,7 +456,7 @@ class PromptTemplatingTest(parameterized.TestCase):
               'i.e.{{ llm(stop=[". "], max_tokens=5) }}'
           )
       )
-      result = await prompt.render()  # pyrefly: ignore[bad-argument-type, not-async]
+      result = await prompt.render()
       return result[templating.PROMPT_PREFIX]
 
     def mock_my_callback(context):
@@ -473,7 +473,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     prompt.register_callback(name='callback_with_llm', function=my_callback)
     # Run without additional callbacks. In this case the `callback_with_llm`
     # callback will actually send the `llm` request.
-    result = executing.run(prompt.dry_run({'int_cls': int},  # pyrefly: ignore[bad-argument-count, bad-argument-type, no-matching-overload]
+    result = executing.run(prompt.dry_run({'int_cls': int},
                                           'AMAZING!', {int: 7}))
     with self.subTest('correct_result_without_additional_callbacks'):
       self.assertEqual(
@@ -493,8 +493,8 @@ class PromptTemplatingTest(parameterized.TestCase):
       )
     # Run with additional callback. In this case the no requests will get sent
     # to LLM.
-    result = executing.run(prompt.dry_run(  # pyrefly: ignore[bad-argument-type, no-matching-overload]
-        {'int_cls': int},  # pyrefly: ignore[bad-argument-count]
+    result = executing.run(prompt.dry_run(
+        {'int_cls': int},
         'AMAZING!',
         {int: 7},
         [
@@ -539,7 +539,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     prompt = prompt_templating.JinjaTemplateWithCallbacks(
         text='test{{ store("answer", llm(samples=samples)) }}'
     )
-    output = executing.run(prompt.render(samples=samples))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    output = executing.run(prompt.render(samples=samples))
     with self.subTest('answer_should_contain_list'):
       self.assertEqual(output['answer'], expected_answer, output['answer'])
 
@@ -576,7 +576,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     prompt = prompt_templating.JinjaTemplateWithCallbacks(
         text='test{{ store("answer", llm(samples=samples)) }}'
     )
-    output = executing.run(prompt.render(samples=samples))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    output = executing.run(prompt.render(samples=samples))
     with self.subTest('answer_should_contain_list'):
       self.assertEqual(output['answer'], expected_answer, output['answer'])
 
@@ -601,7 +601,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     with self.subTest('iteration_depth=1'):
       # We use stream_with_callback to ensure that we get a call at every step
       # of the underlying iterator.
-      executing.stream_with_callback(prompt.render_stream(), cb)  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+      executing.stream_with_callback(prompt.render_stream(), cb)
       expected = [
           {'_iterable_reply': None, 'prefix': 'test-'},
           {'_iterable_reply': 'a', 'prefix': 'test-'},
@@ -613,8 +613,8 @@ class PromptTemplatingTest(parameterized.TestCase):
       self.assertEqual(res, expected, pprint.pformat(res))
 
     with self.subTest('iteration_depth=0'):
-      executing.stream_with_callback(  # pyrefly: ignore[no-matching-overload]
-          prompt.render_stream(), cb, iteration_depth=0  # pyrefly: ignore[bad-argument-type]
+      executing.stream_with_callback(
+          prompt.render_stream(), cb, iteration_depth=0
       )
       expected = [
           {'_iterable_reply': None, 'prefix': 'test-'},
@@ -649,13 +649,13 @@ class PromptTemplatingTest(parameterized.TestCase):
     choose_callback_fn = prompt._callbacks['choose']
     generate_object_callback_fn = prompt._callbacks['generate_object']
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-    coroutines = [prompt.dry_run({'begin': letter}) for letter in letters]  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+    coroutines = [prompt.dry_run({'begin': letter}) for letter in letters]
 
     @executing.make_executable
     async def multiple_dry_runs():
-      return await asyncio.gather(*coroutines)  # pyrefly: ignore[no-matching-overload]
+      return await asyncio.gather(*coroutines)
 
-    _ = executing.run(multiple_dry_runs())  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+    _ = executing.run(multiple_dry_runs())
     with self.subTest('llm_fn_did_not_change'):
       self.assertEqual(llm_callback_fn, prompt._callbacks['llm'])
     with self.subTest('choose_fn_did_not_change'):
@@ -710,7 +710,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     ]:
       backend.register()
       prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-      result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+      result = executing.run(prompt.render())
 
       with self.subTest(f'generates_only_the_expected_prompts{test_name}'):
         self.assertEmpty(backend.unexpected_prompts)
@@ -765,7 +765,7 @@ class PromptTemplatingTest(parameterized.TestCase):
     ]:
       backend.register()
       prompt = prompt_templating.JinjaTemplateWithCallbacks(text=prompt_text)
-      result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+      result = executing.run(prompt.render())
 
       with self.subTest(f'generates_only_the_expected_prompts{test_name}'):
         self.assertEmpty(backend.unexpected_prompts)
@@ -809,10 +809,10 @@ class PromptTemplatingTest(parameterized.TestCase):
         default_score=0.0,
     )
     backend.register()
-    prefix1 = executing.run(prompt1.render(prompt_prefix=prompt_prefix))[  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    prefix1 = executing.run(prompt1.render(prompt_prefix=prompt_prefix))[
         'prefix'
     ]
-    prefix2 = executing.run(prompt2.render(prompt_prefix=prompt_prefix))[  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    prefix2 = executing.run(prompt2.render(prompt_prefix=prompt_prefix))[
         'prefix'
     ]
     with self.subTest('generates_only_the_expected_prompts'):
@@ -830,8 +830,8 @@ class PromptTemplatingTest(parameterized.TestCase):
         default_reply=DEFAULT_REPLY,
     )
     backend.register()
-    prefix3 = executing.run(prompt3.render(  # pyrefly: ignore[bad-argument-type, no-matching-overload]
-        prompt_prefix=prompt_prefix, cls=int))['prefix']  # pyrefly: ignore[unexpected-keyword]
+    prefix3 = executing.run(prompt3.render(
+        prompt_prefix=prompt_prefix, cls=int))['prefix']
 
     with self.subTest('generates_only_the_expected_prompts_generate_object'):
       self.assertEmpty(backend.unexpected_prompts)

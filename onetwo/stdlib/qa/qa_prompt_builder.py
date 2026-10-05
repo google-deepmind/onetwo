@@ -159,7 +159,7 @@ class QAPromptBuilder(Generic[DocT, QueryT]):
     """
     composable_prompt: Composable = await self._compile_prompt(docs, question)
     context = composing.Context()
-    await composable_prompt.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+    await composable_prompt.execute(context)
     return context
 
 

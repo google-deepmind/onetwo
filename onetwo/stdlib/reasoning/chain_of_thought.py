@@ -212,7 +212,7 @@ class QACoTPromptChat:
         content_lib.Message(
             content_lib.PredefinedRole.USER,
             f'{maybe_newline}Question: {question}\nReasoning: '))
-    reasoning = await llm.chat(  # pytype: disable=wrong-keyword-args
+    reasoning = await llm.chat(
         messages=messages, stop=['\nFinal', '\nAnswer', '\nQuestion:'])
     messages.append(
         content_lib.Message(
@@ -222,7 +222,7 @@ class QACoTPromptChat:
         content_lib.Message(
             content_lib.PredefinedRole.USER,
             'Final answer: '))
-    answer = await llm.chat(messages=messages, stop=['\nQuestion:'])  # pytype: disable=wrong-keyword-args
+    answer = await llm.chat(messages=messages, stop=['\nQuestion:'])
     return CoTReply(
         answer=answer.strip(),
         reasoning=reasoning.strip(),
@@ -466,5 +466,5 @@ class QACoTPromptWithAnswerParserChat:
         content_lib.Message(
             content_lib.PredefinedRole.USER,
             f'{maybe_newline}Q: {question}\nA: '))
-    reasoning_and_answer = await llm.chat(messages=messages, stop=['\nQ:'])  # pytype: disable=wrong-keyword-args
+    reasoning_and_answer = await llm.chat(messages=messages, stop=['\nQ:'])
     return self.answer_parser(reasoning_and_answer)
