@@ -121,7 +121,6 @@ def build_index(
         similarity_threshold=similarity_threshold,
         ignore_triples=ignore_triples,
         ignore_similarity_edges=ignore_similarity_edges,
-        runtime_kwargs=rt_kwargs,
     )
   else:
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
@@ -131,13 +130,13 @@ def build_index(
         overlap_window=overlap_window,
         format_str=format_str,
         serializer_type=serializer_type,
-        runtime_kwargs=rt_kwargs,
     )
 
   return build_index_from_spec(
       spec=spec,
       dataset_name=dataset_name,
       output_directory=output_directory,
+      runtime_kwargs=rt_kwargs,
       max_documents=max_documents,
       docs_path=docs_path,
   )

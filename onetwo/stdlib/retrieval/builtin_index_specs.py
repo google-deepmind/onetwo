@@ -41,16 +41,6 @@ SimpleRewritingHippoRAGDocumentIndexSpec = (
 )
 
 
-def _merge_runtime_kwargs(
-    spec: EmbeddingBasedDocumentIndexSpec,
-    runtime_kwargs: Mapping[str, Any],
-) -> dict[str, Any]:
-  """Returns `spec.runtime_kwargs` updated with `runtime_kwargs`."""
-  # Built-in specs may carry their own `runtime_kwargs` (e.g. set by
-  # `build_index_lib.build_index`); explicitly passed ones take precedence.
-  return {**spec.runtime_kwargs, **runtime_kwargs}
-
-
 def _get_tokenizer_backend() -> sentencepiece_tokenizer.SentencePieceTokenizer:
   tokenizer = sentencepiece_tokenizer.SentencePieceTokenizer(
       model_name='GEMINI3_G145'
@@ -105,7 +95,7 @@ def make_embedding_index(
       document_task_type=spec.document_task_type,
       searcher=index_build_interface.make_searcher(spec.searcher_config),
       serializer_type=spec.serializer_type,
-      runtime_kwargs=_merge_runtime_kwargs(spec, runtime_kwargs),
+      runtime_kwargs=dict(runtime_kwargs),
   )
 
 

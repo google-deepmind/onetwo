@@ -217,6 +217,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     if issubclass(spec_cls, index_build_interface.HippoRAGDocumentIndexSpec):
       kwargs['generate_backend_config'] = self.generate_backend_config
     kwargs.update(spec_kwargs)
+    runtime_kwargs = kwargs.pop('runtime_kwargs', {})
     spec = spec_cls(**kwargs)
 
     docs = [
@@ -233,7 +234,9 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     ]
 
     runner = local_index_runner.LocalIndexRunner()
-    index = ot.run(runner.build_index(spec=spec, docs=docs))
+    index = ot.run(
+        runner.build_index(spec=spec, docs=docs, runtime_kwargs=runtime_kwargs)
+    )
 
     self.assertIsInstance(index, expected_index_cls)
 
@@ -258,8 +261,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
 
     self.assertEqual(index.num_docs, expected_num_docs)
 
-    expected_runtime_kwargs = spec_kwargs.get('runtime_kwargs', {})
-    self.assertEqual(inner_index.runtime_kwargs, expected_runtime_kwargs)
+    self.assertEqual(inner_index.runtime_kwargs, runtime_kwargs)
 
   def test_build_index_from_jsonl_path(self):
     spec = index_build_interface.EmbeddingBasedDocumentIndexSpec(
@@ -364,17 +366,6 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         str(spec),
         'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_a3efa5f8',
     )
-
-  def test_index_spec_hash_stability(self):
-    spec1 = index_build_interface.EmbeddingBasedDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        runtime_kwargs={'api_key': 'key1', 'threadpool_size': 10},
-    )
-    spec2 = index_build_interface.EmbeddingBasedDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        runtime_kwargs={'api_key': 'key2', 'threadpool_size': 20},
-    )
-    self.assertEqual(spec1.get_stable_hash(), spec2.get_stable_hash())
 
   def test_hipporag_index_spec_serialization(self):
     spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(

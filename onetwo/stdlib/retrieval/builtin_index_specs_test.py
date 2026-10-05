@@ -36,22 +36,18 @@ class BuiltinIndexSpecsTest(absltest.TestCase):
     )
     self.assertEqual(tokenizer.model_name, 'GEMINI3_G145')
 
-  def test_passed_runtime_kwargs_override_spec_runtime_kwargs(self):
+  def test_factory_passes_runtime_kwargs_to_inner_index(self):
     spec = builtin_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='FakeEmbedderBackend'
         ),
-        runtime_kwargs={'from_spec': 1, 'overridden': 'spec'},
     )
 
     index = builtin_index_specs.make_simple_rewriting_embedding_index(
-        spec, {'overridden': 'arg'}
+        spec, {'api_key': 'key'}
     )
 
-    self.assertEqual(
-        index.inner_index.runtime_kwargs,
-        {'from_spec': 1, 'overridden': 'arg'},
-    )
+    self.assertEqual(index.inner_index.runtime_kwargs, {'api_key': 'key'})
 
 
 if __name__ == '__main__':

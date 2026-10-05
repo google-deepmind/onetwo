@@ -97,7 +97,6 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
     embed_backend_config: Configuration for the embedder backend.
     query_task_type: Task type to use when embedding queries.
     document_task_type: Task type to use when embedding documents.
-    runtime_kwargs: Environment-specific deployment settings and credentials.
     searcher_config: Configuration for the searcher to be used by the index for
       retrieving documents (e.g., BruteForceSearcher).
   """
@@ -110,10 +109,6 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
   )
   serializer_type: str = dataclasses.field(
       default="simple",
-      metadata=dataclasses_json.config(exclude=lambda _: True),
-  )
-  runtime_kwargs: dict[str, Any] = dataclasses.field(
-      default_factory=dict,
       metadata=dataclasses_json.config(exclude=lambda _: True),
   )
 

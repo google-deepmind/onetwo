@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import dataclasses
-import json
 from typing import Any, cast
 from unittest import mock
 
@@ -157,23 +156,18 @@ class IndexSpecRegistryTest(absltest.TestCase):
     )
     self.assertEqual(index_spec_registry.spec_from_dict(spec_dict), spec)
 
-  def test_builtin_spec_dict_round_trip_excludes_runtime_kwargs(self):
+  def test_builtin_spec_dict_round_trip(self):
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='SomeEmbedder', model_name='some-model'
         ),
         max_chunk_size=128,
-        runtime_kwargs={'api_key': 'secret'},
     )
 
     spec_dict = index_spec_registry.spec_to_dict(spec)
 
     self.assertEqual(spec_dict['spec_type'], 'simple_rewriting_embedding')
-    self.assertNotIn('secret', json.dumps(spec_dict))
-    self.assertEqual(
-        index_spec_registry.spec_from_dict(spec_dict),
-        dataclasses.replace(spec, runtime_kwargs={}),
-    )
+    self.assertEqual(index_spec_registry.spec_from_dict(spec_dict), spec)
 
   def test_spec_to_dict_unregistered_raises(self):
     with self.assertRaisesRegex(KeyError, 'KeywordDocumentIndexSpec'):
