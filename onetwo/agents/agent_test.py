@@ -125,8 +125,8 @@ def _run(
     agent: agent_lib.Agent,
     inputs: str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],
     **kwargs,
-) -> fc_types.ConversationTurn:
-  """Runs `agent` and returns the turn it produced.
+) -> str:
+  """Runs `agent` and returns its answer.
 
   `Agent.__call__` is declared to return a union covering `return_final_state`,
   so this narrows it back down for the benefit of the type checker.
@@ -137,17 +137,19 @@ def _run(
     **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
 
   Returns:
-    The agent's output turn.
+    The agent's answer, or '' if it gave none.
   """
-  return cast(fc_types.ConversationTurn, executing.run(agent(inputs, **kwargs)))
+  return cast(
+      str, executing.run(agent(inputs, **kwargs))
+  )
 
 
 def _run_with_state(
     agent: agent_lib.Agent,
     inputs: str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],
     **kwargs,
-) -> tuple[fc_types.ConversationTurn, agent_lib.AgentState]:
-  """Runs `agent` and returns its output turn together with the final state.
+) -> tuple[str, agent_lib.AgentState]:
+  """Runs `agent` and returns its answer together with the final state.
 
   Args:
     agent: The agent to run.
@@ -155,10 +157,10 @@ def _run_with_state(
     **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
 
   Returns:
-    The agent's output turn and the state it ended in.
+    The agent's answer ('' if it gave none) and the state it ended in.
   """
   return cast(
-      tuple[fc_types.ConversationTurn, agent_lib.AgentState],
+      tuple[str, agent_lib.AgentState],
       executing.run(agent(inputs, return_final_state=True, **kwargs)),
   )
 
@@ -247,10 +249,10 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather])
 
-    result = _run(agent, 'Hi there')
+    answer = _run(agent, 'Hi there')
 
     with self.subTest('returns_the_model_turn'):
-      self.assertEqual(result.content, 'Hello!')
+      self.assertEqual(answer, 'Hello!')
     with self.subTest('calls_the_model_once'):
       self.assertLen(backend.seen_turns, 1)
     with self.subTest('declares_the_tool'):
@@ -287,10 +289,10 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather])
 
-    result, state = _run_with_state(agent, 'Weather in London?')
+    answer, state = _run_with_state(agent, 'Weather in London?')
 
     with self.subTest('returns_the_final_answer'):
-      self.assertEqual(result.content, 'It is 15 degrees in London.')
+      self.assertEqual(answer, 'It is 15 degrees in London.')
     with self.subTest('sends_the_tool_result_back_to_the_model'):
       second_call_turns = backend.seen_turns[1]
       tool_turn = second_call_turns[-1]
@@ -359,14 +361,14 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather])
 
-    result = _run(agent, 'Weather in London?')
+    answer = _run(agent, 'Weather in London?')
 
     with self.subTest('tells_the_model_what_went_wrong'):
       error = backend.seen_turns[1][-1].responses[0].error or ''
       self.assertIn('Unknown tool', error)
       self.assertIn('_get_weather', error)
     with self.subTest('the_exchange_survives_and_completes'):
-      self.assertEqual(result.content, 'It is 15 degrees.')
+      self.assertEqual(answer, 'It is 15 degrees.')
 
   def test_failing_tool_is_reported_rather_than_raised(self):
     backend = _ScriptedBackend(
@@ -382,14 +384,14 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_explode])
 
-    result = _run(agent, 'Please explode')
+    answer = _run(agent, 'Please explode')
 
     with self.subTest('reports_the_error_to_the_model'):
       self.assertEqual(
           backend.seen_turns[1][-1].responses[0].error, 'ValueError: boom'
       )
     with self.subTest('completes_the_exchange'):
-      self.assertEqual(result.content, 'Sorry, that failed.')
+      self.assertEqual(answer, 'Sorry, that failed.')
 
   def test_stop_on_tool_error_fails_fast(self):
     backend = _ScriptedBackend(
@@ -461,12 +463,14 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather], max_steps=3)
 
-    _, state = _run_with_state(agent, 'Weather in London?')
+    answer, state = _run_with_state(agent, 'Weather in London?')
 
     with self.subTest('performs_exactly_max_steps_model_calls'):
       self.assertLen(backend.seen_turns, 3)
     with self.subTest('reports_that_it_ran_out_of_steps'):
       self.assertTrue(agent.steps_exhausted(state))
+    with self.subTest('returns_no_answer'):
+      self.assertEqual('', answer)
 
   def test_a_finished_exchange_is_not_reported_as_exhausted(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
@@ -491,10 +495,10 @@ class FCAgentTest(parameterized.TestCase):
         tools=[_get_weather], max_steps=2, final_instruction='Answer now.'
     )
 
-    result, state = _run_with_state(agent, 'Weather in London?')
+    answer, state = _run_with_state(agent, 'Weather in London?')
 
     with self.subTest('returns_the_final_answer'):
-      self.assertEqual(result.content, '15 degrees.')
+      self.assertEqual(answer, '15 degrees.')
     with self.subTest('calls_the_model_once_more_than_max_steps'):
       self.assertLen(backend.seen_turns, 3)
     with self.subTest('offers_no_tools_on_the_final_call'):
@@ -530,8 +534,10 @@ class FCAgentTest(parameterized.TestCase):
         tools=[_get_weather], max_steps=1, final_instruction='Answer now.'
     )
 
-    _, state = _run_with_state(agent, 'Weather in London?')
+    answer, state = _run_with_state(agent, 'Weather in London?')
 
+    with self.subTest('returns_no_answer'):
+      self.assertEqual('', answer)
     with self.subTest('stops_after_the_final_call'):
       self.assertLen(backend.seen_turns, 2)
     with self.subTest('does_not_answer_the_final_calls'):
@@ -572,10 +578,12 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather])
 
-    result = _run(agent, 'Weather in London?', max_steps=1)
+    answer, state = _run_with_state(agent, 'Weather in London?', max_steps=1)
 
-    with self.subTest('returns_the_requested_calls'):
-      self.assertEqual(result.calls[0].function_name, '_get_weather')
+    with self.subTest('returns_no_answer'):
+      self.assertEqual('', answer)
+    with self.subTest('keeps_the_requested_calls_in_the_final_state'):
+      self.assertEqual(state.turns[1].calls[0].function_name, '_get_weather')
     with self.subTest('does_not_call_the_model_again'):
       self.assertLen(backend.seen_turns, 1)
 
@@ -589,12 +597,12 @@ class FCAgentTest(parameterized.TestCase):
         fc_types.ConversationTurn(role=_USER, content='Say it in one word.'),
     ]
 
-    result = _run(agent, prior_turns)
+    answer = _run(agent, prior_turns)
 
     with self.subTest('keeps_the_conversation'):
       self.assertLen(backend.seen_turns[0], 3)
     with self.subTest('answers_the_last_question'):
-      self.assertEqual(result.content, 'Paris.')
+      self.assertEqual(answer, 'Paris.')
 
   def test_accepts_a_multimodal_question(self):
     backend = _ScriptedBackend(replies=[_model_turn('A puffin.')])
@@ -605,13 +613,26 @@ class FCAgentTest(parameterized.TestCase):
         content_lib.Chunk('What bird is this?'),
     ])
 
-    result = _run(agent, question)
+    answer = _run(agent, question)
 
     self.assertEqual(
         backend.seen_turns[0],
         [fc_types.ConversationTurn(role=_USER, content=question)],
     )
-    self.assertEqual(result.content, 'A puffin.')
+    self.assertEqual(answer, 'A puffin.')
+
+  def test_returns_an_answer_given_as_chunks_as_text(self):
+    reply = fc_types.ConversationTurn(
+        role=_MODEL,
+        content=content_lib.ChunkList(
+            [content_lib.Chunk('It is '), content_lib.Chunk('15 degrees.')]
+        ),
+    )
+    backend = _ScriptedBackend(replies=[reply])
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather])
+
+    self.assertEqual('It is 15 degrees.', _run(agent, 'Weather in London?'))
 
   def test_streams_one_update_per_step(self):
     backend = _ScriptedBackend(
@@ -660,12 +681,12 @@ class FCAgentTest(parameterized.TestCase):
     backend.register()
     agent = agent_lib.Agent()
 
-    result = _run(agent, 'Hi')
+    answer = _run(agent, 'Hi')
 
     with self.subTest('advertises_no_tools'):
       self.assertEmpty(backend.seen_tools[0])
     with self.subTest('still_answers'):
-      self.assertEqual(result.content, 'Hello!')
+      self.assertEqual(answer, 'Hello!')
 
 
 class FCAgentToolSourceTest(absltest.TestCase):
@@ -698,7 +719,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
         tools=[_get_weather, _fake_source([_get_time], events=[])]
     )
 
-    result = _run(agent, 'Time in Paris?')
+    answer = _run(agent, 'Time in Paris?')
 
     with self.subTest('declares_them_alongside_the_agents_own'):
       self.assertEqual(
@@ -709,7 +730,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
       tool_turn = backend.seen_turns[1][-1]
       self.assertEqual(tool_turn.responses[0].response, '12:00 in Paris')
     with self.subTest('answers'):
-      self.assertEqual(result.content, 'It is noon in Paris.')
+      self.assertEqual(answer, 'It is noon in Paris.')
 
   def test_a_source_is_open_for_exactly_the_length_of_the_run(self):
     backend = _ScriptedBackend(
@@ -726,7 +747,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
     events: list[str] = []
     agent = agent_lib.Agent(tools=[_fake_source([_get_time], events)])
 
-    result = _run(agent, 'Time in Oslo?')
+    answer = _run(agent, 'Time in Oslo?')
 
     with self.subTest('opens_it_and_closes_it_once'):
       self.assertEqual(events, ['open', 'close'])
@@ -735,7 +756,7 @@ class FCAgentToolSourceTest(absltest.TestCase):
           backend.seen_turns[1][-1].responses[0].response, '12:00 in Oslo'
       )
     with self.subTest('answers'):
-      self.assertEqual(result.content, 'It is noon in Oslo.')
+      self.assertEqual(answer, 'It is noon in Oslo.')
 
   def test_a_second_run_opens_the_source_again(self):
     backend = _ScriptedBackend(replies=[_model_turn('Hello!')])
@@ -820,14 +841,14 @@ class FCAgentToolSourceTest(absltest.TestCase):
     backend.register()
     agent = agent_lib.Agent(tools=[_get_weather])
 
-    result = _run(agent, 'Hi')
+    answer = _run(agent, 'Hi')
 
     with self.subTest('declares_the_tools_it_was_built_with'):
       self.assertEqual(
           [spec.name for spec in backend.seen_tools[0]], ['_get_weather']
       )
     with self.subTest('answers'):
-      self.assertEqual(result.content, 'Hello!')
+      self.assertEqual(answer, 'Hello!')
 
 
 class FCAgentTracingTest(absltest.TestCase):

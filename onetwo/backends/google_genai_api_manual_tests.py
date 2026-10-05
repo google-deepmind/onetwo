@@ -161,8 +161,8 @@ def _print_summary(test_results: list[tuple[float, str, bool]]) -> bool:
 
 def _run_agent(
     agent: agent_lib.Agent, query: str, **kwargs
-) -> fc_types.ConversationTurn:
-  """Runs an agent and returns the turn it produced.
+) -> str:
+  """Runs an agent and returns its answer.
 
   `Agent.__call__` is declared to return a union that also covers
   `return_final_state`, which this caller never asks for.
@@ -170,15 +170,34 @@ def _run_agent(
   Args:
     agent: The agent to run.
     query: What to ask it.
-    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+    **kwargs: Forwarded to `Agent.__call__`.
 
   Returns:
-    The agent's final turn.
+    The agent's answer, or '' if it gave none.
   """
   return cast(
-      fc_types.ConversationTurn,
+      str,
       executing.run(agent(query, **kwargs)),
   )
+
+
+def _first_model_turn(
+    agent: agent_lib.Agent, query: str
+) -> fc_types.ConversationTurn:
+  """Runs a single step of an agent and returns the model's turn in it.
+
+  Args:
+    agent: The agent to run.
+    query: What to ask it.
+
+  Returns:
+    The turn the model replied with, carrying the calls it requested.
+  """
+  _, state = cast(
+      tuple[Any, agent_lib.AgentState],
+      executing.run(agent(query, max_steps=1, return_final_state=True)),
+  )
+  return state.turns[1]
 
 
 def get_weather(location: str) -> dict[str, Any]:
@@ -982,7 +1001,7 @@ def main(argv: Sequence[str]) -> None:
         test_results,
     ) as tc:
       agent = agent_lib.Agent(tools=[get_weather])
-      turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+      turn = _first_model_turn(agent, 'What is the weather in London?')
       if not turn.calls:
         tc.fail('No FunctionCall found in response.')
       else:
@@ -1000,9 +1019,9 @@ def main(argv: Sequence[str]) -> None:
   if _should_run_test(22):
     with _run_test(22, 'Function calling: the full loop', test_results) as tc:
       agent = agent_lib.Agent(tools=[get_weather])
-      final_turn = _run_agent(agent, 'What is the weather in London?')
-      print(f'- Final answer: {final_turn.content}')
-      if not final_turn.content:
+      answer = _run_agent(agent, 'What is the weather in London?')
+      print(f'- Final answer: {answer}')
+      if not answer:
         tc.fail('Expected a final model answer after tool execution.')
 
       # A tool that raises should be reported back to the model rather than
@@ -1012,8 +1031,8 @@ def main(argv: Sequence[str]) -> None:
           max_steps=3,
       )
       recovered = _run_agent(recovering_agent, 'What is the weather in London?')
-      print(f'- Answer after the tool failed: {recovered.content}')
-      if not recovered.content:
+      print(f'- Answer after the tool failed: {recovered}')
+      if not recovered:
         tc.fail('A failing tool should be reported, not raised.')
 
   if _should_run_test(23):

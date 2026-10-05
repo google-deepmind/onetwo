@@ -98,8 +98,8 @@ def _always_fails(location: str) -> dict[str, Any]:
 
 def _run_agent(
     agent: agent_lib.Agent, query: str, **kwargs
-) -> fc_types.ConversationTurn:
-  """Runs an agent and returns the turn it produced.
+) -> str:
+  """Runs an agent and returns its answer.
 
   `Agent.__call__` is declared to return a union that also covers
   `return_final_state`, which this caller never asks for.
@@ -107,15 +107,34 @@ def _run_agent(
   Args:
     agent: The agent to run.
     query: What to ask it.
-    **kwargs: Forwarded to `Agent.__call__`, e.g. `max_steps`.
+    **kwargs: Forwarded to `Agent.__call__`.
 
   Returns:
-    The agent's final turn.
+    The agent's answer, or '' if it gave none.
   """
   return cast(
-      fc_types.ConversationTurn,
+      str,
       executing.run(agent(query, **kwargs)),
   )
+
+
+def _first_model_turn(
+    agent: agent_lib.Agent, query: str
+) -> fc_types.ConversationTurn:
+  """Runs a single step of an agent and returns the model's turn in it.
+
+  Args:
+    agent: The agent to run.
+    query: What to ask it.
+
+  Returns:
+    The turn the model replied with, carrying the calls it requested.
+  """
+  _, state = cast(
+      tuple[Any, agent_lib.AgentState],
+      executing.run(agent(query, max_steps=1, return_final_state=True)),
+  )
+  return state.turns[1]
 
 
 def main(argv: Sequence[str]) -> None:
@@ -670,7 +689,7 @@ def main(argv: Sequence[str]) -> None:
   print(f'13. Function calling: a single step, so nothing is executed, on '
         f'{fc_model}.')
   agent = agent_lib.Agent(tools=[get_weather])
-  turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+  turn = _first_model_turn(agent, 'What is the weather in London?')
   if not turn.calls:
     success = False
     print('FAILURE: no FunctionCall found in the response.')
@@ -693,9 +712,9 @@ def main(argv: Sequence[str]) -> None:
 
   print(f'14. Function calling: the full loop, on {fc_model}.')
   agent = agent_lib.Agent(tools=[get_weather])
-  final_turn = _run_agent(agent, 'What is the weather in London?')
-  print(f'  Final answer: {final_turn.content}')
-  if not final_turn.content:
+  answer = _run_agent(agent, 'What is the weather in London?')
+  print(f'  Final answer: {answer}')
+  if not answer:
     success = False
     print('FAILURE: expected a final model answer after tool execution.')
 
@@ -707,8 +726,8 @@ def main(argv: Sequence[str]) -> None:
       max_steps=3,
   )
   recovered = _run_agent(recovering_agent, 'What is the weather in London?')
-  print(f'  Answer after the tool failed: {recovered.content}')
-  if not recovered.content:
+  print(f'  Answer after the tool failed: {recovered}')
+  if not recovered:
     success = False
     print('FAILURE: a failing tool should be reported, not raised.')
 
@@ -733,7 +752,7 @@ def main(argv: Sequence[str]) -> None:
   )
   backend_reasoning.register()
   agent = agent_lib.Agent(tools=[get_weather])
-  first_turn = _run_agent(agent, 'What is the weather in London?', max_steps=1)
+  first_turn = _first_model_turn(agent, 'What is the weather in London?')
   thought = first_turn.thought
   if thought is None:
     success = False
@@ -758,8 +777,8 @@ def main(argv: Sequence[str]) -> None:
       print('FAILURE: the reasoning carries no item, so nothing can be sent '
             'back.')
   reasoned = _run_agent(agent, 'What is the weather in London?')
-  print(f'  Final answer with reasoning: {reasoned.content}')
-  if not reasoned.content:
+  print(f'  Final answer with reasoning: {reasoned}')
+  if not reasoned:
     success = False
     print('FAILURE: the loop did not complete with reasoning enabled.')
 

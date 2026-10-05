@@ -33,8 +33,8 @@ Usage:
 ```python
   backend.register()
   agent = agent_lib.Agent(tools=[get_weather, search])
-  result = ot.run(agent('What is the weather in London?'))
-  print(turn.content)
+  answer = ot.run(agent('What is the weather in London?'))
+  print(answer)
 ```
 
 A tool need not live in this process. An MCP server can be named in the same
@@ -231,7 +231,7 @@ class AgentEnvironment:
 class Agent(
     agents_base.SingleSampleAgent[
         str | content_lib.ChunkList | Sequence[fc_types.ConversationTurn],  # _I
-        fc_types.ConversationTurn,  # _O (output)
+        str,  # _O (output)
         AgentState,  # _S (state)
         AgentStep,  # _U (update)
         AgentEnvironment,  # _E (environment)
@@ -244,12 +244,15 @@ class Agent(
   chance to answer). Use `steps_exhausted` to tell those apart: it means the
   model was still working when it was cut off.
 
-  A single step is available by asking for one, which is how to inspect what
-  the model wants to call without running it:
+  The output of a run is the model's answer. The exchange that led to it is in
+  the final state, which is also how to inspect what the model wants to call
+  without running it:
 
   ```python
-    turn = await agent('What is the weather in London?', max_steps=1)
-    print(turn.calls)
+    _, state = await agent(
+        'What is the weather in London?', max_steps=1, return_final_state=True
+    )
+    print(state.turns[-2].calls)  # The model turn, before its tool turn.
   ```
 
   Attributes:
@@ -537,20 +540,22 @@ class Agent(
     budget = self.max_steps + (1 if self.final_instruction else 0)
     return state.num_steps >= budget
 
-  def extract_output(
-      self, state: AgentState
-  ) -> fc_types.ConversationTurn | None:
-    """Returns the model's most recent turn.
+  def extract_output(self, state: AgentState) -> str:
+    """Returns the model's answer as text, or '' if it has not given one.
 
     Overridden from base class (Agent).
+
+    The answer is the content of the last turn, provided that it is a model
+    turn without calls. There is none when the exchange was cut off while the
+    model was still calling tools (see `steps_exhausted`). Either way, every
+    turn of the exchange, with its calls and thoughts, is in `state.turns`.
 
     Args:
       state: Current (presumably final) state of the agent.
     """
-    for turn in reversed(state.turns):
-      if turn.role == fc_types.ConversationRole.MODEL:
-        return turn
-    return None
+    if not _answered(state) or state.turns[-1].content is None:
+      return ''
+    return str(state.turns[-1].content)
 
 
 def _clip(value: Any, max_chars: int) -> str:

@@ -1121,22 +1121,19 @@ class GenerateWithToolsTest(
     """`Agent` should drive the whole exchange with no scripting."""
     _get_and_register_backend()
     agent = agent_lib.Agent(tools=[_get_weather])
-    turn = cast(
-        fc_types.ConversationTurn,
-        executing.run(agent('What is the weather in London?')),
+    answer = cast(
+        str, executing.run(agent('What is the weather in London?'))
     )
-    self.assertEqual(turn.content, 'Hello')
-    self.assertEmpty(turn.calls)
+    self.assertEqual(answer, 'Hello')
 
   def test_agent_loop_reports_a_failing_tool(self):
     """A tool that raises is shown to the model rather than ending the run."""
     _get_and_register_backend()
     agent = agent_lib.Agent(tools=[_always_fails])
-    turn = cast(
-        fc_types.ConversationTurn,
-        executing.run(agent('What is the weather in London?')),
+    answer = cast(
+        str, executing.run(agent('What is the weather in London?'))
     )
-    self.assertEqual(turn.content, 'Hello')
+    self.assertEqual(answer, 'Hello')
 
 
 if __name__ == '__main__':

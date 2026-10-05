@@ -1323,13 +1323,12 @@ class GenerateWithToolsTest(
     agent = agent_lib.Agent(tools=[_get_weather])
     # `Agent.__call__` is declared to return a union that also covers
     # `return_final_state`, which this caller never asks for.
-    turn = cast(
-        _ConversationTurn,
-        executing.run(agent('What is the weather in London?')),
+    answer = cast(
+        str, executing.run(agent('What is the weather in London?'))
     )
 
     with self.subTest('reaches_an_answer'):
-      self.assertEqual(turn.content, 'It is 15 degrees in London.')
+      self.assertEqual(answer, 'It is 15 degrees in London.')
     with self.subTest('took_two_model_calls'):
       self.assertLen(self._messages.requests, 2)
     with self.subTest('fed_the_tool_result_back'):

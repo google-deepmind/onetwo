@@ -204,13 +204,8 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         role=fc_types.ConversationRole.USER,
         content=self._first_turn_content(question, additional_instructions),
     )
-    final_turn = cast(fc_types.ConversationTurn | None, await agent([turn]))
-
-    answer = ''
-    # A turn that still requests tool calls, e.g. because `max_steps` was
-    # reached, is not a final answer, even if it has some text alongside.
-    if final_turn is not None and final_turn.content and not final_turn.calls:
-      answer = str(final_turn.content)
+    # Empty when the model was still calling tools as `max_steps` ran out.
+    answer = cast(str, await agent([turn]))
     docs = []
     if self.doc_ids_from_answer is not None and answer:
       docs = [
