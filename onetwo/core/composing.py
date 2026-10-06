@@ -236,7 +236,7 @@ class _AppendNode(Composable):
   ) -> AsyncIterator[ChunkList]:
     # Default implementation: single step execution.
     del iteration_depth
-    yield (await self.execute(context))  # pyrefly: ignore[bad-argument-count, not-async]
+    yield (await self.execute(context))
 
   @override
   @executing.make_executable
@@ -291,7 +291,7 @@ class _FunctionNode(Composable):
   """
 
   executable: executing.FunctionExecWrapper[ChunkList] = (
-      dataclasses.field(default=_noop())  # pyrefly: ignore[bad-argument-count, bad-assignment]
+      dataclasses.field(default=_noop())
   )
   context_arg_name: str = dataclasses.field(default_factory=str)
 
@@ -310,7 +310,7 @@ class _FunctionNode(Composable):
 
   @override
   @executing.make_executable
-  async def execute(self, context: Context) -> ChunkList:  # pyrefly: ignore[bad-override]
+  async def execute(self, context: Context) -> ChunkList:
     self._context = context
     # We execute the wrapped Executable.
     result = await self.executable
@@ -359,7 +359,7 @@ class _FunctionNode(Composable):
       self, context: Context, iteration_depth: int = 1
   ) -> AsyncIterator[ChunkList]:
     if iteration_depth == 0:
-      res = await self.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+      res = await self.execute(context)
       yield res
     else:
       self._context = context
@@ -447,7 +447,7 @@ def make_composable(
   first_arg_name = parameter_names[0]
 
   if not utils.is_decorated_with_make_executable(fn):
-    fn = executing.make_executable(  # pyrefly: ignore[bad-assignment]
+    fn = executing.make_executable(
         first_arg_name, *composable_args, execute_result=False
     )(fn)
 
@@ -482,7 +482,7 @@ def make_composable(
   return inner
 
 
-@make_composable  # pytype: disable=wrong-arg-types
+@make_composable
 def set_context(
     context: Context, context_to_set: dict[str, Any] | Context
 ) -> ChunkList:
@@ -491,7 +491,7 @@ def set_context(
   return ChunkList()
 
 
-@make_composable  # pytype: disable=wrong-arg-types
+@make_composable
 def get_context(
     context: Context, context_holder: Context
 ) -> ChunkList:
@@ -508,7 +508,7 @@ class SectionInfo:
   hidden: bool
 
 
-@make_composable  # pytype: disable=wrong-arg-types
+@make_composable
 def section_start(
     context: Context, name: str, hidden: bool = False
 ) -> ChunkList:
@@ -539,7 +539,7 @@ def section_start(
   return ChunkList()
 
 
-@make_composable  # pytype: disable=wrong-arg-types
+@make_composable
 def section_end(context: Context) -> ChunkList:
   """Signals the end of a section.
 
@@ -563,7 +563,7 @@ def section_end(context: Context) -> ChunkList:
   return ChunkList()
 
 
-@make_composable  # pytype: disable=wrong-arg-types
+@make_composable
 def get_var(context: Context, var_name: str) -> ChunkList:
   """Composable that returns the value of a context variable.
 
@@ -598,9 +598,9 @@ async def store(
   """
   saved_prefix = copy.deepcopy(context.prefix)
   if isinstance(content, Composable):
-    content = await content.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+    content = await content.execute(context)
   else:
-    content = await _AppendNode(content=content).execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+    content = await _AppendNode(content=content).execute(context)
   context.prefix = saved_prefix
   # The content can either be a ChunkList or a generic python object.
   # If it is a ChunkList, we store a string version of it into the context
@@ -655,10 +655,10 @@ async def _fork(
   saved_prefix = copy.deepcopy(context.prefix)
 
   branches_executables = (
-      branch.execute(ctx) if isinstance(branch, Composable) else branch  # pyrefly: ignore[bad-argument-count]
+      branch.execute(ctx) if isinstance(branch, Composable) else branch
       for ctx, branch in zip(contexts, branches)
   )
-  executed_branches = await run_all(*branches_executables)  # pyrefly: ignore[bad-argument-type, not-async]
+  executed_branches = await run_all(*branches_executables)
   executed_branches = [branch for branch in executed_branches]
   result = joiner(context, list(zip(executed_branches, contexts)))
   if isinstance(result, Coroutine):

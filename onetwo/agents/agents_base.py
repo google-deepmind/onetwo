@@ -545,7 +545,7 @@ class AgentWrapper(
       self, inputs: _I, environment: _E | None = None
   ) -> _S:
     """Overridden from base class (Agent)."""
-    return self.inner_agent.initialize_state(inputs, environment)  # pytype: disable=wrong-arg-count
+    return self.inner_agent.initialize_state(inputs, environment)  # pyrefly: ignore[bad-return]
 
   @contextlib.asynccontextmanager
   async def start_environment(self) -> AsyncIterator[_E]:

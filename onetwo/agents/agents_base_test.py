@@ -197,11 +197,11 @@ class AgentTest(parameterized.TestCase):
       )
 
     with self.subTest('is_finished_should_be_false_until_reaching_max_length'):
-      self.assertFalse(agent.is_finished(state=state_2))  # pyrefly: ignore[bad-argument-type]
-      self.assertFalse(agent.is_finished(state=state_4))  # pyrefly: ignore[bad-argument-type]
+      self.assertFalse(agent.is_finished(state=state_2))
+      self.assertFalse(agent.is_finished(state=state_4))
 
     with self.subTest('is_finished_should_be_true_after_reaching_max_length'):
-      self.assertTrue(agent.is_finished(state=state_5))  # pyrefly: ignore[bad-argument-type]
+      self.assertTrue(agent.is_finished(state=state_5))
 
     with self.subTest('should_stop_once_is_finished_is_true'):
       self.assertLen(third_round_of_updates, 1)
@@ -234,7 +234,7 @@ class AgentTest(parameterized.TestCase):
       )
 
     final_state = executing.run(
-        agent.stream_states(initial_state=state_0, max_steps=max_steps)  # pytype: disable=wrong-keyword-args
+        agent.stream_states(initial_state=state_0, max_steps=max_steps)
     )
 
     with self.subTest('run_should_return_the_sequence_of_states'):
@@ -244,10 +244,10 @@ class AgentTest(parameterized.TestCase):
 
   def test_stream_states_with_environment(self):
     agent = StringAgentWithEnvironment(max_length=5)
-    state_0 = executing.run(agent.initialize_state(inputs='q'))  # pytype: disable=wrong-keyword-args
+    state_0 = executing.run(agent.initialize_state(inputs='q'))
     max_steps = 2
 
-    @executing.make_executable  # pyrefly: ignore[wrong-arg-types]
+    @executing.make_executable
     async def wrapper():
       async with agent.start_environment() as env:
         # Here we call `stream_states` twice with the same environment and then
@@ -255,19 +255,19 @@ class AgentTest(parameterized.TestCase):
         # is stateful and can accumulate modifications over the course of its
         # lifetime.
         states_1 = []
-        async for state in agent.stream_states(  # pytype: disable=wrong-keyword-args
+        async for state in agent.stream_states(
             initial_state=state_0, max_steps=max_steps, environment=env
         ):
           states_1.append(state)
         states_2 = []
-        async for state in agent.stream_states(  # pytype: disable=wrong-keyword-args
+        async for state in agent.stream_states(
             initial_state=state_0, max_steps=max_steps, environment=env
         ):
           states_2.append(state)
         final_env = env
       return states_1, states_2, final_env
 
-    states_1, states_2, final_env = executing.run(wrapper())  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+    states_1, states_2, final_env = executing.run(wrapper())
 
     with self.subTest('stream_should_yield_the_sequence_of_states_1st_call'):
       self.assertSequenceEqual(
@@ -296,7 +296,7 @@ class AgentTest(parameterized.TestCase):
   def test_sample_next_step(self):
     agent = StringAgent()
     next_step_candidates = executing.run(
-        agent.sample_next_step(  # pytype: disable=wrong-keyword-args
+        agent.sample_next_step(
             state=StringAgentState(inputs='q', updates=['1']), num_candidates=3
         )
     )
@@ -316,7 +316,7 @@ class AgentTest(parameterized.TestCase):
   )
   def test_execute(self, max_steps, max_length, expected_output):
     agent = StringAgent(max_length=max_length)
-    output = executing.run(agent(inputs='q', max_steps=max_steps))  # pytype: disable=wrong-keyword-args
+    output = executing.run(agent(inputs='q', max_steps=max_steps))
     self.assertEqual(expected_output, output)
 
   @parameterized.named_parameters(
@@ -327,14 +327,14 @@ class AgentTest(parameterized.TestCase):
     agent = StringAgent(max_length=5)
     stop_condition = lambda x: x.updates and x.updates[-1] == '2'
     output = executing.run(
-        agent(inputs='q', max_steps=max_steps, stop_condition=stop_condition)  # pytype: disable=wrong-keyword-args
+        agent(inputs='q', max_steps=max_steps, stop_condition=stop_condition)
     )
     self.assertEqual(expected_output, output)
 
   def test_execute_return_final_state(self):
     agent = StringAgent()
     output, final_state = executing.run(  # pyrefly: ignore[not-iterable]
-        agent(inputs='q', max_steps=3, return_final_state=True)  # pytype: disable=wrong-keyword-args
+        agent(inputs='q', max_steps=3, return_final_state=True)
     )
 
     with self.subTest('correct_output'):
@@ -348,7 +348,7 @@ class AgentTest(parameterized.TestCase):
 
   def test_execute_with_environment(self):
     agent = StringAgentWithEnvironment()
-    output = executing.run(agent(inputs='q', max_steps=3))  # pytype: disable=wrong-keyword-args
+    output = executing.run(agent(inputs='q', max_steps=3))
 
     with self.subTest('correct_output'):
       self.assertEqual('1 2 3', output)

@@ -338,11 +338,11 @@ class PythonPlanningPromptJ2(
       tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """See PythonPlanningPromptProtocol."""
-    result = await self.render(  # pyrefly: ignore[not-async]
-        instruction=self.instruction,  # pyrefly: ignore[unexpected-keyword]
-        exemplars=exemplars,  # pyrefly: ignore[unexpected-keyword]
-        state=state,  # pyrefly: ignore[unexpected-keyword]
-        tools=tools,  # pyrefly: ignore[unexpected-keyword]
+    result = await self.render(
+        instruction=self.instruction,
+        exemplars=exemplars,
+        state=state,
+        tools=tools,
     )
     if 'llm_reply' in result:
       # If the prompt succeeded in running to the end, we should come here.
@@ -584,10 +584,10 @@ class PythonPlanningAgent(
       raise ValueError('Environment must be specified for this agent.')
 
     # Prompt the LLM to determine the next action to take.
-    llm_reply = await self.prompt(  # pyrefly: ignore[not-async]
-        exemplars=self.exemplars,  # pyrefly: ignore[unexpected-keyword]
-        state=state,  # pyrefly: ignore[unexpected-keyword]
-        tools=environment.config.tools,  # pyrefly: ignore[unexpected-keyword]
+    llm_reply = await self.prompt(
+        exemplars=self.exemplars,
+        state=state,
+        tools=environment.config.tools,
     )
 
     sandbox_state = _sandbox_state_from_agent_state(state)

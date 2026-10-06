@@ -272,7 +272,7 @@ class RuntimeParameter(Generic[_T]):
     if isinstance(self.parameter, FromInstance) and self.instance is not None:
       return self.parameter(self.instance)
     else:
-      return self.parameter  # pytype: disable=bad-return-type
+      return self.parameter  # pyrefly: ignore[bad-return]
 
 
 def rate_limit_function[F: Callable[..., Any]](
@@ -433,7 +433,7 @@ def rate_limit_method(
     async def awrapper(self, *args: Any, **kwargs: Any) -> Any:
       qps_value = RuntimeParameter[float | None](qps, self).value()
       if qps_value is None:
-        return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
+        return await method(*((self,) + args), **kwargs)
       instance_lock, interval = get_params(self, qps_value)
       while not instance_lock.acquire(blocking=False):
         await asyncio.sleep(0)
@@ -450,7 +450,7 @@ def rate_limit_method(
       if sleep_time > 0:
         await asyncio.sleep(sleep_time)
 
-      return await method(*((self,) + args), **kwargs)  # pyrefly: ignore[not-async]
+      return await method(*((self,) + args), **kwargs)
 
     if inspect.iscoroutinefunction(method):
       return cast(_F, awrapper)
@@ -493,17 +493,17 @@ def with_retry(
 
   def wrapper_impl(*args, **kwargs) -> Any:
     self = args[0] if is_method(function) else None
-    max_retries_value = RuntimeParameter[int](max_retries, self).value()  # pyrefly: ignore[bad-argument-type]
+    max_retries_value = RuntimeParameter[int](max_retries, self).value()
     initial_base_delay_value = RuntimeParameter[int](
-        initial_base_delay, self  # pyrefly: ignore[bad-argument-type]
+        initial_base_delay, self
     ).value()
-    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()  # pyrefly: ignore[bad-argument-type]
+    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
     if not max_retries_value:
-      return function(*args, **kwargs)  # pyrefly: ignore[bad-return]
+      return function(*args, **kwargs)
     base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
-        return function(*args, **kwargs)  # pyrefly: ignore[bad-return]
+        return function(*args, **kwargs)
       except Exception as e:  # pylint: disable=broad-except
         if not retriable_error_filter(e):
           raise e
@@ -521,17 +521,17 @@ def with_retry(
 
   async def async_wrapper_impl(*args, **kwargs) -> Any:
     self = args[0] if is_method(function) else None
-    max_retries_value = RuntimeParameter[int](max_retries, self).value()  # pyrefly: ignore[bad-argument-type]
+    max_retries_value = RuntimeParameter[int](max_retries, self).value()
     initial_base_delay_value = RuntimeParameter[int](
-        initial_base_delay, self  # pyrefly: ignore[bad-argument-type]
+        initial_base_delay, self
     ).value()
-    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()  # pyrefly: ignore[bad-argument-type]
+    max_base_delay_value = RuntimeParameter[int](max_base_delay, self).value()
     if not max_retries_value:
-      return await function(*args, **kwargs)  # pyrefly: ignore[not-async]
+      return await function(*args, **kwargs)
     base_delay = initial_base_delay_value
     for i in range(max_retries_value + 1):
       try:
-        return await call_and_maybe_await(function, *args, **kwargs)  # pyrefly: ignore[bad-return]
+        return await call_and_maybe_await(function, *args, **kwargs)
       except Exception as e:  # pylint: disable=broad-except
         if not retriable_error_filter(e):
           raise e
@@ -661,7 +661,7 @@ def raising_returned_exception(function):
   async def awrapper(*args, **kwargs):
     # For some reason, pytype seems to get confused here and thinks we are
     # trying to call `__await__` on an `Exception`.
-    result = await function(*args, **kwargs)  # pytype: disable=bad-return-type
+    result = await function(*args, **kwargs)
     if isinstance(result, Exception):
       raise result
     else:
@@ -679,7 +679,7 @@ def raising_returned_exception(function):
   async def awrapper_m(self, *args, **kwargs):
     # For some reason, pytype seems to get confused here and thinks we are
     # trying to call `__await__` on an `Exception`.
-    result = await function(self, *args, **kwargs)  # pytype: disable=bad-return-type
+    result = await function(self, *args, **kwargs)
     if isinstance(result, Exception):
       raise result
     else:

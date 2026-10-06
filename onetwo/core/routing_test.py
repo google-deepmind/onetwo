@@ -111,14 +111,14 @@ class EngineForTest:
     """See base class."""
     self.batches.append(requests)
     replies = [
-        ReplyForTest(r.content.replace('req', 'rep'))  # pytype: disable=attribute-error
+        ReplyForTest(r.content.replace('req', 'rep'))
         for r in requests
     ]
     return replies
 
 
 def plan(num_requests, engine_from_id):
-  @make_executable  # pytype: disable=wrong-arg-types
+  @make_executable
   async def send_request(engine, request):
     return await routing.function_registry[engine](request)
 
@@ -127,8 +127,8 @@ def plan(num_requests, engine_from_id):
     llm_id = engine_from_id(i)
     requests.append(
         send_request(
-            f'llm{llm_id}',  # pyrefly: ignore[bad-argument-type]
-            RequestForTest(f'llm{llm_id}', f'req {i} for llm{llm_id}'),  # pyrefly: ignore[bad-argument-count]
+            f'llm{llm_id}',
+            RequestForTest(f'llm{llm_id}', f'req {i} for llm{llm_id}'),
         )
     )
   return executing.parallel(*requests)
@@ -418,16 +418,16 @@ class RoutingTest(parameterized.TestCase):
     routing.function_registry['fn'] = simple_function
 
     with self.subTest('call_normal_function'):
-      result = executing.run(  # pyrefly: ignore[no-matching-overload]
+      result = executing.run(
           routing.function_registry(
-              'fn', text='test', request=RequestForTest('', 'req')  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+              'fn', text='test', request=RequestForTest('', 'req')
           )
       )
       self.assertEqual(result, 'test req')
 
     with self.subTest('call_async_function'):
-      result = executing.run(  # pyrefly: ignore[no-matching-overload]
-          routing.function_registry('llm', request=RequestForTest('', 'req'))  # pyrefly: ignore[bad-argument-count, unexpected-keyword]
+      result = executing.run(
+          routing.function_registry('llm', request=RequestForTest('', 'req'))
       )
       self.assertEqual(result, 'rep')
 
@@ -443,17 +443,17 @@ class RoutingTest(parameterized.TestCase):
     routing.function_registry['f2'] = f_with_varied_args
 
     with self.subTest('should_return_correct_result'):
-      result = executing.run(routing.function_registry('f', i=0))  # pyrefly: ignore[bad-argument-count, no-matching-overload, unexpected-keyword]
+      result = executing.run(routing.function_registry('f', i=0))
       self.assertEqual(result, 'f:0')
 
-      result = executing.run(routing.function_registry('f2', 0, 1, 2, d=3))  # pyrefly: ignore[bad-argument-count, no-matching-overload, unexpected-keyword]
+      result = executing.run(routing.function_registry('f2', 0, 1, 2, d=3))
       self.assertEqual(result, 'f:0,1,2,3')
-      result = executing.run(routing.function_registry('f2', 0, 1, c=2, d=3))  # pyrefly: ignore[bad-argument-count, no-matching-overload, unexpected-keyword]
+      result = executing.run(routing.function_registry('f2', 0, 1, c=2, d=3))
       self.assertEqual(result, 'f:0,1,2,3')
 
     with self.subTest('fails_to_get_unknown_key'):
       with self.assertRaises(KeyError):
-        _ = executing.run(routing.function_registry('unregistered', i=0))  # pyrefly: ignore[bad-argument-count, no-matching-overload, unexpected-keyword]
+        _ = executing.run(routing.function_registry('unregistered', i=0))
 
     with self.subTest('get_unknown_key'):
       self.assertIsNone(routing.function_registry.get('unregistered', None))
@@ -466,21 +466,21 @@ class RoutingTest(parameterized.TestCase):
     def f2(i: int) -> str:
       return f'f2:{i}'
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def f_call(i: int) -> str:
-      return routing.function_registry('f', i=i)  # pyrefly: ignore[bad-argument-count, bad-return, unexpected-keyword]  # pytype: disable=bad-return-type
+      return routing.function_registry('f', i=i)  # pyrefly: ignore[bad-return]
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def wrapper():
-      reply1 = await f_call(0)  # pyrefly: ignore[bad-argument-type, not-async]
+      reply1 = await f_call(0)
       with routing.RegistryContext():
         routing.function_registry['f'] = f2
-        reply2 = await f_call(1)  # pyrefly: ignore[bad-argument-type, not-async]
-      reply3 = await f_call(2)  # pyrefly: ignore[bad-argument-type, not-async]
+        reply2 = await f_call(1)
+      reply3 = await f_call(2)
       return [reply1, reply2, reply3]
 
     routing.function_registry['f'] = f1
-    result = executing.run(wrapper())  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+    result = executing.run(wrapper())
     expected_result = ['f1:0', 'f2:1', 'f1:2']
 
     with self.subTest('should_return_correct_results'):
@@ -501,24 +501,24 @@ class RoutingTest(parameterized.TestCase):
     def f2(i: int) -> str:
       return f'f2:{i}'
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def call(i: int) -> AsyncIterator[str]:
       for _ in range(3):
-        yield await routing.function_registry('f', i=i)  # pyrefly: ignore[bad-argument-count, not-async, unexpected-keyword]
+        yield await routing.function_registry('f', i=i)
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def register_and_call(fn: int, i: int) -> AsyncIterator[str]:
       with routing.RegistryContext():
         routing.function_registry['f'] = f1 if fn == 1 else f2
         for _ in range(3):
-          yield await routing.function_registry('f', i=i)  # pyrefly: ignore[bad-argument-count, not-async, unexpected-keyword]
+          yield await routing.function_registry('f', i=i)
 
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def register_each_time(fn: int, i: int) -> AsyncIterator[str]:
       for _ in range(3):
         with routing.RegistryContext():
           routing.function_registry['f'] = f1 if fn == 1 else f2
-          res = await routing.function_registry('f', i=i)  # pyrefly: ignore[bad-argument-count, not-async, unexpected-keyword]
+          res = await routing.function_registry('f', i=i)
         yield res
 
     def process(executable):
@@ -530,8 +530,8 @@ class RoutingTest(parameterized.TestCase):
 
     with self.subTest('should_raise_value_error'):
       executable = executing.parallel(
-          register_and_call(1, 1),  # pyrefly: ignore[bad-argument-count, bad-argument-type]
-          register_and_call(2, 2),  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+          register_and_call(1, 1),
+          register_and_call(2, 2),
       )
       # The function `register_and_call`` does a yield within a
       # RegistryContext() context manager, this means the registry might be
@@ -543,7 +543,7 @@ class RoutingTest(parameterized.TestCase):
     # When using `register_each_time`, we set the RegistryContext before calling
     # the executable which is the right way.
     executable = executing.parallel(
-        register_each_time(1, 1), register_each_time(2, 2)  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+        register_each_time(1, 1), register_each_time(2, 2)
     )
 
     result = process(executable)
@@ -569,7 +569,7 @@ class RoutingTest(parameterized.TestCase):
       self.assertListEqual(result, expected_result, pprint.pformat(result))
 
     routing.function_registry['f'] = f1
-    executable = executing.parallel(call(1), call(2))  # pyrefly: ignore[bad-argument-type]
+    executable = executing.parallel(call(1), call(2))
     result = process(executable)
     with self.subTest('register_once_does_not_use_the_right_registry'):
       self.assertListEqual(
@@ -583,8 +583,8 @@ class RoutingTest(parameterized.TestCase):
     registry2 = routing.copy_registry()
 
     executable = executing.parallel(
-        routing.with_registry(call(1), registry1),  # pyrefly: ignore[bad-argument-type]
-        routing.with_registry(call(2), registry2),  # pyrefly: ignore[bad-argument-type]
+        routing.with_registry(call(1), registry1),
+        routing.with_registry(call(2), registry2),
     )
     result = process(executable)
 
@@ -600,10 +600,10 @@ class RoutingTest(parameterized.TestCase):
 
     routing.function_registry['f'] = f1
     # We create the executable, it does not store the registry.
-    executable = routing.function_registry('f')  # pyrefly: ignore[bad-argument-count]
+    executable = routing.function_registry('f')
     routing.function_registry['f'] = f2
     # We now attach the current registry to the executable.
-    executable = routing.with_current_registry(executable)  # pyrefly: ignore[bad-argument-type]
+    executable = routing.with_current_registry(executable)
 
     with self.subTest('should_use_stored_registry'):
       self.assertEqual(executing.run(executable), 'f2')
@@ -634,14 +634,14 @@ class RoutingTest(parameterized.TestCase):
     routing.function_registry['f'] = f1
     r = routing.copy_registry()
     routing.function_registry['f'] = f2
-    executable = routing.function_registry('f')  # pyrefly: ignore[bad-argument-count]
+    executable = routing.function_registry('f')
 
     with self.subTest('should_call_latest_registered'):
-      self.assertEqual(executing.run(executable), 'f2')  # pyrefly: ignore[no-matching-overload]
+      self.assertEqual(executing.run(executable), 'f2')
 
     with self.subTest('should_call_saved_version'):
       routing.set_registry(r)
-      self.assertEqual(executing.run(executable), 'f1')  # pyrefly: ignore[no-matching-overload]
+      self.assertEqual(executing.run(executable), 'f1')
 
   def test_copy_registry(self):
     def f1() -> str:

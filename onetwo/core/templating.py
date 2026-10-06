@@ -164,35 +164,33 @@ class PromptTemplateContext:
   # We disable bad-return-type because we store the data with different types
   # in the jinja dict and the type checker tries to verify their type but
   # does not properly use the dict keys. Same for unsupported-operands.
-  # pytype: disable=bad-return-type
   @property
   def input_variables(self) -> dict[str, Any]:
     return self._context
 
   @property
   def output_variables(self) -> dict[str, Any]:
-    return self._context[OUTPUT_VARS]
+    return self._context[OUTPUT_VARS]  # pyrefly: ignore[bad-return]
 
-  # pytype: disable=bad-return-type
   @property
   def context_variables(self) -> dict[str, Any]:
-    return self._context[CONTEXT_VARS]
+    return self._context[CONTEXT_VARS]  # pyrefly: ignore[bad-return]
 
   @property
   def prefix(self) -> str:
-    return self._context[CONTEXT_VARS][PROMPT_PREFIX]
+    return self._context[CONTEXT_VARS][PROMPT_PREFIX]  # pyrefly: ignore[bad-index]
 
   @prefix.setter
   def prefix(self, value: str) -> None:
-    self._context[CONTEXT_VARS][PROMPT_PREFIX] = value  # pytype: disable=unsupported-operands
+    self._context[CONTEXT_VARS][PROMPT_PREFIX] = value  # pyrefly: ignore[unsupported-operation]
 
   @property
   def error(self) -> str | None:
-    return self._context[CONTEXT_VARS].get(ERROR)  # pytype: disable=attribute-error
+    return self._context[CONTEXT_VARS].get(ERROR)  # pyrefly: ignore[missing-attribute]
 
   @error.setter
   def error(self, value: str) -> None:
-    self._context[CONTEXT_VARS][ERROR] = value  # pytype: disable=unsupported-operands
+    self._context[CONTEXT_VARS][ERROR] = value  # pyrefly: ignore[unsupported-operation]
 
   @property
   def jinja_context(self) -> immutabledict.immutabledict[str, Any]:
@@ -205,7 +203,7 @@ class PromptTemplateContext:
     This is not supposed to be used directly, just to simplify the other
     accessors.
     """
-    return self._context[INTERNAL_VARS]
+    return self._context[INTERNAL_VARS]  # pyrefly: ignore[bad-return]
 
   @property
   def section_stack(self) -> list[Any]:
@@ -250,7 +248,6 @@ class PromptTemplateContext:
   @add_prefix_role_tags.setter
   def add_prefix_role_tags(self, value: bool) -> None:
     self._internal.add_prefix_role_tags = value
-  # pytype: enable=bad-return-type
 
 
 # Generic type for decorators.
@@ -397,7 +394,7 @@ class SectionExtension(BeginEndExtension):
           'Encountered {% endsection %} but no {% section %} block'
           f' started, current prefix: {context.prefix}'
       )
-    section_args = context.section_stack.pop()  # pytype: disable=attribute-error
+    section_args = context.section_stack.pop()
     name = section_args['name']
     prefix = context.prefix
     if name:
@@ -506,7 +503,7 @@ class RoleExtension(BeginEndExtension):
           'Encountered {% endrole %} but no {% role %} block'
           f' started, current prefix: {context.prefix}'
       )
-    role_args = context.role_stack.pop()  # pytype: disable=attribute-error
+    role_args = context.role_stack.pop()
     name = role_args['name']
     prefix = context.prefix
     prefix_len = len(prefix)
@@ -925,7 +922,7 @@ class JinjaTemplate:
     parsed_prompt.globals.update(self._callbacks)
     return parsed_prompt
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def _iterate_through_prompt(
       self,
       context: PromptTemplateContext,
@@ -967,7 +964,7 @@ class JinjaTemplate:
     self._prompt_done = True
     yield ''
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def _execute_reply(
       self, context: PromptTemplateContext
   ) -> AsyncIterator[str]:
@@ -996,7 +993,7 @@ class JinjaTemplate:
           context.iterable_reply = None
         yield ''  # This won't be used.
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def _iterate_through_reply(
       self, context: PromptTemplateContext
   ) -> AsyncIterator[str]:
@@ -1056,10 +1053,10 @@ class JinjaTemplate:
     self._context = context
     self._prompt_done = False
     par = executing.parallel(
-        self._iterate_through_prompt(context),  # pyrefly: ignore[bad-argument-count, bad-argument-type]
-        self._iterate_through_reply(context)  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+        self._iterate_through_prompt(context),
+        self._iterate_through_reply(context)
         if iteration_depth
-        else self._execute_reply(context),  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+        else self._execute_reply(context),
     )
     updates = updating.Update()
     async for update in par.with_depth(iteration_depth=iteration_depth):
@@ -1122,7 +1119,7 @@ class JinjaTemplate:
       # This is the case where we are in the process of iterating through
       # an LLM reply.
       # We fetch the partial reply from the output variables.
-      iterable_reply = self._context.output_variables.get(  # pytype: disable=attribute-error
+      iterable_reply = self._context.output_variables.get(
           ITERABLE_REPLY, None
       )
     return _format_with_roles(
@@ -1132,7 +1129,7 @@ class JinjaTemplate:
         iterable_reply=iterable_reply,
     )
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name=utils.FromInstance('name'))
   async def render_stream(
       self,
@@ -1143,7 +1140,7 @@ class JinjaTemplate:
     async for outputs in self._render(2, kwargs):
       yield outputs
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   @tracing.trace(name=utils.FromInstance('name'))
   async def render(
       self,

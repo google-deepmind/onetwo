@@ -41,7 +41,7 @@ def _llm(reply_by_prompt: Mapping[str, str]) -> Callable[[Context], str]:
   @tracing.trace('llm')
   async def llm(context: Context) -> str:
     return reply_by_prompt[context.prefix]
-  return llm  # pytype: disable=bad-return-type
+  return llm  # pyrefly: ignore[bad-return]
 
 
 class TemplatingTest(parameterized.TestCase):
@@ -75,10 +75,10 @@ class TemplatingTest(parameterized.TestCase):
 
     if should_raise is not None:
       with self.assertRaises(should_raise):
-        _ = executing.run(prompt.render(**vars_dict))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+        _ = executing.run(prompt.render(**vars_dict))
     else:
       with self.subTest('produces_correct_filled_template'):
-        result = executing.run(prompt.render(**vars_dict))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+        result = executing.run(prompt.render(**vars_dict))
         self.assertEqual(
             result[PROMPT_PREFIX],
             'test',
@@ -108,7 +108,7 @@ class TemplatingTest(parameterized.TestCase):
         _llm(reply_by_prompt={expected_request: reply_text}),
         pass_context=True,
     )
-    result = executing.run(prompt.render(question=question))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(question=question))
 
     with self.subTest('produces_correct_filled_template'):
       self.assertEqual(
@@ -140,7 +140,7 @@ class TemplatingTest(parameterized.TestCase):
         _llm(reply_by_prompt={expected_request: reply_text}),
         pass_context=True,
     )
-    result = executing.run(prompt.render(question=question))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(question=question))
 
     with self.subTest('produces_correct_filled_template'):
       self.assertEqual(
@@ -214,10 +214,10 @@ class TemplatingTest(parameterized.TestCase):
     )
     if expected_result['context_answer'] == jinja2.Undefined():
       with self.assertRaises(jinja2.exceptions.UndefinedError):
-        _ = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+        _ = executing.run(prompt.render())
     else:
       with self.subTest('produces_correct_filled_template'):
-        result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+        result = executing.run(prompt.render())
         self.assertEqual(result, expected_result, pprint.pformat(result))
 
   def test_j2_zip_in_control_block(self):
@@ -248,11 +248,11 @@ class TemplatingTest(parameterized.TestCase):
         _llm(reply_by_prompt={expected_request: '16'}),
         pass_context=True,
     )
-    result = executing.run(  # pyrefly: ignore[no-matching-overload]
-        prompt.render(  # pyrefly: ignore[bad-argument-type]
-            example_questions=example_questions,  # pyrefly: ignore[unexpected-keyword]
-            example_answers=example_answers,  # pyrefly: ignore[unexpected-keyword]
-            question=question,  # pyrefly: ignore[unexpected-keyword]
+    result = executing.run(
+        prompt.render(
+            example_questions=example_questions,
+            example_answers=example_answers,
+            question=question,
         )
     )
 
@@ -284,7 +284,7 @@ class TemplatingTest(parameterized.TestCase):
         _llm(reply_by_prompt={expected_request: '(4, 16)'}),
         pass_context=True,
     )
-    result = executing.run(prompt.render(a=a, b=b))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(a=a, b=b))
 
     with self.subTest('produces_correct_filled_template'):
       self.assertEqual(
@@ -343,14 +343,14 @@ class TemplatingTest(parameterized.TestCase):
         pass_context=True,
     )
     if not incremental:
-      result = executing.run(prompt.render(question=question))[PROMPT_PREFIX]  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+      result = executing.run(prompt.render(question=question))[PROMPT_PREFIX]
     else:
       result = []
-      with executing.safe_stream(  # pyrefly: ignore[no-matching-overload]
-          prompt.render_stream(question=question)  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+      with executing.safe_stream(
+          prompt.render_stream(question=question)
       ) as iterator:
         for r in iterator:
-          result.append(copy.deepcopy(r[PROMPT_PREFIX]))  # pytype: disable=unsupported-operands
+          result.append(copy.deepcopy(r[PROMPT_PREFIX]))  # pyrefly: ignore[bad-index]
 
     with self.subTest('produces_correct_filled_template'):
       if not incremental:
@@ -378,7 +378,7 @@ class TemplatingTest(parameterized.TestCase):
     prompt_template.register_callback(
         'llm', _llm(reply_by_prompt={'test': 'result'}), pass_context=True,
     )
-    result = executing.run(prompt_template.render(v='first'))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt_template.render(v='first'))
     self.assertEqual(result['result'], 'result_parsed_first')
 
   def test_j2_sections(self):
@@ -409,7 +409,7 @@ class TemplatingTest(parameterized.TestCase):
       return 'next'
 
     prompt.register_callback('llm', prefix, pass_context=True)
-    result = executing.run(prompt.render(my_name='test'))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(my_name='test'))
 
     expected_outputs = {'inner': 'part3\nnext\n', 'test': 'part2\nnext\n'}
     with self.subTest('should_store_section_values'):
@@ -481,7 +481,7 @@ class TemplatingTest(parameterized.TestCase):
         role_tags=role_tags,
     )
     prompt.register_callback('llm', lambda: 'test')
-    result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    result = executing.run(prompt.render())
 
     expected_outputs = {
         'prefix': 'part1\n<user>part2\n</user>test\npart4',
@@ -560,7 +560,7 @@ class TemplatingTest(parameterized.TestCase):
         add_prefix_role_tags=True,
     )
     prompt.register_callback('llm', lambda: 'test')
-    result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    result = executing.run(prompt.render())
 
     expected_outputs = {
         'prefix': expected_prefix,
@@ -605,7 +605,7 @@ class TemplatingTest(parameterized.TestCase):
       {{- input('var') -}}
     """
     prompt = templating.JinjaTemplate(text=prompt_text)
-    output = executing.run(prompt.render(var='test'))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    output = executing.run(prompt.render(var='test'))
     self.assertEqual(output['prefix'], 'test')
 
     with mock.patch(
@@ -613,7 +613,7 @@ class TemplatingTest(parameterized.TestCase):
         create=True,
     ) as mock_input:
       mock_input.side_effect = ['a', 'b']
-      output = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+      output = executing.run(prompt.render())
       self.assertEqual(output['prefix'], 'a')
 
   def test_j2_input_with_stream(self):
@@ -631,8 +631,8 @@ class TemplatingTest(parameterized.TestCase):
 
     # We use stream_with_callback to ensure that we get a call at every step
     # of the underlying iterator.
-    executing.stream_with_callback(  # pyrefly: ignore[no-matching-overload]
-        prompt.render_stream(var='test', var2='test2'), cb  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
+    executing.stream_with_callback(
+        prompt.render_stream(var='test', var2='test2'), cb
     )
     expected = [
         {'_iterable_reply': None, 'prefix': 'before-'},
@@ -666,24 +666,24 @@ class TemplatingTest(parameterized.TestCase):
         text=prompt_text, move_inputs_to_context_vars=['in_context_vars']
     )
     with self.subTest('should_move_inputs_to_context_vars'):
-      result = executing.run(  # pyrefly: ignore[no-matching-overload]
-          prompt.render(in_input='INPUT', in_context_vars='CONTEXT',  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
-                        check_context=False, check_input=False)  # pyrefly: ignore[unexpected-keyword]
+      result = executing.run(
+          prompt.render(in_input='INPUT', in_context_vars='CONTEXT',
+                        check_context=False, check_input=False)
       )
       self.assertEqual(result[PROMPT_PREFIX], expected_result)
 
     with self.subTest('should_have_empty_in_context_vars'):
       with self.assertRaises(jinja2.UndefinedError):
-        executing.run(  # pyrefly: ignore[no-matching-overload]
-            prompt.render(in_input='INPUT', in_context_vars='CONTEXT',  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
-                          check_context=True, check_input=False)  # pyrefly: ignore[unexpected-keyword]
+        executing.run(
+            prompt.render(in_input='INPUT', in_context_vars='CONTEXT',
+                          check_context=True, check_input=False)
         )
 
     with self.subTest('should_have_empty_in_input'):
       with self.assertRaises(jinja2.UndefinedError):
-        executing.run(  # pyrefly: ignore[no-matching-overload]
-            prompt.render(in_input='INPUT', in_context_vars='CONTEXT',  # pyrefly: ignore[bad-argument-type, unexpected-keyword]
-                          check_context=False, check_input=True)  # pyrefly: ignore[unexpected-keyword]
+        executing.run(
+            prompt.render(in_input='INPUT', in_context_vars='CONTEXT',
+                          check_context=False, check_input=True)
         )
 
   @parameterized.named_parameters(
@@ -701,7 +701,7 @@ class TemplatingTest(parameterized.TestCase):
         text='testing {{ my_function(raises) }}'
     )
     prompt.register_callback('my_function', cb)
-    result = executing.run(prompt.render(raises=raises))  # pyrefly: ignore[bad-argument-type, no-matching-overload, unexpected-keyword]
+    result = executing.run(prompt.render(raises=raises))
 
     with self.subTest('prompt_prefix'):
       self.assertEqual(
@@ -716,7 +716,7 @@ class TemplatingTest(parameterized.TestCase):
   def test_j2_raises_at_include_if_no_loader_present(self):
     prompt = templating.JinjaTemplate(text="{% include 'test_file.jinja' %}")
     with self.assertRaises(TypeError):
-      executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+      executing.run(prompt.render())
 
   def test_j2_includes_if_loader_is_present(self):
     tmp_dir = self.create_tempdir().full_path
@@ -726,7 +726,7 @@ class TemplatingTest(parameterized.TestCase):
     prompt = templating.JinjaTemplate(
         text="{% include 'test_file.jinja' %}", loader=loader
     )
-    result = executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    result = executing.run(prompt.render())
     self.assertEqual(
         result['prefix'], 'Test included prompt', repr(result['prefix'])
     )
@@ -737,7 +737,7 @@ class TemplatingTest(parameterized.TestCase):
     )
 
     with self.assertRaises(jinja2.exceptions.SecurityError):
-      executing.run(prompt.render())  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+      executing.run(prompt.render())
 
 
 if __name__ == '__main__':

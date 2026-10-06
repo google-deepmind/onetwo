@@ -429,7 +429,7 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
         restore_mapping=restore_mapping,
         overwrite=overwrite,
         cache_filename=cache_filename,
-    )  # pytype: disable=attribute-error
+    )
 
   def save_cache(
       self,
@@ -451,7 +451,7 @@ class FileCacheEnabled(Generic[CachedType], CacheEnabled[CachedType]):
       raise ValueError('Cache handler is not initialized.')
     # Hint for the type checker.
     assert self.cache is not None
-    self.cache.save(overwrite=overwrite, cache_filename=cache_filename)  # pytype: disable=attribute-error
+    self.cache.save(overwrite=overwrite, cache_filename=cache_filename)
 
 
 def _create_cache_key(
@@ -716,7 +716,7 @@ def cache_method(
     # name will be used to separate between different cached methods. Make sure
     # it is not empty.
     if name is None:
-      name = method.__name__  # pytype: disable=attribute-error
+      name = method.__name__
     # Check that the wrapped object is a method.
     if not utils.is_method(method):
       raise ValueError(
@@ -867,18 +867,18 @@ def cache_method(
         ).value()
         if do_cache_extra:
           # Method returns a Sequence of CachedType elements. Handle this case.
-          logging.info('Caching extra replies for method %s.', method.__name__)  # pytype: disable=attribute-error
+          logging.info('Caching extra replies for method %s.', method.__name__)
           value = await return_first_and_cache_remaining(
-              values=value,  # pyrefly: ignore[bad-argument-type]
+              values=value,
               disable_caching=self.disable_caching,
               cache_value_callback=functools.partial(
-                  self._cache_handler.cache_value,  # pytype: disable=attribute-error
+                  self._cache_handler.cache_value,
                   key,
                   None,  # No sampling_key set.
               ),
           )
         result = await store(self, value, key, sampling_key)
-        return result  # pyrefly: ignore[bad-return]
+        return result
       finally:
         # Finally remove the call from `_calls_in_progress` to unblock other
         # coroutines waiting for the value. Note that we do this both in the
@@ -1511,7 +1511,7 @@ def diff_cache_data(*, before: _CacheData, after: _CacheData) -> _CacheData:
   def _diff_dict(before: dict[Any, Any], after: dict[Any, Any]):
     return {k: v for k, v in after.items() if k not in before or v != before[k]}
 
-  return _CacheData(  # pytype: disable=wrong-arg-types
+  return _CacheData(
       counters=collections.Counter(_diff_dict(before.counters, after.counters)),
       values_by_key=_diff_dict(before.values_by_key, after.values_by_key),
       num_used_values_by_key=_diff_dict(

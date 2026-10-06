@@ -365,13 +365,13 @@ class ReActPromptJ2(
       tools: Sequence[llm_tool_use.Tool],
   ) -> str:
     """See ReActPromptProtocol."""
-    result = await self.render(  # pyrefly: ignore[not-async]
-        force_finish=force_finish,  # pyrefly: ignore[unexpected-keyword]
-        exemplars=exemplars,  # pyrefly: ignore[unexpected-keyword]
-        state=state,  # pyrefly: ignore[unexpected-keyword]
-        stop_prefix=stop_prefix,  # pyrefly: ignore[unexpected-keyword]
-        stop_sequences=stop_sequences,  # pyrefly: ignore[unexpected-keyword]
-        tools=tools,  # pyrefly: ignore[unexpected-keyword]
+    result = await self.render(
+        force_finish=force_finish,
+        exemplars=exemplars,
+        state=state,
+        stop_prefix=stop_prefix,
+        stop_sequences=stop_sequences,
+        tools=tools,
     )
     if 'llm_reply' in result:
       # If the prompt succeeded in running to the end, we should come here.
@@ -885,13 +885,13 @@ class ReActAgent(
     force_finish = len(state.updates) >= self.max_steps or got_empty_reply
 
     # Prompt the LLM to determine the next action to take.
-    llm_reply = await self.prompt(  # pyrefly: ignore[not-async]
-        tools=environment.config.tools,  # pyrefly: ignore[unexpected-keyword]
-        exemplars=self.exemplars,  # pyrefly: ignore[unexpected-keyword]
-        stop_prefix=self.stop_prefix,  # pyrefly: ignore[unexpected-keyword]
-        stop_sequences=self._get_stop_sequences(),  # pyrefly: ignore[unexpected-keyword]
-        state=state,  # pyrefly: ignore[unexpected-keyword]
-        force_finish=force_finish,  # pyrefly: ignore[unexpected-keyword]
+    llm_reply = await self.prompt(
+        tools=environment.config.tools,
+        exemplars=self.exemplars,
+        stop_prefix=self.stop_prefix,
+        stop_sequences=self._get_stop_sequences(),
+        state=state,
+        force_finish=force_finish,
     )
 
     # Parse the LLM response and execute the selected action.

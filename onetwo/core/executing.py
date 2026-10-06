@@ -314,7 +314,7 @@ def safe_stream(
 
 
 @contextlib.contextmanager
-def stream_updates(  # pytype: disable=invalid-annotation
+def stream_updates(
     executable: Executable[Result],
     *,
     enable_batching: bool = True,
@@ -1036,7 +1036,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
         copied_expanded_arguments[name] = value
       else:
         copied_expanded_arguments[name] = copy.deepcopy(value, memo)
-    copied_args, copied_kwargs = utils.get_calling_args_and_kwargs(  # pytype: disable=wrong-arg-types
+    copied_args, copied_kwargs = utils.get_calling_args_and_kwargs(
         self.wrapped, copied_expanded_arguments  # pyrefly: ignore[bad-argument-type]
     )
     other = type(self)(
@@ -1124,7 +1124,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
               to_execute.append((f'#{index}', v))
     if to_execute:
       if len(to_execute) == 1:
-        arg_values = [await to_execute[0][1]]  # pytype: disable=bad-return-type
+        arg_values = [await to_execute[0][1]]
         arg_names = [to_execute[0][0]]
       else:
         # We run in parallel all arguments that have to be executed.
@@ -1135,7 +1135,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       for name, value in zip(arg_names, arg_values):
         if name.startswith('#'):
           index = int(name[1:])
-          self._arguments[self.var_positional][index] = value  # pytype: disable=unsupported-operands
+          self._arguments[self.var_positional][index] = value  # pyrefly: ignore[bad-index]
         else:
           self._arguments[name] = value
     if self.var_positional is not None:

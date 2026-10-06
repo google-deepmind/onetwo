@@ -40,8 +40,8 @@ def f(a: str) -> dict[str, str]:
 
 
 def g(a: str) -> str:
-  f(a + ' other')  # pyrefly: ignore[bad-argument-type]
-  f(a + ' another')  # pyrefly: ignore[bad-argument-type]
+  f(a + ' other')
+  f(a + ' another')
   return a + ' from g'
 
 
@@ -58,7 +58,7 @@ async def af(a: str) -> dict[str, str]:
 
 
 async def ag(a: str) -> str:
-  par = asyncio.gather(af(a + ' other'), af(a + ' another'))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+  par = asyncio.gather(af(a + ' other'), af(a + ' another'))
   await par
   return a + ' from g'
 
@@ -81,20 +81,20 @@ async def traced_async_add(x, y):
   return x + y
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 @tracing.trace()
 def executable_traced_add(x, y):
   return x + y
 
 
 @tracing.trace()
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def traced_executable_add(x, y):
   return x + y
 
 
 @tracing.trace()
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 @tracing.trace()
 def traced_executable_traced_add(x, y):
   return x + y
@@ -102,17 +102,17 @@ def traced_executable_traced_add(x, y):
 
 @tracing.trace()
 async def async_returns_executable(x, y):
-  return executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
+  return executable_traced_add(x, y)
 
 
 @tracing.trace()
 async def async_gen_yields_executable(x, y):
-  yield executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
+  yield executable_traced_add(x, y)
 
 
 @tracing.trace()
 def gen_yields_executable(x, y):
-  yield executable_traced_add(x, y)  # pytype: disable=wrong-arg-count
+  yield executable_traced_add(x, y)
 
 
 class ClassForTest:
@@ -423,14 +423,14 @@ class TracingTest(parameterized.TestCase):
     def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
-        failing_fn()  # pyrefly: ignore[bad-argument-count]
+        failing_fn()
       except ValueError:
         pass
       ctx_after = tracing.execution_context.get(None)
       self.assertEqual(ctx_before, ctx_after)
       return 'done'
 
-    tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
+    tracing.run(wrapper_fn)
 
   def test_execution_result_tracer_records_exception(self):
 
@@ -440,7 +440,7 @@ class TracingTest(parameterized.TestCase):
 
     tracer = ExecutionResultTracerForTest()
     with self.assertRaisesRegex(ValueError, 'expected error'):
-      tracing.run(failing_fn, tracer=tracer)  # pyrefly: ignore[bad-argument-type]
+      tracing.run(failing_fn, tracer=tracer)
 
     trace = tracer.get_result()
     self.assertEqual('expected error', trace.stages[0].error)
@@ -472,7 +472,7 @@ class TracingTest(parameterized.TestCase):
 
     async def run_test():
       res = []
-      async for r in async_gen_yields_executable(1, 2):  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-iterable]
+      async for r in async_gen_yields_executable(1, 2):
         res.append(r)
       return res
 
@@ -484,7 +484,7 @@ class TracingTest(parameterized.TestCase):
 
     def run_test():
       res = []
-      for r in gen_yields_executable(1, 2):  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-iterable]
+      for r in gen_yields_executable(1, 2):
         res.append(r)
       return res
 
@@ -501,14 +501,14 @@ class TracingTest(parameterized.TestCase):
     async def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
-        await failing_fn()  # pyrefly: ignore[bad-argument-count, not-async]
+        await failing_fn()
       except ValueError:
         pass
       ctx_after = tracing.execution_context.get(None)
       self.assertEqual(ctx_before, ctx_after)
       return 'done'
 
-    tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
+    tracing.run(wrapper_fn)
 
   def test_gwrapper_resets_context_on_error(self):
 
@@ -521,7 +521,7 @@ class TracingTest(parameterized.TestCase):
     def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
-        for _ in failing_gen():  # pyrefly: ignore[bad-argument-count, not-iterable]
+        for _ in failing_gen():
           pass
       except ValueError:
         pass
@@ -529,7 +529,7 @@ class TracingTest(parameterized.TestCase):
       self.assertEqual(ctx_before, ctx_after)
       return 'done'
 
-    tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
+    tracing.run(wrapper_fn)
 
   def test_iwrapper_resets_context_on_error(self):
 
@@ -542,7 +542,7 @@ class TracingTest(parameterized.TestCase):
     async def wrapper_fn():
       ctx_before = tracing.execution_context.get(None)
       try:
-        async for _ in failing_igen():  # pyrefly: ignore[bad-argument-count, not-iterable]
+        async for _ in failing_igen():
           pass
       except ValueError:
         pass
@@ -550,7 +550,7 @@ class TracingTest(parameterized.TestCase):
       self.assertEqual(ctx_before, ctx_after)
       return 'done'
 
-    tracing.run(wrapper_fn)  # pyrefly: ignore[bad-argument-type]
+    tracing.run(wrapper_fn)
 
   @parameterized.named_parameters(
       ('no_tracer', None, None),
@@ -647,7 +647,7 @@ class TracingTest(parameterized.TestCase):
     async def wrapper():
       nonlocal trace
       tracing.execution_context.set(None)
-      async for _ in fn('test'):  # pyrefly: ignore[bad-argument-type, not-iterable]
+      async for _ in fn('test'):
         trace.append(copy.deepcopy(tracing.execution_context.get(None)))
       trace.append(copy.deepcopy(tracing.execution_context.get(None)))
 
@@ -706,7 +706,7 @@ class TracingTest(parameterized.TestCase):
       return await asyncio.gather(f2(a + '1'), f2(a + '2'))
 
     async def f2(a):
-      return await asyncio.gather(f3(a + '1'), f3(a + '2'))  # pyrefly: ignore[no-matching-overload]
+      return await asyncio.gather(f3(a + '1'), f3(a + '2'))
 
     @tracing.trace()
     async def f3(a):
@@ -808,10 +808,10 @@ class TracingTest(parameterized.TestCase):
 
     @tracing.trace()
     async def f2(a: str) -> str:
-      return f0(a) + ' ' + f0(a + '2') + str(list(f1(3)))  # pyrefly: ignore[bad-argument-type, unsupported-operation]
+      return f0(a) + ' ' + f0(a + '2') + str(list(f1(3)))
 
     updates = []
-    iterator = tracing.stream(f2('test'), tracer=TracerForTest)  # pyrefly: ignore[bad-argument-type]
+    iterator = tracing.stream(f2('test'), tracer=TracerForTest)
     for update in iterator:
       updates.append(update)
     final_result = iterator.value
@@ -851,7 +851,7 @@ class TracingTest(parameterized.TestCase):
       return a
 
     updates = []
-    iterator = tracing.stream(fn('test'), tracer=TracerForTest)  # pyrefly: ignore[bad-argument-type]
+    iterator = tracing.stream(fn('test'), tracer=TracerForTest)
     for update in iterator:
       updates.append(update)
     final_result = iterator.value
@@ -867,7 +867,7 @@ class TracingTest(parameterized.TestCase):
     updates = []
     with self.subTest('simulate_an_error_during_processing_of_updates'):
       with self.assertRaisesRegex(ValueError, 'Some error'):
-        iterator = tracing.stream(fn('test'), tracer=TracerForTest)  # pyrefly: ignore[bad-argument-type]
+        iterator = tracing.stream(fn('test'), tracer=TracerForTest)
         for update in iterator:
           updates.append(update)
           raise ValueError('Some error')
@@ -935,18 +935,18 @@ class TracingTest(parameterized.TestCase):
     async def f1(a: int) -> AsyncIterator[str]:
       for i in range(a):
         await tracing.report_update('update' + str(i))
-        yield (await f0(str(i)))  # pyrefly: ignore[bad-argument-type, not-async]
+        yield (await f0(str(i)))
 
     @tracing.trace()
     async def f2(a: str) -> str:
       await tracing.report_update(a)
       res = []
-      async for r in f1(3):  # pyrefly: ignore[bad-argument-type, not-iterable]
+      async for r in f1(3):
         res.append(r)
       return str(res)
 
     updates = []
-    iterator = tracing.stream_updates(f2('test'), iteration_depth=depth)  # pyrefly: ignore[bad-argument-type]
+    iterator = tracing.stream_updates(f2('test'), iteration_depth=depth)
     for update in iterator:
       updates.append(update)
     final_result = iterator.value
@@ -1006,13 +1006,13 @@ class TracingTest(parameterized.TestCase):
     # To minimize such pitfalls, it is still preferable to decorate with
     # `@tracing.trace()` first, and then with `@executing.make_executable`
     # outside of that.
-    @executing.make_executable  # pytype: disable=wrong-arg-types
+    @executing.make_executable
     async def wrapper() -> Any:
       return function('x', 'y')
 
     tracer = ExecutionResultTracerForTest()
-    outputs, execution_result = executing.run(  # pyrefly: ignore[no-matching-overload]
-        wrapper(), enable_tracing=True, tracer=tracer  # pyrefly: ignore[bad-argument-count]
+    outputs, execution_result = executing.run(
+        wrapper(), enable_tracing=True, tracer=tracer
     )
 
     with self.subTest('should_return_correct_outputs'):

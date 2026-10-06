@@ -84,9 +84,9 @@ class ExecutableWithContext(
   @classmethod
   async def maybe_execute(cls, content: _T, context: _C) -> _T:
     if isinstance(content, ExecutableWithContext):
-      return await content.execute(context)  # pyrefly: ignore[bad-argument-count, bad-argument-type, not-async]
+      return await content.execute(context)
     else:
-      return await cls.wrap(content).execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+      return await cls.wrap(content).execute(context)
 
   @classmethod
   async def maybe_iterate(
@@ -96,26 +96,26 @@ class ExecutableWithContext(
       iteration_depth: int = 1,
   ) -> AsyncIterator[_T]:
     if isinstance(content, ExecutableWithContext):
-      async for res in content.iterate(context, iteration_depth):  # pyrefly: ignore[bad-argument-count, not-iterable]
+      async for res in content.iterate(context, iteration_depth):
         yield res  # pyrefly: ignore[invalid-yield]
     else:
       yield (await cls.maybe_execute(content, context))
 
   @abc.abstractmethod
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def execute(
       self,
       context: _C,
   ) -> _T:
     ...
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def iterate(
       self, context: _C, iteration_depth: int = 1
   ) -> AsyncIterator[_T]:
     # Default implementation: single step execution.
     del iteration_depth
-    res = await self.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+    res = await self.execute(context)
     yield res
 
   @override
@@ -124,7 +124,7 @@ class ExecutableWithContext(
       context = self.initialize_context()
     else:
       context = copy.deepcopy(self._stored_initial_context)
-    _ = await self.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+    _ = await self.execute(context)
     return self.get_result(context)
 
   @override
@@ -140,8 +140,8 @@ class ExecutableWithContext(
       else:
         context = copy.deepcopy(self._stored_initial_context)
       current_result = self.get_result(context)
-      async for _ in self.iterate(  # pyrefly: ignore[not-iterable]
-          context=context, iteration_depth=iteration_depth  # pyrefly: ignore[unexpected-keyword]
+      async for _ in self.iterate(
+          context=context, iteration_depth=iteration_depth
       ):
         new_result = self.get_result(context)
         if current_result != new_result:
@@ -183,14 +183,14 @@ class SerialExecutableWithContext(
       self.nodes = self.empty_result()
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def execute(self, context: _C) -> _A:
     if len(self.nodes) == 1:
-      result = await self.nodes[0].execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+      result = await self.nodes[0].execute(context)
     else:
       result = self.empty_result()
       for node in self.nodes:
-        node_result = await node.execute(context)  # pyrefly: ignore[bad-argument-count, not-async]
+        node_result = await node.execute(context)
         try:
           result += node_result
         except ValueError:
@@ -202,17 +202,17 @@ class SerialExecutableWithContext(
     self._result = result  # pyrefly: ignore[bad-assignment]
     return result  # pyrefly: ignore[bad-return]
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def iterate(
       self, context: _C, iteration_depth: int = 1
   ) -> AsyncIterator[_A]:
     if iteration_depth == 0:
-      yield (await self.execute(context))  # pyrefly: ignore[bad-argument-count, not-async]
+      yield (await self.execute(context))
     else:
       current_result = self.empty_result()
       for node in self.nodes:
         node_result = None
-        async for update in node.iterate(context, iteration_depth - 1):  # pyrefly: ignore[bad-argument-count, not-iterable]
+        async for update in node.iterate(context, iteration_depth - 1):
           node_result = update
           yield current_result + update  # pyrefly: ignore[invalid-yield]
         if node_result is not None:
@@ -231,7 +231,6 @@ class SerialExecutableWithContext(
 
   # Pytype complains that we try to instantiate an abstract class, but when
   # called on a concrete child this works.
-  # pytype: disable=not-instantiable
   def __add__(self, other: Any) -> SerialExecutableWithContext:
     match other:
       case SerialExecutableWithContext():
@@ -241,4 +240,3 @@ class SerialExecutableWithContext(
 
   def __radd__(self, other: Any) -> SerialExecutableWithContext:
     return self.__class__([self.wrap(other)] + self.nodes)
-  # pytype: enable=not-instantiable

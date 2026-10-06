@@ -131,8 +131,8 @@ class IterativeThoughtPromptJ2(
       The next step (i.e., the next "thought") for solving the problem.
       The agent is expected to append this to the `state` in the next round.
     """
-    result = await self.render(  # pyrefly: ignore[not-async]
-        description=description, few_shots=few_shots, state=state  # pyrefly: ignore[unexpected-keyword]
+    result = await self.render(
+        description=description, few_shots=few_shots, state=state
     )
     return result['next_step']
 
@@ -210,10 +210,10 @@ class IterativeThoughtAgent(
       performing the given step.
     """
     # Prompt the LLM to generate the next thought.
-    return await self.prompt(  # pyrefly: ignore[not-async]
-        description=self.description,  # pyrefly: ignore[unexpected-keyword]
-        few_shots=self.few_shots,  # pyrefly: ignore[unexpected-keyword]
-        state=state,  # pyrefly: ignore[unexpected-keyword]
+    return await self.prompt(
+        description=self.description,
+        few_shots=self.few_shots,
+        state=state,
     )
 
 
@@ -320,8 +320,8 @@ class IterativeThoughtProposerPromptJ2(
       the problem. The agent is expected to append one of these to the `state`
       in the next round.
     """
-    result = await self.render(  # pyrefly: ignore[not-async]
-        description=description, few_shots=few_shots, state=state  # pyrefly: ignore[unexpected-keyword]
+    result = await self.render(
+        description=description, few_shots=few_shots, state=state
     )
     return result['next_steps']
 
@@ -404,9 +404,9 @@ class IterativeThoughtProposerAgent(
       performing each of the possible next steps.
     """
     # Prompt the LLM to generate a list of possible next thoughts.
-    next_steps = await self.prompt(  # pyrefly: ignore[not-async]
-        description=self.description,  # pyrefly: ignore[unexpected-keyword]
-        few_shots=self.few_shots,  # pyrefly: ignore[unexpected-keyword]
-        state=state,  # pyrefly: ignore[unexpected-keyword]
+    next_steps = await self.prompt(
+        description=self.description,
+        few_shots=self.few_shots,
+        state=state,
     )
     return next_steps[:num_candidates]

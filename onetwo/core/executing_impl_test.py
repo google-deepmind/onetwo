@@ -30,12 +30,12 @@ async def async_function(x, y):
   return x + y
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def executable_function(x, y):
   return x + y
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 async def async_executable_function(x, y):
   return x + y
 
@@ -50,20 +50,20 @@ async def traced_async_function(x, y):
   return x + y
 
 
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 @tracing.trace()
 def executable_traced_function(x, y):
   return x + y
 
 
 @tracing.trace()
-@executing.make_executable  # pytype: disable=wrong-arg-types
+@executing.make_executable
 def traced_executable_function(x, y):
   return x + y
 
 
 def executable_function_that_does_not_use_make_executable_decorator(x, y):
-  return executing.serial(executable_function(x, y), executable_function(x, y))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+  return executing.serial(executable_function(x, y), executable_function(x, y))
 
 
 class C:
@@ -73,11 +73,11 @@ class C:
   async def async_method(self, x, y):
     return x + y
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def executable_method(self, x, y):
     return x + y
 
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def async_executable_method(self, x, y):
     return x + y
 

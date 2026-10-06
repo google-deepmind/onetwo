@@ -71,11 +71,11 @@ Input: qN
 
     # Now we execute the prompt and verify that the prompt was generated as
     # expected.
-    next_step = executing.run(  # pyrefly: ignore[no-matching-overload]
+    next_step = executing.run(
         prompt(
-            description=description,  # pyrefly: ignore[unexpected-keyword]
-            few_shots=few_shots,  # pyrefly: ignore[unexpected-keyword]
-            state=iterative_thought.IterativeThoughtState(  # pyrefly: ignore[unexpected-keyword]
+            description=description,
+            few_shots=few_shots,
+            state=iterative_thought.IterativeThoughtState(
                 inputs='qN', updates=steps_so_far
             ),
         )
@@ -182,8 +182,8 @@ Input: qN
       )
 
     with self.subTest('is_finished_should_stay_false_indefinitely'):
-      self.assertFalse(agent.is_finished(state=state_2))  # pyrefly: ignore[bad-argument-type]
-      self.assertFalse(agent.is_finished(state=state_4))  # pyrefly: ignore[bad-argument-type]
+      self.assertFalse(agent.is_finished(state=state_2))
+      self.assertFalse(agent.is_finished(state=state_4))
 
   def test_sample_next_step(self):
     # Some minimal agent configuration and inputs.
@@ -393,11 +393,11 @@ tb\
 
     # Now we execute the prompt and verify that the prompt was generated as
     # expected.
-    next_steps = executing.run(  # pyrefly: ignore[no-matching-overload]
+    next_steps = executing.run(
         prompt(
-            description=description,  # pyrefly: ignore[unexpected-keyword]
-            few_shots=few_shots,  # pyrefly: ignore[unexpected-keyword]
-            state=iterative_thought.IterativeThoughtState(  # pyrefly: ignore[unexpected-keyword]
+            description=description,
+            few_shots=few_shots,
+            state=iterative_thought.IterativeThoughtState(
                 inputs='qN', updates=steps_so_far
             ),
         )
@@ -499,7 +499,7 @@ tb\
         description=description, few_shots=few_shots
     )
 
-    output = executing.run(agent(inputs=inputs, max_steps=max_steps))  # pytype: disable=wrong-keyword-args
+    output = executing.run(agent(inputs=inputs, max_steps=max_steps))
 
     with self.subTest('should_make_repeated_llm_calls_up_to_max_steps'):
       self.assertLen(llm_backend.prompts, max_steps)

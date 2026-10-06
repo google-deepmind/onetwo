@@ -119,7 +119,6 @@ class ExecutionResult:
   """
   # Disabling type checking due to a wrong type annotation in dataclasses_json:
   # https://github.com/lidatong/dataclasses-json/issues/336
-  # pytype: disable=wrong-arg-types
 
   # Fields relevant only for the sub-stages of a PromptChain.
   stage_name: str = dataclasses.field(
@@ -148,8 +147,6 @@ class ExecutionResult:
 
   start_time: float = 0.0
   end_time: float = 0.0
-
-  # pytype: enable=wrong-arg-types
 
   def get_leaf_results(self) -> list['ExecutionResult']:
     """Returns references to the leaves of the result hierarchy."""
@@ -379,7 +376,6 @@ class EvaluationResult(ExecutionResult):
   """
   # Disabling type checking due to a wrong type annotation in dataclasses_json:
   # https://github.com/lidatong/dataclasses-json/issues/336
-  # pytype: disable=wrong-arg-types
 
   targets: dict[str, Any] = dataclasses.field(
       default_factory=dict,
@@ -389,7 +385,6 @@ class EvaluationResult(ExecutionResult):
       default_factory=dict,
       metadata=dataclasses_json.config(exclude=_exclude_empty),
   )
-  # pytype: enable=wrong-arg-types
 
   def to_compact_record(self) -> 'EvaluationResult':
     """Returns a compact version of self for writing to `results.json`."""

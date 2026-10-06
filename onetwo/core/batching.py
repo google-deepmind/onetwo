@@ -446,10 +446,10 @@ class BatchQueue(Generic[_RequestT, _ReplyT]):
 
   def get_batching_function(self) -> _BatchingFunction:
     if self.batching_function.value() is None:
-      batch_size = self.batch_size.value()  # pytype: disable=attribute-error
+      batch_size = self.batch_size.value()
       return functools.partial(default_batching, batch_size)
     else:
-      return self.batching_function.value()  # pytype: disable=attribute-error
+      return self.batching_function.value()
 
   async def start(self) -> None:
     """Start the watcher monitoring the call queue."""
@@ -833,7 +833,7 @@ def safe_stream(
 
 
 @contextlib.contextmanager
-def stream_updates(  # pytype: disable=invalid-annotation
+def stream_updates(
     coroutine: Awaitable[_ReplyT],
     *,
     enable_batching: bool = True,
@@ -860,7 +860,7 @@ def stream_updates(  # pytype: disable=invalid-annotation
       wrapper = tracing.IteratorWithReturnValue(it)
       for i in wrapper:
         yield i
-    return wrapper.value  # pytype: disable=bad-return-type
+    return wrapper.value  # pyrefly: ignore[bad-return]
 
   async def wrapper(callback: Callable[[Any], None]) -> Awaitable[_ReplyT]:
     # We add 1 because the first @trace call will decrease the depth by 1,
@@ -964,7 +964,7 @@ def add_batching(my_class: Type[_T]) -> Type[_T]:
     # Bind those methods to the instance.
     bound_methods = [
         types.MethodType(
-            method.original_function, obj  # pytype: disable=attribute-error
+            method.original_function, obj  # pyrefly: ignore[missing-attribute]
         )
         for method in decorated_methods
     ]
@@ -1047,7 +1047,7 @@ def batch_function(
         debug=debug,
     )
     # Disabling pytype, see https://github.com/google/pytype/issues/527.
-    return batch_queue.coroutine  # pytype: disable=bad-return-type
+    return batch_queue.coroutine
 
   return wrapper
 
@@ -1120,7 +1120,7 @@ def batch_method(
       return await batch_queue.coroutine(requests)
 
     # Disabling pytype, see https://github.com/google/pytype/issues/527.
-    return wrapped  # pytype: disable=bad-return-type
+    return wrapped
 
   return inner
 
@@ -1209,9 +1209,9 @@ def batchable_method(
       del arguments['self']
       batched_function = utils.RuntimeParameter(implementation, self).value()
       if pass_self:
-        replies = await batched_function(self, [arguments])  # pytype: disable=wrong-arg-count
+        replies = await batched_function(self, [arguments])  # pyrefly: ignore[bad-argument-type]
       else:
-        replies = await batched_function([arguments])  # pytype: disable=bad-return-type,wrong-arg-count
+        replies = await batched_function([arguments])  # pyrefly: ignore[bad-argument-count]
       return replies[0]
 
     return wrapped

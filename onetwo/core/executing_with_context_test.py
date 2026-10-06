@@ -64,7 +64,7 @@ class ExecutableWithContextForTest(
     return context.content
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   async def execute(
       self,
       context: ContextForTest,
@@ -114,7 +114,7 @@ class SingleStepSerialExecutableWithContextForTest(
   content: str = dataclasses.field(default_factory=str)
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def execute(self, context: SerialContextForTest) -> list[str]:
     # Add the content of this node to the context.
     context.content.append(self.content)
@@ -122,7 +122,7 @@ class SingleStepSerialExecutableWithContextForTest(
     return [f'"{self.content}"']
 
   @override
-  @executing.make_executable  # pytype: disable=wrong-arg-types
+  @executing.make_executable
   def iterate(
       self, context: SerialContextForTest, iteration_depth: int = 1
   ) -> list[str]:
@@ -142,7 +142,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello')
 
     with self.subTest('result_has_quotes'):
-      res = executing.run(e.execute(ContextForTest()))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+      res = executing.run(e.execute(ContextForTest()))
       self.assertEqual(res, '"hello"')
 
     with self.subTest('run_with_arguments'):
@@ -158,7 +158,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertListEqual(res, ['hello'])
 
     with self.subTest('stream_iterate'):
-      res = _collect_stream(e.iterate(ContextForTest()))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+      res = _collect_stream(e.iterate(ContextForTest()))
       self.assertListEqual(res, ['"hello"'])
 
   def test_execute_serial(self):
@@ -171,7 +171,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('result_is_a_list_with_quotes'):
-      res = executing.run(e.execute(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+      res = executing.run(e.execute(SerialContextForTest()))
       self.assertListEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('stored_result_is_correct_after_run'):
@@ -189,7 +189,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'prefix hello world')
 
     with self.subTest('result_with_arguments'):
-      res = executing.run(e.execute(SerialContextForTest(['prefix '])))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+      res = executing.run(e.execute(SerialContextForTest(['prefix '])))
       self.assertEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('run_with_resetting'):
@@ -197,7 +197,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('stream_iterate_returns_lists'):
-      res = _collect_stream(e.iterate(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+      res = _collect_stream(e.iterate(SerialContextForTest()))
       self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
 
   def test_right_addition(self):
@@ -210,7 +210,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('result_is_a_list_with_quotes'):
-      res = executing.run(e.execute(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, no-matching-overload]
+      res = executing.run(e.execute(SerialContextForTest()))
       self.assertListEqual(res, ['"hello "', '"world"'])
 
     with self.subTest('run_with_arguments'):
@@ -222,7 +222,7 @@ class ExecutingWithContextTest(parameterized.TestCase):
       self.assertEqual(res, 'hello world')
 
     with self.subTest('stream_iterate'):
-      res = _collect_stream(e.iterate(SerialContextForTest()))  # pyrefly: ignore[bad-argument-count, bad-argument-type]
+      res = _collect_stream(e.iterate(SerialContextForTest()))
       self.assertListEqual(res, [['"hello "'], ['"hello "', '"world"']])
 
 

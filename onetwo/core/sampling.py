@@ -90,14 +90,14 @@ def repeat(
         str(i + start_index), copy.deepcopy(executable)
     )
     if update_result_fn is not None:
-      wrapper = _update_result_with_sample_id(  # pytype: disable=wrong-keyword-args
+      wrapper = _update_result_with_sample_id(
           wrapper, update_result_fn, sample_id=i
       )
     wrappers.append(wrapper)
   return wrappers
 
 
-def repeat_and_execute(  # pytype: disable=invalid-annotation
+def repeat_and_execute(
     executable: Executable[Result],
     num_repeats: int,
     update_result_fn: Callable[[Result, int], Result] | None = None,
