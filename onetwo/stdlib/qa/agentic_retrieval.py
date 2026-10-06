@@ -48,8 +48,8 @@ number that looks comparable to a single-shot strategy and is not.
 
 A caller whose prompt asks the model to cite its evidence can instead pass
 `doc_ids_from_answer` to report the documents the answer cites, e.g.
-`mcp_strategies.extract_cited_doc_ids`. That measures what the model relied on,
-not what it retrieved, and is the same quantity the `'mcp'` strategy reports.
+`extract_cited_doc_ids`. That measures what the model relied on, not what it
+retrieved.
 
 TODO: Work out what retrieval quality means for an agentic loop,
 and report it. Three things need deciding before a number is worth having:
@@ -69,6 +69,7 @@ through `strategies_lib.get_strategy('agentic_retrieval', tools=[...])`.
 
 from collections.abc import Callable, Sequence
 import dataclasses
+import re
 from typing import Any, cast
 
 from onetwo.agents import agent as agent_lib
@@ -84,14 +85,15 @@ _PromptContent = str | content_lib.ChunkList
 _StrategyResult = qa.StrategyResult
 
 
-# What the model is sent before it has made any tool call. The same prompt as
-# `mcp_strategies.default_qa_template_mcp`, copied rather than imported so that
-# this module does not depend on the MCP client libraries, and kept identical so
-# that the two strategies differ only in how tools are called. It is a
-# minimally-modified version of the prompt from the BrowseComp-Plus paper
-# (https://arxiv.org/abs/2508.06600). Its wording refers to an MCP server, hence
-# the name; `tools` need not be MCP tools, in which case a different
-# `query_template` may be more appropriate.
+# What the model is sent before it has made any tool call. A minimally-modified
+# version of the prompt from the BrowseComp-Plus paper
+# (https://arxiv.org/abs/2508.06600): it mentions "an MCP server" instead of "a
+# search engine" to be more general purpose, and has an
+# `{additional_instructions}` placeholder for MCP-server-specific instructions.
+# Its wording refers to an MCP server, hence the name; `tools` need not be MCP
+# tools, in which case a different `query_template` may be more appropriate.
+# The answers it asks for cite their evidence in square brackets, which
+# `extract_cited_doc_ids` parses.
 DEFAULT_MCP_QUERY_TEMPLATE = (
     'You are a deep research agent. You need to answer the given question by'
     ' interacting with an MCP server, using the tools provided. Please perform'
@@ -108,6 +110,31 @@ DEFAULT_MCP_QUERY_TEMPLATE = (
     'Exact Answer: {{your succinct, final answer}}\n'
     'Confidence: {{your confidence score between 0% and 100% for your answer}}'
 )
+
+
+def extract_cited_doc_ids(answer: str) -> list[str]:
+  """Extracts unique cited document IDs from the answer.
+
+  Parses bracket-enclosed citations from the model's response text and returns
+  them as a deduplicated list of strings in the order they first appear.
+  Supports both single citations like ``[16935]`` and comma-separated
+  citations like ``[73758, 81636]``.
+
+  Args:
+    answer: The raw answer string from the model.
+
+  Returns:
+    A list of unique document ID strings.
+  """
+  seen = set()
+  doc_ids = []
+  for match in re.finditer(r'\[([^\[\]]+)\]', answer):
+    for doc_id in match.group(1).split(','):
+      doc_id = doc_id.strip()
+      if doc_id and doc_id not in seen:
+        seen.add(doc_id)
+        doc_ids.append(doc_id)
+  return doc_ids
 
 
 @dataclasses.dataclass
@@ -128,9 +155,9 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     generate_kwargs: Generation parameters passed through to the backend on
       every call, e.g. `{'temperature': 0.0}`.
     doc_ids_from_answer: If set, called on the final answer for the ids of the
-      documents to report in `StrategyResult.docs`, e.g.
-      `mcp_strategies.extract_cited_doc_ids` for the ones the answer cites. If
-      not, no documents are reported; see the module docstring for why.
+      documents to report in `StrategyResult.docs`, e.g. `extract_cited_doc_ids`
+      for the ones the answer cites. If not, no documents are reported; see the
+      module docstring for why.
   """
 
   tools: Sequence[agent_lib.AgentTool] = ()

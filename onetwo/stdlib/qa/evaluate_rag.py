@@ -85,7 +85,8 @@ _MCP_KWARGS = flags.DEFINE_string(
     'mcp_kwargs',
     '{}',
     'JSON string containing strategy arguments passed at strategy'
-    ' construction.',
+    ' construction, used by the agentic_retrieval strategy, e.g.'
+    ' \'{"mcp_server_urls": "http://host:8777/mcp"}\'.',
 )
 
 _MAX_EXAMPLES = flags.DEFINE_integer(

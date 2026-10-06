@@ -100,8 +100,8 @@ def evaluate_rag(
     ai_rater_generate_model_name: Generation model name used by the AI rater.
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments dict or JSON string.
-    mcp_kwargs: Arguments passed to get_strategy at construction (e.g.,
-      mcp_server_urls).
+    mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
+      `mcp_server_urls`, a comma-separated list of MCP server URLs.
     max_examples: Max examples to evaluate.
     metric_functions: Optional mapping of metric names to metric functions.
       Defaults to rag_metrics.get_default_rag_metrics().
@@ -114,13 +114,6 @@ def evaluate_rag(
   Returns:
     EvaluationSummary object containing metrics and detailed results.
   """
-  if qa_strategy_name == 'mcp':
-    try:
-      # Keeping the import here to avoid importing in internal colab runtimes.
-      from onetwo.stdlib.qa import mcp_strategies  # pyrefly: ignore[missing-module-attribute] # pylint: disable=g-import-not-at-top,unused-import
-    except ImportError:
-      print('mcp_strategies is not linked. Execution may fail.')
-
   if isinstance(query_time_kwargs, str):
     q_time_kwargs = json.loads(query_time_kwargs)
   else:

@@ -22,6 +22,7 @@ import re
 from typing import Any
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -643,6 +644,95 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       executing.run(strategy('What is two plus two?'))
 
       self.assertEqual([spec.name for spec in backend.seen_tools[0]], ['_add'])
+
+
+class ExtractCitedDocIdsTest(parameterized.TestCase):
+  """Tests for `extract_cited_doc_ids`."""
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='basic_citations',
+          answer='Evidence [123]. Also [456].',
+          expected=['123', '456'],
+      ),
+      dict(
+          testcase_name='deduplication_preserves_order',
+          answer='See [456] and [123] and [456] again.',
+          expected=['456', '123'],
+      ),
+      dict(
+          testcase_name='no_citations',
+          answer='No citations here.',
+          expected=[],
+      ),
+      dict(
+          testcase_name='empty_string',
+          answer='',
+          expected=[],
+      ),
+      dict(
+          testcase_name='unclosed_bracket',
+          answer='Broken [123 and [456].',
+          expected=['456'],
+      ),
+      dict(
+          testcase_name='unopened_bracket',
+          answer='Broken 123] and [456].',
+          expected=['456'],
+      ),
+      dict(
+          testcase_name='nested_brackets',
+          answer='Nested [[789]] here.',
+          expected=['789'],
+      ),
+      dict(
+          testcase_name='empty_brackets',
+          answer='Empty [] here and [42].',
+          expected=['42'],
+      ),
+      dict(
+          testcase_name='non_numeric_content',
+          answer='Text [abc] and [123] and [x1].',
+          expected=['abc', '123', 'x1'],
+      ),
+      dict(
+          testcase_name='adjacent_citations',
+          answer='Back to back [1][2][3].',
+          expected=['1', '2', '3'],
+      ),
+      dict(
+          testcase_name='bracket_in_template_escapes',
+          answer='Format {{like this}} and [99].',
+          expected=['99'],
+      ),
+      dict(
+          testcase_name='large_doc_id',
+          answer='See [9999999].',
+          expected=['9999999'],
+      ),
+      dict(
+          testcase_name='comma_separated_citations',
+          answer='They transferred [73758, 81636].',
+          expected=['73758', '81636'],
+      ),
+      dict(
+          testcase_name='comma_separated_with_dedup',
+          answer='See [73758, 81636]. Also [73758, 81636].',
+          expected=['73758', '81636'],
+      ),
+      dict(
+          testcase_name='mixed_comma_and_single',
+          answer='First [10]. Then [20, 30]. Then [10].',
+          expected=['10', '20', '30'],
+      ),
+      dict(
+          testcase_name='comma_separated_with_non_numeric',
+          answer='Mixed [1243, 74325, fdghbdf].',
+          expected=['1243', '74325', 'fdghbdf'],
+      ),
+  )
+  def test_extract_cited_doc_ids(self, answer: str, expected: list[str]):
+    self.assertEqual(agentic_retrieval.extract_cited_doc_ids(answer), expected)
 
 
 if __name__ == '__main__':

@@ -34,8 +34,9 @@ class QAStrategySpec(dataclasses_json.DataClassJsonMixin):
     query_time_kwargs: Extra keyword arguments forwarded to the strategy at call
       time. The `max_results` is set to 20 by default, so that if users forget
       to specify it, it won't end up returning all the documents in the index.
-    mcp_kwargs: Extra keyword arguments forwarded to the MCP strategy at
-      construction time.
+    mcp_kwargs: Extra keyword arguments for the `agentic_retrieval` strategy at
+      construction time, e.g. `mcp_server_urls`, a comma-separated list of the
+      MCP servers whose tools the model may call.
   """
   qa_strategy_name: str = 'rag'
   index_path: str = ''

@@ -36,9 +36,40 @@ from onetwo.backends import backend_registry
 from onetwo.core import results
 from onetwo.core import routing
 from onetwo.evaluation import evaluation as ot_evaluation
+from onetwo.stdlib.qa import agentic_retrieval
+from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import qa_spec
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import index_building
+
+
+def _agentic_retrieval_strategy(
+    mcp_kwargs: Mapping[str, Any],
+) -> qa.QAStrategy:
+  """Returns an `agentic_retrieval` strategy using the given MCP servers.
+
+  Args:
+    mcp_kwargs: `mcp_server_urls`, a comma-separated list of the URLs of the MCP
+      servers whose tools the model may call, and any other JSON-serializable
+      arguments of `AgenticRetrievalStrategy`, e.g. `max_steps`. The documents
+      the answer cites are reported, as found by `extract_cited_doc_ids`.
+
+  Returns:
+    The strategy.
+  """
+  # Imported here so that the MCP client libraries are only needed by callers
+  # that evaluate this strategy.
+  from onetwo.stdlib.tool_use import mcp_tools  # pylint: disable=g-import-not-at-top
+
+  strategy_kwargs = dict(mcp_kwargs)
+  # `None`, e.g. from `{"mcp_server_urls": null}` in JSON, means no servers.
+  urls = (strategy_kwargs.pop('mcp_server_urls', None) or '').split(',')
+  return strategies_lib.get_strategy(
+      'agentic_retrieval',
+      tools=[mcp_tools.server(url.strip()) for url in urls if url.strip()],
+      doc_ids_from_answer=agentic_retrieval.extract_cited_doc_ids,
+      **strategy_kwargs,
+  )
 
 
 def evaluate_qa(
@@ -77,11 +108,8 @@ def evaluate_qa(
     else:
       index = None
 
-    if rag_spec.qa_strategy_name == 'mcp':
-      strategy = strategies_lib.get_strategy(
-          rag_spec.qa_strategy_name,
-          **rag_spec.mcp_kwargs,
-      )
+    if rag_spec.qa_strategy_name == 'agentic_retrieval':
+      strategy = _agentic_retrieval_strategy(rag_spec.mcp_kwargs)
     elif rag_spec.qa_strategy_name == 'closed_book':
       strategy = strategies_lib.get_strategy(
           rag_spec.qa_strategy_name,
