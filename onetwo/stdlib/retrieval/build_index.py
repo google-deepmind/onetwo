@@ -34,6 +34,7 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from onetwo.stdlib.retrieval import build_index_lib
+from onetwo.stdlib.retrieval import rag_defaults
 
 # Re-export build_index for backward compatibility.
 build_index = build_index_lib.build_index
@@ -60,13 +61,13 @@ _OUTPUT_DIRECTORY = flags.DEFINE_string(
 
 _EMBEDDING_BACKEND_CLASS_NAME = flags.DEFINE_string(
     'embedding_backend_class_name',
-    'GoogleGenAIAPI',
+    rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME,
     'Name of the embedding backend class.',
 )
 
 _EMBEDDING_MODEL_NAME = flags.DEFINE_string(
     'embedding_model_name',
-    'gemini-embedding-2',
+    rag_defaults.DEFAULT_EMBED_MODEL_NAME,
     'Name of the embedding model.',
 )
 
@@ -79,13 +80,13 @@ _INDEX_TYPE = flags.DEFINE_enum(
 
 _GENERATION_BACKEND_CLASS_NAME = flags.DEFINE_string(
     'generation_backend_class_name',
-    'GoogleGenAIAPI',
+    rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME,
     'Name of the generation backend class (for GraphRAG/HippoRAG).',
 )
 
 _GENERATION_MODEL_NAME = flags.DEFINE_string(
     'generation_model_name',
-    'gemini-3-flash-preview',
+    rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME,
     'Name of the generation model (for GraphRAG/HippoRAG).',
 )
 

@@ -23,6 +23,7 @@ from typing import Any, Generic, TypeVar
 import dataclasses_json
 from onetwo.backends import backend_registry
 from onetwo.core import executing
+from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import searchers
 
 
@@ -94,14 +95,19 @@ class EmbeddingBasedDocumentIndexSpec(IndexSpec):
   """Specification for building an EmbeddingBasedDocumentIndex.
 
   Attributes:
-    embed_backend_config: Configuration for the embedder backend.
+    embed_backend_config: Configuration for the embedder backend. Defaults to
+      `rag_defaults.default_embed_backend_config()`.
     query_task_type: Task type to use when embedding queries.
     document_task_type: Task type to use when embedding documents.
     searcher_config: Configuration for the searcher to be used by the index for
       retrieving documents (e.g., BruteForceSearcher).
   """
 
-  embed_backend_config: backend_registry.EmbedBackendConfig
+  embed_backend_config: backend_registry.EmbedBackendConfig = (
+      dataclasses.field(
+          default_factory=rag_defaults.default_embed_backend_config
+      )
+  )
   query_task_type: str | None = "RETRIEVAL_QUERY"
   document_task_type: str | None = "RETRIEVAL_DOCUMENT"
   searcher_config: SearcherConfig = dataclasses.field(
@@ -174,6 +180,7 @@ class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
 
   Attributes:
     generate_backend_config: Configuration for the generation backend (LLM).
+      Defaults to `rag_defaults.default_index_generate_backend_config()`.
     similarity_threshold: Minimum cosine similarity required to add a semantic
       similarity edge between entities in the graph.
     seed_searcher_config: Configuration for PPR seed searcher.
@@ -184,7 +191,11 @@ class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
   """
 
   similarity_threshold: float = 0.8
-  generate_backend_config: backend_registry.GenerateBackendConfig
+  generate_backend_config: backend_registry.GenerateBackendConfig = (
+      dataclasses.field(
+          default_factory=rag_defaults.default_index_generate_backend_config
+      )
+  )
   seed_searcher_config: SeedSearcherConfig = dataclasses.field(
       default_factory=lambda: SeedSearcherConfig(
           class_name="EntityAndPassageDirectSeeder",

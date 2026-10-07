@@ -21,6 +21,7 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from onetwo.stdlib.qa import evaluate_rag_lib
+from onetwo.stdlib.retrieval import rag_defaults
 
 _DATASET_NAME = flags.DEFINE_string(
     'dataset_name',
@@ -44,19 +45,19 @@ _OUTPUT_DIRECTORY = flags.DEFINE_string(
 
 _GENERATE_MODEL_BACKEND_CLASS_NAME = flags.DEFINE_string(
     'generate_model_backend_class_name',
-    'GoogleGenAIAPI',
+    rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME,
     'Name of the generation backend class.',
 )
 
 _GENERATE_MODEL_NAME = flags.DEFINE_string(
     'generate_model_name',
-    'gemini-3.6-flash',
+    rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME,
     'Name of the generation model.',
 )
 
 _AI_RATER_GENERATE_MODEL_NAME = flags.DEFINE_string(
     'ai_rater_generate_model_name',
-    'gemini-3.6-flash',
+    rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
     'Name of the generation model used by the AI rater (accuracy critic).',
 )
 

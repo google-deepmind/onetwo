@@ -23,6 +23,7 @@ from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import rag_defaults
 
 
 # TODO: Consider merging max_retries and http_timeout
@@ -34,15 +35,19 @@ def build_index(
     max_documents: int | None = None,
     docs_path: str | None = None,
     index_type: str = 'embedding',
-    embedding_backend_class_name: str = 'GoogleGenAIAPI',
-    embedding_model_name: str = 'gemini-embedding-2',
+    embedding_backend_class_name: str = (
+        rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME
+    ),
+    embedding_model_name: str = rag_defaults.DEFAULT_EMBED_MODEL_NAME,
     embed_kwargs: Mapping[str, Any] | str | None = None,
     chunk_size: int | None = None,
     chunking_strategy: str = 'words',
     overlap_window: int = 0,
     format_str: str | None = None,
-    generation_backend_class_name: str = 'GoogleGenAIAPI',
-    generation_model_name: str = 'gemini-3-flash-preview',
+    generation_backend_class_name: str = (
+        rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME
+    ),
+    generation_model_name: str = rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME,
     similarity_threshold: float = 0.8,
     ignore_triples: bool = True,
     ignore_similarity_edges: bool = True,

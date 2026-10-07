@@ -26,6 +26,7 @@ from onetwo.evaluation import datasets
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import qa_spec
+from onetwo.stdlib.retrieval import rag_defaults
 
 
 # TODO: Move this function to a shared library and add tests.
@@ -75,9 +76,13 @@ def evaluate_rag(
     output_directory: str,
     runtime_kwargs: Mapping[str, Any] | str,
     index_directory: str = '',
-    generate_model_backend_class_name: str = 'GoogleGenAIAPI',
-    generate_model_name: str = 'gemini-3.6-flash',
-    ai_rater_generate_model_name: str = 'gemini-3.6-flash',
+    generate_model_backend_class_name: str = (
+        rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
+    ),
+    generate_model_name: str = rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME,
+    ai_rater_generate_model_name: str = (
+        rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME
+    ),
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
     mcp_kwargs: Mapping[str, Any] | str = '{}',
