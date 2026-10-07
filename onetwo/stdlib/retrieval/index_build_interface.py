@@ -145,12 +145,20 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     chunking_strategy: Chunking strategy to use ('words' or 'tokens').
     format_str: Format string for document formatting.
     overlap_window: Number of tokens or words to overlap between chunks.
+    tokenize_backend_config: Configuration for the tokenizer used when
+      `chunking_strategy` is 'tokens'. Defaults to
+      `rag_defaults.default_tokenize_backend_config()`.
   """
 
   max_chunk_size: int | None = None
   chunking_strategy: str = "words"
   format_str: str | None = "{text}"
   overlap_window: int = 0
+  tokenize_backend_config: backend_registry.TokenizeBackendConfig = (
+      dataclasses.field(
+          default_factory=rag_defaults.default_tokenize_backend_config
+      )
+  )
 
   def __str__(self) -> str:
     """Returns a compact, path-friendly string representation."""

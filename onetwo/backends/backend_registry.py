@@ -23,6 +23,7 @@ from onetwo.backends import claude_api
 from onetwo.backends import google_genai_api
 from onetwo.backends import ollama_api
 from onetwo.backends import openai_api
+from onetwo.backends import sentencepiece_tokenizer
 
 
 BACKEND_REGISTRY: dict[str, type[backends_base.Backend]] = {
@@ -30,6 +31,7 @@ BACKEND_REGISTRY: dict[str, type[backends_base.Backend]] = {
     'OllamaAPI': ollama_api.OllamaAPI,
     'ClaudeAPI': claude_api.ClaudeAPI,
     'OpenAIAPI': openai_api.OpenAIAPI,
+    'SentencePieceTokenizer': sentencepiece_tokenizer.SentencePieceTokenizer,
 }
 
 
@@ -76,6 +78,13 @@ class GenerateBackendConfig(BackendConfig):
 @dataclasses.dataclass(frozen=True)
 class EmbedBackendConfig(BackendConfig):
   """Configuration specific to embedding backends."""
+  pass
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(frozen=True)
+class TokenizeBackendConfig(BackendConfig):
+  """Configuration specific to tokenizer backends (e.g. for chunking)."""
   pass
 
 
@@ -129,6 +138,8 @@ def get_backend(
         kwargs['chat_model_name'] = config.model_name
       else:
         kwargs['model_name'] = config.model_name
+    elif isinstance(config, TokenizeBackendConfig):
+      kwargs['model_name'] = config.model_name
     else:
       kwargs['embed_model_name'] = config.model_name
 

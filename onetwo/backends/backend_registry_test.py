@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
 from onetwo.backends import backend_registry
 from onetwo.backends import claude_api
 from onetwo.backends import google_genai_api
 from onetwo.backends import ollama_api
 from onetwo.backends import openai_api
+from onetwo.backends import sentencepiece_tokenizer
 
 
 class BackendRegistryTest(absltest.TestCase):
@@ -81,6 +84,23 @@ class BackendRegistryTest(absltest.TestCase):
     self.assertIsInstance(backend, ollama_api.OllamaAPI)
     self.assertEqual(backend.model_name, 'llama2')
     self.assertEqual(backend.max_tokens, 100)
+
+  def test_get_backend_tokenizer(self):
+    self.enter_context(
+        mock.patch.object(
+            sentencepiece_tokenizer.SentencePieceTokenizer,
+            '_load_model',
+            return_value=mock.MagicMock(),
+        )
+    )
+    config = backend_registry.TokenizeBackendConfig(
+        backend_class_name='SentencePieceTokenizer', model_name='GEMINI3_G145'
+    )
+    backend = backend_registry.get_backend(config)
+    self.assertIsInstance(
+        backend, sentencepiece_tokenizer.SentencePieceTokenizer
+    )
+    self.assertEqual(backend.model_name, 'GEMINI3_G145')
 
   def test_get_backend_conflict(self):
     config = backend_registry.GenerateBackendConfig(

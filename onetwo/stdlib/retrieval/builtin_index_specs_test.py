@@ -18,11 +18,12 @@ from absl.testing import absltest
 from onetwo.backends import backend_registry
 from onetwo.backends import sentencepiece_tokenizer
 from onetwo.stdlib.retrieval import builtin_index_specs
+from onetwo.stdlib.retrieval import chunking
 
 
 class BuiltinIndexSpecsTest(absltest.TestCase):
 
-  def test_get_tokenizer_backend(self):
+  def test_tokens_chunker_uses_default_tokenizer(self):
     self.enter_context(
         mock.patch.object(
             sentencepiece_tokenizer.SentencePieceTokenizer,
@@ -30,7 +31,14 @@ class BuiltinIndexSpecsTest(absltest.TestCase):
             return_value=mock.MagicMock(),
         )
     )
-    tokenizer = builtin_index_specs._get_tokenizer_backend()
+    spec = builtin_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        max_chunk_size=10, chunking_strategy='tokens'
+    )
+
+    chunker = builtin_index_specs._get_chunker(spec)
+
+    self.assertIsInstance(chunker, chunking.ChunkByMaxTokens)
+    tokenizer = chunker.tokenizer_backend
     self.assertIsInstance(
         tokenizer, sentencepiece_tokenizer.SentencePieceTokenizer
     )

@@ -28,6 +28,10 @@ from onetwo.backends import backend_registry
 DEFAULT_EMBED_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
 DEFAULT_EMBED_MODEL_NAME = 'gemini-embedding-2'
 
+# Tokenizer used to chunk documents by tokens (`chunking_strategy='tokens'`).
+DEFAULT_TOKENIZE_BACKEND_CLASS_NAME = 'SentencePieceTokenizer'
+DEFAULT_TOKENIZE_MODEL_NAME = 'GEMINI3_G145'
+
 # Generation model used while building indexes (e.g. HippoRAG extraction).
 DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
 DEFAULT_INDEX_GENERATE_MODEL_NAME = 'gemini-3-flash-preview'
@@ -46,6 +50,16 @@ def default_embed_backend_config() -> backend_registry.EmbedBackendConfig:
   return backend_registry.EmbedBackendConfig(
       backend_class_name=DEFAULT_EMBED_BACKEND_CLASS_NAME,
       model_name=DEFAULT_EMBED_MODEL_NAME,
+  )
+
+
+def default_tokenize_backend_config() -> (
+    backend_registry.TokenizeBackendConfig
+):
+  """Returns a new config for the default tokenizer."""
+  return backend_registry.TokenizeBackendConfig(
+      backend_class_name=DEFAULT_TOKENIZE_BACKEND_CLASS_NAME,
+      model_name=DEFAULT_TOKENIZE_MODEL_NAME,
   )
 
 

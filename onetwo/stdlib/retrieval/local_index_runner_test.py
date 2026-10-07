@@ -346,7 +346,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_c791be20',
+        'EmbeddingBasedDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_056842d8',
     )
 
   def test_simple_rewriting_index_spec_str_representation_tokens(self):
@@ -364,7 +364,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.assertEqual(
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_a3efa5f8',
+        'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_cf421895',
     )
 
   def test_hipporag_index_spec_serialization(self):

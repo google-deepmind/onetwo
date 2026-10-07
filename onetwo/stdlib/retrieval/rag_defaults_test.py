@@ -44,6 +44,21 @@ class RagDefaultsTest(absltest.TestCase):
         config, rag_defaults.default_index_generate_backend_config()
     )
 
+  def test_default_tokenize_backend_config(self):
+    config = rag_defaults.default_tokenize_backend_config()
+    self.assertEqual(config.backend_class_name, 'SentencePieceTokenizer')
+    self.assertEqual(config.model_name, 'GEMINI3_G145')
+    self.assertIsNot(config, rag_defaults.default_tokenize_backend_config())
+
+  def test_rewriting_spec_uses_default_tokenizer(self):
+    spec = (
+        index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec()
+    )
+    self.assertEqual(
+        spec.tokenize_backend_config,
+        rag_defaults.default_tokenize_backend_config(),
+    )
+
   def test_embedding_specs_can_be_created_without_arguments(self):
     for spec_cls in (
         index_build_interface.EmbeddingBasedDocumentIndexSpec,

@@ -22,7 +22,8 @@ The factories are public so that custom index factories can reuse them (e.g.
 from collections.abc import Mapping
 from typing import Any
 
-from onetwo.backends import sentencepiece_tokenizer
+from onetwo.backends import backend_registry
+from onetwo.backends import backends_base
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import document_formatting
@@ -41,10 +42,11 @@ SimpleRewritingHippoRAGDocumentIndexSpec = (
 )
 
 
-def _get_tokenizer_backend() -> sentencepiece_tokenizer.SentencePieceTokenizer:
-  tokenizer = sentencepiece_tokenizer.SentencePieceTokenizer(
-      model_name='GEMINI3_G145'
-  )
+def _get_tokenizer_backend(
+    config: backend_registry.TokenizeBackendConfig,
+) -> backends_base.Backend:
+  tokenizer = backend_registry.get_backend(config)
+  # ChunkByMaxTokens tokenizes with the registered `llm.tokenize`.
   tokenizer.register()
   return tokenizer
 
@@ -62,7 +64,7 @@ def _get_chunker(
   return chunking.ChunkByMaxTokens(
       max_tokens_per_chunk=spec.max_chunk_size,
       overlap_window=spec.overlap_window,
-      tokenizer_backend=_get_tokenizer_backend(),
+      tokenizer_backend=_get_tokenizer_backend(spec.tokenize_backend_config),
   )
 
 
