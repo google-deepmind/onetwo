@@ -19,7 +19,7 @@ from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import batching
-from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import keyword_index_for_test
@@ -50,7 +50,7 @@ class IndexBuildingTest(absltest.TestCase):
     self.addCleanup(
         backend_registry.BACKEND_REGISTRY.pop, 'FakeEmbedderBackend', None
     )
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='FakeEmbedderBackend'
         ),

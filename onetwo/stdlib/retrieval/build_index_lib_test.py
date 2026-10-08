@@ -22,7 +22,7 @@ from onetwo.backends import backends_test_utils
 from onetwo.core import batching
 from onetwo.evaluation.datasets import datasets_lib
 from onetwo.stdlib.retrieval import build_index_lib
-from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
 
@@ -114,7 +114,7 @@ class BuildIndexLibTest(absltest.TestCase):
     spec = index_building.read_index_spec(out_dir)
     self.assertIsInstance(
         spec,
-        index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
     )
     self.assertEqual(spec.max_chunk_size, 16)
     self.assertEqual(spec.embed_backend_config.model_name, 'fake-model')

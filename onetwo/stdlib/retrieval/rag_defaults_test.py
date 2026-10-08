@@ -16,7 +16,7 @@ import inspect
 
 from absl.testing import absltest
 from onetwo.stdlib.retrieval import build_index_lib
-from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import rag_defaults
 
 
@@ -52,7 +52,7 @@ class RagDefaultsTest(absltest.TestCase):
 
   def test_rewriting_spec_uses_default_tokenizer(self):
     spec = (
-        index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec()
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec()
     )
     self.assertEqual(
         spec.tokenize_backend_config,
@@ -61,8 +61,8 @@ class RagDefaultsTest(absltest.TestCase):
 
   def test_embedding_specs_can_be_created_without_arguments(self):
     for spec_cls in (
-        index_build_interface.EmbeddingBasedDocumentIndexSpec,
-        index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+        embedding_index_specs.EmbeddingBasedDocumentIndexSpec,
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
     ):
       with self.subTest(spec_cls.__name__):
         spec = spec_cls()
@@ -72,8 +72,8 @@ class RagDefaultsTest(absltest.TestCase):
         )
 
   def test_spec_instances_do_not_share_backend_configs(self):
-    spec_1 = index_build_interface.EmbeddingBasedDocumentIndexSpec()
-    spec_2 = index_build_interface.EmbeddingBasedDocumentIndexSpec()
+    spec_1 = embedding_index_specs.EmbeddingBasedDocumentIndexSpec()
+    spec_2 = embedding_index_specs.EmbeddingBasedDocumentIndexSpec()
     self.assertIsNot(spec_1.embed_backend_config, spec_2.embed_backend_config)
 
   def test_build_index_uses_defaults(self):

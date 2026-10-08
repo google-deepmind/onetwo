@@ -22,7 +22,7 @@ buildable via `index_building.build_index(spec=..., docs=...)` without
 subclassing any runner. The Beam runner only supports the built-in embedding
 specs.
 
-The built-in specs are registered by importing `builtin_index_specs`, which
+The built-in specs are registered by importing `embedding_index_specs`, which
 `index_building` (and therefore `rag`) does. Import it yourself if you use this
 module directly.
 

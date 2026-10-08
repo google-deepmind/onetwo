@@ -17,11 +17,11 @@ from unittest import mock
 from absl.testing import absltest
 from onetwo.backends import backend_registry
 from onetwo.backends import sentencepiece_tokenizer
-from onetwo.stdlib.retrieval import builtin_index_specs
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import embedding_index_specs
 
 
-class BuiltinIndexSpecsTest(absltest.TestCase):
+class EmbeddingIndexSpecsTest(absltest.TestCase):
 
   def test_tokens_chunker_uses_default_tokenizer(self):
     self.enter_context(
@@ -31,11 +31,11 @@ class BuiltinIndexSpecsTest(absltest.TestCase):
             return_value=mock.MagicMock(),
         )
     )
-    spec = builtin_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         max_chunk_size=10, chunking_strategy='tokens'
     )
 
-    chunker = builtin_index_specs._get_chunker(spec)
+    chunker = embedding_index_specs._get_chunker(spec)
 
     self.assertIsInstance(chunker, chunking.ChunkByMaxTokens)
     tokenizer = chunker.tokenizer_backend
@@ -45,13 +45,13 @@ class BuiltinIndexSpecsTest(absltest.TestCase):
     self.assertEqual(tokenizer.model_name, 'GEMINI3_G145')
 
   def test_factory_passes_runtime_kwargs_to_inner_index(self):
-    spec = builtin_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='FakeEmbedderBackend'
         ),
     )
 
-    index = builtin_index_specs.make_simple_rewriting_embedding_index(
+    index = embedding_index_specs.make_simple_rewriting_embedding_index(
         spec, {'api_key': 'key'}
     )
 

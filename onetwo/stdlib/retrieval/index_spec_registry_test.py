@@ -20,8 +20,7 @@ from absl.testing import absltest
 import dataclasses_json
 from onetwo import ot
 from onetwo.backends import backend_registry
-from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
-from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import embedding_index_specs  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import keyword_index_for_test
@@ -157,7 +156,7 @@ class IndexSpecRegistryTest(absltest.TestCase):
     self.assertEqual(index_spec_registry.spec_from_dict(spec_dict), spec)
 
   def test_builtin_spec_dict_round_trip(self):
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='SomeEmbedder', model_name='some-model'
         ),

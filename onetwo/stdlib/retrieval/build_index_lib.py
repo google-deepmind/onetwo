@@ -21,6 +21,7 @@ from typing import Any
 from onetwo.backends import backend_registry
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
+from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import rag_defaults
@@ -111,7 +112,7 @@ def build_index(
   if format_str in ('None', ''):
     format_str = None
 
-  spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+  spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
       embed_backend_config=embed_backend_config,
       max_chunk_size=chunk_size,
       chunking_strategy=chunking_strategy,

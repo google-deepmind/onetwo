@@ -38,6 +38,7 @@ from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import batching
+from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import indexing
@@ -97,7 +98,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
   @parameterized.named_parameters(
       (
           'standard_spec',
-          index_build_interface.EmbeddingBasedDocumentIndexSpec,
+          embedding_index_specs.EmbeddingBasedDocumentIndexSpec,
           {},
           indexing.EmbeddingBasedDocumentIndex,
           'RETRIEVAL_QUERY',
@@ -108,7 +109,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
       ),
       (
           'simple_rewriting_spec',
-          index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+          embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
               'max_chunk_size': 100,
               'format_str': 'Title: {title}\nFacts: {text}',
@@ -122,7 +123,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
       ),
       (
           'simple_rewriting_spec_no_chunking',
-          index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+          embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
               'max_chunk_size': None,
               'format_str': 'Title: {title}\nFacts: {text}',
@@ -136,7 +137,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
       ),
       (
           'custom_params',
-          index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+          embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
               'max_chunk_size': 100,
               'format_str': 'Title: {title}\nFacts: {text}',
@@ -209,7 +210,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     self.assertEqual(inner_index.runtime_kwargs, runtime_kwargs)
 
   def test_build_index_from_jsonl_path(self):
-    spec = index_build_interface.EmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.EmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
     )
     runner = local_index_runner.LocalIndexRunner()
@@ -235,7 +236,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
       self.assertEqual(index.num_docs, 2)
 
   def test_index_spec_serialization(self):
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
         max_chunk_size=100,
         format_str='Title: {title}\nFacts: {text}',
@@ -248,14 +249,14 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
 
     json_str = spec.to_json()
-    loaded_spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec.from_json(
+    loaded_spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec.from_json(
         json_str
     )
 
     self.assertEqual(spec, loaded_spec)
 
   def test_index_spec_str_representation(self):
-    spec = index_build_interface.EmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.EmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
         query_task_type='CUSTOM_QUERY_TASK',
         document_task_type='CUSTOM_DOC_TASK',
@@ -269,7 +270,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
 
   def test_simple_rewriting_index_spec_str_representation(self):
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
         query_task_type='CUSTOM_QUERY_TASK',
         document_task_type='CUSTOM_DOC_TASK',
@@ -286,7 +287,7 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
 
   def test_simple_rewriting_index_spec_str_representation_tokens(self):
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
         query_task_type='CUSTOM_QUERY_TASK',
         document_task_type='CUSTOM_DOC_TASK',

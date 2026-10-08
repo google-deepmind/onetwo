@@ -22,24 +22,24 @@ from absl import logging
 from etils import epath
 from onetwo.core import executing
 
-from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
+from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
-# `builtin_index_specs` (and `hipporag_index_specs`) are imported above so that
-# the built-in specs are registered in `index_spec_registry` for every user of
-# this module.
+# `embedding_index_specs` (and `hipporag_index_specs`) are imported above so
+# that the built-in specs are registered in `index_spec_registry` for every user
+# of this module.
 
 IndexSpec = index_build_interface.IndexSpec
 SearcherConfig = index_build_interface.SearcherConfig
 EmbeddingBasedDocumentIndexSpec = (
-    index_build_interface.EmbeddingBasedDocumentIndexSpec
+    embedding_index_specs.EmbeddingBasedDocumentIndexSpec
 )
 SimpleRewritingEmbeddingBasedDocumentIndexSpec = (
-    index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec
+    embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec
 )
 
 IndexRunner = index_build_interface.IndexRunner

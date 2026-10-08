@@ -18,7 +18,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from onetwo.core import executing
-from onetwo.stdlib.retrieval import builtin_index_specs  # pylint: disable=unused-import
+from onetwo.stdlib.retrieval import embedding_index_specs  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
@@ -26,7 +26,7 @@ from onetwo.stdlib.retrieval import retrieval_data_structures
 
 from onetwo.stdlib.retrieval import serialization
 
-# `builtin_index_specs` is imported above only so that the built-in specs are
+# `embedding_index_specs` is imported above only so that the built-in specs are
 # registered in `index_spec_registry` whenever this runner is available.
 
 
