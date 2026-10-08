@@ -29,30 +29,6 @@ from onetwo.stdlib.retrieval import searchers
 
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(frozen=True)
-class SeedSearcherConfig(dataclasses_json.DataClassJsonMixin):
-  """Configuration for a Seed Searcher.
-
-  Attributes:
-    class_name: Name of the searcher class (e.g. 'BruteForceSearcher').
-    kwargs: Keyword arguments to pass to the searcher constructor.
-  """
-
-  class_name: str
-  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-
-def make_seed_searcher(
-    config: SeedSearcherConfig,
-) -> seed_searchers.PPRSeedSearcher:
-  """Instantiates a Seed Searcher from its configuration."""
-  cls = getattr(seed_searchers, config.class_name, None)
-  if cls is None or not issubclass(cls, seed_searchers.PPRSeedSearcher):
-    raise ValueError(f"Unknown seed searcher: {config.class_name}")
-  return cls(**config.kwargs)
-
-
-@dataclasses_json.dataclass_json
-@dataclasses.dataclass(frozen=True)
 class SearcherConfig(dataclasses_json.DataClassJsonMixin):
   """Configuration for a Searcher.
 
@@ -173,93 +149,6 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         f"_chunk_size_{self.max_chunk_size}"
         f"_overlap_window_{self.overlap_window}"
         f"_{model_name}"
-        f"__hash_{spec_hash}"
-    )
-
-
-@dataclasses_json.dataclass_json
-@dataclasses.dataclass(kw_only=True)
-class HippoRAGDocumentIndexSpec(EmbeddingBasedDocumentIndexSpec):
-  """Base specification holding the HippoRAGDocumentIndex fields.
-
-  This spec is not directly buildable: it has no factory registered in
-  `index_spec_registry`, so building an index from it raises a `KeyError`. Use
-  `SimpleRewritingHippoRAGDocumentIndexSpec` to build a HippoRAG index.
-
-  Attributes:
-    generate_backend_config: Configuration for the generation backend (LLM).
-      Defaults to `rag_defaults.default_index_generate_backend_config()`.
-    similarity_threshold: Minimum cosine similarity required to add a semantic
-      similarity edge between entities in the graph.
-    seed_searcher_config: Configuration for PPR seed searcher.
-    ignore_triples: Whether to ignore indexing relational triples into the
-      triples index. Defaults to True.
-    ignore_similarity_edges: Whether to ignore semantic similarity edges between
-      entities in the graph. Defaults to True.
-  """
-
-  similarity_threshold: float = 0.8
-  generate_backend_config: backend_registry.GenerateBackendConfig = (
-      dataclasses.field(
-          default_factory=rag_defaults.default_index_generate_backend_config
-      )
-  )
-  seed_searcher_config: SeedSearcherConfig = dataclasses.field(
-      default_factory=lambda: SeedSearcherConfig(
-          class_name="EntityAndPassageDirectSeeder",
-          kwargs={},
-      )
-  )
-  ignore_triples: bool = True
-  ignore_similarity_edges: bool = True
-
-  def __str__(self) -> str:
-    """Returns a compact, path-friendly string representation."""
-    embed_model = (
-        self.embed_backend_config.model_name
-        or self.embed_backend_config.backend_class_name
-    )
-    gen_model = (
-        self.generate_backend_config.model_name
-        or self.generate_backend_config.backend_class_name
-    )
-    spec_hash = self.get_stable_hash()
-    return (
-        f"HippoRAGDocumentIndex_embed_{embed_model}_gen_{gen_model}"
-        f"_sim_{self.similarity_threshold}"
-        f"__hash_{spec_hash}"
-    )
-
-
-@dataclasses_json.dataclass_json
-@dataclasses.dataclass(kw_only=True)
-class SimpleRewritingHippoRAGDocumentIndexSpec(
-    HippoRAGDocumentIndexSpec, SimpleRewritingEmbeddingBasedDocumentIndexSpec
-):
-  """Specification for building a simple Rewriting HippoRAGDocumentIndex.
-
-  This spec is a convenience wrapper combining HippoRAG index building with
-  chunking and formatting for corpus rewriting.
-  """
-
-  def __str__(self) -> str:
-    """Returns a compact, path-friendly string representation."""
-    embed_model = (
-        self.embed_backend_config.model_name
-        or self.embed_backend_config.backend_class_name
-    )
-    gen_model = (
-        self.generate_backend_config.model_name
-        or self.generate_backend_config.backend_class_name
-    )
-    spec_hash = self.get_stable_hash()
-    return (
-        f"HippoRAGDocumentIndex"
-        f"_chunk_strategy_{self.chunking_strategy}"
-        f"_chunk_size_{self.max_chunk_size}"
-        f"_overlap_{self.overlap_window}"
-        f"_embed_{embed_model}_gen_{gen_model}"
-        f"_sim_{self.similarity_threshold}"
         f"__hash_{spec_hash}"
     )
 

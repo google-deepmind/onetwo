@@ -29,8 +29,9 @@ from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
-# `builtin_index_specs` is imported above so that the built-in specs are
-# registered in `index_spec_registry` for every user of this module.
+# `builtin_index_specs` (and `hipporag_index_specs`) are imported above so that
+# the built-in specs are registered in `index_spec_registry` for every user of
+# this module.
 
 IndexSpec = index_build_interface.IndexSpec
 SearcherConfig = index_build_interface.SearcherConfig
@@ -39,9 +40,6 @@ EmbeddingBasedDocumentIndexSpec = (
 )
 SimpleRewritingEmbeddingBasedDocumentIndexSpec = (
     index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec
-)
-SimpleRewritingHippoRAGDocumentIndexSpec = (
-    index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec
 )
 
 IndexRunner = index_build_interface.IndexRunner

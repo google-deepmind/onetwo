@@ -31,14 +31,12 @@ from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 
+
 EmbeddingBasedDocumentIndexSpec = (
     index_build_interface.EmbeddingBasedDocumentIndexSpec
 )
 SimpleRewritingEmbeddingBasedDocumentIndexSpec = (
     index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec
-)
-SimpleRewritingHippoRAGDocumentIndexSpec = (
-    index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec
 )
 
 
@@ -68,7 +66,7 @@ def _get_chunker(
   )
 
 
-def _get_rewriter(
+def make_rewriter(
     spec: SimpleRewritingEmbeddingBasedDocumentIndexSpec,
 ) -> corpus_rewriting.CorpusRewriter:
   """Returns the chunk-then-format rewriter described by `spec`."""
@@ -107,7 +105,7 @@ def make_simple_rewriting_embedding_index(
 ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
   """Returns an empty chunking/formatting embedding index for `spec`."""
   return indexing.RewritingEmbeddingBasedDocumentIndex(
-      rewriter=_get_rewriter(spec),
+      rewriter=make_rewriter(spec),
       inner_index=make_embedding_index(spec, runtime_kwargs),
       serializer_type=spec.serializer_type,
   )

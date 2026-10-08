@@ -58,15 +58,6 @@ class FakeEmbedder(backends_test_utils.EmbedderForTest):
     self.extra_kwargs = kwargs
 
 
-@batching.add_batching
-class FakeLLM(backends_test_utils.LLMForTest):
-
-  def __init__(self, model_name: str | None = None, **kwargs):
-    kwargs.setdefault('default_reply', "{'entities': [], 'triples': []}")
-    super().__init__(**kwargs)
-    self.model_name = model_name
-
-
 class LocalIndexRunnerTest(parameterized.TestCase):
 
   def setUp(self):
@@ -92,23 +83,15 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     )
     self.llm_backend.register(register_tokenize=True)
 
-    # Register a fake embedder and LLM backend
+    # Register a fake embedder backend
     backend_registry.BACKEND_REGISTRY['FakeEmbedderBackend'] = FakeEmbedder
-    backend_registry.BACKEND_REGISTRY['FakeLLMBackend'] = FakeLLM
     self.addCleanup(
         backend_registry.BACKEND_REGISTRY.pop, 'FakeEmbedderBackend', None
-    )
-    self.addCleanup(
-        backend_registry.BACKEND_REGISTRY.pop, 'FakeLLMBackend', None
     )
     self.embed_backend_config = backend_registry.EmbedBackendConfig(
         backend_class_name='FakeEmbedderBackend',
         model_name='gemini-embedding-2',
         kwargs={'default_embedding': [0.1, 0.2]},
-    )
-    self.generate_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name='FakeLLMBackend',
-        model_name='test-model',
     )
 
   @parameterized.named_parameters(
@@ -172,35 +155,6 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           True,
           2,
       ),
-      (
-          'hipporag_spec',
-          index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec,
-          {
-              'max_chunk_size': 100,
-              'similarity_threshold': 0.8,
-          },
-          indexing.RewritingEmbeddingBasedDocumentIndex,
-          'RETRIEVAL_QUERY',
-          'RETRIEVAL_DOCUMENT',
-          searchers.BruteForceSearcher,
-          False,
-          2,
-      ),
-      (
-          'hipporag_spec_no_chunking',
-          index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec,
-          {
-              'max_chunk_size': None,
-              'format_str': 'Title: {title}\nFacts: {text}',
-              'similarity_threshold': 0.8,
-          },
-          indexing.RewritingEmbeddingBasedDocumentIndex,
-          'RETRIEVAL_QUERY',
-          'RETRIEVAL_DOCUMENT',
-          searchers.BruteForceSearcher,
-          False,
-          2,
-      ),
   )
   def test_build_index(
       self,
@@ -214,8 +168,6 @@ class LocalIndexRunnerTest(parameterized.TestCase):
       expected_num_docs,
   ):
     kwargs = {'embed_backend_config': self.embed_backend_config}
-    if issubclass(spec_cls, index_build_interface.HippoRAGDocumentIndexSpec):
-      kwargs['generate_backend_config'] = self.generate_backend_config
     kwargs.update(spec_kwargs)
     runtime_kwargs = kwargs.pop('runtime_kwargs', {})
     spec = spec_cls(**kwargs)
@@ -245,19 +197,12 @@ class LocalIndexRunnerTest(parameterized.TestCase):
     else:
       inner_index = index
 
-    if isinstance(inner_index, graphrag_indexing.HippoRAGDocumentIndex):
-      if inner_index._entity_index is not None:
-        self.assertTrue(hasattr(inner_index._entity_index, 'searcher'))
-        self.assertIsInstance(
-            inner_index._entity_index.searcher, expected_searcher_cls
-        )
-    else:
-      self.assertTrue(hasattr(inner_index, 'searcher'))
-      self.assertEqual(inner_index.query_task_type, expected_query_task)
-      self.assertEqual(inner_index.document_task_type, expected_doc_task)
-      self.assertIsInstance(inner_index.searcher, expected_searcher_cls)
-      searcher = cast(searchers.BruteForceSearcher, inner_index.searcher)
-      self.assertEqual(searcher.normalize_embeds, expected_normalize_embeds)
+    self.assertTrue(hasattr(inner_index, 'searcher'))
+    self.assertEqual(inner_index.query_task_type, expected_query_task)
+    self.assertEqual(inner_index.document_task_type, expected_doc_task)
+    self.assertIsInstance(inner_index.searcher, expected_searcher_cls)
+    searcher = cast(searchers.BruteForceSearcher, inner_index.searcher)
+    self.assertEqual(searcher.normalize_embeds, expected_normalize_embeds)
 
     self.assertEqual(index.num_docs, expected_num_docs)
 
@@ -288,15 +233,6 @@ class LocalIndexRunnerTest(parameterized.TestCase):
 
       index = ot.run(runner.build_index(spec=spec, docs=docs_path))
       self.assertEqual(index.num_docs, 2)
-
-  def test_build_index_raises_for_bare_hipporag_spec(self):
-    runner = local_index_runner.LocalIndexRunner()
-    spec = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-    )
-    with self.assertRaisesRegex(KeyError, 'HippoRAGDocumentIndexSpec'):
-      ot.run(runner.build_index(spec=spec, docs=[]))
 
   def test_index_spec_serialization(self):
     spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
@@ -366,142 +302,6 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         str(spec),
         'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_cf421895',
     )
-
-  def test_hipporag_index_spec_serialization(self):
-    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        max_chunk_size=100,
-        similarity_threshold=0.8,
-    )
-    json_str = spec.to_json()
-    loaded_spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec.from_json(
-        json_str
-    )
-    self.assertEqual(spec, loaded_spec)
-
-  def test_raw_hipporag_index_spec_serialization(self):
-    spec = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        similarity_threshold=0.85,
-    )
-    json_str = spec.to_json()
-    loaded_spec = index_build_interface.HippoRAGDocumentIndexSpec.from_json(
-        json_str
-    )
-    self.assertEqual(spec, loaded_spec)
-
-  def test_raw_hipporag_index_spec_str_representation(self):
-    spec = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        similarity_threshold=0.85,
-    )
-    self.assertIn(
-        'HippoRAGDocumentIndex_embed_gemini-embedding-2_gen_test-model_sim_0.85__hash_',
-        str(spec),
-    )
-
-  def test_hipporag_index_spec_str_representation(self):
-    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        max_chunk_size=512,
-        overlap_window=50,
-        similarity_threshold=0.85,
-    )
-    self.assertIn(
-        'HippoRAGDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_50_embed_gemini-embedding-2_gen_test-model_sim_0.85__hash_',
-        str(spec),
-    )
-
-  def test_hipporag_index_spec_str_representation_fallback(self):
-    embed_config = backend_registry.EmbedBackendConfig(
-        backend_class_name='CustomEmbedClass',
-        model_name='',
-    )
-    gen_config = backend_registry.GenerateBackendConfig(
-        backend_class_name='CustomGenClass',
-        model_name='',
-    )
-    raw_spec = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=embed_config,
-        generate_backend_config=gen_config,
-        similarity_threshold=0.75,
-    )
-    self.assertIn(
-        'HippoRAGDocumentIndex_embed_CustomEmbedClass_gen_CustomGenClass_sim_0.75__hash_',
-        str(raw_spec),
-    )
-
-    rewriting_spec = (
-        index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
-            embed_backend_config=embed_config,
-            generate_backend_config=gen_config,
-            max_chunk_size=256,
-            overlap_window=10,
-            similarity_threshold=0.75,
-        )
-    )
-    self.assertIn(
-        'HippoRAGDocumentIndex_chunk_strategy_words_chunk_size_256_overlap_10_embed_CustomEmbedClass_gen_CustomGenClass_sim_0.75__hash_',
-        str(rewriting_spec),
-    )
-
-  def test_hipporag_index_spec_ignore_flags_and_hash_differentiation(self):
-    spec_default = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-    )
-    spec_include_triples = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        ignore_triples=False,
-    )
-    spec_include_sim = index_build_interface.HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        ignore_similarity_edges=False,
-    )
-
-    self.assertTrue(spec_default.ignore_triples)
-    self.assertTrue(spec_default.ignore_similarity_edges)
-    self.assertFalse(spec_include_triples.ignore_triples)
-    self.assertFalse(spec_include_sim.ignore_similarity_edges)
-
-    self.assertNotEqual(
-        spec_default.get_stable_hash(), spec_include_triples.get_stable_hash()
-    )
-    self.assertNotEqual(
-        spec_default.get_stable_hash(), spec_include_sim.get_stable_hash()
-    )
-
-    # Round-trip serialization
-    json_str = spec_include_triples.to_json()
-    loaded_spec = index_build_interface.HippoRAGDocumentIndexSpec.from_json(
-        json_str
-    )
-    self.assertEqual(spec_include_triples, loaded_spec)
-    self.assertFalse(loaded_spec.ignore_triples)
-
-  def test_local_index_runner_forwards_ignore_flags(self):
-    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        ignore_triples=False,
-        ignore_similarity_edges=False,
-    )
-    docs = [
-        Document(doc_id='doc1', title='Title 1', content='Content 1'),
-    ]
-    runner = local_index_runner.LocalIndexRunner()
-    index = ot.run(runner.build_index(spec=spec, docs=docs))
-    self.assertTrue(hasattr(index, 'inner_index'))
-    inner_index = getattr(index, 'inner_index')
-    self.assertIsInstance(inner_index, graphrag_indexing.HippoRAGDocumentIndex)
-    self.assertFalse(inner_index.ignore_triples)
-    self.assertFalse(inner_index.ignore_similarity_edges)
 
 
 if __name__ == '__main__':

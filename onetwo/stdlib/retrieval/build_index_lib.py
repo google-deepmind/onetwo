@@ -111,31 +111,14 @@ def build_index(
   if format_str in ('None', ''):
     format_str = None
 
-  if index_type == 'hipporag':
-    generate_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name=generation_backend_class_name,
-        model_name=generation_model_name,
-    )
-    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=embed_backend_config,
-        generate_backend_config=generate_backend_config,
-        max_chunk_size=chunk_size,
-        chunking_strategy=chunking_strategy,
-        overlap_window=overlap_window,
-        format_str=format_str,
-        similarity_threshold=similarity_threshold,
-        ignore_triples=ignore_triples,
-        ignore_similarity_edges=ignore_similarity_edges,
-    )
-  else:
-    spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-        embed_backend_config=embed_backend_config,
-        max_chunk_size=chunk_size,
-        chunking_strategy=chunking_strategy,
-        overlap_window=overlap_window,
-        format_str=format_str,
-        serializer_type=serializer_type,
-    )
+  spec = index_build_interface.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+      embed_backend_config=embed_backend_config,
+      max_chunk_size=chunk_size,
+      chunking_strategy=chunking_strategy,
+      overlap_window=overlap_window,
+      format_str=format_str,
+      serializer_type=serializer_type,
+  )
 
   return build_index_from_spec(
       spec=spec,

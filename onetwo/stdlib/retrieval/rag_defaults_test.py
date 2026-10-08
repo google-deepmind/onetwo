@@ -71,16 +71,6 @@ class RagDefaultsTest(absltest.TestCase):
             rag_defaults.default_embed_backend_config(),
         )
 
-  def test_hipporag_spec_can_be_created_without_arguments(self):
-    spec = index_build_interface.SimpleRewritingHippoRAGDocumentIndexSpec()
-    self.assertEqual(
-        spec.embed_backend_config, rag_defaults.default_embed_backend_config()
-    )
-    self.assertEqual(
-        spec.generate_backend_config,
-        rag_defaults.default_index_generate_backend_config(),
-    )
-
   def test_spec_instances_do_not_share_backend_configs(self):
     spec_1 = index_build_interface.EmbeddingBasedDocumentIndexSpec()
     spec_2 = index_build_interface.EmbeddingBasedDocumentIndexSpec()
