@@ -29,6 +29,7 @@ from collections.abc import Iterable
 import copy
 import dataclasses
 from typing import Any, Protocol, Sequence
+from onetwo.backends import backend_registry
 from onetwo.builtins import llm
 from onetwo.core import executing
 from onetwo.core import routing
@@ -261,8 +262,8 @@ class ChunkByMaxTokens(TextChunker):
 
   Attributes:
     max_tokens_per_chunk: The maximum number of tokens per chunk.
-    tokenizer_backend: The LLM backend to use for tokenization. If not
-      specified, then will default to the currently-registered backend.
+    tokenize_backend_config: Configuration for the tokenizer backend. If not
+      specified, defaults to the currently-registered `llm.tokenize` backend.
     strip_whitespace: Whether to strip whitespace from the ends of each chunk.
     overlap_window: The number of tokens to overlap between chunks. If this is
       set to 0, then the chunks will not overlap.
@@ -272,9 +273,14 @@ class ChunkByMaxTokens(TextChunker):
   # used in early research on retrieval-augmented generation, such as
   # https://proceedings.neurips.cc/paper/2020/file/6b493230205f780e1bc26945df7481e5-Paper.pdf
   max_tokens_per_chunk: int = 150
-  tokenizer_backend: Any | None = None
+  tokenize_backend_config: backend_registry.TokenizeBackendConfig | None = None
   strip_whitespace: bool = True
   overlap_window: int = 0
+
+  def __post_init__(self) -> None:
+    if self.tokenize_backend_config is not None:
+      tokenizer = backend_registry.get_backend(self.tokenize_backend_config)
+      tokenizer.register()
 
   @executing.make_executable
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)

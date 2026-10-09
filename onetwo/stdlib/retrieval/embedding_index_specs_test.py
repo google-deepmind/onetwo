@@ -38,11 +38,12 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
     chunker = embedding_index_specs._get_chunker(spec)
 
     self.assertIsInstance(chunker, chunking.ChunkByMaxTokens)
-    tokenizer = chunker.tokenizer_backend
-    self.assertIsInstance(
-        tokenizer, sentencepiece_tokenizer.SentencePieceTokenizer
+    assert chunker.tokenize_backend_config is not None
+    self.assertEqual(
+        chunker.tokenize_backend_config.backend_class_name,
+        'SentencePieceTokenizer',
     )
-    self.assertEqual(tokenizer.model_name, 'GEMINI3_G145')
+    self.assertEqual(chunker.tokenize_backend_config.model_name, 'GEMINI3_G145')
 
   def test_make_index_passes_runtime_kwargs_to_inner_index(self):
     spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(

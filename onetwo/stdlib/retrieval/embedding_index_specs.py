@@ -26,7 +26,6 @@ from typing import Any
 
 import dataclasses_json
 from onetwo.backends import backend_registry
-from onetwo.backends import backends_base
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import document_formatting
@@ -151,15 +150,6 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     )
 
 
-def _get_tokenizer_backend(
-    config: backend_registry.TokenizeBackendConfig,
-) -> backends_base.Backend:
-  tokenizer = backend_registry.get_backend(config)
-  # ChunkByMaxTokens tokenizes with the registered `llm.tokenize`.
-  tokenizer.register()
-  return tokenizer
-
-
 def _get_chunker(
     spec: SimpleRewritingEmbeddingBasedDocumentIndexSpec,
 ) -> chunking.Chunker:
@@ -173,7 +163,7 @@ def _get_chunker(
   return chunking.ChunkByMaxTokens(
       max_tokens_per_chunk=spec.max_chunk_size,
       overlap_window=spec.overlap_window,
-      tokenizer_backend=_get_tokenizer_backend(spec.tokenize_backend_config),
+      tokenize_backend_config=spec.tokenize_backend_config,
   )
 
 
