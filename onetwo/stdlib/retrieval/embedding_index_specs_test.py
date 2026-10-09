@@ -44,16 +44,14 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
     )
     self.assertEqual(tokenizer.model_name, 'GEMINI3_G145')
 
-  def test_factory_passes_runtime_kwargs_to_inner_index(self):
+  def test_make_index_passes_runtime_kwargs_to_inner_index(self):
     spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='FakeEmbedderBackend'
         ),
     )
 
-    index = embedding_index_specs.make_simple_rewriting_embedding_index(
-        spec, {'api_key': 'key'}
-    )
+    index = spec.make_index({'api_key': 'key'})
 
     self.assertEqual(index.inner_index.runtime_kwargs, {'api_key': 'key'})
 

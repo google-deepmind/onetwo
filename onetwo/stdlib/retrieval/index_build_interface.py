@@ -15,6 +15,7 @@
 """Interface and specifications for index building."""
 
 import abc
+from collections.abc import Mapping
 import dataclasses
 import hashlib
 import json
@@ -22,6 +23,7 @@ from typing import Any, Generic, TypeVar
 
 import dataclasses_json
 from onetwo.core import executing
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import searchers
 
 
@@ -51,6 +53,25 @@ def make_searcher(config: SearcherConfig) -> searchers.Searcher:
 @dataclasses.dataclass
 class IndexSpec(dataclasses_json.DataClassJsonMixin, abc.ABC):
   """Base class for index specifications."""
+
+  def make_index(
+      self, runtime_kwargs: Mapping[str, Any]
+  ) -> indexing.DocumentIndex:
+    """Returns an empty index configured by this spec.
+
+    Every buildable spec overrides this and is registered with
+    `index_spec_registry.register_index_spec`.
+
+    Args:
+      runtime_kwargs: Environment-specific settings and credentials for the
+        index's backends (e.g. API key). Not part of the spec.
+
+    Raises:
+      NotImplementedError: If the spec does not override this method.
+    """
+    raise NotImplementedError(
+        f"{type(self).__name__} does not implement make_index."
+    )
 
   def get_stable_hash(self) -> str:
     """Returns a stable 8-character hash of the specification."""

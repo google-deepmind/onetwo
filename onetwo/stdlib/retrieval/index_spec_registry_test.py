@@ -20,7 +20,8 @@ from absl.testing import absltest
 import dataclasses_json
 from onetwo import ot
 from onetwo.backends import backend_registry
-from onetwo.stdlib.retrieval import embedding_index_specs  # pylint: disable=unused-import
+from onetwo.stdlib.retrieval import embedding_index_specs
+from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import keyword_index_for_test
@@ -36,7 +37,25 @@ class _SubclassedKeywordSpec(KeywordDocumentIndexSpec):
   extra_field: int = 1
 
 
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class _SpecWithoutMakeIndex(index_build_interface.IndexSpec):
+  param: int = 1
+
+
 class IndexSpecRegistryTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    # Restore the registry after each test, including decorator registrations.
+    # pylint: disable=protected-access
+    self.enter_context(
+        mock.patch.dict(index_spec_registry._REGISTRATIONS_BY_NAME)
+    )
+    self.enter_context(
+        mock.patch.dict(index_spec_registry._REGISTRATIONS_BY_TYPE)
+    )
+    # pylint: enable=protected-access
 
   def test_builtin_specs_are_registered(self):
     self.assertContainsSubset(
@@ -53,22 +72,71 @@ class IndexSpecRegistryTest(absltest.TestCase):
         'KeywordDocumentIndexSpec', index_spec_registry.list_index_specs()
     )
 
+  def test_decorator_returns_the_class(self):
+    decorated = index_spec_registry.register_index_spec('keyword')(
+        KeywordDocumentIndexSpec
+    )
+
+    self.assertIs(decorated, KeywordDocumentIndexSpec)
+
+  def test_decorator_on_class_definition(self):
+    @index_spec_registry.register_index_spec('decorated')
+    @dataclasses_json.dataclass_json
+    @dataclasses.dataclass(kw_only=True)
+    class DecoratedSpec(KeywordDocumentIndexSpec):
+      pass
+
+    index = index_spec_registry.make_index(DecoratedSpec(lowercase=False))
+
+    self.assertIsInstance(index, keyword_index_for_test.KeywordDocumentIndex)
+    self.assertFalse(getattr(index, 'lowercase'))
+    self.assertEqual(
+        index_spec_registry.spec_to_dict(DecoratedSpec())['spec_type'],
+        'decorated',
+    )
+
+  def test_register_with_name(self):
+    self.enter_context(
+        keyword_index_for_test.registered_keyword_index_spec(name='keyword')
+    )
+
+    self.assertIn('keyword', index_spec_registry.list_index_specs())
+    self.assertNotIn(
+        'KeywordDocumentIndexSpec', index_spec_registry.list_index_specs()
+    )
+
   def test_register_duplicate_raises(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
     with self.assertRaisesRegex(ValueError, 'already registered'):
-      index_spec_registry.register_index_spec(
-          KeywordDocumentIndexSpec, keyword_index_for_test.make_keyword_index
+      index_spec_registry.register_index_spec('other_name')(
+          KeywordDocumentIndexSpec
+      )
+
+  def test_register_duplicate_name_raises(self):
+    self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
+    with self.assertRaisesRegex(ValueError, 'name .* already registered'):
+      index_spec_registry.register_index_spec('KeywordDocumentIndexSpec')(
+          _SubclassedKeywordSpec
       )
 
   def test_register_non_spec_raises(self):
     with self.assertRaisesRegex(TypeError, 'not a subclass of IndexSpec'):
-      index_spec_registry.register_index_spec(
-          cast(Any, str), keyword_index_for_test.make_keyword_index
+      index_spec_registry.register_index_spec('not_a_spec')(cast(Any, str))
+
+  def test_register_without_make_index_raises(self):
+    with self.assertRaisesRegex(TypeError, 'must implement make_index'):
+      index_spec_registry.register_index_spec('no_make_index')(
+          _SpecWithoutMakeIndex
       )
+    self.assertNotIn('no_make_index', index_spec_registry.list_index_specs())
+
+  def test_base_make_index_raises(self):
+    with self.assertRaisesRegex(NotImplementedError, 'make_index'):
+      _SpecWithoutMakeIndex().make_index({})
 
   def test_make_index_unregistered_raises_with_registered_names(self):
     with self.assertRaisesRegex(
-        KeyError, 'No index factory registered for KeywordDocumentIndexSpec'
+        KeyError, 'Index spec KeywordDocumentIndexSpec is not registered'
     ) as cm:
       index_spec_registry.make_index(KeywordDocumentIndexSpec())
     self.assertIn("'embedding'", str(cm.exception))
@@ -76,9 +144,19 @@ class IndexSpecRegistryTest(absltest.TestCase):
   def test_unregistered_subclass_does_not_fall_back_to_parent(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
     with self.assertRaisesRegex(
-        KeyError, 'No index factory registered for _SubclassedKeywordSpec'
+        KeyError, 'Index spec _SubclassedKeywordSpec is not registered'
     ):
       index_spec_registry.make_index(_SubclassedKeywordSpec())
+
+  def test_registered_subclass_reuses_parent_make_index(self):
+    index_spec_registry.register_index_spec()(_SubclassedKeywordSpec)
+
+    index = index_spec_registry.make_index(
+        _SubclassedKeywordSpec(lowercase=False)
+    )
+
+    self.assertIsInstance(index, keyword_index_for_test.KeywordDocumentIndex)
+    self.assertFalse(getattr(index, 'lowercase'))
 
   def test_make_index_returns_configured_empty_index(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
@@ -86,20 +164,24 @@ class IndexSpecRegistryTest(absltest.TestCase):
         KeywordDocumentIndexSpec(lowercase=False)
     )
     self.assertIsInstance(index, keyword_index_for_test.KeywordDocumentIndex)
-    self.assertFalse(index.lowercase)
+    self.assertFalse(getattr(index, 'lowercase'))
     self.assertEqual(index.num_docs, 0)
 
-  def test_make_index_passes_runtime_kwargs_to_factory(self):
+  def test_make_index_passes_runtime_kwargs_to_make_index(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
-    factory = mock.Mock(
-        return_value=keyword_index_for_test.KeywordDocumentIndex()
+    mock_make_index = self.enter_context(
+        mock.patch.object(
+            KeywordDocumentIndexSpec,
+            'make_index',
+            autospec=True,
+            return_value=keyword_index_for_test.KeywordDocumentIndex(),
+        )
     )
-    index_spec_registry.register_index_spec(_SubclassedKeywordSpec, factory)
-    spec = _SubclassedKeywordSpec()
+    spec = KeywordDocumentIndexSpec()
 
     index_spec_registry.make_index(spec, {'api_key': 'key'})
 
-    factory.assert_called_once_with(spec, {'api_key': 'key'})
+    mock_make_index.assert_called_once_with(spec, {'api_key': 'key'})
 
   def test_custom_spec_builds_via_index_building_without_runner_changes(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
@@ -117,28 +199,27 @@ class IndexSpecRegistryTest(absltest.TestCase):
     results = ot.run(index.retrieve('What is in Spain?', max_results=1))
     self.assertEqual([doc.doc_id for doc in results], ['d2'])
 
-  def test_register_with_name(self):
-    self.enter_context(
-        keyword_index_for_test.registered_keyword_index_spec(name='keyword')
-    )
-
-    self.assertIn('keyword', index_spec_registry.list_index_specs())
-    self.assertNotIn(
-        'KeywordDocumentIndexSpec', index_spec_registry.list_index_specs()
-    )
-    self.assertIsInstance(
-        index_spec_registry.make_index(KeywordDocumentIndexSpec()),
-        keyword_index_for_test.KeywordDocumentIndex,
-    )
-
-  def test_register_duplicate_name_raises(self):
+  def test_custom_spec_builds_saves_and_loads(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
-    with self.assertRaisesRegex(ValueError, 'name .* already registered'):
-      index_spec_registry.register_index_spec(
-          _SubclassedKeywordSpec,
-          keyword_index_for_test.make_keyword_index,
-          name='KeywordDocumentIndexSpec',
-      )
+    out_dir = self.create_tempdir().full_path
+    docs = [
+        Document(doc_id='d1', content='The capital of France is Paris.'),
+        Document(doc_id='d2', content='Madrid is the capital of Spain.'),
+    ]
+
+    ot.run(
+        index_building.build_index(
+            spec=KeywordDocumentIndexSpec(lowercase=False),
+            docs=docs,
+            output_dir=out_dir,
+        )
+    )
+    index = index_building.load_index(out_dir)
+
+    self.assertIsInstance(index, keyword_index_for_test.KeywordDocumentIndex)
+    self.assertFalse(getattr(index, 'lowercase'))
+    results = ot.run(index.retrieve('What is in Spain?', max_results=1))
+    self.assertEqual([doc.doc_id for doc in results], ['d2'])
 
   def test_spec_dict_round_trip(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())

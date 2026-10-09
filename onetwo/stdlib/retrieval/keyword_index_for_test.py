@@ -53,6 +53,12 @@ class KeywordDocumentIndexSpec(index_build_interface.IndexSpec):
 
   lowercase: bool = True
 
+  def make_index(
+      self, runtime_kwargs: Mapping[str, Any]
+  ) -> indexing.DocumentIndex:
+    del runtime_kwargs  # The keyword index has no backends.
+    return KeywordDocumentIndex(lowercase=self.lowercase)
+
 
 @dataclasses.dataclass(kw_only=True)
 class KeywordDocumentIndex(indexing.DocumentIndex):
@@ -124,14 +130,6 @@ class KeywordDocumentIndex(indexing.DocumentIndex):
     ]
 
 
-def make_keyword_index(
-    spec: KeywordDocumentIndexSpec, runtime_kwargs: Mapping[str, Any]
-) -> KeywordDocumentIndex:
-  """Index factory for `KeywordDocumentIndexSpec`."""
-  del runtime_kwargs  # The keyword index has no backends.
-  return KeywordDocumentIndex(lowercase=spec.lowercase)
-
-
 @contextlib.contextmanager
 def registered_keyword_index_spec(name: str | None = None) -> Iterator[None]:
   """Registers `KeywordDocumentIndexSpec` for the duration of the context.
@@ -150,7 +148,5 @@ def registered_keyword_index_spec(name: str | None = None) -> Iterator[None]:
       index_spec_registry._REGISTRATIONS_BY_NAME
   ), mock.patch.dict(index_spec_registry._REGISTRATIONS_BY_TYPE):
     # pylint: enable=protected-access
-    index_spec_registry.register_index_spec(
-        KeywordDocumentIndexSpec, make_keyword_index, name=name
-    )
+    index_spec_registry.register_index_spec(name)(KeywordDocumentIndexSpec)
     yield

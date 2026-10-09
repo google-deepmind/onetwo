@@ -141,16 +141,16 @@ def build_index_from_spec(
 ) -> str:
   """Builds and saves the index described by `spec` for the specified dataset.
 
-  Use this for custom indexes: register the spec type and its index factory in
-  `index_spec_registry`, then pass an instance of the spec here. The spec is
-  used as-is.
+  Use this for custom indexes: register the spec type with
+  `rag.register_index_spec`, then pass an instance of the spec here. The spec
+  is used as-is.
 
   Args:
     spec: Spec of the index to build.
     dataset_name: Name of the dataset to load from the registry.
     output_directory: Directory pattern where the built index will be saved.
     runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed
-      to the index factory; not saved with the index.
+      to `spec.make_index`; not saved with the index.
     max_documents: Max documents to index.
     docs_path: Optional path to documents.
 

@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Embedding-based `IndexSpec`s and their index factories.
+"""Embedding-based `IndexSpec`s.
 
 Importing this module registers the embedding specs in `index_spec_registry`.
-The factories are public so that custom index factories can reuse them (e.g.
-`make_embedding_index` to build an inner embedding index).
+Custom specs can reuse them, e.g. by subclassing a spec and calling
+`super().make_index(...)` to build an inner embedding index, or by calling
+`make_rewriter` to build the chunk-then-format rewriter.
 """
 
 from collections.abc import Mapping
@@ -35,6 +36,7 @@ from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 
 
+@index_spec_registry.register_index_spec('embedding')
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
 class EmbeddingBasedDocumentIndexSpec(index_build_interface.IndexSpec):
@@ -66,6 +68,19 @@ class EmbeddingBasedDocumentIndexSpec(index_build_interface.IndexSpec):
       metadata=dataclasses_json.config(exclude=lambda _: True),
   )
 
+  def make_index(
+      self, runtime_kwargs: Mapping[str, Any]
+  ) -> indexing.EmbeddingBasedDocumentIndex:
+    """Returns an empty `EmbeddingBasedDocumentIndex` configured by this spec."""
+    return indexing.EmbeddingBasedDocumentIndex(
+        embed_backend_config=self.embed_backend_config,
+        query_task_type=self.query_task_type,
+        document_task_type=self.document_task_type,
+        searcher=index_build_interface.make_searcher(self.searcher_config),
+        serializer_type=self.serializer_type,
+        runtime_kwargs=dict(runtime_kwargs),
+    )
+
   def __str__(self) -> str:
     """Returns a compact, path-friendly string representation."""
     model_name = (
@@ -78,6 +93,7 @@ class EmbeddingBasedDocumentIndexSpec(index_build_interface.IndexSpec):
 
 # TODO: Standardize the spec-to-rewriter mapping and make it
 # generic.
+@index_spec_registry.register_index_spec('simple_rewriting_embedding')
 @dataclasses_json.dataclass_json
 @dataclasses.dataclass(kw_only=True)
 class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
@@ -107,6 +123,16 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
           default_factory=rag_defaults.default_tokenize_backend_config
       )
   )
+
+  def make_index(
+      self, runtime_kwargs: Mapping[str, Any]
+  ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
+    """Returns an empty chunking/formatting embedding index for this spec."""
+    return indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=make_rewriter(self),
+        inner_index=super().make_index(runtime_kwargs),
+        serializer_type=self.serializer_type,
+    )
 
   def __str__(self) -> str:
     """Returns a compact, path-friendly string representation."""
@@ -167,40 +193,3 @@ def make_rewriter(
           corpus_rewriting.FormattingCorpusRewriter(formatter=formatter),
       ]
   )
-
-
-def make_embedding_index(
-    spec: EmbeddingBasedDocumentIndexSpec,
-    runtime_kwargs: Mapping[str, Any],
-) -> indexing.EmbeddingBasedDocumentIndex:
-  """Returns an empty `EmbeddingBasedDocumentIndex` configured by `spec`."""
-  return indexing.EmbeddingBasedDocumentIndex(
-      embed_backend_config=spec.embed_backend_config,
-      query_task_type=spec.query_task_type,
-      document_task_type=spec.document_task_type,
-      searcher=index_build_interface.make_searcher(spec.searcher_config),
-      serializer_type=spec.serializer_type,
-      runtime_kwargs=dict(runtime_kwargs),
-  )
-
-
-def make_simple_rewriting_embedding_index(
-    spec: SimpleRewritingEmbeddingBasedDocumentIndexSpec,
-    runtime_kwargs: Mapping[str, Any],
-) -> indexing.RewritingEmbeddingBasedDocumentIndex:
-  """Returns an empty chunking/formatting embedding index for `spec`."""
-  return indexing.RewritingEmbeddingBasedDocumentIndex(
-      rewriter=make_rewriter(spec),
-      inner_index=make_embedding_index(spec, runtime_kwargs),
-      serializer_type=spec.serializer_type,
-  )
-
-
-index_spec_registry.register_index_spec(
-    EmbeddingBasedDocumentIndexSpec, make_embedding_index, name='embedding'
-)
-index_spec_registry.register_index_spec(
-    SimpleRewritingEmbeddingBasedDocumentIndexSpec,
-    make_simple_rewriting_embedding_index,
-    name='simple_rewriting_embedding',
-)

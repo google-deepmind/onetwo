@@ -12,36 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry mapping `IndexSpec` types to the factories that build their indexes.
+"""Registry of the `IndexSpec` types that can be built, saved and loaded.
 
-This is *not* a catalogue of built or stored indexes: each entry describes how
-to construct an empty `DocumentIndex` from an `IndexSpec` of one exact type.
-The local runner (`LocalIndexRunner`, `runner='local'`, the default and the one
-used by `rag.build_index`) uses this registry, so a custom index becomes
-buildable via `index_building.build_index(spec=..., docs=...)` without
-subclassing any runner. The Beam runner only supports the built-in embedding
-specs.
+This is *not* a catalogue of built or stored indexes: each entry records an
+`IndexSpec` type, which builds an empty `DocumentIndex` with its `make_index`
+method, and the stable name under which the spec is saved. The local runner
+(`LocalIndexRunner`, `runner='local'`, the default and the one used by
+`rag.build_index`) uses this registry, so a custom index becomes buildable via
+`index_building.build_index(spec=..., docs=...)` without subclassing any
+runner. The Beam runner only supports the built-in embedding specs.
 
 The built-in specs are registered by importing `embedding_index_specs`, which
 `index_building` (and therefore `rag`) does. Import it yourself if you use this
 module directly.
 
-To make a custom index buildable:
+To make an index buildable, implement `make_index` on its spec and register the
+spec with the decorator:
 
+  @index_spec_registry.register_index_spec('my_index')
   @dataclasses_json.dataclass_json
   @dataclasses.dataclass(kw_only=True)
   class MyIndexSpec(index_build_interface.IndexSpec):
     my_param: int = 3
 
-  def make_my_index(
-      spec: MyIndexSpec, runtime_kwargs: Mapping[str, Any]
-  ) -> indexing.DocumentIndex:
-    # Empty index; docs are added later.
-    return MyIndex(my_param=spec.my_param, runtime_kwargs=runtime_kwargs)
-
-  index_spec_registry.register_index_spec(
-      MyIndexSpec, make_my_index, name='my_index'
-  )
+    def make_index(
+        self, runtime_kwargs: Mapping[str, Any]
+    ) -> indexing.DocumentIndex:
+      # Empty index; docs are added later.
+      return MyIndex(my_param=self.my_param, runtime_kwargs=runtime_kwargs)
 
 The `name` (defaulting to the class name) is what gets written to
 `index_spec.json` next to a built index, so that the index can be loaded again
@@ -50,10 +48,10 @@ from its directory. Keep it stable once indexes have been saved with it.
 Lookup is by *exact* spec type: a subclass of a registered spec is not
 buildable until it is registered itself. This prevents silently building the
 parent's index for a subclass that adds new fields. To reuse the parent's
-factory, register it explicitly for the subclass.
+`make_index`, register the subclass explicitly.
 
 Environment-specific settings and credentials (`runtime_kwargs`, e.g. API keys)
-are not part of the spec: they are passed to the factory separately, so specs
+are not part of the spec: they are passed to `make_index` separately, so specs
 only describe the index.
 """
 
@@ -69,9 +67,6 @@ IndexSpec = index_build_interface.IndexSpec
 
 _SpecT = TypeVar('_SpecT', bound=IndexSpec)
 
-# A function that builds an empty index for a given spec and runtime kwargs.
-IndexFactory = Callable[[Any, Mapping[str, Any]], indexing.DocumentIndex]
-
 
 @dataclasses.dataclass(frozen=True)
 class IndexSpecRegistration:
@@ -80,13 +75,10 @@ class IndexSpecRegistration:
   Attributes:
     name: Stable name of the spec, used when serializing specs.
     spec_cls: The exact `IndexSpec` subclass.
-    factory: Builds an empty index from a `spec_cls` instance and runtime
-      kwargs.
   """
 
   name: str
   spec_cls: type[IndexSpec]
-  factory: IndexFactory
 
 
 _REGISTRATIONS_BY_NAME: dict[str, IndexSpecRegistration] = {}
@@ -105,52 +97,59 @@ def _get_registration(key: str | type[IndexSpec]) -> IndexSpecRegistration:
     registration = _REGISTRATIONS_BY_TYPE.get(key)
   if registration is None:
     raise KeyError(
-        f'No index factory registered for {_key_name(key)}. Registered index'
+        f'Index spec {_key_name(key)} is not registered. Registered index'
         f' specs: {list_index_specs()}. Register one with'
-        ' index_spec_registry.register_index_spec(<spec class>, <factory>,'
-        ' name=<name>).'
+        ' @index_spec_registry.register_index_spec(<name>).'
     )
   return registration
 
 
 def register_index_spec(
-    spec_cls: type[_SpecT],
-    factory: Callable[[_SpecT, Mapping[str, Any]], indexing.DocumentIndex],
-    *,
     name: str | None = None,
-) -> None:
-  """Registers the factory that builds indexes for `spec_cls`.
+) -> Callable[[type[_SpecT]], type[_SpecT]]:
+  """Returns a class decorator that registers an `IndexSpec` subclass.
+
+    @index_spec_registry.register_index_spec('my_index')
+    @dataclasses_json.dataclass_json
+    @dataclasses.dataclass(kw_only=True)
+    class MyIndexSpec(index_build_interface.IndexSpec):
+      ...
+
+  Indexes are built with the spec's `make_index` method.
 
   Args:
-    spec_cls: The exact `IndexSpec` subclass handled by `factory`.
-    factory: A callable that takes a `spec_cls` instance and the runtime kwargs
-      (environment-specific settings and credentials for the index's backends)
-      and returns an empty `DocumentIndex` configured accordingly.
-    name: Stable name for the spec, written to `index_spec.json` when an index
-      is saved. Defaults to `spec_cls.__name__`.
+    name: Stable name of the spec, which is written to `index_spec.json` when
+      an index is saved. Defaults to the class name.
 
-  Raises:
-    TypeError: If `spec_cls` is not a subclass of `IndexSpec`.
-    ValueError: If `spec_cls` or `name` is already registered.
+  Returns:
+    A class decorator that registers the class and returns it unchanged. It
+    raises `TypeError` if the class is not an `IndexSpec` subclass or does not
+    implement `make_index`, and `ValueError` if the class or name is already
+    registered.
   """
-  if not (isinstance(spec_cls, type) and issubclass(spec_cls, IndexSpec)):
-    raise TypeError(f'{spec_cls!r} is not a subclass of IndexSpec.')
-  name = name or spec_cls.__name__
-  if spec_cls in _REGISTRATIONS_BY_TYPE:
-    raise ValueError(
-        f'Index spec {spec_cls.__name__} is already registered as'
-        f' {_REGISTRATIONS_BY_TYPE[spec_cls].name!r}.'
-    )
-  if name in _REGISTRATIONS_BY_NAME:
-    raise ValueError(
-        f'Index spec name {name!r} is already registered for'
-        f' {_REGISTRATIONS_BY_NAME[name].spec_cls.__name__}.'
-    )
-  registration = IndexSpecRegistration(
-      name=name, spec_cls=spec_cls, factory=factory
-  )
-  _REGISTRATIONS_BY_NAME[name] = registration
-  _REGISTRATIONS_BY_TYPE[spec_cls] = registration
+
+  def decorator(spec_cls: type[_SpecT]) -> type[_SpecT]:
+    if not (isinstance(spec_cls, type) and issubclass(spec_cls, IndexSpec)):
+      raise TypeError(f'{spec_cls!r} is not a subclass of IndexSpec.')
+    if spec_cls.make_index is IndexSpec.make_index:
+      raise TypeError(f'{spec_cls.__name__} must implement make_index.')
+    spec_name = name or spec_cls.__name__
+    if spec_cls in _REGISTRATIONS_BY_TYPE:
+      raise ValueError(
+          f'Index spec {spec_cls.__name__} is already registered as'
+          f' {_REGISTRATIONS_BY_TYPE[spec_cls].name!r}.'
+      )
+    if spec_name in _REGISTRATIONS_BY_NAME:
+      raise ValueError(
+          f'Index spec name {spec_name!r} is already registered for'
+          f' {_REGISTRATIONS_BY_NAME[spec_name].spec_cls.__name__}.'
+      )
+    registration = IndexSpecRegistration(name=spec_name, spec_cls=spec_cls)
+    _REGISTRATIONS_BY_NAME[spec_name] = registration
+    _REGISTRATIONS_BY_TYPE[spec_cls] = registration
+    return spec_cls
+
+  return decorator
 
 
 def list_index_specs() -> list[str]:
@@ -167,19 +166,18 @@ def make_index(
     spec: IndexSpec,
     runtime_kwargs: Mapping[str, Any] | None = None,
 ) -> indexing.DocumentIndex:
-  """Returns an empty index built by the factory registered for `type(spec)`.
+  """Returns an empty index built by `spec.make_index`.
 
   Args:
-    spec: The index specification.
+    spec: The index specification. Its exact type must be registered.
     runtime_kwargs: Environment-specific settings and credentials for the
       index's backends (e.g. API key).
 
   Raises:
-    KeyError: If no factory is registered for `type(spec)`.
+    KeyError: If `type(spec)` is not registered.
   """
-  return _get_registration(type(spec)).factory(
-      spec, dict(runtime_kwargs or {})
-  )
+  _get_registration(type(spec))
+  return spec.make_index(dict(runtime_kwargs or {}))
 
 
 def spec_to_dict(spec: IndexSpec) -> dict[str, Any]:
