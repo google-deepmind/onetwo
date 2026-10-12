@@ -24,7 +24,6 @@ from etils import epath
 import immutabledict
 from onetwo.backends import backends_base
 from onetwo.builtins import llm
-from onetwo.core import batching
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -37,7 +36,6 @@ import sentencepiece as sp
 TOKENIZER_PATHS: Final[Mapping[str, str]] = immutabledict.immutabledict({})
 
 
-@batching.add_batching
 @dataclasses.dataclass
 class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
   """SentencePiece tokenizer backend for OneTwo.
@@ -53,12 +51,10 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
       exception.
     model_name: Name of the model to use (can be a key in TOKENIZER_PATHS or a
       direct file path).
-    batch_size: Batch size for batching the tokenization requests.
   """
 
   max_retries: int = 0
   model_name: str = ''
-  batch_size: int = 64
 
   _counters: collections.Counter[str] = dataclasses.field(
       init=False, default_factory=collections.Counter
@@ -149,48 +145,16 @@ class SentencePieceTokenizer(caching.FileCacheEnabled, backends_base.Backend):
     self._counters['tokenize'] += 1
     if not isinstance(content, str):
       raise ValueError('Tokenizing non-string content is not yet supported.')
-    return await self._batchable_tokenize(content)
+    return self._model.EncodeAsIds(content)
 
   @executing.make_executable
   @tracing.trace(
       name='SentencePieceTokenizer.detokenize', skip=['tokens', 'output']
   )
   @utils.with_retry(max_retries=utils.FromInstance('max_retries'))
-  async def detokenize(self, tokens: Sequence[int]) -> Sequence[str]:
+  async def detokenize(self, tokens: Sequence[int]) -> str:
     """See builtins.llm.detokenize."""
     self._counters['detokenize'] += 1
     if not all(isinstance(item, int) for item in tokens):
       raise ValueError('Input is not a sequence of integers.')
-    return await self._batchable_detokenize(tokens)
-
-  @batching.batchable_method(
-      implementation=utils.FromInstance('_batch_tokenize'),
-  )
-  def _batchable_tokenize(self, content: str) -> Sequence[int]:
-    return []
-
-  @batching.batch_method(batch_size=utils.FromInstance('batch_size'))
-  def _batch_tokenize(
-      self, requests: batching.ParametersBatch
-  ) -> Sequence[Sequence[int]]:
-    """Batches the tokenization requests."""
-    self._counters['_batch_tokenize'] += 1
-    contents = [c['content'] for c in requests]
-    tokenized_result = [self._model.EncodeAsIds(c) for c in contents]
-    return tokenized_result
-
-  @batching.batchable_method(
-      implementation=utils.FromInstance('_batch_detokenize'),
-  )
-  def _batchable_detokenize(self, tokens: Sequence[int]) -> Sequence[str]:
-    return []
-
-  @batching.batch_method(batch_size=utils.FromInstance('batch_size'))
-  def _batch_detokenize(
-      self, requests: batching.ParametersBatch
-  ) -> Sequence[str]:
-    """Batches the tokenization requests."""
-    self._counters['_batch_detokenize'] += 1
-    tokens = [t['tokens'] for t in requests]
-    detokenized_result = [self._model.DecodeIds(t) for t in tokens]
-    return detokenized_result
+    return self._model.DecodeIds(list(tokens))

@@ -58,7 +58,6 @@ class SentencePieceTokenizerTest(
   def test_tokenizer_backend(self):
     with mock_sentencepiece_tokenizer_backend(
         cache_filename=self._cachefile.full_path,
-        batch_size=4,
         model_name='ignored',
     ) as backend:
       tokenize_executable = [
@@ -82,8 +81,6 @@ class SentencePieceTokenizerTest(
       expected_backend_counters = collections.Counter(
           {
               'tokenize': 10,
-              '_batch_tokenize': 3,
-              '_batch_detokenize': 3,
               'detokenize': 10,
           },
       )

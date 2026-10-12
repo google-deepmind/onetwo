@@ -193,7 +193,7 @@ async def truncate_string_to_max_tokens(
   with routing.RegistryContext():
     if tokenizer_backend is not None:
       tokenizer_backend.register()
-    return await llm.detokenize((await llm.tokenize(text))[:max_tokens])  # pyrefly: ignore[bad-return]
+    return str(await llm.detokenize((await llm.tokenize(text))[:max_tokens]))
 
 
 @executing.make_executable
