@@ -106,12 +106,20 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
   Attributes:
     chunker_config: Configuration for the chunker used for corpus rewriting.
     format_str: Format string for document formatting.
+    preserve_original_docs: Whether to preserve the pre-rewriting documents in
+      the index.
+    retrieval_target: Default target objects to return upon retrieval (rewritten
+      or original).
   """
 
   chunker_config: chunker_registry.ChunkerConfig = dataclasses.field(
       default_factory=chunker_registry.ChunkerConfig
   )
   format_str: str | None = '{text}'
+  preserve_original_docs: bool = False
+  retrieval_target: indexing.RetrievalTarget = (
+      indexing.RetrievalTarget.REWRITTEN
+  )
 
   def make_index(
       self, runtime_kwargs: Mapping[str, Any]
@@ -121,6 +129,8 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         rewriter=make_rewriter(self),
         inner_index=super().make_index(runtime_kwargs),
         serializer_type=self.serializer_type,
+        preserve_original_docs=self.preserve_original_docs,
+        retrieval_target=self.retrieval_target,
     )
 
   def __str__(self) -> str:

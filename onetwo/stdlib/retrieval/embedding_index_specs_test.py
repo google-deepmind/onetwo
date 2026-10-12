@@ -19,6 +19,7 @@ from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import embedding_index_specs
+from onetwo.stdlib.retrieval import indexing
 
 
 class EmbeddingIndexSpecsTest(absltest.TestCase):
@@ -57,6 +58,18 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
     factory.assert_called_once_with(custom_arg=42)
     rewriters = getattr(index.rewriter, 'rewriters')
     self.assertIs(getattr(rewriters[0], 'chunker'), custom_chunker)
+
+  def test_preserve_original_docs_and_retrieval_target(self):
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='FakeEmbedderBackend'
+        ),
+        preserve_original_docs=True,
+        retrieval_target=indexing.RetrievalTarget.ORIGINAL,
+    )
+    index = spec.make_index({})
+    self.assertTrue(index.preserve_original_docs)
+    self.assertEqual(index.retrieval_target, indexing.RetrievalTarget.ORIGINAL)
 
 
 if __name__ == '__main__':
