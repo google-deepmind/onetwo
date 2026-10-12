@@ -139,6 +139,7 @@ def get_expanded_arguments(
     include_defaults: bool,
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
+    signature: inspect.Signature | None = None,
 ) -> collections.OrderedDict[str, Any]:
   """Expands the arguments to the function.
 
@@ -155,6 +156,9 @@ def get_expanded_arguments(
       set by the caller.
     args: Positional arguments used in the call to the function.
     kwargs: Keyword arguments used in the call to the function.
+    signature: The signature of `f`, if already known (e.g. computed once when
+      decorating `f`). Computing it is slow, so callers on hot paths should
+      pass it.
 
   Returns:
     An ordered dict of {argument_name: argument_value} extracted from the
@@ -164,7 +168,8 @@ def get_expanded_arguments(
     In order to call the function, one needs to use get_calling_args_and_kwargs,
     which converts the ordered dict into a pair (args, kwargs).
   """
-  signature = inspect.signature(f)
+  if signature is None:
+    signature = inspect.signature(f)
   bound_signature = signature.bind_partial(*args)
   if bound_signature is None:
     result = {}
@@ -186,6 +191,7 @@ def get_expanded_arguments(
 def get_calling_args_and_kwargs(
     f: Callable[_Args, Any],
     arguments: collections.OrderedDict[str, Any],
+    signature: inspect.Signature | None = None,
 ) -> _Args:  # pyrefly: ignore[invalid-annotation]
   """Generates positional/keyword arguments for calling a function.
 
@@ -197,6 +203,9 @@ def get_calling_args_and_kwargs(
   Args:
     f: A function whose signature is to be populated.
     arguments: An ordered dict produced by `get_expanded_arguments`.
+    signature: The signature of `f`, if already known (e.g. computed once when
+      decorating `f`). Computing it is slow, so callers on hot paths should
+      pass it.
 
   Returns:
     A pair whose first item is the tuple of positional arguments, and the
@@ -207,7 +216,8 @@ def get_calling_args_and_kwargs(
     result = f(*args, **kwargs)
     ```
   """
-  signature = inspect.signature(f)
+  if signature is None:
+    signature = inspect.signature(f)
   args = ()
   kwargs = dict(copy.copy(arguments))
   for name, param in signature.parameters.items():
@@ -490,9 +500,10 @@ def with_retry(
   Returns:
     The decorated function.
   """
+  function_is_method = is_method(function)
 
   def wrapper_impl(*args, **kwargs) -> Any:
-    self = args[0] if is_method(function) else None
+    self = args[0] if function_is_method else None
     max_retries_value = RuntimeParameter[int](max_retries, self).value()
     initial_base_delay_value = RuntimeParameter[int](
         initial_base_delay, self
@@ -520,7 +531,7 @@ def with_retry(
           raise e
 
   async def async_wrapper_impl(*args, **kwargs) -> Any:
-    self = args[0] if is_method(function) else None
+    self = args[0] if function_is_method else None
     max_retries_value = RuntimeParameter[int](max_retries, self).value()
     initial_base_delay_value = RuntimeParameter[int](
         initial_base_delay, self
@@ -564,12 +575,12 @@ def with_retry(
     return await async_wrapper_impl(self, *args, **kwargs)
 
   if inspect.iscoroutinefunction(function):
-    if is_method(function):
+    if function_is_method:
       return cast(_F, awrapper_m)
     else:
       return cast(_F, awrapper)
   else:
-    if is_method(function):
+    if function_is_method:
       return cast(_F, wrapper_m)
     else:
       return cast(_F, wrapper)

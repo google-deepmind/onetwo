@@ -397,6 +397,10 @@ def _trace_impl(
   if is_decorated_with_trace(function):
     return function
 
+  # Computed once here rather than on every call, since `inspect` is slow.
+  signature = inspect.signature(function)
+  function_is_method = utils.is_method(function)
+
   def _prepare_and_populate_inputs(
       *args, **kwargs
   ) -> tuple[results.ExecutionResult, ExecutionResultTracer | None]:
@@ -420,9 +424,11 @@ def _trace_impl(
 
     stage_name = stage_name or function.__name__
     inputs = copy.copy(
-        utils.get_expanded_arguments(function, False, args, kwargs)
+        utils.get_expanded_arguments(
+            function, False, args, kwargs, signature=signature
+        )
     )
-    if utils.is_method(function) and 'self' in inputs:
+    if function_is_method and 'self' in inputs:
       del inputs['self']
     if skip is not None:
       for param in skip:

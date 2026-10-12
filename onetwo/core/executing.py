@@ -779,6 +779,12 @@ def make_executable(
     if not copy_self and 'self' not in local_non_copied_args:
       local_non_copied_args.append('self')
 
+    # Computed once here rather than on every call, since `inspect` is slow.
+    if inspect.ismethod(function):
+      signature = inspect.signature(function.__func__)
+    else:
+      signature = inspect.signature(function)
+
     @functools.wraps(function)
     def inner_m(self, *args: Any, **kwargs: Any) -> Any:
       nonlocal local_non_executed_args, local_non_copied_args
@@ -790,6 +796,7 @@ def make_executable(
           non_copied_args=local_non_copied_args,
           execute_result=execute_result,
           iterate_argument=iterate_argument,
+          signature=signature,
       )
 
     @functools.wraps(function)
@@ -803,6 +810,7 @@ def make_executable(
           non_copied_args=local_non_copied_args,
           execute_result=execute_result,
           iterate_argument=iterate_argument,
+          signature=signature,
       )
 
     utils.set_decorated_with_make_executable(inner_m)
@@ -831,6 +839,7 @@ def make_executable(
             non_copied_args=local_non_copied_args,
             execute_result=execute_result,
             iterate_argument=iterate_argument,
+            signature=signature,
         )
 
       utils.set_decorated_with_make_executable(inner_bound)
@@ -971,6 +980,8 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       yielding the updates from iterating through this argument). This enables
       some chaining of iterable functions whereby we get the iterates from one
       function after the other in a chain `f1(f2(f3()))`.
+    signature: The signature of `wrapped`. Can be passed to the constructor
+      when already known, to avoid recomputing it (which is slow).
   """
 
   def __init__(
@@ -983,8 +994,12 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       non_copied_args: Iterable[str],
       execute_result: bool,
       iterate_argument: str | None,
+      signature: inspect.Signature | None = None,
   ):
     self.wrapped = wrapped
+    self.signature = (
+        signature if signature is not None else inspect.signature(wrapped)
+    )
     # If there are executable arguments, we fill in the arguments dictionary
     # from args and kwargs so that we know which ones to execute when being
     # called.
@@ -997,11 +1012,11 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
     # create a map from argument name to the corresponding value, using
     # default values for arguments that are not specified.
     self._arguments = utils.get_expanded_arguments(
-        self.wrapped, True, args, kwargs
+        self.wrapped, True, args, kwargs, signature=self.signature
     )
     # Try and determine whether one of the parameters is of kind VAR_POSITIONAL.
     # We will have to execute its individual elements.
-    parameters = inspect.signature(self.wrapped).parameters
+    parameters = self.signature.parameters
     self.var_positional = None
     for name, parameter in parameters.items():
       if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
@@ -1037,7 +1052,9 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
       else:
         copied_expanded_arguments[name] = copy.deepcopy(value, memo)
     copied_args, copied_kwargs = utils.get_calling_args_and_kwargs(
-        self.wrapped, copied_expanded_arguments  # pyrefly: ignore[bad-argument-type]
+        self.wrapped,
+        copied_expanded_arguments,  # pyrefly: ignore[bad-argument-type]
+        signature=self.signature,
     )
     other = type(self)(
         self.wrapped,
@@ -1047,6 +1064,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
         non_copied_args=copy.deepcopy(self.non_copied_args, memo),
         execute_result=copy.deepcopy(self.execute_result, memo),
         iterate_argument=copy.deepcopy(self.iterate_argument, memo),
+        signature=self.signature,
     )
     memo[id(self)] = other
     return other
@@ -1161,7 +1179,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
     """
     assert not self._is_iterator
     args, kwargs = utils.get_calling_args_and_kwargs(
-        self.wrapped, self._arguments
+        self.wrapped, self._arguments, signature=self.signature
     )
     if inspect.iscoroutinefunction(self.wrapped):  # Awaitable.
       result = await self.wrapped(*args, **kwargs)
@@ -1176,7 +1194,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
     # otherwise we return the last element.
     assert self._is_iterator
     args, kwargs = utils.get_calling_args_and_kwargs(
-        self.wrapped, self._arguments
+        self.wrapped, self._arguments, signature=self.signature
     )
     updates = Update()
     if inspect.isasyncgenfunction(self.wrapped):  # Async iterator.
@@ -1296,7 +1314,7 @@ class FunctionExecWrapper(Generic[Result], Executable[Result]):
         # The wrapped function returns an iterator or async iterator.
         # We iterate through it.
         args, kwargs = utils.get_calling_args_and_kwargs(
-            self.wrapped, self._arguments
+            self.wrapped, self._arguments, signature=self.signature
         )
         if inspect.isasyncgenfunction(self.wrapped):  # Async iterator.
           async for result in self.wrapped(*args, **kwargs):

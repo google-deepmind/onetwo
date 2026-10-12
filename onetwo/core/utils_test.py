@@ -16,6 +16,7 @@ import asyncio
 import copy
 import dataclasses
 import functools
+import inspect
 import multiprocessing.pool
 import threading
 import time
@@ -177,6 +178,19 @@ class UtilsTest(parameterized.TestCase):
     with self.subTest('should_give_the_right_return_value_with_indirect_call'):
       indirect_res = indirect_call(fun, args, kwargs)
       self.assertEqual(indirect_res, expected_call_res)
+
+    with self.subTest('should_give_same_results_with_precomputed_signature'):
+      signature = inspect.signature(fun)
+      result_with_signature = utils.get_expanded_arguments(
+          fun, use_defaults, args, kwargs, signature=signature
+      )
+      self.assertEqual(result_with_signature, expected)
+      self.assertEqual(
+          utils.get_calling_args_and_kwargs(
+              fun, result_with_signature, signature=signature
+          ),
+          utils.get_calling_args_and_kwargs(fun, result_with_signature),
+      )
 
   @parameterized.named_parameters(
       ('include_all_set', True, (1, 2, 'a'), {}, {'a': 1, 'b': 2, 'c': 'a'}),
