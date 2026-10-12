@@ -20,6 +20,7 @@ from absl.testing import absltest
 import dataclasses_json
 from onetwo import ot
 from onetwo.backends import backend_registry
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
@@ -241,7 +242,10 @@ class IndexSpecRegistryTest(absltest.TestCase):
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='SomeEmbedder', model_name='some-model'
         ),
-        max_chunk_size=128,
+        chunker_config=chunker_registry.ChunkerConfig(
+            chunker_name='words',
+            kwargs={'max_words_per_chunk': 128},
+        ),
     )
 
     spec_dict = index_spec_registry.spec_to_dict(spec)

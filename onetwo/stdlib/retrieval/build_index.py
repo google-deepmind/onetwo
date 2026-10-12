@@ -132,6 +132,18 @@ _OVERLAP_WINDOW = flags.DEFINE_integer(
     'Number of tokens or words to overlap between chunks.',
 )
 
+_TOKENIZE_BACKEND_CLASS_NAME = flags.DEFINE_string(
+    'tokenize_backend_class_name',
+    rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME,
+    'Name of the tokenizer backend class (when --chunking_strategy=tokens).',
+)
+
+_TOKENIZE_MODEL_NAME = flags.DEFINE_string(
+    'tokenize_model_name',
+    rag_defaults.DEFAULT_TOKENIZE_MODEL_NAME,
+    'Name of the tokenizer model (when --chunking_strategy=tokens).',
+)
+
 _FORMAT = flags.DEFINE_string(
     'format',
     None,
@@ -201,6 +213,8 @@ def main(argv: Sequence[str]) -> None:
       chunk_size=_CHUNK_SIZE.value,
       chunking_strategy=_CHUNKING_STRATEGY.value,
       overlap_window=_OVERLAP_WINDOW.value,
+      tokenize_backend_class_name=_TOKENIZE_BACKEND_CLASS_NAME.value,
+      tokenize_model_name=_TOKENIZE_MODEL_NAME.value,
       format_str=_FORMAT.value,
       generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
       generation_model_name=_GENERATION_MODEL_NAME.value,

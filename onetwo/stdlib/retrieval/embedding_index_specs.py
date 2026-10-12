@@ -26,7 +26,7 @@ from typing import Any
 
 import dataclasses_json
 from onetwo.backends import backend_registry
-from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import index_build_interface
@@ -104,24 +104,14 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
   chunking and formatting for corpus rewriting.
 
   Attributes:
-    max_chunk_size: Maximum tokens or words per chunk for chunking.
-    chunking_strategy: Chunking strategy to use ('words' or 'tokens').
+    chunker_config: Configuration for the chunker used for corpus rewriting.
     format_str: Format string for document formatting.
-    overlap_window: Number of tokens or words to overlap between chunks.
-    tokenize_backend_config: Configuration for the tokenizer used when
-      `chunking_strategy` is 'tokens'. Defaults to
-      `rag_defaults.default_tokenize_backend_config()`.
   """
 
-  max_chunk_size: int | None = None
-  chunking_strategy: str = 'words'
-  format_str: str | None = '{text}'
-  overlap_window: int = 0
-  tokenize_backend_config: backend_registry.TokenizeBackendConfig = (
-      dataclasses.field(
-          default_factory=rag_defaults.default_tokenize_backend_config
-      )
+  chunker_config: chunker_registry.ChunkerConfig = dataclasses.field(
+      default_factory=chunker_registry.ChunkerConfig
   )
+  format_str: str | None = '{text}'
 
   def make_index(
       self, runtime_kwargs: Mapping[str, Any]
@@ -142,29 +132,10 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
     spec_hash = self.get_stable_hash()
     return (
         'EmbeddingBasedDocumentIndex'
-        f'_chunk_strategy_{self.chunking_strategy}'
-        f'_chunk_size_{self.max_chunk_size}'
-        f'_overlap_window_{self.overlap_window}'
+        f'_chunker_{self.chunker_config}'
         f'_{model_name}'
         f'__hash_{spec_hash}'
     )
-
-
-def _get_chunker(
-    spec: SimpleRewritingEmbeddingBasedDocumentIndexSpec,
-) -> chunking.Chunker:
-  if spec.max_chunk_size is None:
-    return chunking.NoChunking()
-  if getattr(spec, 'chunking_strategy', 'words') == 'words':
-    return chunking.ChunkByMaxWords(
-        max_words_per_chunk=spec.max_chunk_size,
-        overlap_window=spec.overlap_window,
-    )
-  return chunking.ChunkByMaxTokens(
-      max_tokens_per_chunk=spec.max_chunk_size,
-      overlap_window=spec.overlap_window,
-      tokenize_backend_config=spec.tokenize_backend_config,
-  )
 
 
 def make_rewriter(
@@ -179,7 +150,9 @@ def make_rewriter(
     )
   return corpus_rewriting.SequentialCorpusRewriter(
       rewriters=[
-          corpus_rewriting.ChunkingCorpusRewriter(chunker=_get_chunker(spec)),
+          corpus_rewriting.ChunkingCorpusRewriter(
+              chunker=chunker_registry.get_chunker(spec.chunker_config)
+          ),
           corpus_rewriting.FormattingCorpusRewriter(formatter=formatter),
       ]
   )

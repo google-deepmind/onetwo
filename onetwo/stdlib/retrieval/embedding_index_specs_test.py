@@ -16,34 +16,12 @@ from unittest import mock
 
 from absl.testing import absltest
 from onetwo.backends import backend_registry
-from onetwo.backends import sentencepiece_tokenizer
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import embedding_index_specs
 
 
 class EmbeddingIndexSpecsTest(absltest.TestCase):
-
-  def test_tokens_chunker_uses_default_tokenizer(self):
-    self.enter_context(
-        mock.patch.object(
-            sentencepiece_tokenizer.SentencePieceTokenizer,
-            '_load_model',
-            return_value=mock.MagicMock(),
-        )
-    )
-    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-        max_chunk_size=10, chunking_strategy='tokens'
-    )
-
-    chunker = embedding_index_specs._get_chunker(spec)
-
-    self.assertIsInstance(chunker, chunking.ChunkByMaxTokens)
-    assert chunker.tokenize_backend_config is not None
-    self.assertEqual(
-        chunker.tokenize_backend_config.backend_class_name,
-        'SentencePieceTokenizer',
-    )
-    self.assertEqual(chunker.tokenize_backend_config.model_name, 'GEMINI3_G145')
 
   def test_make_index_passes_runtime_kwargs_to_inner_index(self):
     spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
@@ -55,6 +33,30 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
     index = spec.make_index({'api_key': 'key'})
 
     self.assertEqual(index.inner_index.runtime_kwargs, {'api_key': 'key'})
+
+  def test_custom_chunker_strategy(self):
+    custom_chunker = chunking.NoChunking()
+    factory = mock.Mock(return_value=custom_chunker)
+    chunker_registry.register_chunker('custom_strategy', factory)
+    self.addCleanup(
+        chunker_registry.CHUNKER_REGISTRY.pop, 'custom_strategy', None
+    )
+
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='FakeEmbedderBackend'
+        ),
+        chunker_config=chunker_registry.ChunkerConfig(
+            chunker_name='custom_strategy',
+            kwargs={'custom_arg': 42},
+        ),
+    )
+
+    index = spec.make_index({'from_arg': 2})
+
+    factory.assert_called_once_with(custom_arg=42)
+    rewriters = getattr(index.rewriter, 'rewriters')
+    self.assertIs(getattr(rewriters[0], 'chunker'), custom_chunker)
 
 
 if __name__ == '__main__':

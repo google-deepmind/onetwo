@@ -22,6 +22,7 @@ from onetwo.backends import backends_test_utils
 from onetwo.core import batching
 from onetwo.evaluation.datasets import datasets_lib
 from onetwo.stdlib.retrieval import build_index_lib
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
@@ -109,6 +110,8 @@ class BuildIndexLibTest(absltest.TestCase):
         embedding_backend_class_name='FakeEmbedderBackend',
         embedding_model_name='fake-model',
         chunk_size=16,
+        chunking_strategy='words',
+        overlap_window=0,
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -116,8 +119,25 @@ class BuildIndexLibTest(absltest.TestCase):
         spec,
         embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
     )
-    self.assertEqual(spec.max_chunk_size, 16)
+    self.assertEqual(
+        spec.chunker_config,
+        chunker_registry.ChunkerConfig(
+            chunker_name='words',
+            kwargs={'max_words_per_chunk': 16, 'overlap_window': 0},
+        ),
+    )
     self.assertEqual(spec.embed_backend_config.model_name, 'fake-model')
+
+    with self.assertRaisesRegex(ValueError, 'Unsupported chunking strategy'):
+      build_index_lib.build_index(
+          dataset_name=_DATASET_NAME,
+          output_directory=self.output_dir,
+          runtime_kwargs={},
+          embedding_backend_class_name='FakeEmbedderBackend',
+          embedding_model_name='fake-model',
+          chunk_size=16,
+          chunking_strategy='unknown_strategy',
+      )
 
 
 if __name__ == '__main__':

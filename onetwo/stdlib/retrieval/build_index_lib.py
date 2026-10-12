@@ -21,6 +21,7 @@ from typing import Any
 from onetwo.backends import backend_registry
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
@@ -44,6 +45,10 @@ def build_index(
     chunk_size: int | None = None,
     chunking_strategy: str = 'words',
     overlap_window: int = 0,
+    tokenize_backend_class_name: str = (
+        rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME
+    ),
+    tokenize_model_name: str = rag_defaults.DEFAULT_TOKENIZE_MODEL_NAME,
     format_str: str | None = None,
     generation_backend_class_name: str = (
         rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME
@@ -71,6 +76,10 @@ def build_index(
     chunk_size: Max tokens or words per chunk.
     chunking_strategy: Chunking strategy ('tokens' or 'words').
     overlap_window: Tokens or words to overlap between chunks.
+    tokenize_backend_class_name: Tokenizer backend class name (when
+      `chunking_strategy` is 'tokens').
+    tokenize_model_name: Tokenizer model name (when `chunking_strategy` is
+      'tokens').
     format_str: Format string for document formatting.
     generation_backend_class_name: Generation backend class name for HippoRAG.
     generation_model_name: Generation model name for HippoRAG.
@@ -112,11 +121,34 @@ def build_index(
   if format_str in ('None', ''):
     format_str = None
 
+  if chunk_size is None:
+    chunker_config = chunker_registry.ChunkerConfig(chunker_name='none')
+  elif chunking_strategy == 'words':
+    chunker_config = chunker_registry.ChunkerConfig(
+        chunker_name='words',
+        kwargs={
+            'max_words_per_chunk': chunk_size,
+            'overlap_window': overlap_window,
+        },
+    )
+  elif chunking_strategy == 'tokens':
+    chunker_config = chunker_registry.ChunkerConfig(
+        chunker_name='tokens',
+        kwargs={
+            'max_tokens_per_chunk': chunk_size,
+            'overlap_window': overlap_window,
+            'tokenize_backend_config': backend_registry.TokenizeBackendConfig(
+                backend_class_name=tokenize_backend_class_name,
+                model_name=tokenize_model_name,
+            ),
+        },
+    )
+  else:
+    raise ValueError(f'Unsupported chunking strategy: {chunking_strategy!r}')
+
   spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
       embed_backend_config=embed_backend_config,
-      max_chunk_size=chunk_size,
-      chunking_strategy=chunking_strategy,
-      overlap_window=overlap_window,
+      chunker_config=chunker_config,
       format_str=format_str,
       serializer_type=serializer_type,
   )

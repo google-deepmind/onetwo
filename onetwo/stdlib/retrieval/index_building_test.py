@@ -19,6 +19,7 @@ from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import batching
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
@@ -54,7 +55,10 @@ class IndexBuildingTest(absltest.TestCase):
         embed_backend_config=backend_registry.EmbedBackendConfig(
             backend_class_name='FakeEmbedderBackend'
         ),
-        max_chunk_size=16,
+        chunker_config=chunker_registry.ChunkerConfig(
+            chunker_name='words',
+            kwargs={'max_words_per_chunk': 16},
+        ),
     )
     out_dir = self.create_tempdir().full_path
     ot.run(

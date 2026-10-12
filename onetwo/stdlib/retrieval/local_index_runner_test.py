@@ -38,6 +38,7 @@ from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import batching
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building  # pylint: disable=unused-import
@@ -111,7 +112,10 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'simple_rewriting_spec',
           embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
-              'max_chunk_size': 100,
+              'chunker_config': chunker_registry.ChunkerConfig(
+                  chunker_name='words',
+                  kwargs={'max_words_per_chunk': 100},
+              ),
               'format_str': 'Title: {title}\nFacts: {text}',
           },
           indexing.RewritingEmbeddingBasedDocumentIndex,
@@ -125,7 +129,9 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'simple_rewriting_spec_no_chunking',
           embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
-              'max_chunk_size': None,
+              'chunker_config': chunker_registry.ChunkerConfig(
+                  chunker_name='none'
+              ),
               'format_str': 'Title: {title}\nFacts: {text}',
           },
           indexing.RewritingEmbeddingBasedDocumentIndex,
@@ -139,7 +145,10 @@ class LocalIndexRunnerTest(parameterized.TestCase):
           'custom_params',
           embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
           {
-              'max_chunk_size': 100,
+              'chunker_config': chunker_registry.ChunkerConfig(
+                  chunker_name='words',
+                  kwargs={'max_words_per_chunk': 100},
+              ),
               'format_str': 'Title: {title}\nFacts: {text}',
               'query_task_type': 'CUSTOM_QUERY_TASK',
               'document_task_type': 'CUSTOM_DOC_TASK',
@@ -238,7 +247,10 @@ class LocalIndexRunnerTest(parameterized.TestCase):
   def test_index_spec_serialization(self):
     spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
-        max_chunk_size=100,
+        chunker_config=chunker_registry.ChunkerConfig(
+            chunker_name='words',
+            kwargs={'max_words_per_chunk': 100},
+        ),
         format_str='Title: {title}\nFacts: {text}',
         query_task_type='CUSTOM_QUERY_TASK',
         document_task_type='CUSTOM_DOC_TASK',
@@ -277,13 +289,15 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         searcher_config=index_build_interface.SearcherConfig(
             class_name='BruteForceSearcher',
         ),
-        max_chunk_size=512,
-        overlap_window=50,
+        chunker_config=chunker_registry.ChunkerConfig(
+            chunker_name='words',
+            kwargs={'max_words_per_chunk': 512, 'overlap_window': 50},
+        ),
         format_str='{text}',
     )
-    self.assertEqual(
+    self.assertIn(
+        'EmbeddingBasedDocumentIndex_chunker_words-max_words_per_chunk=512-overlap_window=50_gemini-embedding-2__hash_',
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_strategy_words_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_056842d8',
     )
 
   def test_simple_rewriting_index_spec_str_representation_tokens(self):
@@ -294,14 +308,15 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         searcher_config=index_build_interface.SearcherConfig(
             class_name='BruteForceSearcher',
         ),
-        max_chunk_size=512,
-        chunking_strategy='tokens',
-        overlap_window=50,
+        chunker_config=chunker_registry.ChunkerConfig(
+            chunker_name='tokens',
+            kwargs={'max_tokens_per_chunk': 512, 'overlap_window': 50},
+        ),
         format_str='{text}',
     )
-    self.assertEqual(
+    self.assertIn(
+        'EmbeddingBasedDocumentIndex_chunker_tokens-max_tokens_per_chunk=512-overlap_window=50_gemini-embedding-2__hash_',
         str(spec),
-        'EmbeddingBasedDocumentIndex_chunk_strategy_tokens_chunk_size_512_overlap_window_50_gemini-embedding-2__hash_cf421895',
     )
 
 
