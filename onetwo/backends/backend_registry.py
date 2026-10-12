@@ -131,14 +131,7 @@ def get_backend(
   kwargs = dict(config.kwargs)
 
   if config.model_name:
-    if isinstance(config, GenerateBackendConfig):
-      # TODO: Update GoogleGenAIAPI to use model_name directly.
-      if config.backend_class_name == 'GoogleGenAIAPI':
-        kwargs['generate_model_name'] = config.model_name
-        kwargs['chat_model_name'] = config.model_name
-      else:
-        kwargs['model_name'] = config.model_name
-    elif isinstance(config, TokenizeBackendConfig):
+    if isinstance(config, (GenerateBackendConfig, TokenizeBackendConfig)):
       kwargs['model_name'] = config.model_name
     else:
       kwargs['embed_model_name'] = config.model_name

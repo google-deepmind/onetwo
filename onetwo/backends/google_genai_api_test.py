@@ -448,6 +448,68 @@ class GoogleGenaiApiTest(
     # Assert that the chat is called with the correct prompt.
     self._mock_genai_client.models.generate_content.assert_called_once()
 
+  def test_model_name_defaults(self):
+    backend = _get_and_register_backend()
+    self.assertIsNone(backend.model_name)
+    self.assertEqual(
+        backend.generate_model_name, google_genai_api.DEFAULT_GENERATE_MODEL
+    )
+    self.assertEqual(
+        backend.chat_model_name, google_genai_api.DEFAULT_GENERATE_MODEL
+    )
+
+  @parameterized.named_parameters(
+      ('string', 'models/some-model', 'models/some-model'),
+      (
+          'model_name_object',
+          google_genai_api.ModelName(
+              vertex_ai='vertex-model', gemini_api='models/gemini-model'
+          ),
+          'models/gemini-model',
+      ),
+  )
+  def test_model_name_sets_generate_and_chat_model_names(
+      self, model_name, expected_resolved_name
+  ):
+    backend = _get_and_register_backend(model_name=model_name)
+    self.assertEqual(backend.generate_model_name, model_name)
+    self.assertEqual(backend.chat_model_name, model_name)
+    self.assertEqual(backend._generate_model_name(), expected_resolved_name)
+    self.assertEqual(backend._chat_model_name(), expected_resolved_name)
+
+  def test_model_name_with_matching_legacy_names_is_allowed(self):
+    backend = _get_and_register_backend(
+        model_name='models/some-model',
+        generate_model_name='models/some-model',
+        chat_model_name='models/some-model',
+    )
+    self.assertEqual(backend.generate_model_name, 'models/some-model')
+    self.assertEqual(backend.chat_model_name, 'models/some-model')
+
+  def test_model_name_survives_dataclasses_replace(self):
+    backend = _get_and_register_backend(model_name='models/some-model')
+    replaced = dataclasses.replace(backend, temperature=0.5)
+    self.assertEqual(replaced.model_name, 'models/some-model')
+    self.assertEqual(replaced.generate_model_name, 'models/some-model')
+    self.assertEqual(replaced.chat_model_name, 'models/some-model')
+
+  @parameterized.named_parameters(
+      ('generate', {'generate_model_name': 'models/other-model'}),
+      ('chat', {'chat_model_name': 'models/other-model'}),
+      (
+          'both',
+          {
+              'generate_model_name': 'models/other-model',
+              'chat_model_name': 'models/other-model',
+          },
+      ),
+  )
+  def test_model_name_conflicts_with_legacy_names_raises(self, legacy_kwargs):
+    with self.assertRaisesRegex(ValueError, 'cannot be combined with'):
+      google_genai_api.GoogleGenAIAPI(
+          api_key='some_key', model_name='models/some-model', **legacy_kwargs
+      )
+
   def test_generate_text_with_model_string(self):
     backend = _get_and_register_backend(
         generate_model_name=google_genai_api.DEFAULT_GENERATE_MODEL.gemini_api

@@ -61,6 +61,7 @@ class BackendRegistryTest(absltest.TestCase):
     )
     backend = backend_registry.get_backend(config, api_key='test_key')
     self.assertIsInstance(backend, google_genai_api.GoogleGenAIAPI)
+    self.assertEqual(backend.model_name, 'gemini-1.5-pro')
     self.assertEqual(backend.generate_model_name, 'gemini-1.5-pro')
     self.assertEqual(backend.chat_model_name, 'gemini-1.5-pro')
     self.assertEqual(backend.temperature, 0.5)

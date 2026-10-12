@@ -674,8 +674,15 @@ class GoogleGenAIAPI(
     location: Google Cloud project location.
     debug_config: Debug config for the API.
     http_options: HTTP options for the API.
-    generate_model_name: Name of the model to use for `generate` requests.
-    chat_model_name: Name of the model to use for `chat` requests.
+    model_name: Name of the model to use for `generate` and `chat` requests.
+      This is the preferred way to specify the model. Cannot be combined with
+      a different `generate_model_name` or `chat_model_name`. If none of
+      `model_name`, `generate_model_name` and `chat_model_name` are set,
+      `DEFAULT_GENERATE_MODEL` is used.
+    generate_model_name: Prefer `model_name`. Name of the model to use for
+      `generate` requests. Set to `model_name` if that is provided.
+    chat_model_name: Prefer `model_name`. Name of the model to use for `chat`
+      requests. Set to `model_name` if that is provided.
     embed_model_name: Name of the model to use for `embed` requests.
     enable_streaming: Whether to enable streaming replies from generate_text.
     max_qps: Maximum queries per second for the backend (if None, no rate
@@ -724,8 +731,10 @@ class GoogleGenAIAPI(
   http_options: (
       Union[genai_types.HttpOptions, genai_types.HttpOptionsDict] | None
   ) = None
-  generate_model_name: str | ModelName = DEFAULT_GENERATE_MODEL
-  chat_model_name: str | ModelName = DEFAULT_GENERATE_MODEL
+  model_name: str | ModelName | None = None
+  # Resolved in __post_init__ (from `model_name` or `DEFAULT_GENERATE_MODEL`).
+  generate_model_name: str | ModelName | None = None
+  chat_model_name: str | ModelName | None = None
   embed_model_name: str | ModelName = DEFAULT_EMBED_MODEL
   enable_streaming: bool = False
   max_qps: float | None = None
@@ -869,29 +878,53 @@ class GoogleGenAIAPI(
         return f.readline().strip()
     return None
 
+  def _resolve_model_name(self, name: str | ModelName | None) -> str:
+    if name is None:
+      # Should not happen: `__post_init__` populates all model names.
+      raise ValueError('Model name is not set.')
+    if isinstance(name, ModelName):
+      return name.vertex_ai if self.vertexai else name.gemini_api
+    return name
+
   def _generate_model_name(self) -> str:
-    if isinstance(self.generate_model_name, ModelName):
-      if self.vertexai:
-        return self.generate_model_name.vertex_ai
-      else:
-        return self.generate_model_name.gemini_api
-    return self.generate_model_name
+    return self._resolve_model_name(self.generate_model_name)
 
   def _chat_model_name(self) -> str:
-    if isinstance(self.chat_model_name, ModelName):
-      if self.vertexai:
-        return self.chat_model_name.vertex_ai
-      else:
-        return self.chat_model_name.gemini_api
-    return self.chat_model_name
+    return self._resolve_model_name(self.chat_model_name)
 
   def _embed_model_name(self) -> str:
-    if isinstance(self.embed_model_name, ModelName):
-      if self.vertexai:
-        return self.embed_model_name.vertex_ai
-      else:
-        return self.embed_model_name.gemini_api
-    return self.embed_model_name
+    return self._resolve_model_name(self.embed_model_name)
+
+  def _resolve_generate_and_chat_model_names(self) -> None:
+    """Populates `generate_model_name` and `chat_model_name`.
+
+    Raises:
+      ValueError: If `model_name` is set together with a different
+        `generate_model_name` or `chat_model_name`.
+    """
+    if self.model_name is not None:
+      # Values equal to `model_name` are allowed so that e.g.
+      # `dataclasses.replace` on an instance created with `model_name` works.
+      conflicting = {
+          field: value
+          for field, value in (
+              ('generate_model_name', self.generate_model_name),
+              ('chat_model_name', self.chat_model_name),
+          )
+          if value is not None and value != self.model_name
+      }
+      if conflicting:
+        raise ValueError(
+            f'`model_name` ({self.model_name!r}) cannot be combined with'
+            f' {conflicting}. Set only `model_name`.'
+        )
+      self.generate_model_name = self.model_name
+      self.chat_model_name = self.model_name
+    else:
+      if self.generate_model_name is None:
+        self.generate_model_name = DEFAULT_GENERATE_MODEL
+      if self.chat_model_name is None:
+        self.chat_model_name = DEFAULT_GENERATE_MODEL
 
   def _verify_available_models(self):
     """Verify that specified models are available and support all methods."""
@@ -917,6 +950,8 @@ class GoogleGenAIAPI(
       _verify_model_name(self._embed_model_name())
 
   def __post_init__(self) -> None:
+
+    self._resolve_generate_and_chat_model_names()
 
     if self.cache is None:
       self.cache = caching.SimpleFunctionCache()
