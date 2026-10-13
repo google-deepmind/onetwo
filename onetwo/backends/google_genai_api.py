@@ -30,7 +30,6 @@ from absl import logging
 from etils import epath
 from google import genai
 import google.auth.credentials
-from google.genai import _mcp_utils
 from google.genai import client
 from google.genai import types as genai_types
 import google.genai.errors as genai_errors
@@ -1132,7 +1131,12 @@ class GoogleGenAIAPI(
     )
     return results
 
-  # TODO: b/532970232 - Consider using only _generate_contents_inner_async.
+  # TODO: b/532970232 - Consider moving to the async client
+  # (`_genai_client.aio`) instead of the sync one in a thread pool. Its
+  # connections stay bound to the event loop they were opened in, so it fails
+  # with `Event loop is closed` on the next `ot.run`; it would need e.g. one
+  # client per event loop, and a cap on concurrent requests to replace
+  # `threadpool_size`.
   @executing.make_executable
   @tracing.trace(name='GoogleGenAIAPI.generate_contents')
   @caching.cache_method(  # Cache this method.
@@ -1155,11 +1159,7 @@ class GoogleGenAIAPI(
       healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
       **kwargs,  # Optional genai specific arguments.
   ) -> Sequence[llm.Content]:
-    """Generates content from the model, routing to sync or async paths.
-
-    Routes to the async path when MCP tools are present (since MCP sessions
-    are bound to the caller's event loop), and to the sync thread-pool path
-    otherwise.
+    """Generates content from the model.
 
     Args:
       prompt: The input prompt to the model.
@@ -1187,31 +1187,6 @@ class GoogleGenAIAPI(
       a ``ChunkList`` if ``include_details=False``, or a
       ``(ChunkList, details)`` tuple if ``include_details=True``.
     """
-    # We must support two execution paths for content generation.
-    # 1. Async route (_generate_contents_inner_async): Necessary when using MCP
-    #    tools. MCP sessions manage async streams that are bound to the caller's
-    #    event loop and cannot be dispatched to a separate thread pool.
-    # 2. Sync route (_generate_contents_inner): Used for all other calls. The
-    #    underlying google.genai async client caches network connections that
-    #    are bound to a specific asyncio event loop. The sync path uses a
-    #    blocking HTTP client with no loop affinity, dispatched to a thread
-    #    pool via @batching.to_thread_pool_method to keep execution
-    #    non-blocking.
-    tools = kwargs.get('tools')
-    if tools and _mcp_utils.has_mcp_session_usage(tools):
-      return await self._generate_contents_inner_async(
-          prompt=prompt,
-          samples=samples,
-          temperature=temperature,
-          max_tokens=max_tokens,
-          stop=stop,
-          top_k=top_k,
-          top_p=top_p,
-          include_details=include_details,
-          healing_option=healing_option,
-          **kwargs,
-      )
-
     return await self._generate_contents_inner(
         prompt=prompt,
         samples=samples,
@@ -1302,53 +1277,6 @@ class GoogleGenAIAPI(
     )
     prompt.cache_name = new_cache.name
     return new_cache.name  # pyrefly: ignore[bad-return]
-
-  @utils.with_retry(
-      max_retries=utils.FromInstance('max_retries'),
-      initial_base_delay=utils.FromInstance('initial_base_delay'),
-      max_base_delay=utils.FromInstance('max_base_delay'),
-      retriable_error_filter=_is_retriable_error,
-  )
-  async def _generate_contents_inner_async(
-      self,
-      prompt: llm.Prompt,
-      samples: int = 1,
-      *,
-      temperature: float | None = None,
-      max_tokens: int | None = None,
-      stop: Sequence[str] | None = None,
-      top_k: int | None = None,
-      top_p: float | None = None,
-      include_details: bool = False,
-      healing_option: _TokenHealingOption = _TokenHealingOption.NONE,
-      tools: Sequence[Any] | None = None,
-      **kwargs,  # Optional genai specific arguments.
-  ) -> Sequence[llm.Content]:
-    """Async counterpart of _generate_contents_inner with retry."""
-    model_name, contents, generation_config = (
-        self._prepare_generation_config_and_contents(
-            prompt=prompt,
-            samples=samples,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stop=stop,
-            top_k=top_k,
-            top_p=top_p,
-            healing_option=healing_option,
-            tools=tools,
-            **kwargs,
-        )
-    )
-    response = await self._genai_client.aio.models.generate_content(
-        model=model_name,
-        contents=contents,
-        config=generation_config,
-    )
-    return self._process_generation_response(
-        response=response,
-        model_name=model_name,
-        include_details=include_details,
-    )
 
   @batching.to_thread_pool_method(
       num_workers=utils.FromInstance('threadpool_size'),

@@ -27,9 +27,7 @@ import uuid
 from absl import app
 from absl import flags
 from absl import logging
-import fastmcp
 from google.genai import types as genai_types
-import mcp
 from onetwo.agents import agent as agent_lib
 from onetwo.backends import google_genai_api
 from onetwo.builtins import composables as c
@@ -45,11 +43,6 @@ from onetwo.core import sampling
 from onetwo.stdlib.tool_use import llm_tool_use
 import pydantic
 import pydantic.dataclasses as pydantic_dataclasses
-
-McpClient = fastmcp.Client
-FastMCPServer = fastmcp.FastMCP
-
-mcp.ClientSession.__deepcopy__ = lambda self, memo: self
 
 pydantic_dataclass = pydantic_dataclasses.dataclass
 
@@ -1470,177 +1463,6 @@ def main(argv: Sequence[str]) -> None:
           )
     finally:
       backend.register()
-
-  @executing.make_executable
-  async def _run_mcp_add_test(
-      include_thoughts: bool = True,
-  ) -> tuple[str, bool, bool]:
-    """Returns the result, and whether each tool was called."""
-    mcp_server = FastMCPServer('Calculator')
-    add_called = False
-    multiply_called = False
-
-    @mcp_server.tool()
-    def add(a: int, b: int) -> int:
-      """Add two numbers together."""
-      nonlocal add_called
-      add_called = True
-      return a + b
-
-    @mcp_server.tool()
-    def multiply(a: int, b: int) -> int:
-      """Multiply two numbers together."""
-      nonlocal multiply_called
-      multiply_called = True
-      return a * b
-
-    async with McpClient(mcp_server) as mcp_client:
-      session = mcp_client.session
-      result = await llm.generate_content(
-          prompt=(
-              'First, use the add tool to compute 2 + 3. Then, use the'
-              ' multiply tool to compute 4 * (2 + 3). Report both results.'
-          ),
-          tools=[session],
-          thinking_config=genai_types.ThinkingConfig(
-              include_thoughts=include_thoughts
-          ),
-      )
-      return str(result), add_called, multiply_called
-
-  if _should_run_test(32):
-    with _run_test(
-        32,
-        'MCP Tool: FastMCP multi-tool server with tracing',
-        test_results,
-    ) as tc:
-      (result_text, add_called, multiply_called), trace = executing.run(
-          _run_mcp_add_test(), enable_tracing=True
-      )
-      print(
-          f'MCP result: {result_text} (add called: {add_called},'
-          f' multiply called: {multiply_called})'
-      )
-      if '20' not in result_text:
-        tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
-      if not add_called:
-        tc.fail('The add tool was not called by the LLM.')
-      if not multiply_called:
-        tc.fail('The multiply tool was not called by the LLM.')
-
-      # Check llm.tools.calls in the trace.
-      # The trace structure for generate_content is:
-      #   trace (root)
-      #   └── stages[0]: GoogleGenAIAPI.generate_contents  <- info is here
-      # However, with MCP tools the structure may vary; we look for the
-      # stage containing 'llm.tools.calls'.
-      found_tools_calls = False
-
-      def _check_stage(stage):
-        nonlocal found_tools_calls
-        if hasattr(stage, 'info') and stage.info:
-          if 'llm.tools.calls' in stage.info:
-            found_tools_calls = True
-            val = stage.info['llm.tools.calls']
-            print(f'- llm.tools.calls: {val}')
-            for key in [
-                'llm.tokens.prompt',
-                'llm.tokens.cached_content',
-                'llm.tokens.candidates',
-                'llm.tokens.thoughts',
-                'llm.tokens.tool_use_prompt',
-            ]:
-              if key in stage.info:
-                print(f'- {key}: {stage.info[key]}')
-            if 'llm.tools.details' in stage.info:
-              print('- llm.tools.details:')
-              for detail in stage.info['llm.tools.details']:
-                pprint.pprint(detail, indent=4)
-            if not isinstance(val, int) or val < 0:
-              tc.fail(
-                  f'llm.tools.calls is not a valid non-negative integer: {val}'
-              )
-        if hasattr(stage, 'stages'):
-          for sub in stage.stages:
-            _check_stage(sub)
-
-      _check_stage(trace)
-      if not found_tools_calls:
-        tc.fail('llm.tools.calls not found in any trace stage.')
-
-  if _should_run_test(33):
-    with _run_test(
-        33,
-        'MCP Tool: sequential calls on persistent loop',
-        test_results,
-    ) as tc:
-      # The first run (in test 32) establishes the client and loop.
-      # If test 32 did not run, we run it once here.
-      if not _should_run_test(32):
-        executing.run(_run_mcp_add_test())
-
-      # Sequential executing.run calls now succeed because the thread-local
-      # event loop and MCP transport sockets persist across calls.
-      result_text, add_called, _ = executing.run(_run_mcp_add_test())
-      print(f'Second run MCP result: {result_text}')
-      if '20' not in result_text:
-        tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
-      if not add_called:
-        tc.fail('The add tool was not called by the LLM on second run.')
-
-  if _should_run_test(34):
-    with _run_test(
-        34,
-        'MCP Tool: tool details without thoughts',
-        test_results,
-    ) as tc:
-      (result_text, add_called, multiply_called), trace = executing.run(
-          _run_mcp_add_test(include_thoughts=False), enable_tracing=True
-      )
-      print(
-          f'MCP result: {result_text} (add called: {add_called},'
-          f' multiply called: {multiply_called})'
-      )
-      if '20' not in result_text:
-        tc.fail(f'Expected "20" (4*5) in response, got: {result_text}')
-      if not add_called:
-        tc.fail('The add tool was not called by the LLM.')
-      if not multiply_called:
-        tc.fail('The multiply tool was not called by the LLM.')
-
-      # Verify tool details are present even without thoughts.
-      def _find_details_no_thoughts(stage):
-        if hasattr(stage, 'info') and stage.info:
-          if 'llm.tools.details' in stage.info:
-            return stage.info['llm.tools.details']
-        if hasattr(stage, 'stages'):
-          for sub in stage.stages:
-            result = _find_details_no_thoughts(sub)
-            if result is not None:
-              return result
-        return None
-
-      details = _find_details_no_thoughts(trace)
-      if details is None:
-        tc.fail('llm.tools.details not found in any trace stage.')
-      else:
-        print('- llm.tools.details:')
-        for detail in details:
-          pprint.pprint(detail, indent=4)
-        # Should have function_call entries but no thought entries.
-        call_entries = [d for d in details if d.get('type') == 'function_call']
-        thought_entries = [d for d in details if d.get('type') == 'thought']
-        if not call_entries:
-          tc.fail('No function_call entries in llm.tools.details.')
-        if thought_entries:
-          print(
-              f'Note: {len(thought_entries)} thought entries found'
-              ' (unexpected with include_thoughts=False).'
-          )
-        print(
-            f'Tool details: {len(call_entries)} calls,'
-            f' {len(thought_entries)} thoughts'
-        )
 
   if _should_run_test(35):
     try:
