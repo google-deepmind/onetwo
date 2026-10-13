@@ -1169,8 +1169,12 @@ class GoogleGenAIAPI(
       stop: Sequences where the model should stop generating.
       top_k: Number of highest-probability tokens to consider at each step.
       top_p: Cumulative probability threshold for nucleus sampling.
-      include_details: If True, returns content with additional metadata (e.g.,
-        safety ratings, finish reason).
+      include_details: If True, returns each candidate as a ``(chunks,
+        details)`` tuple where ``details`` is a mapping containing
+        ``{'thoughts': ChunkList(...)}`` with any thought parts from the
+        response (only populated by the API when
+        ``thinking_config={'include_thoughts': True}`` is passed via
+        ``**kwargs``).
       healing_option: Token healing strategy (currently unsupported, will log a
         warning if set to anything other than NONE).
       **kwargs: Additional genai-specific arguments passed to
@@ -1179,7 +1183,9 @@ class GoogleGenAIAPI(
         ``cached_content`` (for server-side prefix caching).
 
     Returns:
-      A sequence of generated content, one per candidate.
+      A sequence of generated content (one per candidate), where each element is
+      a ``ChunkList`` if ``include_details=False``, or a
+      ``(ChunkList, details)`` tuple if ``include_details=True``.
     """
     # We must support two execution paths for content generation.
     # 1. Async route (_generate_contents_inner_async): Necessary when using MCP
