@@ -536,6 +536,28 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
     with self.subTest('has_no_answer_to_report'):
       self.assertEmpty(result.answer)
 
+  def test_a_final_instruction_forces_an_answer_at_the_bound(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(calls=[_call('search', query='france')]),
+            _model_turn(calls=[_call('search', query='france')]),
+            _model_turn('Paris.'),
+        ]
+    )
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_corpus_source({'france': [_DOCS['d1']]})],
+        max_steps=2,
+        final_instruction='Answer now.',
+    )
+
+    result = executing.run(strategy('What is the capital of France?'))
+
+    with self.subTest('makes_one_more_call'):
+      self.assertLen(backend.seen_turns, 3)
+    with self.subTest('reports_the_forced_answer'):
+      self.assertEqual(result.answer, 'Paris.')
+
   def test_text_alongside_a_pending_call_is_not_the_answer(self):
     # On reaching `max_steps` the last turn may still request a tool call,
     # with some thinking aloud next to it; that text is not a final answer.
