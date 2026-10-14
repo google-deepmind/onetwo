@@ -14,16 +14,13 @@
 
 """Registry and configuration for OneTwo retrieval chunkers."""
 
-from collections.abc import Callable
 import dataclasses
 from typing import Any
 
 import dataclasses_json
 from onetwo.stdlib.retrieval import chunking
 
-ChunkerFactory = Callable[..., chunking.Chunker]
-
-CHUNKER_REGISTRY: dict[str, ChunkerFactory] = {
+CHUNKER_REGISTRY: dict[str, type[chunking.Chunker]] = {
     'none': chunking.NoChunking,
     'words': chunking.ChunkByMaxWords,
     'tokens': chunking.ChunkByMaxTokens,
@@ -37,7 +34,7 @@ class ChunkerConfig(dataclasses_json.DataClassJsonMixin):
   Attributes:
     chunker_name: Registered chunking strategy name (e.g. 'none', 'words',
       'tokens').
-    kwargs: Keyword arguments to pass to the chunker constructor/factory.
+    kwargs: Keyword arguments to pass to the chunker constructor.
   """
 
   chunker_name: str = 'none'
@@ -53,20 +50,25 @@ class ChunkerConfig(dataclasses_json.DataClassJsonMixin):
 
 def register_chunker(
     name: str,
-    factory: ChunkerFactory,
+    chunker_cls: type[chunking.Chunker],
 ) -> None:
-  """Registers a chunker factory under `name`.
+  """Registers a chunker class under `name`.
 
   Args:
     name: Strategy name (e.g. `'words'`, `'tokens'`, `'none'`).
-    factory: A callable `(**kwargs) -> Chunker`.
+    chunker_cls: A `Chunker` subclass.
 
   Raises:
+    TypeError: If `chunker_cls` is not a dataclass.
     ValueError: If `name` is already registered.
   """
+  if not dataclasses.is_dataclass(chunker_cls):
+    raise TypeError(
+        f'{chunker_cls.__name__} must be a dataclass to be registered.'
+    )
   if name in CHUNKER_REGISTRY:
     raise ValueError(f'Chunker {name!r} is already registered.')
-  CHUNKER_REGISTRY[name] = factory
+  CHUNKER_REGISTRY[name] = chunker_cls
 
 
 def list_chunkers() -> list[str]:
@@ -90,6 +92,6 @@ def get_chunker(config: ChunkerConfig) -> chunking.Chunker:
     raise KeyError(
         f'Unknown chunking strategy: {config.chunker_name!r}. Registered'
         f' chunkers: {list_chunkers()}. Register one with'
-        ' chunker_registry.register_chunker(<name>, <factory>).'
+        ' chunker_registry.register_chunker(<name>, <chunker_cls>).'
     )
-  return CHUNKER_REGISTRY[config.chunker_name](**config.kwargs)
+  return CHUNKER_REGISTRY[config.chunker_name].from_dict(config.kwargs)

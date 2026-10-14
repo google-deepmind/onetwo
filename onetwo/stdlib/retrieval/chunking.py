@@ -28,7 +28,8 @@ import abc
 from collections.abc import Iterable
 import copy
 import dataclasses
-from typing import Any, Protocol, Sequence
+from typing import Any, Sequence
+import dataclasses_json
 from onetwo.backends import backend_registry
 from onetwo.builtins import llm
 from onetwo.core import executing
@@ -72,7 +73,7 @@ def get_substring_indices(
   return (start_idx, end_idx)
 
 
-class Chunker(Protocol):
+class Chunker(dataclasses_json.DataClassJsonMixin, abc.ABC):
   """Generic interface for a strategy that converts documents to chunks.
 
   Depending on the strategy, the chunks may either be discrete or overlapping,

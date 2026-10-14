@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 from unittest import mock
 
 from absl.testing import absltest
@@ -80,6 +81,13 @@ class ChunkerRegistryTest(absltest.TestCase):
     mock_load.assert_called_once()
     self.assertTrue(llm.tokenize.is_configured())
 
+    # Round-tripping through JSON turns tokenize_backend_config into a dict in
+    # ChunkerConfig.kwargs; get_chunker reconstructs TokenizeBackendConfig.
+    reloaded_config = chunker_registry.ChunkerConfig.from_json(config.to_json())
+    reloaded_chunker = chunker_registry.get_chunker(reloaded_config)
+    self.assertIsInstance(reloaded_chunker, chunking.ChunkByMaxTokens)
+    self.assertEqual(reloaded_chunker.tokenize_backend_config, tokenize_config)
+
   def test_chunker_config_str_and_json_round_trip(self):
     config = chunker_registry.ChunkerConfig(
         chunker_name='words',
@@ -92,14 +100,11 @@ class ChunkerRegistryTest(absltest.TestCase):
     self.assertEqual(config, loaded)
 
   def test_register_and_get_custom_chunker(self):
-    custom_chunker = chunking.NoChunking()
-    captured = {}
+    @dataclasses.dataclass(kw_only=True)
+    class CustomChunker(chunking.NoChunking):
+      k: str = ''
 
-    def _factory(**kwargs):
-      captured.update(kwargs)
-      return custom_chunker
-
-    chunker_registry.register_chunker('custom_for_test', _factory)
+    chunker_registry.register_chunker('custom_for_test', CustomChunker)
     self.addCleanup(
         chunker_registry.CHUNKER_REGISTRY.pop, 'custom_for_test', None
     )
@@ -110,11 +115,20 @@ class ChunkerRegistryTest(absltest.TestCase):
         kwargs={'k': 'v'},
     )
     result = chunker_registry.get_chunker(config)
-    self.assertIs(result, custom_chunker)
-    self.assertEqual(captured, {'k': 'v'})
+    self.assertIsInstance(result, CustomChunker)
+    self.assertEqual(result.k, 'v')
 
     with self.assertRaisesRegex(ValueError, 'already registered'):
-      chunker_registry.register_chunker('custom_for_test', _factory)
+      chunker_registry.register_chunker('custom_for_test', CustomChunker)
+
+  def test_register_non_dataclass_chunker_raises_type_error(self):
+    class NonDataclassChunker(chunking.Chunker):
+
+      async def __call__(self, document):
+        return [document]
+
+    with self.assertRaisesRegex(TypeError, 'must be a dataclass'):
+      chunker_registry.register_chunker('non_dataclass', NonDataclassChunker)
 
   def test_get_chunker_unknown_raises_key_error(self):
     config = chunker_registry.ChunkerConfig(chunker_name='nonexistent_strategy')

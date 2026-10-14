@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest import mock
+import dataclasses
 
 from absl.testing import absltest
 from onetwo.backends import backend_registry
@@ -36,9 +36,11 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
     self.assertEqual(index.inner_index.runtime_kwargs, {'api_key': 'key'})
 
   def test_custom_chunker_strategy(self):
-    custom_chunker = chunking.NoChunking()
-    factory = mock.Mock(return_value=custom_chunker)
-    chunker_registry.register_chunker('custom_strategy', factory)
+    @dataclasses.dataclass(kw_only=True)
+    class CustomChunker(chunking.NoChunking):
+      custom_arg: int = 0
+
+    chunker_registry.register_chunker('custom_strategy', CustomChunker)
     self.addCleanup(
         chunker_registry.CHUNKER_REGISTRY.pop, 'custom_strategy', None
     )
@@ -55,9 +57,10 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
 
     index = spec.make_index({'from_arg': 2})
 
-    factory.assert_called_once_with(custom_arg=42)
     rewriters = getattr(index.rewriter, 'rewriters')
-    self.assertIs(getattr(rewriters[0], 'chunker'), custom_chunker)
+    chunker = getattr(rewriters[0], 'chunker')
+    self.assertIsInstance(chunker, CustomChunker)
+    self.assertEqual(chunker.custom_arg, 42)
 
   def test_preserve_original_docs_and_retrieval_target(self):
     spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
