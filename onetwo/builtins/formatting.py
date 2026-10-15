@@ -152,7 +152,7 @@ class Formatter(metaclass=abc.ABCMeta):
         )
       else:
         # Return the content as is (converting message content to chunks).
-        return _ChunkList([_Chunk(c.content) for c in content])
+        return _ChunkList([_Chunk(c.content) for c in content])  # pyrefly: ignore[bad-argument-type]
     # Remove messages with unsupported roles.
     unsupported_roles = set()
     filtered_content = []

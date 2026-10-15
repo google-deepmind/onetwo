@@ -146,8 +146,8 @@ async def generate_content(
     A sequence of answers. Each answer is a string (text-only) or a list of
     Chunks (if multimodal), as pairs (answer, details) if include_details=True.
   """
-  del (prompt, temperature, max_tokens, stop, top_k, top_p)
-  del (include_details, healing_option)
+  del (prompt, temperature, max_tokens, stop, top_k, top_p)  # pyrefly: ignore[unsupported-delete]
+  del (include_details, healing_option)  # pyrefly: ignore[unsupported-delete]
   raise _UNIMPLEMENTED_ERROR
 
 
@@ -532,9 +532,9 @@ async def _default_select_via_score(
   max_indices = [i for i, score in enumerate(scores) if score == max_value]
   best_index = random.choice(max_indices)
   if include_details:
-    return options[best_index], best_index, scores
+    return options[best_index], best_index, scores  # pyrefly: ignore[bad-return]
   else:
-    return options[best_index]
+    return options[best_index]  # pyrefly: ignore[bad-return]
 
 
 @executing.make_executable
@@ -564,9 +564,9 @@ async def _default_rank_via_score(
   top_results = [r[0] for r in top_results]
 
   if include_details:
-    return (top_results, scores)
+    return (top_results, scores)  # pyrefly: ignore[bad-return]
   else:
-    return top_results
+    return top_results  # pyrefly: ignore[bad-return]
 
 
 @builtins_base.Builtin

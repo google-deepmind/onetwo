@@ -126,7 +126,7 @@ def create_test_pil_image(
   )
   try:
     # Save and reload the image to attempt to set the format attribute.
-    img.save(buffer, **save_kwargs)
+    img.save(buffer, **save_kwargs)  # pyrefly: ignore[bad-argument-type]
     buffer.seek(0)
     reloaded_img = PIL.Image.open(buffer)
     if reloaded_img.format is None:

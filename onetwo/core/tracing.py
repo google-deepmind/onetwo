@@ -88,7 +88,7 @@ class ExecutionResultTracer(Tracer):
 
   def set_inputs(self, name: str, inputs: Mapping[str, Any]) -> None:
     self.execution_result.stage_name = name
-    self.execution_result.inputs = inputs
+    self.execution_result.inputs = inputs  # pyrefly: ignore[bad-assignment]
 
   def update_outputs(self, name: str, outputs: Mapping[str, Any]) -> None:
     self.execution_result.outputs.update(outputs)
@@ -171,7 +171,7 @@ class IteratorWithReturnValue(Generic[_T, _V], Iterator[_T]):
 
   def __next__(self) -> _T:
     try:
-      return self.generator.__next__()
+      return self.generator.__next__()  # pyrefly: ignore[bad-return]
     except StopIteration as e:
       self.value = e.value
       raise e
@@ -203,10 +203,10 @@ def stream(
     with iterating.coroutine_with_callback_to_sync_iterator(
         callback_wrapper
     ) as it:
-      wrapper = IteratorWithReturnValue(it)
+      wrapper = IteratorWithReturnValue(it)  # pyrefly: ignore[bad-argument-type]
       for i in wrapper:
         yield i
-    return wrapper.value  # pytype: disable=bad-return-type
+    return wrapper.value  # pytype: disable=bad-return-type  # pyrefly: ignore[bad-return]
 
   async def wrapper(callback: Callable[[_T], None]) -> Awaitable[_V]:
     execution_context.set(None)
@@ -214,9 +214,9 @@ def stream(
     # but we leave -1 unchanged.
     depth = iteration_depth + 1 if iteration_depth >= 0 else iteration_depth
     execution_tracer.set(tracer(callback=callback, depth=depth))
-    return await coroutine
+    return await coroutine  # pyrefly: ignore[bad-return]
 
-  return IteratorWithReturnValue(_stream_updates(wrapper))
+  return IteratorWithReturnValue(_stream_updates(wrapper))  # pyrefly: ignore[bad-argument-type]
 
 
 @dataclasses.dataclass
@@ -331,7 +331,7 @@ def _set_decorated_with_trace(f: Callable[..., Any]) -> None:
   Args:
     f: An arbitrary callable.
   """
-  f.decorated_with_trace = True
+  f.decorated_with_trace = True  # pyrefly: ignore[missing-attribute]
 
 
 def is_decorated_with_trace(f: Callable[..., Any]) -> bool:
@@ -488,7 +488,7 @@ def _trace_impl(
     if skip is not None:
       value = copy.copy(value)
       for param in skip:
-        value.pop(param, None)
+        value.pop(param, None)  # pyrefly: ignore[missing-attribute]
     # We use update here because the function may have already written some
     # outputs on its own.
     execution_result.outputs.update({**value})
@@ -538,14 +538,14 @@ def _trace_impl(
     try:
       try:
         execution_result.update_start_time()
-        return_value = await function(*args, **kwargs)
+        return_value = await function(*args, **kwargs)  # pyrefly: ignore[not-async]
         if isinstance(return_value, executing_impl.Executable):
           return_value = _wrap_executable_to_trace_outputs(
               return_value, execution_result, tracer
           )
         else:
           _update_outputs(execution_result, return_value)
-        return return_value
+        return return_value  # pyrefly: ignore[bad-return]
       except Exception as e:
         execution_result.error = str(e)
         if tracer is not None:
@@ -566,14 +566,14 @@ def _trace_impl(
       try:
         execution_result.update_start_time()
         try:
-          async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
+          async for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error  # pyrefly: ignore[not-iterable]
             if isinstance(return_value, executing_impl.Executable):
               return_value = _wrap_executable_to_trace_outputs(
                   return_value, execution_result, tracer
               )
             else:
               _update_outputs(execution_result, return_value)
-            yield return_value
+            yield return_value  # pyrefly: ignore[invalid-yield]
         except Exception as e:
           execution_result.error = str(e)
           if tracer is not None:
@@ -594,14 +594,14 @@ def _trace_impl(
       try:
         execution_result.update_start_time()
         try:
-          for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error
+          for return_value in function(*args, **kwargs):  # pytype: disable=attribute-error  # pyrefly: ignore[not-iterable]
             if isinstance(return_value, executing_impl.Executable):
               return_value = _wrap_executable_to_trace_outputs(
                   return_value, execution_result, tracer
               )
             else:
               _update_outputs(execution_result, return_value)
-            yield return_value
+            yield return_value  # pyrefly: ignore[invalid-yield]
         except Exception as e:
           execution_result.error = str(e)
           if tracer is not None:
@@ -628,7 +628,7 @@ def _trace_impl(
           )
         else:
           _update_outputs(execution_result, return_value)
-        return return_value
+        return return_value  # pyrefly: ignore[bad-return]
       except Exception as e:
         execution_result.error = str(e)
         if tracer is not None:

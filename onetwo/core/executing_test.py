@@ -144,7 +144,7 @@ class CallRecorder:
     self.streaming = streaming
 
   def process(self, request: str) -> ExecutableWithStr:
-    return self._process(request)
+    return self._process(request)  # pyrefly: ignore[bad-return]
 
   @make_executable
   async def _process(self, request: str) -> str | IterableReply:
@@ -206,7 +206,7 @@ class ExecutionTest(parameterized.TestCase):
       def process(self, request: str) -> str:
         return request.replace('req', 'rep')
 
-      async def _aexec(self) -> Sequence[str]:  # pytype: disable=signature-mismatch
+      async def _aexec(self) -> Sequence[str]:  # pytype: disable=signature-mismatch  # pyrefly: ignore[bad-override]
         """Execute all requests."""
         return [self.process(request) for request in self.requests]
 
@@ -290,7 +290,7 @@ class ExecutionTest(parameterized.TestCase):
       async for s in test_iterator(
           text
       ):  # test_iterator should be async. pylint: disable=not-an-iterable
-        yield s
+        yield s  # pyrefly: ignore[invalid-yield]
 
     # The below function is like `test_iterator` above, except
     # `@tracing.trace()` is on the outside. Note that this is not normally
@@ -322,7 +322,7 @@ class ExecutionTest(parameterized.TestCase):
       async for s in test_iterator_traced_outside(
           text
       ):  # test_iterator should be async. pylint: disable=not-an-iterable
-        yield s
+        yield s  # pyrefly: ignore[invalid-yield]
 
     bound_fn = make_executable(ObjectForTest(['done: ']).not_decorated_method)
 
@@ -364,7 +364,7 @@ class ExecutionTest(parameterized.TestCase):
         )
 
       with self.subTest(f'stream_updates_{fn.__name__}'):
-        with executing.stream_updates(fn('test')) as iterator:
+        with executing.stream_updates(fn('test')) as iterator:  # pyrefly: ignore[bad-argument-type]
           result = list(iterator)
         expected_result = [
             'done: t',
@@ -519,7 +519,7 @@ class ExecutionTest(parameterized.TestCase):
     executable = serial(_wrap_request('req_0'), _wrap_request('req_1'))
     with executing.stream_updates(executable) as iterator:
       result = sum(iterator, start=updating.Update()).to_result()
-    self.assertListEqual(['rep_0', 'rep_1'], result)
+    self.assertListEqual(['rep_0', 'rep_1'], result)  # pyrefly: ignore[bad-argument-type]
 
   def test_serial_streaming_with_callback(self):
     executable = serial(_wrap_request('req_0'), _wrap_request('req_1'))
@@ -529,10 +529,10 @@ class ExecutionTest(parameterized.TestCase):
       nonlocal updates
       updates += update
 
-    returned_result = executing.stream_with_callback(executable, cb)
+    returned_result = executing.stream_with_callback(executable, cb)  # pyrefly: ignore[no-matching-overload]
     result = updates.to_result()
     self.assertEqual(returned_result, result)
-    self.assertListEqual(['rep_0', 'rep_1'], result)
+    self.assertListEqual(['rep_0', 'rep_1'], result)  # pyrefly: ignore[bad-argument-type]
 
   def test_serial_streaming_with_coroutine_callback(self):
     executable = serial(_wrap_request('req_0'), _wrap_request('req_1'))
@@ -542,10 +542,10 @@ class ExecutionTest(parameterized.TestCase):
       nonlocal updates
       updates += update
 
-    returned_result = executing.stream_with_callback(executable, cb)
+    returned_result = executing.stream_with_callback(executable, cb)  # pyrefly: ignore[no-matching-overload]
     result = updates.to_result()
     self.assertEqual(returned_result, result)
-    self.assertListEqual(['rep_0', 'rep_1'], result)
+    self.assertListEqual(['rep_0', 'rep_1'], result)  # pyrefly: ignore[bad-argument-type]
 
   def test_no_need_to_call_wrapped_functions(self):
     reply = executing.run(async_wrap_function_without_call('r'))
@@ -569,13 +569,13 @@ class ExecutionTest(parameterized.TestCase):
       return text
 
     reply1 = executing.run(
-        my_function_with_input(pass_through('r'), my_function('s'))
+        my_function_with_input(pass_through('r'), my_function('s'))  # pyrefly: ignore[bad-argument-type]
     )
     reply2 = executing.run(my_function_with_input('r', pass_through('s')))
     reply3 = executing.run(my_function_with_input('r', my_function('s')))
     reply4 = executing.run(
         my_function_with_input(
-            my_function('r'), my_function_with_input('s', pass_through('t'))
+            my_function('r'), my_function_with_input('s', pass_through('t'))  # pyrefly: ignore[bad-argument-type]
         )
     )
 
@@ -748,7 +748,7 @@ class ExecutionTest(parameterized.TestCase):
     def fn2(inputs: str) -> str:
       return inputs + ' done'
 
-    executable = parallel(fn1(), fn2(fn1()), fn2('other'))
+    executable = parallel(fn1(), fn2(fn1()), fn2('other'))  # pyrefly: ignore[bad-argument-type]
     self.assertEqual(
         ['test', 'test done', 'other done'], executing.run(executable)
     )
@@ -766,7 +766,7 @@ class ExecutionTest(parameterized.TestCase):
         return 'done'
 
     executable = parallel(fn1())
-    executable = fn2(executable)
+    executable = fn2(executable)  # pyrefly: ignore[bad-argument-type]
     with self.subTest('parallel_of_one'):
       self.assertEqual('test done', executing.run(executable))
 
@@ -846,7 +846,7 @@ class ExecutionTest(parameterized.TestCase):
     with self.subTest('should_return_list_on_stream'):
       self.assertListEqual(['0_0', '1_0', '2_0'], incremental1)
       self.assertListEqual([['0_0', '1_0', '2_0']], incremental2)
-      self.assertListEqual(['0_0', '1_0', '2_0'], incremenatal2b)
+      self.assertListEqual(['0_0', '1_0', '2_0'], incremenatal2b)  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('iteration_depth_0_should_behave_as_run'):
       self.assertListEqual([executing.Update('2_0')], incremental3)
@@ -857,7 +857,7 @@ class ExecutionTest(parameterized.TestCase):
       self.assertListEqual([], incremental3b)
       self.assertListEqual([], incremental4b)
       self.assertEqual('2_0', result3b)
-      self.assertListEqual(['0_0', '1_0', '2_0'], result4b)
+      self.assertListEqual(['0_0', '1_0', '2_0'], result4b)  # pyrefly: ignore[bad-argument-type]
 
   def test_iterable_reply(self):
     request = _wrap_request('req_0', streaming=True)
@@ -896,7 +896,7 @@ class ExecutionTest(parameterized.TestCase):
       for update in iterator:
         assert isinstance(update, executing.ListUpdate)  # Type hint.
         results.append(
-            (copy.deepcopy(update.payload[0][0].payload), update.payload[0][1])
+            (copy.deepcopy(update.payload[0][0].payload), update.payload[0][1])  # pyrefly: ignore[missing-attribute]
         )
     self.assertListEqual(expected_results, results, pprint.pformat(results))
 
@@ -933,7 +933,7 @@ class ExecutionTest(parameterized.TestCase):
         [None, 'o_rep_1'],
     ]
     self.assertListEqual(expected_results, results, pprint.pformat(results))
-    self.assertListEqual(['rep_0', 'o_rep_1'], result, pprint.pformat(result))
+    self.assertListEqual(['rep_0', 'o_rep_1'], result, pprint.pformat(result))  # pyrefly: ignore[bad-argument-type]
 
   def test_parallel_iterators(self):
     @executing.make_executable
@@ -964,7 +964,7 @@ class ExecutionTest(parameterized.TestCase):
       for update in iterator:
         results.append((
             copy.deepcopy(update.to_simplified_result()[0][0]),
-            update.payload[0][1],
+            update.payload[0][1],  # pyrefly: ignore[unsupported-operation]
         ))
     # In particular we want to make sure that the replies are correctly mapped
     # back to the iterator that issued the requests, so the first character of
@@ -1105,20 +1105,20 @@ class ExecutionTest(parameterized.TestCase):
         yield f'done {i}'
 
     e1 = executing.ExecutableWithPostprocessing(
-        wrapped=iterator(3), postprocessing_callback=lambda x: x + ' post'
+        wrapped=iterator(3), postprocessing_callback=lambda x: x + ' post'  # pyrefly: ignore[unsupported-operation]
     )
     e2 = executing.ExecutableWithPostprocessing(
-        wrapped=iterator(3), postprocessing_callback=lambda x: x + ' post'
+        wrapped=iterator(3), postprocessing_callback=lambda x: x + ' post'  # pyrefly: ignore[unsupported-operation]
     )
     e3 = executing.ExecutableWithPostprocessing(
         wrapped=iterator(3),
-        postprocessing_callback=lambda x: x + ' post',
-        update_callback=lambda x: x + ' update',
+        postprocessing_callback=lambda x: x + ' post',  # pyrefly: ignore[unsupported-operation]
+        update_callback=lambda x: x + ' update',  # pyrefly: ignore[unsupported-operation]
     )
     e4 = executing.ExecutableWithPostprocessing(
         wrapped=iterator(3),
-        postprocessing_callback=lambda x: x + ' post',
-        update_callback=lambda x: x + ' update',
+        postprocessing_callback=lambda x: x + ' post',  # pyrefly: ignore[unsupported-operation]
+        update_callback=lambda x: x + ' update',  # pyrefly: ignore[unsupported-operation]
     )
 
     with self.subTest('run_with_postprocessing_callback'):
@@ -1201,9 +1201,9 @@ class ExecutionTest(parameterized.TestCase):
         case _:
           res = None
       with self.assertRaisesRegex(ValueError, error_string):
-        raise res[1]
+        raise res[1]  # pyrefly: ignore[unsupported-operation]
       with self.subTest('should_have_traceback_in_notes'):
-        self.assertIn('in compute', res[1].__notes__[0])
+        self.assertIn('in compute', res[1].__notes__[0])  # pyrefly: ignore[unsupported-operation]
 
   def test_chain_with_iterate_argument(self):
     @executing.make_executable(iterate_argument='prefix')
@@ -1221,7 +1221,7 @@ class ExecutionTest(parameterized.TestCase):
         # We iterate while removing spaces from the postfix.
         yield prefix + ''.join(postfix_parts[:i])
 
-    executable = append(append('a', 'b'), append('c', 'd'))
+    executable = append(append('a', 'b'), append('c', 'd'))  # pyrefly: ignore[bad-argument-type]
     executable2 = copy.deepcopy(executable)
 
     result = executing.run(executable)
@@ -1237,7 +1237,7 @@ class ExecutionTest(parameterized.TestCase):
       # We iterate the prefix but not from the postfix.
       self.assertListEqual(['a', 'ab', 'abcd'], result)
 
-    executable = append(append_non_exec('a', 'b'), append_non_exec('c', 'd'))
+    executable = append(append_non_exec('a', 'b'), append_non_exec('c', 'd'))  # pyrefly: ignore[bad-argument-type]
     executable2 = copy.deepcopy(executable)
 
     result = executing.run(executable)
@@ -1253,7 +1253,7 @@ class ExecutionTest(parameterized.TestCase):
       # We iterate the prefix but not from the postfix.
       self.assertListEqual(['a', 'ab', 'abcd'], result)
 
-    executable = append_it(append_it('a ', 'b c'), append_it(' d ', 'e f'))
+    executable = append_it(append_it('a ', 'b c'), append_it(' d ', 'e f'))  # pyrefly: ignore[bad-argument-type]
     executable2 = copy.deepcopy(executable)
 
     result = executing.run(executable)

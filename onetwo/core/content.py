@@ -697,7 +697,7 @@ def from_json_compatible(arg: Any) -> Any:
         if data is not None:
           content = _b64dec(data) if data else b''
         return Chunk(
-            content=content,
+            content=content,  # pyrefly: ignore[bad-argument-type]
             content_type=res.get('content_type'),  # pyrefly: ignore[bad-argument-type]
             role=res.get('role'),
             metadata=res.get('metadata'),

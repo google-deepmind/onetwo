@@ -187,7 +187,7 @@ class PythonToolUseEnvironment:
   def __post_init__(self):
     """Overridden from dataclasses.dataclass."""
     self._sandbox_cache = PythonSandboxCache(
-        create_object_function=self._create_sandbox_for_state,
+        create_object_function=self._create_sandbox_for_state,  # pyrefly: ignore[bad-argument-type]
         destroy_object_function=lambda sandbox: sandbox.stop(),
     )
     for tool in self.config.tools:
@@ -267,7 +267,7 @@ class PythonToolUseEnvironment:
       # than calling the tool directly, to ensure that we have a centralized
       # place where we can implement all of the necessary bookkeeping for
       # managing tool states.
-      hooks[tool.name] = functools.partial(_run_tool_wrapper, tool.name)
+      hooks[tool.name] = functools.partial(_run_tool_wrapper, tool.name)  # pyrefly: ignore[unsupported-operation]
     return hooks
 
   async def _create_sandbox_for_state(

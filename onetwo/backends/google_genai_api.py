@@ -1317,7 +1317,7 @@ class GoogleGenAIAPI(
     )
     response = self._genai_client.models.generate_content(
         model=model_name,
-        contents=contents,
+        contents=contents,  # pyrefly: ignore[bad-argument-type]
         config=generation_config,
     )
     return self._process_generation_response(
@@ -1403,7 +1403,7 @@ class GoogleGenAIAPI(
     model_name = self._generate_model_name()
     response = self._genai_client.models.generate_content(
         model=model_name,
-        contents=_contents_from_turns(turns),
+        contents=_contents_from_turns(turns),  # pyrefly: ignore[bad-argument-type]
         config=generation_config,
     )
     _raise_if_empty_response(response)
@@ -1587,7 +1587,7 @@ class GoogleGenAIAPI(
     model_name = self._embed_model_name()
     response = self._genai_client.models.embed_content(
         model=model_name,
-        contents=content,
+        contents=content,  # pyrefly: ignore[bad-argument-type]
         config=embed_config,
     )
     if not response.embeddings:
@@ -1639,7 +1639,7 @@ class GoogleGenAIAPI(
     content = _convert_chunk_list_to_part_list(content)  # pyrefly: ignore[bad-assignment]
     response = self._genai_client.models.count_tokens(
         model=self._generate_model_name(),
-        contents=content,
+        contents=content,  # pyrefly: ignore[bad-argument-type]
     )
     if not response.total_tokens:
       raise ValueError(
@@ -1675,7 +1675,7 @@ class GoogleGenAIAPI(
     self._counters['tokenize'] += 1
     response = self._genai_client.models.compute_tokens(
         model=self._generate_model_name(),
-        contents=_convert_chunk_list_to_part_list(content),
+        contents=_convert_chunk_list_to_part_list(content),  # pyrefly: ignore[bad-argument-type]
     )
 
     tokens_info = response.tokens_info

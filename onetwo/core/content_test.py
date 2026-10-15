@@ -699,7 +699,7 @@ class MessageTest(parameterized.TestCase):
 
   def test_to_json_compatible_error_on_invalid_content(self):
     chunk = _Chunk(content='valid')
-    chunk.content = 12345  # Invalid content type for Chunk
+    chunk.content = 12345  # Invalid content type for Chunk  # pyrefly: ignore[bad-assignment]
     with self.assertRaisesRegex(
         ValueError, 'Chunk.content is not serializable'):
       content_lib.to_json_compatible(chunk)
