@@ -738,6 +738,20 @@ class EvaluationSummaryTest(parameterized.TestCase):
         f'Incorrect EvaluationSummary contents:\n{summary1}\n----\nDiff'
     )
 
+  def test_iadd_preserves_metrics_key_order(self):
+    ordered_metrics = {
+        'recall@5': 0.5,
+        'recall@20': 1.0,
+        'mrr@5': 0.25,
+        'mrr@20': 0.5,
+    }
+    summary = results.EvaluationSummary()
+    summary += results.EvaluationSummary(
+        metrics=dict(ordered_metrics),
+        counters=collections.Counter({results.COUNTER_TOTAL_EXAMPLES: 1}),
+    )
+    self.assertEqual(list(summary.metrics.keys()), list(ordered_metrics.keys()))
+
   @parameterized.named_parameters(
       {
           'testcase_name': 'fully_populated_result',

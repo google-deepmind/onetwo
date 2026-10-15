@@ -551,8 +551,9 @@ class EvaluationSummary:
     self.timing.end_time = max(
         self.timing.end_time, other.timing.end_time)
 
-    # Update the metrics as weighted averages based on number of examples.
-    for metric_name in self.metrics.keys() | other.metrics.keys():
+    # Update the metrics as weighted averages based on number of examples,
+    # using dict merge (rather than `.keys()` set union) to preserve key order.
+    for metric_name in self.metrics | other.metrics:
       self_value = self.metrics.get(metric_name, 0.0)
       other_value = other.metrics.get(metric_name, 0.0)
       # If the metric value is explicitly defined in an EvaluationSummary, then

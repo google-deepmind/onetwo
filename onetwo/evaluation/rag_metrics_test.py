@@ -661,6 +661,9 @@ class MetricsLibTest(parameterized.TestCase):
         'recall@5',
         'recall@10',
         'recall@20',
+        'mrr@5',
+        'mrr@10',
+        'mrr@20',
         'num_llm_calls',
         'total_input_tokens',
         'max_input_tokens',
@@ -682,6 +685,10 @@ class MetricsLibTest(parameterized.TestCase):
         'recall@10',
         'recall@14',
         'recall@20',
+        'mrr@5',
+        'mrr@10',
+        'mrr@14',
+        'mrr@20',
         'num_llm_calls',
         'total_input_tokens',
         'max_input_tokens',
@@ -693,6 +700,23 @@ class MetricsLibTest(parameterized.TestCase):
         'tool_details',
     }
     self.assertEqual(set(metrics.keys()), expected_keys)
+
+  def test_get_default_rag_metrics_retrieval_only(self):
+    metrics = rag_metrics.get_default_rag_metrics(
+        additional_k_values=(50, 5, 20),
+        retrieval_only=True,
+    )
+    self.assertEqual(
+        list(metrics.keys()),
+        [
+            'recall@5',
+            'recall@20',
+            'recall@50',
+            'mrr@5',
+            'mrr@20',
+            'mrr@50',
+        ],
+    )
 
   def test_runtime_seconds_with_timing(self):
     trace = results.ExecutionResult(stage_name='root')

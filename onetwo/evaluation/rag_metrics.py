@@ -766,6 +766,8 @@ def tool_details(
 
 def get_default_rag_metrics(
     max_results: int | None = None,
+    additional_k_values: Sequence[int] = (5, 10, 20),
+    retrieval_only: bool = False,
     accuracy_critic_backend_config: (
         backend_registry.GenerateBackendConfig | None
     ) = None,
@@ -773,12 +775,15 @@ def get_default_rag_metrics(
 ) -> dict[str, Any]:
   """Returns a dictionary of default metric functions for RAG evaluation.
 
-  Includes retrieval metrics (recall@5, recall@20), generation quality
-  (accuracy critic), and execution trace metrics (token counts, LLM calls,
-  tool calls, and tool details).
+  Includes retrieval metrics (recall@k, mrr@k), and unless `retrieval_only` is
+  True, generation quality (accuracy critic) and execution trace metrics (token
+  counts, LLM calls, tool calls, and tool details).
 
   Args:
-    max_results: Maximum number of results to consider for recall metrics.
+    max_results: Maximum number of results to consider for retrieval metrics.
+    additional_k_values: Additional values of k (alongside `max_results`) at
+      which to compute each retrieval metric.
+    retrieval_only: If True, returns only retrieval metrics (recall@k, mrr@k).
     accuracy_critic_backend_config: Optional backend config for the accuracy
       critic. If None, uses the default backend config.
     runtime_kwargs: Optional runtime arguments specifically needed to
@@ -787,15 +792,26 @@ def get_default_rag_metrics(
   Returns:
     A dictionary mapping metric names to metric functions.
   """
-  metric_functions = {
+  k_values = (
+      (*additional_k_values, max_results)
+      if max_results is not None
+      else additional_k_values
+  )
+  sorted_k_values = sorted(k_values)
+  retrieval_metrics: dict[str, Any] = {}
+  for k in sorted_k_values:
+    retrieval_metrics[f'recall@{k}'] = make_recall_at_k(k=k)
+  for k in sorted_k_values:
+    retrieval_metrics[f'mrr@{k}'] = make_mrr_at_k(k=k)
+  if retrieval_only:
+    return retrieval_metrics
+  return {
       'accuracy': make_accuracy_critic(
           backend_config=accuracy_critic_backend_config,
           runtime_kwargs=runtime_kwargs,
       ),
       'runtime_seconds': runtime_seconds,
-      'recall@5': make_recall_at_k(k=5),
-      'recall@10': make_recall_at_k(k=10),
-      'recall@20': make_recall_at_k(k=20),
+      **retrieval_metrics,
       'num_llm_calls': num_llm_calls,
       'total_input_tokens': total_input_tokens,
       'max_input_tokens': max_input_tokens,
@@ -806,9 +822,6 @@ def get_default_rag_metrics(
       'num_tool_calls': num_tool_calls,
       'tool_details': tool_details,
   }
-  if max_results is not None:
-    metric_functions[f'recall@{max_results}'] = make_recall_at_k(k=max_results)
-  return metric_functions
 
 
 DEFAULT_RAG_METRICS: Final[dict[str, Any]] = get_default_rag_metrics()
