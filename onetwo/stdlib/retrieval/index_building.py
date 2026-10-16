@@ -29,6 +29,8 @@ from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
+from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs  # pylint: disable=unused-import
+
 # `embedding_index_specs` (and `hipporag_index_specs`) are imported above so
 # that the built-in specs are registered in `index_spec_registry` for every user
 # of this module.

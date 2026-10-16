@@ -26,6 +26,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 
 
 # TODO: Consider merging max_retries and http_timeout
@@ -152,6 +153,20 @@ def build_index(
       format_str=format_str,
       serializer_type=serializer_type,
   )
+  if index_type == 'hipporag':
+    generate_backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name=generation_backend_class_name,
+        model_name=generation_model_name,
+    )
+    spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=embed_backend_config,
+        generate_backend_config=generate_backend_config,
+        chunker_config=chunker_config,
+        format_str=format_str,
+        similarity_threshold=similarity_threshold,
+        ignore_triples=ignore_triples,
+        ignore_similarity_edges=ignore_similarity_edges,
+    )
 
   return build_index_from_spec(
       spec=spec,
