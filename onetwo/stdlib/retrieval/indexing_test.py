@@ -181,6 +181,77 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
         self.assertAlmostEqual(score, expected_score)
         self.assertAlmostEqual(score, searcher_score)
 
+  def test_get_doc_and_get_doc_embedding(self):
+    docs = [
+        Document(doc_id='doc1', content='hello'),
+        Document(doc_id='doc2', content='world'),
+    ]
+    more_docs = [Document(doc_id='doc3', content='again')]
+    doc_embeds = [np.array([0.9, 0.1]), np.array([0.1, 0.9]), np.array([1, 1])]
+    mock_embed_fn.embeddings = doc_embeds  # pyrefly: ignore[missing-attribute]
+    index = indexing.EmbeddingBasedIndex()
+    ot.run(index.add_docs(docs))
+    ot.run(index.add_docs(more_docs))
+
+    with self.subTest('get_doc'):
+      for doc in docs + more_docs:
+        self.assertIs(index.get_doc(doc.doc_id), doc)
+
+    with self.subTest('get_docs_by_ids_preserves_order'):
+      self.assertEqual(
+          index.get_docs_by_ids(['doc3', 'doc1']), [more_docs[0], docs[0]]
+      )
+
+    with self.subTest('get_doc_embedding'):
+      for doc, embed in zip(docs + more_docs, doc_embeds):
+        np.testing.assert_array_equal(
+            index.get_doc_embedding(doc.doc_id), embed
+        )
+
+    with self.subTest('missing_id_raises_key_error'):
+      with self.assertRaises(KeyError):
+        index.get_doc('missing')
+      with self.assertRaises(KeyError):
+        index.get_doc_embedding('missing')
+
+    with self.subTest('destroy_index_clears_lookup'):
+      index.destroy_index()
+      with self.assertRaises(KeyError):
+        index.get_doc('doc1')
+
+  def test_add_docs_with_duplicate_ids_raises(self):
+    mock_embed_fn.embeddings = [np.array([1.0, 0.0])]  # pyrefly: ignore[missing-attribute]
+    index = indexing.EmbeddingBasedIndex()
+    doc1 = Document(doc_id='doc1', content='hello')
+    ot.run(index.add_docs([doc1]))
+
+    with self.subTest('duplicate_of_existing_doc'):
+      with self.assertRaisesRegex(ValueError, 'duplicate doc_ids'):
+        ot.run(index.add_docs([Document(doc_id='doc1', content='other')]))
+
+    with self.subTest('duplicate_within_batch'):
+      with self.assertRaisesRegex(ValueError, 'duplicate doc_ids'):
+        ot.run(
+            index.add_docs([
+                Document(doc_id='doc2', content='a'),
+                Document(doc_id='doc2', content='b'),
+            ])
+        )
+
+    with self.subTest('index_unchanged'):
+      self.assertEqual(index.num_docs, 1)
+      self.assertIs(index.get_doc('doc1'), doc1)
+      with self.assertRaises(KeyError):
+        index.get_doc('doc2')
+
+  def test_get_doc_after_docs_set_directly(self):
+    """Tests that docs set directly on `_docs` (e.g. by `load`) are found."""
+    index = indexing.EmbeddingBasedIndex()
+    doc = Document(doc_id='doc1', content='hello')
+    index._docs = [doc]  # pylint: disable=protected-access
+    index._doc_embeddings = [np.array([1.0, 0.0])]  # pylint: disable=protected-access
+    self.assertIs(index.get_doc('doc1'), doc)
+
   def test_localized_backend_initialization(self):
     """Tests that localized backend arguments correctly lazily configure the backend."""
 
@@ -713,6 +784,17 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
         new_index.inner_index._doc_embeddings[0],
         index.inner_index._doc_embeddings[0],
     )
+
+    with self.subTest('get_doc_after_load'):
+      self.assertEqual(new_index.get_doc('b'), docs[1])
+      np.testing.assert_array_equal(
+          new_index.inner_index.get_doc_embedding('b'),
+          index.inner_index.get_doc_embedding('b'),
+      )
+
+    with self.subTest('add_duplicate_after_load_raises'):
+      with self.assertRaisesRegex(ValueError, 'duplicate doc_ids'):
+        ot.run(new_index.add_docs([Document(doc_id='a', content='A2')]))
 
   def test_unsupported_serializer_type_raises_error(self):
     index = indexing.EmbeddingBasedDocumentIndex(

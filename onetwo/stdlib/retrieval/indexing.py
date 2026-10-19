@@ -46,6 +46,7 @@ are mathematically closest to the query embedding.
 
 import abc
 import collections
+from collections.abc import Container
 import contextlib
 import dataclasses
 import enum
@@ -78,22 +79,39 @@ Document = retrieval_data_structures.Document
 DEFAULT_INDEXING_THREADPOOL_SIZE = 30
 
 
-def _validate_docs(docs: Sequence[Any]) -> None:
-  """Validates that the given documents all have doc_id attributes.
+def _validate_docs(
+    docs: Sequence[Any], existing_doc_ids: Container[str] = ()
+) -> None:
+  """Validates that the given documents all have unique doc_id attributes.
 
   Args:
     docs: The documents to validate.
+    existing_doc_ids: IDs of documents already in the index, which the new
+      documents' IDs must not collide with.
 
-  Raises: ValueError if one or more are missing IDs.
+  Raises: ValueError if one or more are missing IDs, or if any ID is duplicated
+    (either among `docs` or with respect to `existing_doc_ids`).
   """
   docs_missing_ids = []
+  duplicate_ids = []
+  seen_doc_ids = set()
   for i, doc in enumerate(docs):
-    if getattr(doc, 'doc_id', None) is None:
+    doc_id = getattr(doc, 'doc_id', None)
+    if doc_id is None:
       docs_missing_ids.append(i)
+      continue
+    if doc_id in existing_doc_ids or doc_id in seen_doc_ids:
+      duplicate_ids.append(doc_id)
+    seen_doc_ids.add(doc_id)
   if docs_missing_ids:
     raise ValueError(
-        f'Docs missing doc_id ({len(docs_missing_ids)} / {len(list(docs))}): '
+        f'Docs missing doc_id ({len(docs_missing_ids)} / {len(docs)}): '
         f'{docs_missing_ids[:10]} ...'
+    )
+  if duplicate_ids:
+    raise ValueError(
+        f'Docs with duplicate doc_ids ({len(duplicate_ids)}): '
+        f'{duplicate_ids[:10]} ...'
     )
 
 
@@ -168,6 +186,17 @@ class Index(
   def get_docs(self) -> Iterable[DocT]:
     """Returns the (possibly derived) documents in the corpus."""
 
+  def get_doc(self, doc_id: str) -> DocT:
+    """Returns the document with the given ID."""
+    for doc in self.get_docs():
+      if getattr(doc, 'doc_id', None) == doc_id:
+        return doc
+    raise KeyError(doc_id)
+
+  def get_docs_by_ids(self, doc_ids: Iterable[str]) -> list[DocT]:
+    """Returns the documents with the given IDs, in the order of the IDs."""
+    return [self.get_doc(doc_id) for doc_id in doc_ids]
+
   @abc.abstractmethod
   @executing.make_executable(copy_self=False)
   async def add_docs(self, docs: Iterable[DocT]) -> None:
@@ -222,6 +251,14 @@ class IndexWrapper(
 
   def get_docs(self) -> Iterable[DocT]:
     return self.inner_index.get_docs()
+
+  def get_doc(self, doc_id: str) -> DocT:
+    """Overridden from base class (Index)."""
+    return self.inner_index.get_doc(doc_id)
+
+  def get_docs_by_ids(self, doc_ids: Iterable[str]) -> list[DocT]:
+    """Overridden from base class (Index)."""
+    return self.inner_index.get_docs_by_ids(doc_ids)
 
   @executing.make_executable(copy_self=False)
   async def add_docs(self, docs: Iterable[DocT]) -> None:
@@ -636,6 +673,11 @@ class EmbeddingBasedIndex(
   _docs: list[DocT] = dataclasses.field(default_factory=list)
   # List of the embeddings of the documents that are added to the index.
   _doc_embeddings: list[np.ndarray] = dataclasses.field(default_factory=list)
+  # Mapping from doc ID to the row of that document in `_docs` (and, equally,
+  # in `_doc_embeddings` and the searcher).
+  _row_by_id: dict[str, int] = dataclasses.field(
+      default_factory=dict, repr=False, compare=False
+  )
 
   @executing.make_executable(copy_self=False)
   async def _calculate_query_embedding(self, query: QueryT) -> Sequence[float]:
@@ -679,14 +721,41 @@ class EmbeddingBasedIndex(
     """Overridden from base class (Index)."""
     return self._docs
 
+  def _get_row_by_id(self) -> dict[str, int]:
+    """Returns the doc ID to row mapping, indexing any not-yet-indexed docs.
+
+    This also covers docs set directly on `_docs` (e.g., by a subclass's
+    `load`), as long as docs are only appended.
+    """
+    for row in range(len(self._row_by_id), len(self._docs)):
+      self._row_by_id[getattr(self._docs[row], 'doc_id')] = row
+    return self._row_by_id
+
+  def get_doc(self, doc_id: str) -> DocT:
+    """Overridden from base class (Index)."""
+    return self._docs[self._get_row_by_id()[doc_id]]
+
+  def get_doc_embedding(self, doc_id: str) -> np.ndarray:
+    """Returns the embedding of the document with the given ID."""
+    return self._doc_embeddings[self._get_row_by_id()[doc_id]]
+
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.add_docs')
   async def add_docs(self, docs: Iterable[DocT]) -> None:
-    """Overridden from base class (Index)."""
+    """Overridden from base class (Index).
+
+    Args:
+      docs: The documents to add. Their doc_ids must be unique, both among
+        themselves and with respect to the documents already in the index.
+
+    Raises:
+      ValueError: If any document is missing a doc_id, or if any doc_id is
+        duplicated. In that case, the index is left unchanged.
+    """
     docs = list(docs)
     if not docs:
       return
-    _validate_docs(docs)
+    _validate_docs(docs, existing_doc_ids=self._get_row_by_id())
     self._docs.extend(docs)
     embedded_results = await self._calculate_doc_embeddings(docs)
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])
@@ -806,6 +875,7 @@ class EmbeddingBasedIndex(
     """Overridden from base class (Index)."""
     self._docs = []
     self._doc_embeddings = []
+    self._row_by_id = {}
     self.searcher.destroy()
 
 
