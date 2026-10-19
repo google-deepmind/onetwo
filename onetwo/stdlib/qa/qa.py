@@ -16,7 +16,7 @@
 
 import abc
 import dataclasses
-from typing import Any, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Protocol, Sequence, TypeVar
 
 import dataclasses_json
 from onetwo.core import content as content_lib
@@ -31,6 +31,8 @@ QuestionT = TypeVar('QuestionT')
 AnswerT = TypeVar('AnswerT')
 # The type of documents used as context (e.g., a structured document object).
 DocT = TypeVar('DocT')
+# The type of the answer carried by a `BaseStrategyResult`.
+ResultAnswerT = TypeVar('ResultAnswerT')
 
 
 class QAStrategy(Protocol[QuestionT, AnswerT]):
@@ -150,16 +152,31 @@ class ContextualQAExample(QAExample):
 
 
 @dataclasses.dataclass(frozen=True)
-class StrategyResult:
-  """The result returned by every QA strategy.
+class BaseStrategyResult(Generic[ResultAnswerT]):
+  """The result returned by a QA strategy, generic over the answer type.
+
+  Strategies with a free-text answer return `StrategyResult`. Strategies that
+  produce a structured answer (e.g. via `llm.generate_object`) can return
+  `BaseStrategyResult[MyAnswerClass]` directly, or a subclass of it.
 
   Attributes:
-    answer: The generated answer string.
+    answer: The generated answer, e.g. a string or a structured object.
     docs: The documents used as context. For example, this list will be empty
       for closed-book strategies, while for long-context strategies this will be
       the list of all documents in the dataset. For RAG strategies this will be
       the list of documents retrieved by the retriever.
   """
 
-  answer: str = ''
+  answer: ResultAnswerT
   docs: list[_Document] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass(frozen=True)
+class StrategyResult(BaseStrategyResult[str]):
+  """The result returned by QA strategies that produce a free-text answer.
+
+  Attributes:
+    answer: The generated answer string.
+  """
+
+  answer: str = ''
