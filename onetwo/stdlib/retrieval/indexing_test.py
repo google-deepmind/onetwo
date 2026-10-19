@@ -734,6 +734,157 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
     self.assertLen(retrieved_single, 1)
     self.assertEqual(retrieved_single[0].doc_id, 'doc1')
 
+  def _build_semicolon_chunking_index(
+      self, retrieval_target: indexing.RetrievalTarget
+  ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
+    """Returns an index over doc1 ('1A; 1B') and doc2 ('2A'), chunked on ';'."""
+
+    class SemicolonChunker(chunking.Chunker):
+
+      @executing.make_executable(copy_self=False)
+      async def __call__(self, document: Document) -> list[Document]:  # pyrefly: ignore[bad-override]
+        parts = [
+            p.strip() for p in str(document.content).split(';') if p.strip()
+        ]
+        return [
+            Document(
+                doc_id=f'{document.doc_id}_chunk_{i}',
+                content=part,
+                metadata={
+                    retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID: (
+                        document.doc_id
+                    ),
+                },
+            )
+            for i, part in enumerate(parts)
+        ]
+
+    # Chunk embeddings (in add_docs order), followed by query embeddings.
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
+        np.array([0.9, 0.1]),
+        np.array([0.8, 0.2]),
+        np.array([0.1, 0.9]),
+    ] + [np.array([1.0, 0.0])] * 2
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=corpus_rewriting.ChunkingCorpusRewriter(
+            chunker=SemicolonChunker()
+        ),
+        retrieval_target=retrieval_target,
+        preserve_original_docs=True,
+    )
+    ot.run(
+        index.add_docs([
+            Document(doc_id='doc1', content='1A; 1B'),
+            Document(doc_id='doc2', content='2A'),
+        ])
+    )
+    return index
+
+  def test_get_doc_rewritten_target_uses_rewritten_ids(self):
+    index = self._build_semicolon_chunking_index(
+        indexing.RetrievalTarget.REWRITTEN
+    )
+    retrieved = list(ot.run(index.retrieve('q', max_results=3)))
+    self.assertEqual(
+        [d.doc_id for d in retrieved],
+        ['doc1_chunk_0', 'doc1_chunk_1', 'doc2_chunk_0'],
+    )
+
+    with self.subTest('round_trip'):
+      for doc in retrieved:
+        self.assertEqual(index.get_doc(doc.doc_id), doc)
+
+    with self.subTest('get_docs_by_ids_preserves_order'):
+      self.assertEqual(
+          index.get_docs_by_ids(['doc2_chunk_0', 'doc1_chunk_0']),
+          [retrieved[2], retrieved[0]],
+      )
+
+    with self.subTest('original_id_raises_key_error'):
+      with self.assertRaises(KeyError):
+        index.get_doc('doc1')
+
+    with self.subTest('retrieval_target_override'):
+      original = indexing.RetrievalTarget.ORIGINAL
+      self.assertEqual(
+          index.get_doc('doc1', retrieval_target=original).doc_id, 'doc1'
+      )
+      self.assertEqual(
+          [
+              d.doc_id
+              for d in index.get_docs_by_ids(
+                  ['doc2', 'doc1'], retrieval_target=original
+              )
+          ],
+          ['doc2', 'doc1'],
+      )
+
+    with self.subTest('get_doc_embedding'):
+      np.testing.assert_array_equal(
+          index.get_doc_embedding('doc1_chunk_1'), np.array([0.8, 0.2])
+      )
+
+  def test_get_doc_original_target_uses_original_ids(self):
+    index = self._build_semicolon_chunking_index(
+        indexing.RetrievalTarget.ORIGINAL
+    )
+    retrieved = list(ot.run(index.retrieve('q', max_results=3)))
+    self.assertEqual([d.doc_id for d in retrieved], ['doc1', 'doc2'])
+
+    with self.subTest('round_trip'):
+      for doc in retrieved:
+        self.assertIs(index.get_doc(doc.doc_id), doc)
+
+    with self.subTest('get_docs_by_ids_preserves_order'):
+      self.assertEqual(
+          index.get_docs_by_ids(['doc2', 'doc1']),
+          [retrieved[1], retrieved[0]],
+      )
+
+    with self.subTest('rewritten_id_raises_key_error'):
+      with self.assertRaises(KeyError):
+        index.get_doc('doc1_chunk_0')
+
+    with self.subTest('retrieval_target_override'):
+      rewritten = indexing.RetrievalTarget.REWRITTEN
+      self.assertEqual(
+          index.get_doc('doc1_chunk_0', retrieval_target=rewritten).content,
+          '1A',
+      )
+      self.assertEqual(
+          [
+              d.doc_id
+              for d in index.get_docs_by_ids(
+                  ['doc2_chunk_0', 'doc1_chunk_1'], retrieval_target=rewritten
+              )
+          ],
+          ['doc2_chunk_0', 'doc1_chunk_1'],
+      )
+
+    with self.subTest('get_doc_embedding_still_uses_rewritten_ids'):
+      np.testing.assert_array_equal(
+          index.get_doc_embedding('doc1_chunk_1'), np.array([0.8, 0.2])
+      )
+
+  def test_get_doc_original_target_requires_preserved_docs(self):
+    mock_embed_fn.embeddings = [np.array([1.0, 0.0])]  # pyrefly: ignore[missing-attribute]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        retrieval_target=indexing.RetrievalTarget.ORIGINAL,
+        preserve_original_docs=False,
+    )
+    ot.run(index.add_docs([Document(doc_id='doc1', content='hello')]))
+    with self.assertRaisesRegex(ValueError, 'preserve_original_docs'):
+      index.get_doc('doc1')
+    # The rewritten ID space is still available via `retrieval_target`.
+    self.assertEqual(
+        index.get_doc(
+            'doc1', retrieval_target=indexing.RetrievalTarget.REWRITTEN
+        ).doc_id,
+        'doc1',
+    )
+
 
 class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
   """Tests the main save and load methods for chunks and embeds without constraints."""

@@ -319,6 +319,13 @@ class RewritingIndex(
   return the original documents associated with the retrieved rewritten
   documents.
 
+  `get_doc` and `get_docs_by_ids` look up IDs in the same ID space as the
+  documents returned by `retrieve`: rewritten document IDs (e.g. chunk IDs)
+  for `RetrievalTarget.REWRITTEN`, and original document IDs for
+  `RetrievalTarget.ORIGINAL`. Thus `index.get_doc(doc.doc_id)` succeeds for
+  any `doc` returned by `index.retrieve(...)`. Both also accept a
+  `retrieval_target` argument to look up IDs in the other ID space.
+
   One specific usecase is to use this class to chunk documents before adding
   them to an inner index. In this case, the `rewriter` would be a
   `ChunkingRewriter`:
@@ -367,6 +374,67 @@ class RewritingIndex(
     if chunk_id := getattr(chunk, 'doc_id', None):
       return self._original_docs.get(chunk_id)
     return None
+
+  def get_doc(
+      self,
+      doc_id: str,
+      *,
+      retrieval_target: RetrievalTarget | None = None,
+  ) -> DocT:
+    """Overridden from base class (Index).
+
+    Args:
+      doc_id: The ID of the document to return, in the ID space of the
+        retrieval target (see class docstring).
+      retrieval_target: The ID space to look up `doc_id` in. Defaults to
+        `self.retrieval_target`.
+
+    Raises:
+      KeyError: If no document with the given ID is in the index.
+      ValueError: If the retrieval target is `RetrievalTarget.ORIGINAL` but
+        `preserve_original_docs` is False, as original documents are then not
+        available.
+
+    Returns:
+      The document with the given ID.
+    """
+    target = retrieval_target or self.retrieval_target
+    if target == RetrievalTarget.REWRITTEN:
+      return self.inner_index.get_doc(doc_id)
+    if not self.preserve_original_docs:
+      raise ValueError(
+          'Looking up original documents by ID requires'
+          ' `preserve_original_docs=True` during index building.'
+      )
+    return self._original_docs[doc_id]
+
+  def get_docs_by_ids(
+      self,
+      doc_ids: Iterable[str],
+      *,
+      retrieval_target: RetrievalTarget | None = None,
+  ) -> list[DocT]:
+    """Overridden from base class (Index).
+
+    Args:
+      doc_ids: The IDs of the documents to return, in the ID space of the
+        retrieval target (see class docstring).
+      retrieval_target: The ID space to look up `doc_ids` in. Defaults to
+        `self.retrieval_target`.
+
+    Raises:
+      KeyError: If any of the IDs is not in the index.
+      ValueError: See `get_doc`.
+
+    Returns:
+      The documents with the given IDs.
+    """
+    target = retrieval_target or self.retrieval_target
+    if target == RetrievalTarget.REWRITTEN:
+      return self.inner_index.get_docs_by_ids(doc_ids)
+    return [
+        self.get_doc(doc_id, retrieval_target=target) for doc_id in doc_ids
+    ]
 
   @executing.make_executable(copy_self=False)
   async def create_index(self, corpus_name: str, docs: Iterable[DocT]) -> None:
@@ -898,6 +966,10 @@ class RewritingEmbeddingBasedIndex(
   """
 
   inner_index: EmbeddingBasedIndex[QueryT, RetrievalResultT]
+
+  def get_doc_embedding(self, doc_id: str) -> np.ndarray:
+    """Delegates to the inner index."""
+    return self.inner_index.get_doc_embedding(doc_id)
 
   @executing.make_executable(copy_self=False)
   async def retrieve_doc_score(self, query: QueryT, doc_index: int) -> float:
