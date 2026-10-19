@@ -38,7 +38,7 @@ _MULTITURN_TURN_SEPARATOR: Final[str] = '\n'
 
 
 @aenum.unique
-class FormatterName(aenum.Enum):
+class FormatterName(aenum.Enum):  # pyrefly: ignore[invalid-inheritance, not-a-type]
   """Possible formatter names.
 
   This is an extensible Enum which will be extended in other modules to add
