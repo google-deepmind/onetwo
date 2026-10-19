@@ -44,6 +44,7 @@ from typing import Callable, Sequence
 
 from onetwo.builtins import composables
 from onetwo.builtins import llm
+from onetwo.core import composing
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.qa import qa
@@ -170,8 +171,30 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
 
 
 @dataclasses.dataclass
-class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
-  """A strategy that retrieves relevant documents before answering (RAG).
+class RAGContextBuilder:
+  """Retrieves relevant documents and compiles the RAG prompt.
+
+  Shared by `RAGStrategy` and by custom RAG strategies. For example, a strategy
+  that returns a structured answer can inherit from this class to reuse the
+  retrieval and prompt building, and only implement answer generation:
+
+  ```python
+  @dataclasses.dataclass
+  class MyStructuredRAGStrategy(
+      strategies_lib.RAGContextBuilder,
+      qa.QAStrategy[str, qa.BaseStrategyResult[MyAnswer]],
+  ):
+
+    @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
+    async def __call__(self, question, **query_time_kwargs):
+      context, docs = await self.build_context(question, **query_time_kwargs)
+      # `generate_object` takes a flat prompt, so only single-turn prompts are
+      # supported here.
+      answer = await llm.generate_object(prompt=context.prefix, cls=MyAnswer)
+      if not isinstance(answer, MyAnswer):
+        raise TypeError(f'Expected MyAnswer, got {type(answer)}.')
+      return qa.BaseStrategyResult(answer=answer, docs=docs)
+  ```
 
   Attributes:
     retriever: The retriever to use for fetching relevant documents.
@@ -186,16 +209,30 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
       )
   )
 
-  @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
-  async def __call__(
+  async def build_context(
       self,
       question: _PromptContent,
       **query_time_kwargs,
-  ) -> _StrategyResult:
-    """Returns an answer using retrieved documents as context."""
+  ) -> tuple[composing.Context, list[_Document]]:
+    """Retrieves documents for the question and compiles the prompt.
+
+    Args:
+      question: The question to answer.
+      **query_time_kwargs: Keyword arguments forwarded to the retriever (e.g.
+        `max_results`).
+
+    Returns:
+      The compiled prompt and the list of retrieved documents. If no documents
+      are retrieved, the prompt uses a placeholder "None" document while the
+      returned list is empty.
+
+    Raises:
+      ValueError: If no retriever is set.
+    """
     if self.retriever is None:
       raise ValueError(
-          'RAGStrategy requires a retriever. Pass one at construction time.'
+          f'{type(self).__name__} requires a retriever. Pass one at'
+          ' construction time.'
       )
 
     # Retrieve relevant documents.
@@ -211,6 +248,30 @@ class RAGStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         else [_Document(doc_id='none', content='None')]
     )
     context = await self.prompt_builder(docs, question)
+    return context, retrieved_docs
+
+
+@dataclasses.dataclass
+class RAGStrategy(
+    RAGContextBuilder, qa.QAStrategy[_PromptContent, _StrategyResult]
+):
+  """A strategy that retrieves relevant documents before answering (RAG).
+
+  Attributes:
+    retriever: The retriever to use for fetching relevant documents.
+    prompt_builder: The prompt builder used to construct the prompt.
+  """
+
+  @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
+  async def __call__(
+      self,
+      question: _PromptContent,
+      **query_time_kwargs,
+  ) -> _StrategyResult:
+    """Returns an answer using retrieved documents as context."""
+    context, retrieved_docs = await self.build_context(
+        question, **query_time_kwargs
+    )
     answer = await llm.chat(context.to_messages())
     return _StrategyResult(answer=str(answer), docs=retrieved_docs)
 

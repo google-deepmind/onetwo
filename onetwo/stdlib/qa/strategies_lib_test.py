@@ -13,11 +13,13 @@
 # limitations under the License.
 
 from collections.abc import Iterable
+import dataclasses
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
 from onetwo.backends import backends_test_utils
+from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.qa import qa
@@ -29,6 +31,7 @@ from onetwo.stdlib.retrieval import retrieval_data_structures
 _Document = retrieval_data_structures.Document
 _Chunk = content_lib.Chunk
 _ChunkList = content_lib.ChunkList
+_PromptContent = str | content_lib.ChunkList
 _StrategyResult = qa.StrategyResult
 
 
@@ -37,14 +40,16 @@ _StrategyResult = qa.StrategyResult
 # =============================================================================
 
 
-class MockRetriever(retrieval.Retriever[str, _Document]):
+class MockRetriever(retrieval.Retriever[_PromptContent, _Document]):
   """A simple mock retriever that returns a fixed set of documents."""
 
   def __init__(self, documents: list[_Document]):
     self._documents = documents
 
   @executing.make_executable
-  async def retrieve(self, query: str, **kwargs) -> Iterable[_Document]:
+  async def retrieve(
+      self, query: _PromptContent, **kwargs
+  ) -> Iterable[_Document]:
     max_results = kwargs.get('max_results')
     if max_results is not None:
       return self._documents[:max_results]
@@ -338,7 +343,7 @@ class RAGStrategyTest(parameterized.TestCase):
       self, documents, question, max_results, expected_doc_ids
   ):
     retriever = MockRetriever(documents)
-    strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
+    strategy = strategies_lib.RAGStrategy(retriever=retriever)
     kwargs = {}
     if max_results is not None:
       kwargs['max_results'] = max_results
@@ -354,17 +359,85 @@ class RAGStrategyTest(parameterized.TestCase):
 
   def test_empty_retrieval_returns_empty_docs(self):
     retriever = MockRetriever([])
-    strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
+    strategy = strategies_lib.RAGStrategy(retriever=retriever)
     result = ot.run(strategy(question='What?'))
     self.assertEmpty(result.docs)
 
   def test_max_results_limits_retrieval(self):
     retriever = MockRetriever(_TEXT_DOCS)
-    strategy = strategies_lib.RAGStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
+    strategy = strategies_lib.RAGStrategy(retriever=retriever)
     result = ot.run(strategy(question='What?', max_results=1))
     self.assertLen(result.docs, 1)
     self.assertEqual(result.docs[0].doc_id, 'd1')
 
+
+# =============================================================================
+# Custom strategies built on RAGContextBuilder
+# =============================================================================
+
+
+@dataclasses.dataclass(frozen=True)
+class _StructuredAnswer:
+  label: str
+  score: float
+
+
+@dataclasses.dataclass
+class _StructuredRAGStrategy(
+    strategies_lib.RAGContextBuilder,
+    qa.QAStrategy[str, qa.BaseStrategyResult[_StructuredAnswer]],
+):
+  """A RAG strategy that returns a structured answer."""
+
+  @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
+  async def __call__(
+      self, question: str, **query_time_kwargs
+  ) -> qa.BaseStrategyResult[_StructuredAnswer]:
+    context, docs = await self.build_context(question, **query_time_kwargs)
+    answer = await llm.generate_object(
+        prompt=context.prefix, cls=_StructuredAnswer
+    )
+    if not isinstance(answer, _StructuredAnswer):
+      raise TypeError(f'Expected _StructuredAnswer, got {type(answer)}.')
+    return qa.BaseStrategyResult(answer=answer, docs=docs)
+
+
+class RAGContextBuilderTest(absltest.TestCase):
+  """Tests for RAGContextBuilder and custom strategies built on it."""
+
+  def setUp(self):
+    super().setUp()
+    self.llm_backend = backends_test_utils.LLMForTest(
+        default_reply="{'label': 'yes', 'score': 0.9}",
+    )
+    self.llm_backend.register()
+
+  def test_structured_strategy_returns_structured_answer(self):
+    retriever = MockRetriever(_TEXT_DOCS)
+    strategy = _StructuredRAGStrategy(retriever=retriever)
+
+    result = ot.run(strategy(question=_TEXT_QUESTION, max_results=2))
+
+    self.assertEqual(_StructuredAnswer(label='yes', score=0.9), result.answer)
+    self.assertEqual(['d1', 'd2'], [doc.doc_id for doc in result.docs])
+    self.assertLen(self.llm_backend.prompts, 1)
+    self.assertIn(
+        'Paris is the capital of France.', self.llm_backend.prompts[0]
+    )
+
+  def test_build_context_without_retriever_raises(self):
+    strategy = _StructuredRAGStrategy(retriever=None)
+
+    with self.assertRaisesRegex(ValueError, '_StructuredRAGStrategy requires'):
+      ot.run(strategy(question='What?'))
+
+  def test_build_context_empty_retrieval_uses_placeholder_doc(self):
+    builder = strategies_lib.RAGContextBuilder(retriever=MockRetriever([]))
+
+    context, docs = ot.run(builder.build_context('What?'))
+
+    self.assertEmpty(docs)
+    self.assertIn('None', str(context.prefix))
 
 # =============================================================================
 # Retrieval-only strategy tests
@@ -408,7 +481,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
       self, documents, question, max_results, expected_doc_ids
   ):
     retriever = MockRetriever(documents)
-    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
     kwargs = {}
     if max_results is not None:
       kwargs['max_results'] = max_results
@@ -426,7 +499,7 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
 
   def test_empty_retrieval_returns_empty_docs(self):
     retriever = MockRetriever([])
-    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)  # pyrefly: ignore[bad-argument-type]
+    strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
     result = ot.run(strategy(question='What?'))
     self.assertEmpty(result.docs)
     self.assertEqual(result.answer, '')
@@ -462,7 +535,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='rag',
           strategy=strategies_lib.RAGStrategy(
-              retriever=MockRetriever(_TEXT_DOCS),  # pyrefly: ignore[bad-argument-type]
+              retriever=MockRetriever(_TEXT_DOCS),
           ),
           question=_TEXT_QUESTION,
       ),
@@ -489,7 +562,7 @@ class CrossStrategyTest(parameterized.TestCase):
       dict(
           testcase_name='rag_multimodal',
           strategy=strategies_lib.RAGStrategy(
-              retriever=MockRetriever(_MULTIMODAL_DOCS),  # pyrefly: ignore[bad-argument-type]
+              retriever=MockRetriever(_MULTIMODAL_DOCS),
           ),
           question=_MULTIMODAL_QUESTION,
       ),
