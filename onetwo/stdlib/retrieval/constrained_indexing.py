@@ -325,6 +325,8 @@ class RewritingConstrainedEmbeddingBasedDocumentIndex(
     # this assertion.
     assert isinstance(self.inner_index, ConstrainedEmbeddingBasedDocumentIndex)
     self.inner_index.save(base_path)
+    if self.preserve_original_docs:
+      self._save_original_docs(base_path)
 
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
@@ -333,3 +335,4 @@ class RewritingConstrainedEmbeddingBasedDocumentIndex(
     # this assertion.
     assert isinstance(self.inner_index, ConstrainedEmbeddingBasedDocumentIndex)
     await self.inner_index.load(base_path)
+    self._load_original_docs(base_path, Document)

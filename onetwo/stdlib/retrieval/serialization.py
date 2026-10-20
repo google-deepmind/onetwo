@@ -18,7 +18,7 @@ import collections
 import dataclasses
 import io
 import json
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Sequence, TypeVar
 
 from etils import epath
 import numpy as np
@@ -96,6 +96,41 @@ def load_documents(
     return [_deserialize_line(line) for line in iterator if line.strip()]
 
 
+def save_documents(
+    docs: Sequence[retrieval_data_structures.Document],
+    file_path: str | epath.Path,
+    num_shards: int = 1,
+) -> None:
+  """Saves documents as JSON lines, in a format readable by `load_documents`.
+
+  Args:
+    docs: The documents to save, written one `to_json()` per line, in order.
+    file_path: Path to the documents file, e.g. `.../docs.jsonl`. Its parent
+      directory must exist.
+    num_shards: Number of shards to split the documents into. If > 1 (and
+      `docs` is non-empty), the documents are written to
+      `{stem}-{i:05d}-of-{num_shards:05d}{suffix}` files next to `file_path`
+      instead of to `file_path` itself.
+  """
+  file_path = epath.Path(file_path)
+  if num_shards > 1 and docs:
+    shard_size = (len(docs) + num_shards - 1) // num_shards
+    shards = [
+        (
+            file_path.parent
+            / f'{file_path.stem}-{s:05d}-of-{num_shards:05d}{file_path.suffix}',
+            docs[s * shard_size : (s + 1) * shard_size],
+        )
+        for s in range(num_shards)
+    ]
+  else:
+    shards = [(file_path, docs)]
+  for shard_path, shard_docs in shards:
+    with shard_path.open('w') as f:
+      for doc in shard_docs:
+        f.write(doc.to_json() + '\n')
+
+
 @dataclasses.dataclass
 class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
   """Simple serializer for EmbeddingBasedIndex.
@@ -152,22 +187,9 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
 
     path.mkdir(parents=True, exist_ok=True)
     # Save documents to JSONL (sharded if num_shards > 1).
-    docs_path = path / self.docs_jsonl_name
-    stem = docs_path.stem
-    suffix = docs_path.suffix
-    if self.num_shards > 1 and state.docs:
-      shard_size = (len(state.docs) + self.num_shards - 1) // self.num_shards
-      for s in range(self.num_shards):
-        shard_path = path / f'{stem}-{s:05d}-of-{self.num_shards:05d}{suffix}'
-        with shard_path.open('w') as f:
-          for doc in state.docs[s * shard_size : (s + 1) * shard_size]:
-            doc_document: retrieval_data_structures.Document = doc
-            f.write(doc_document.to_json() + '\n')
-    else:
-      with docs_path.open('w') as f:
-        for doc in state.docs:
-          doc_document: retrieval_data_structures.Document = doc
-          f.write(doc_document.to_json() + '\n')
+    save_documents(
+        state.docs, path / self.docs_jsonl_name, num_shards=self.num_shards
+    )
 
     # Save embeddings to NPY (sharded if num_shards > 1).
     embeddings_path = path / self.embeds_npy_name

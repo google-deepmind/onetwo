@@ -28,6 +28,7 @@ from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import constrained_indexing
 from onetwo.stdlib.retrieval import constrained_retrieval
 from onetwo.stdlib.retrieval import corpus_rewriting
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 Document = retrieval_data_structures.Document
@@ -507,6 +508,39 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
             index.inner_index._doc_embeddings[i],
             f'Embedding at index {i} mismatch',
         )
+
+  def test_save_load_original_docs_roundtrip(self):
+    def make_index():
+      index_cls = (
+          constrained_indexing.RewritingConstrainedEmbeddingBasedDocumentIndex
+      )
+      return index_cls(
+          rewriter=corpus_rewriting.ChunkingCorpusRewriter(
+              chunker=chunking.NoChunking()
+          ),
+          preserve_original_docs=True,
+          retrieval_target=indexing.RetrievalTarget.ORIGINAL,
+      )
+
+    docs = [
+        Document(doc_id='a', title='Title A', content='A'),
+        Document(doc_id='b', title='Title B', content='B'),
+    ]
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
+        np.array([1.0, 0.0]),
+        np.array([0.0, 1.0]),
+    ]
+    index = make_index()
+    executing.run(index.add_docs(docs))
+    index.save(self.temp_dir)
+
+    new_index = make_index()
+    executing.run(new_index.load(self.temp_dir))
+    self.assertEqual(
+        new_index._original_docs,  # pylint: disable=protected-access
+        {'a': docs[0], 'b': docs[1]},
+    )
+    self.assertEqual(new_index.get_doc('a'), docs[0])
 
   def test_rename_discrete_field_key_type_handling(self):
     """Tests the behavior of rename_discrete_field_key based on index type."""

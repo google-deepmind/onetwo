@@ -79,6 +79,10 @@ Document = retrieval_data_structures.Document
 # all public APIs.
 DEFAULT_INDEXING_THREADPOOL_SIZE = 30
 
+# Name of the file (in the index directory, next to the inner index's files)
+# that a `RewritingIndex` saves its original documents to.
+ORIGINAL_DOCS_JSONL_NAME = 'original_docs.jsonl'
+
 
 def _validate_docs(docs: Sequence[Any]) -> None:
   """Validates that the given documents all have doc_id attributes.
@@ -485,6 +489,53 @@ class RewritingIndex(
     """Overridden from base class (Index)."""
     self._original_docs.clear()
     self.inner_index.destroy_index()
+
+  # TODO: Original documents are always saved as JSONL,
+  # regardless of the inner index's `serializer_type`. Fix in follow-up CL.
+  def _save_original_docs(self, base_path: str) -> None:
+    """Saves the original documents to `ORIGINAL_DOCS_JSONL_NAME`.
+
+    The file is written to `base_path`, next to the inner index's files, with
+    one JSON-serialized document per line (in the order they were added).
+
+    Args:
+      base_path: The directory the index is saved to.
+    """
+    path = epath.Path(base_path)
+    path.mkdir(parents=True, exist_ok=True)
+    serialization.save_documents(
+        cast(
+            Sequence[retrieval_data_structures.Document],
+            list(self._original_docs.values()),
+        ),
+        path / ORIGINAL_DOCS_JSONL_NAME,
+    )
+
+  def _load_original_docs(
+      self,
+      base_path: str,
+      doc_class: type[retrieval_data_structures.Document],
+  ) -> None:
+    """Loads the original documents saved by `_save_original_docs`.
+
+    Does nothing if there is no `ORIGINAL_DOCS_JSONL_NAME` file in `base_path`
+    (e.g. for indices saved without original documents). Otherwise, also sets
+    `preserve_original_docs`, so that the loaded original documents can be
+    looked up, and are kept up to date and saved again by later calls to
+    `add_docs` and `save`.
+
+    Args:
+      base_path: The directory the index was saved to.
+      doc_class: The class to deserialize the documents as.
+    """
+    path = epath.Path(base_path) / ORIGINAL_DOCS_JSONL_NAME
+    if not path.exists():
+      return
+    docs = serialization.load_documents(path, doc_class, show_progress=False)
+    self._original_docs = {doc.doc_id: cast(DocT, doc) for doc in docs}
+    if not self.preserve_original_docs:
+      logging.info('Found %s; setting preserve_original_docs=True.', path)
+      self.preserve_original_docs = True
 
   @executing.make_executable(copy_self=False)
   async def retrieve(
@@ -1071,8 +1122,11 @@ class RewritingEmbeddingBasedDocumentIndex(
   def save(self, base_path: str) -> None:
     """Saves the index state."""
     self.inner_index.save(base_path)
+    if self.preserve_original_docs:
+      self._save_original_docs(base_path)
 
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state."""
     await self.inner_index.load(base_path)
+    self._load_original_docs(base_path, Document)

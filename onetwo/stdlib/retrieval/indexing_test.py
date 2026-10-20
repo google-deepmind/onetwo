@@ -17,6 +17,7 @@ import tempfile
 from unittest import mock
 
 from absl.testing import absltest
+from etils import epath
 import numpy as np
 from onetwo import ot
 from onetwo.backends import backend_registry
@@ -974,6 +975,95 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
           new_index.inner_index.get_doc_embedding('b'),
           index.inner_index.get_doc_embedding('b'),
       )
+
+  def _build_and_save_index(
+      self, *, preserve_original_docs: bool
+  ) -> list[Document]:
+    """Builds and saves a 2-doc index to `self.temp_dir`; returns its docs."""
+    docs = [
+        Document(doc_id='a', title='Title A', content='A'),
+        Document(doc_id='b', title='Title B', content='B'),
+    ]
+    mock_embed_fn.embeddings = [  # pyrefly: ignore[missing-attribute]
+        np.array([1.0, 0.0]),
+        np.array([0.0, 1.0]),
+    ]
+    mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=corpus_rewriting.ChunkingCorpusRewriter(
+            chunker=chunking.NoChunking()
+        ),
+        preserve_original_docs=preserve_original_docs,
+    )
+    ot.run(index.add_docs(docs))
+    index.save(self.temp_dir)
+    return docs
+
+  def _load_index(
+      self, *, preserve_original_docs: bool
+  ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
+    """Loads the index saved in `self.temp_dir`, targeting original docs."""
+    index = indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=corpus_rewriting.ChunkingCorpusRewriter(
+            chunker=chunking.NoChunking()
+        ),
+        preserve_original_docs=preserve_original_docs,
+        retrieval_target=indexing.RetrievalTarget.ORIGINAL,
+    )
+    ot.run(index.load(self.temp_dir))
+    return index
+
+  def test_save_load_original_docs_roundtrip(self):
+    docs = self._build_and_save_index(preserve_original_docs=True)
+    original_docs_path = epath.Path(self.temp_dir) / (
+        indexing.ORIGINAL_DOCS_JSONL_NAME
+    )
+
+    with self.subTest('original_docs_file_written'):
+      self.assertTrue(original_docs_path.exists())
+      self.assertLen(original_docs_path.read_text().splitlines(), 2)
+
+    new_index = self._load_index(preserve_original_docs=True)
+
+    with self.subTest('original_docs_loaded'):
+      self.assertEqual(
+          new_index._original_docs,  # pylint: disable=protected-access
+          {'a': docs[0], 'b': docs[1]},
+      )
+
+    with self.subTest('get_doc_original'):
+      self.assertEqual(new_index.get_doc('b'), docs[1])
+
+    with self.subTest('retrieve_original'):
+      mock_embed_fn.embeddings = [np.array([0.0, 1.0])]  # pyrefly: ignore[missing-attribute]
+      mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
+      retrieved = list(ot.run(new_index.retrieve('B', max_results=1)))
+      self.assertEqual(retrieved, [docs[1]])
+
+  def test_save_without_preserve_original_docs_writes_no_file(self):
+    self._build_and_save_index(preserve_original_docs=False)
+    self.assertFalse(
+        (epath.Path(self.temp_dir) / indexing.ORIGINAL_DOCS_JSONL_NAME).exists()
+    )
+
+  def test_load_without_original_docs_file(self):
+    """Tests that indices saved without original docs still load."""
+    self._build_and_save_index(preserve_original_docs=False)
+    new_index = self._load_index(preserve_original_docs=True)
+    self.assertEqual(new_index.inner_index.num_docs, 2)
+    self.assertEmpty(new_index._original_docs)  # pylint: disable=protected-access
+
+  def test_load_without_preserve_original_docs_still_loads_file(self):
+    """Tests that an existing original docs file is loaded and enables them."""
+    docs = self._build_and_save_index(preserve_original_docs=True)
+    new_index = self._load_index(preserve_original_docs=False)
+    self.assertEqual(new_index.inner_index.num_docs, 2)
+    self.assertEqual(
+        new_index._original_docs,  # pylint: disable=protected-access
+        {'a': docs[0], 'b': docs[1]},
+    )
+    self.assertTrue(new_index.preserve_original_docs)
+    self.assertEqual(new_index.get_doc('a'), docs[0])
 
   def test_unsupported_serializer_type_raises_error(self):
     index = indexing.EmbeddingBasedDocumentIndex(

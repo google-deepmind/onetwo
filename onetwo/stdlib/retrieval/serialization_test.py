@@ -40,6 +40,32 @@ class SerializationTest(absltest.TestCase):
     shutil.rmtree(self.test_dir)
     super().tearDown()
 
+  def test_save_and_load_documents_roundtrip(self):
+    docs = [
+        _Document(doc_id=f'doc{i}', title=f'Title {i}', content=f'Content {i}')
+        for i in range(5)
+    ]
+    for num_shards in (1, 2):
+      with self.subTest(f'num_shards={num_shards}'):
+        file_path = os.path.join(self.test_dir, f'docs_{num_shards}.jsonl')
+        serialization.save_documents(docs, file_path, num_shards=num_shards)
+
+        if num_shards == 1:
+          expected_files = [f'docs_{num_shards}.jsonl']
+        else:
+          expected_files = [
+              f'docs_{num_shards}-{s:05d}-of-{num_shards:05d}.jsonl'
+              for s in range(num_shards)
+          ]
+        for name in expected_files:
+          self.assertTrue(os.path.exists(os.path.join(self.test_dir, name)))
+        self.assertEqual(
+            serialization.load_documents(
+                file_path, _Document, show_progress=False
+            ),
+            docs,
+        )
+
   def test_simple_serialization_roundtrip(self):
     serializer = serialization.SimpleConstrainedEmbeddingBasedIndexSerializer(
         _Document
