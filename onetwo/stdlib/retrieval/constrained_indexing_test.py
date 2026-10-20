@@ -475,6 +475,9 @@ class RewritingConstrainedEmbeddingBasedDocumentIndexSaveLoadTest(
           {'external_keys': {'a': [0], 'b': [1]}},
       )
 
+    with self.subTest('get_doc_after_load'):
+      self.assertEqual(new_index.get_doc('b'), docs[1])
+
     with self.subTest('individual_attributes_match'):
       self.assertEqual(
           new_index.inner_index._doc_indices_by_discrete_value,

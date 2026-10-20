@@ -219,38 +219,70 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
       with self.assertRaises(KeyError):
         index.get_doc('doc1')
 
-  def test_add_docs_with_duplicate_ids_raises(self):
-    mock_embed_fn.embeddings = [np.array([1.0, 0.0])]  # pyrefly: ignore[missing-attribute]
+  def test_get_doc_with_duplicate_ids_returns_first(self):
+    """Tests that docs sharing a doc_id are allowed; lookups return the first."""
+    embeds = [np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.array([1.0, 1.0])]
+    mock_embed_fn.embeddings = embeds  # pyrefly: ignore[missing-attribute]
     index = indexing.EmbeddingBasedIndex()
-    doc1 = Document(doc_id='doc1', content='hello')
-    ot.run(index.add_docs([doc1]))
+    first = Document(doc_id='doc1', content='first')
+    within_batch = Document(doc_id='doc1', content='within batch')
+    across_batches = Document(doc_id='doc1', content='across batches')
+    ot.run(index.add_docs([first, within_batch]))
+    ot.run(index.add_docs([across_batches]))
 
-    with self.subTest('duplicate_of_existing_doc'):
-      with self.assertRaisesRegex(ValueError, 'duplicate doc_ids'):
-        ot.run(index.add_docs([Document(doc_id='doc1', content='other')]))
+    self.assertEqual(index.num_docs, 3)
+    for _ in range(2):  # Repeated lookups are stable.
+      self.assertIs(index.get_doc('doc1'), first)
+      np.testing.assert_array_equal(index.get_doc_embedding('doc1'), embeds[0])
 
-    with self.subTest('duplicate_within_batch'):
-      with self.assertRaisesRegex(ValueError, 'duplicate doc_ids'):
+  def test_add_docs_with_duplicate_ids_logs_warning(self):
+    """Tests that docs with an already used doc_id are indexed with a warning."""
+    mock_embed_fn.embeddings = [np.array([1.0, 0.0])] * 6  # pyrefly: ignore[missing-attribute]
+    index = indexing.EmbeddingBasedIndex()
+
+    with self.subTest('unique_ids_no_warning'):
+      with self.assertNoLogs(level='WARNING'):
         ot.run(
             index.add_docs([
-                Document(doc_id='doc2', content='a'),
+                Document(doc_id='doc1', content='a'),
                 Document(doc_id='doc2', content='b'),
             ])
         )
 
-    with self.subTest('index_unchanged'):
-      self.assertEqual(index.num_docs, 1)
-      self.assertIs(index.get_doc('doc1'), doc1)
-      with self.assertRaises(KeyError):
-        index.get_doc('doc2')
+    with self.subTest('duplicates_within_batch_and_of_existing_docs'):
+      with self.assertLogs(level='WARNING') as logs:
+        ot.run(
+            index.add_docs([
+                Document(doc_id='doc1', content='c'),  # Existing doc_id.
+                Document(doc_id='doc3', content='d'),
+                Document(doc_id='doc3', content='e'),  # Within batch.
+                Document(doc_id='doc4', content='f'),
+            ])
+        )
+      self.assertLen(logs.records, 1)
+      self.assertIn('Added 2 documents', logs.output[0])
+      self.assertIn("['doc1', 'doc3']", logs.output[0])
 
-  def test_get_doc_after_docs_set_directly(self):
-    """Tests that docs set directly on `_docs` (e.g. by `load`) are found."""
+    with self.subTest('all_docs_indexed'):
+      self.assertEqual(index.num_docs, 6)
+      self.assertEqual(index.get_doc('doc1').content, 'a')
+      self.assertEqual(index.get_doc('doc3').content, 'd')
+
+  def test_get_doc_does_not_update_row_by_id(self):
+    """Tests that lookups only read `_row_by_id`, which `add_docs` keeps up to date."""
+    mock_embed_fn.embeddings = [np.array([1.0, 0.0])]  # pyrefly: ignore[missing-attribute]
     index = indexing.EmbeddingBasedIndex()
-    doc = Document(doc_id='doc1', content='hello')
-    index._docs = [doc]  # pylint: disable=protected-access
-    index._doc_embeddings = [np.array([1.0, 0.0])]  # pylint: disable=protected-access
-    self.assertIs(index.get_doc('doc1'), doc)
+    doc1 = Document(doc_id='doc1', content='hello')
+    ot.run(index.add_docs([doc1]))
+    self.assertIs(index.get_doc('doc1'), doc1)
+
+    # Docs appended to `_docs` without `add_docs` / `load` are not looked up.
+    doc2 = Document(doc_id='doc2', content='world')
+    index._docs.append(doc2)  # pylint: disable=protected-access
+    with self.assertRaises(KeyError):
+      index.get_doc('doc2')
+    index._update_row_by_id()  # pylint: disable=protected-access
+    self.assertIs(index.get_doc('doc2'), doc2)
 
   def test_localized_backend_initialization(self):
     """Tests that localized backend arguments correctly lazily configure the backend."""
@@ -942,10 +974,6 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
           new_index.inner_index.get_doc_embedding('b'),
           index.inner_index.get_doc_embedding('b'),
       )
-
-    with self.subTest('add_duplicate_after_load_raises'):
-      with self.assertRaisesRegex(ValueError, 'duplicate doc_ids'):
-        ot.run(new_index.add_docs([Document(doc_id='a', content='A2')]))
 
   def test_unsupported_serializer_type_raises_error(self):
     index = indexing.EmbeddingBasedDocumentIndex(

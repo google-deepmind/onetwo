@@ -292,6 +292,8 @@ class ConstrainedEmbeddingBasedDocumentIndex(
     """Loads the index state."""
     index_state_dto = await constrained_serializer(Document).load(base_path)
     self._docs = index_state_dto.docs
+    self._row_by_id = {}
+    self._update_row_by_id()
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
       self.embed_backend_config = index_state_dto.embed_backend_config

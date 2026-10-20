@@ -54,6 +54,7 @@ import json
 import random
 from typing import Any, Generic, Iterable, Iterator, Sequence, TypeVar, cast
 
+from absl import logging
 from etils import epath
 import numpy as np
 from onetwo.backends import backend_registry
@@ -79,39 +80,55 @@ Document = retrieval_data_structures.Document
 DEFAULT_INDEXING_THREADPOOL_SIZE = 30
 
 
-def _validate_docs(
-    docs: Sequence[Any], existing_doc_ids: Container[str] = ()
-) -> None:
-  """Validates that the given documents all have unique doc_id attributes.
+def _validate_docs(docs: Sequence[Any]) -> None:
+  """Validates that the given documents all have doc_id attributes.
+
+  Note that doc_ids are not required to be unique: some callers intentionally
+  index several documents (e.g. different name variants of an entity) under
+  the same doc_id.
 
   Args:
     docs: The documents to validate.
-    existing_doc_ids: IDs of documents already in the index, which the new
-      documents' IDs must not collide with.
 
-  Raises: ValueError if one or more are missing IDs, or if any ID is duplicated
-    (either among `docs` or with respect to `existing_doc_ids`).
+  Raises: ValueError if one or more are missing IDs.
   """
   docs_missing_ids = []
-  duplicate_ids = []
-  seen_doc_ids = set()
   for i, doc in enumerate(docs):
-    doc_id = getattr(doc, 'doc_id', None)
-    if doc_id is None:
+    if getattr(doc, 'doc_id', None) is None:
       docs_missing_ids.append(i)
-      continue
-    if doc_id in existing_doc_ids or doc_id in seen_doc_ids:
-      duplicate_ids.append(doc_id)
-    seen_doc_ids.add(doc_id)
   if docs_missing_ids:
     raise ValueError(
         f'Docs missing doc_id ({len(docs_missing_ids)} / {len(docs)}): '
         f'{docs_missing_ids[:10]} ...'
     )
-  if duplicate_ids:
-    raise ValueError(
-        f'Docs with duplicate doc_ids ({len(duplicate_ids)}): '
-        f'{duplicate_ids[:10]} ...'
+
+
+def _find_duplicate_doc_ids(
+    docs: Sequence[Any], existing_doc_ids: Container[str]
+) -> None:
+  """Logs a warning if any of `docs` has a doc_id that is already used.
+
+  A doc_id counts as already used if it is in `existing_doc_ids` or belongs to
+  an earlier document in `docs`. Such documents are counted once each.
+
+  Args:
+    docs: The documents to check. Must all have doc_ids.
+    existing_doc_ids: doc_ids of the documents already in the index.
+  """
+  duplicate_doc_ids = []
+  seen_doc_ids = set()
+  for doc in docs:
+    doc_id = getattr(doc, 'doc_id')
+    if doc_id in existing_doc_ids or doc_id in seen_doc_ids:
+      duplicate_doc_ids.append(doc_id)
+    seen_doc_ids.add(doc_id)
+  if duplicate_doc_ids:
+    logging.warning(
+        'Added %d documents whose doc_id is already used by another document'
+        ' in the index (e.g. %s). `get_doc` returns the first document added'
+        ' for each doc_id.',
+        len(duplicate_doc_ids),
+        duplicate_doc_ids[:10],
     )
 
 
@@ -742,7 +759,8 @@ class EmbeddingBasedIndex(
   # List of the embeddings of the documents that are added to the index.
   _doc_embeddings: list[np.ndarray] = dataclasses.field(default_factory=list)
   # Mapping from doc ID to the row of that document in `_docs` (and, equally,
-  # in `_doc_embeddings` and the searcher).
+  # in `_doc_embeddings` and the searcher). If several documents share a doc
+  # ID, this maps to the first of them.
   _row_by_id: dict[str, int] = dataclasses.field(
       default_factory=dict, repr=False, compare=False
   )
@@ -789,42 +807,33 @@ class EmbeddingBasedIndex(
     """Overridden from base class (Index)."""
     return self._docs
 
-  def _get_row_by_id(self) -> dict[str, int]:
-    """Returns the doc ID to row mapping, indexing any not-yet-indexed docs.
-
-    This also covers docs set directly on `_docs` (e.g., by a subclass's
-    `load`), as long as docs are only appended.
-    """
+  def _update_row_by_id(self) -> None:
+    """Adds the rows of `_docs` that are not yet in `_row_by_id`."""
+    # TODO: With duplicate doc_ids, `_row_by_id` has fewer
+    # entries than `_docs`, so rows already indexed get re-visited (harmlessly,
+    # due to `setdefault`) on every call. Revisit how duplicates are handled.
     for row in range(len(self._row_by_id), len(self._docs)):
-      self._row_by_id[getattr(self._docs[row], 'doc_id')] = row
-    return self._row_by_id
+      self._row_by_id.setdefault(getattr(self._docs[row], 'doc_id'), row)
 
   def get_doc(self, doc_id: str) -> DocT:
     """Overridden from base class (Index)."""
-    return self._docs[self._get_row_by_id()[doc_id]]
+    return self._docs[self._row_by_id[doc_id]]
 
   def get_doc_embedding(self, doc_id: str) -> np.ndarray:
     """Returns the embedding of the document with the given ID."""
-    return self._doc_embeddings[self._get_row_by_id()[doc_id]]
+    return self._doc_embeddings[self._row_by_id[doc_id]]
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('EmbeddingBasedIndex.add_docs')
   async def add_docs(self, docs: Iterable[DocT]) -> None:
-    """Overridden from base class (Index).
-
-    Args:
-      docs: The documents to add. Their doc_ids must be unique, both among
-        themselves and with respect to the documents already in the index.
-
-    Raises:
-      ValueError: If any document is missing a doc_id, or if any doc_id is
-        duplicated. In that case, the index is left unchanged.
-    """
+    """Overridden from base class (Index)."""
     docs = list(docs)
     if not docs:
       return
-    _validate_docs(docs, existing_doc_ids=self._get_row_by_id())
+    _validate_docs(docs)
+    _find_duplicate_doc_ids(docs, self._row_by_id)
     self._docs.extend(docs)
+    self._update_row_by_id()
     embedded_results = await self._calculate_doc_embeddings(docs)
     self._doc_embeddings.extend([np.array(embed) for embed in embedded_results])
     # Build the searcher index.
@@ -1034,6 +1043,8 @@ class EmbeddingBasedDocumentIndex(
     serializer = serialization.get_serializer(serializer_type, Document)
     index_state_dto = await serializer.load(base_path)
     self._docs = index_state_dto.docs
+    self._row_by_id = {}
+    self._update_row_by_id()
     self._doc_embeddings = index_state_dto.doc_embeddings
     if index_state_dto.embed_backend_config is not None:
       self.embed_backend_config = index_state_dto.embed_backend_config
