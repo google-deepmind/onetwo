@@ -181,6 +181,36 @@ def load_examples_from_json(
   return examples
 
 
+def load_examples_from_file(
+    examples_path: str | epath.Path,
+    max_number_of_examples: int | None = None,
+) -> list[ExampleDict]:
+  """Loads examples from a JSONL or JSON file, depending on its suffix.
+
+  Args:
+    examples_path: Path to the examples file. Must end with `.jsonl` (one
+      example per line) or `.json` (array of examples).
+    max_number_of_examples: Maximum number of examples to load.
+
+  Returns:
+    A list of parsed example dictionaries.
+
+  Raises:
+    ValueError: If the file suffix is neither `.jsonl` nor `.json`.
+    FileNotFoundError: If `examples_path` does not exist.
+  """
+  examples_path = epath.Path(examples_path)
+  if examples_path.suffix not in ('.json', '.jsonl'):
+    raise ValueError(
+        f'examples_path must end with .json or .jsonl, got: {examples_path}'
+    )
+  if not examples_path.exists():
+    raise FileNotFoundError(f'Examples file does not exist: {examples_path}')
+  if examples_path.suffix == '.jsonl':
+    return load_examples_from_jsonl(examples_path, max_number_of_examples)
+  return load_examples_from_json(examples_path, max_number_of_examples)
+
+
 class DatasetLoader(Protocol[_Example]):
   """Abstract base class for loading a dataset and returning examples."""
 
@@ -328,17 +358,9 @@ class JsonlDatasetLoader(DatasetLoader[ExampleDict]):
     """
     if self.examples_path is None:
       raise ValueError('examples_path is not configured.')
-
-    examples_path = epath.Path(self.examples_path)
-    if not examples_path.exists():
-      raise FileNotFoundError(f'Examples file does not exist: {examples_path}')
-
-    if examples_path.suffix == '.jsonl':
-      return load_examples_from_jsonl(
-          examples_path, self.max_number_of_examples
-      )
-    else:
-      return load_examples_from_json(examples_path, self.max_number_of_examples)
+    return load_examples_from_file(
+        self.examples_path, self.max_number_of_examples
+    )
 
 
 def decode_value(value: Any) -> str:

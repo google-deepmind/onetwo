@@ -44,6 +44,7 @@ import tensorflow_datasets as tfds
 # Re-export everything from datasets_lib and dataset modules.
 from onetwo.evaluation.datasets.browsecomp_plus import BrowseCompPlusDatasetLoader
 from onetwo.evaluation.datasets.datasets_lib import *
+from onetwo.evaluation.datasets.multimodal_loader import MultimodalDatasetLoader
 from onetwo.evaluation.datasets.hotpotqa import HotpotQADatasetLoader
 from onetwo.evaluation.datasets.multihoprag import MultiHopRAGDatasetLoader
 from onetwo.evaluation.datasets.narrativeqa import NarrativeQADatasetLoader
