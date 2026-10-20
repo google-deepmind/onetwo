@@ -19,11 +19,13 @@ from typing import Any
 
 import dataclasses_json
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import pdf_chunking
 
 CHUNKER_REGISTRY: dict[str, type[chunking.Chunker]] = {
     'none': chunking.NoChunking,
     'words': chunking.ChunkByMaxWords,
     'tokens': chunking.ChunkByMaxTokens,
+    'pdf_pages': pdf_chunking.ChunkByPdfPages,
 }
 
 
@@ -33,7 +35,7 @@ class ChunkerConfig(dataclasses_json.DataClassJsonMixin):
 
   Attributes:
     chunker_name: Registered chunking strategy name (e.g. 'none', 'words',
-      'tokens').
+      'tokens', 'pdf_pages').
     kwargs: Keyword arguments to pass to the chunker constructor.
   """
 

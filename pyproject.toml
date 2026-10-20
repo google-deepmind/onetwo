@@ -46,6 +46,7 @@ dependencies = [
     "ollama",
     "pillow",
     "pydantic>=2.0",
+    "pypdf",  # For `stdlib/retrieval/pdf_chunking.py`.
     "pytest",
     "portpicker",  # For `backends/onetwo_api_test_script.sh`.
     "pyyaml",  # For `import yaml`.
