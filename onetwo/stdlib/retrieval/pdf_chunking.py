@@ -19,58 +19,19 @@ as a `content_lib.ChunkList` containing one `application/pdf` chunk. Each output
 chunk is itself a (smaller) PDF.
 """
 
-from collections.abc import Iterable
-import copy
+from collections.abc import Sequence
 import dataclasses
 import io
+from typing import ClassVar
 
-from onetwo.core import content as content_lib
-from onetwo.core import executing
-from onetwo.core import tracing
-from onetwo.core import utils
 from onetwo.stdlib.retrieval import chunking
-from onetwo.stdlib.retrieval import retrieval_data_structures
 import pypdf
 
 PDF_CONTENT_TYPE = 'application/pdf'
 
-_ORIGINAL_DOC_ID = retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID
-_CHUNK_NUMBER = retrieval_data_structures.METADATA_FIELD_CHUNK_NUMBER
-_TOTAL_NUMBER_OF_CHUNKS = (
-    retrieval_data_structures.METADATA_FIELD_TOTAL_NUMBER_OF_CHUNKS
-)
-
-
-def _get_pdf_bytes(document: retrieval_data_structures.Document) -> bytes:
-  """Returns the PDF bytes of `document`.
-
-  Args:
-    document: A document whose content is a `ChunkList` with exactly one chunk
-      of content type `application/pdf`.
-
-  Raises:
-    ValueError: If the document content is not a single PDF chunk.
-  """
-  content = document.content
-  if (
-      not isinstance(content, content_lib.ChunkList)
-      or len(content) != 1
-      or content.chunks[0].content_type != PDF_CONTENT_TYPE
-  ):
-    raise ValueError(
-        f'Expected document {document.doc_id!r} to contain a single'
-        f' {PDF_CONTENT_TYPE!r} chunk, got: {content!r}'
-    )
-  pdf_bytes = content.chunks[0].content
-  if not isinstance(pdf_bytes, bytes):
-    raise ValueError(
-        f'Expected PDF content to be bytes, got {type(pdf_bytes)}.'
-    )
-  return pdf_bytes
-
 
 @dataclasses.dataclass(kw_only=True)
-class ChunkByPdfPages(chunking.Chunker):
+class ChunkByPdfPages(chunking.SingleMediaChunker):
   """Chunks a PDF document into PDFs of up to `pages_per_chunk` pages each.
 
   The input document's content must be a `ChunkList` containing a single
@@ -84,54 +45,40 @@ class ChunkByPdfPages(chunking.Chunker):
     pages_per_chunk: The maximum number of pages per chunk.
   """
 
+  media_description: ClassVar[str] = repr(PDF_CONTENT_TYPE)
+
   pages_per_chunk: int = 1
 
-  @executing.make_executable(copy_self=False)
-  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
-  async def __call__(
-      self,
-      document: retrieval_data_structures.Document,
-  ) -> Iterable[retrieval_data_structures.Document]:
-    """Returns `document` split into PDFs of up to `pages_per_chunk` pages.
+  def _accepts(self, content_type: str) -> bool:
+    """Overridden from base class (SingleMediaChunker)."""
+    return content_type == PDF_CONTENT_TYPE
+
+  def _split(
+      self, media: bytes, content_type: str
+  ) -> Sequence[tuple[bytes, str]]:
+    """Overridden from base class (SingleMediaChunker).
 
     Args:
-      document: The document to chunk.
+      media: The bytes of the media file to split.
+      content_type: The content type of `media`.
+
+    Returns:
+      The pieces of `media`, as (bytes, content type), in order.
 
     Raises:
-      ValueError: If `pages_per_chunk` is not positive or if the document
-        content is not a single PDF chunk.
+      ValueError: If `pages_per_chunk` is not positive.
     """
     if self.pages_per_chunk <= 0:
       raise ValueError(
           f'pages_per_chunk must be positive, got {self.pages_per_chunk}'
       )
-    reader = pypdf.PdfReader(io.BytesIO(_get_pdf_bytes(document)))
-    num_pages = len(reader.pages)
-    page_starts = range(0, num_pages, self.pages_per_chunk)
-    total_number_of_chunks = len(page_starts)
-    chunks = []
-    for i, start in enumerate(page_starts):
+    reader = pypdf.PdfReader(io.BytesIO(media))
+    pieces = []
+    for start in range(0, len(reader.pages), self.pages_per_chunk):
       writer = pypdf.PdfWriter()
       for page in reader.pages[start : start + self.pages_per_chunk]:
         writer.add_page(page)
       buffer = io.BytesIO()
       writer.write(buffer)
-
-      # We avoid deep-copying the whole document so as not to copy the full
-      # original PDF bytes once per chunk.
-      chunk = dataclasses.replace(
-          document,
-          # Modify the doc_id of every chunk to produce a unique id per chunk.
-          doc_id=f'{document.doc_id}_chunk{i+1}',
-          content=content_lib.ChunkList([
-              content_lib.Chunk(
-                  buffer.getvalue(), content_type=PDF_CONTENT_TYPE
-              )
-          ]),
-          metadata=copy.deepcopy(document.metadata),
-      )
-      chunk.metadata[_ORIGINAL_DOC_ID] = document.doc_id
-      chunk.metadata[_CHUNK_NUMBER] = i + 1
-      chunk.metadata[_TOTAL_NUMBER_OF_CHUNKS] = total_number_of_chunks
-      chunks.append(chunk)
-    return chunks
+      pieces.append((buffer.getvalue(), content_type))
+    return pieces

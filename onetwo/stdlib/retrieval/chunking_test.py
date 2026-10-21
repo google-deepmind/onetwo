@@ -472,5 +472,64 @@ class ChunkingTest(parameterized.TestCase):
     self.assertEqual(chunk_contents, expected_chunk_contents)
 
 
+class MakeChunkDocumentsTest(absltest.TestCase):
+
+  def test_builds_chunk_documents(self):
+    document = retrieval_data_structures.Document(
+        doc_id='doc',
+        title='Title',
+        url='http://example.com',
+        content='abcdef',
+        metadata={'key': 'value'},
+    )
+
+    chunks = chunking.make_chunk_documents(
+        document, ['abc', 'def'], spans=[(0, 3), (3, 6)]
+    )
+
+    self.assertEqual(
+        chunks,
+        [
+            retrieval_data_structures.Document(
+                doc_id='doc_chunk1',
+                title='Title',
+                url='http://example.com',
+                content='abc',
+                metadata={
+                    'key': 'value',
+                    _ORIGINAL_DOC_ID: 'doc',
+                    _CHUNK_NUMBER: 1,
+                    _TOTAL_NUMBER_OF_CHUNKS: 2,
+                    _SPAN_WITHIN_ORIGINAL_DOC: (0, 3),
+                },
+            ),
+            retrieval_data_structures.Document(
+                doc_id='doc_chunk2',
+                title='Title',
+                url='http://example.com',
+                content='def',
+                metadata={
+                    'key': 'value',
+                    _ORIGINAL_DOC_ID: 'doc',
+                    _CHUNK_NUMBER: 2,
+                    _TOTAL_NUMBER_OF_CHUNKS: 2,
+                    _SPAN_WITHIN_ORIGINAL_DOC: (3, 6),
+                },
+            ),
+        ],
+    )
+    with self.subTest('original_document_is_unchanged'):
+      self.assertEqual(document.doc_id, 'doc')
+      self.assertEqual(document.content, 'abcdef')
+      self.assertEqual(document.metadata, {'key': 'value'})
+
+  def test_without_spans_does_not_set_span(self):
+    document = retrieval_data_structures.Document(doc_id='doc', content='ab')
+
+    chunks = chunking.make_chunk_documents(document, ['a', 'b'])
+
+    self.assertNotIn(_SPAN_WITHIN_ORIGINAL_DOC, chunks[0].metadata)
+
+
 if __name__ == '__main__':
   absltest.main()

@@ -28,10 +28,11 @@ import abc
 from collections.abc import Iterable
 import copy
 import dataclasses
-from typing import Any, Sequence
+from typing import Any, ClassVar, Sequence
 import dataclasses_json
 from onetwo.backends import backend_registry
 from onetwo.builtins import llm
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import tracing
@@ -71,6 +72,45 @@ def get_substring_indices(
     return None
   end_idx = start_idx + len(substring)
   return (start_idx, end_idx)
+
+
+def make_chunk_documents(
+    document: retrieval_data_structures.Document,
+    chunk_contents: Sequence[str | content_lib.ChunkList],
+    spans: Sequence[tuple[int, int] | None] | None = None,
+) -> list[retrieval_data_structures.Document]:
+  """Returns one chunk `Document` per element of `chunk_contents`.
+
+  Each chunk is a copy of `document` with the given content, a unique `doc_id`
+  (`<doc_id>_chunk<N>`, 1-indexed) and a copy of the document's metadata,
+  extended with `original_doc_id`, `chunk_number`, `total_number_of_chunks` and,
+  if `spans` is given, `span_within_original_doc`. The original document is not
+  modified, and its content is not copied.
+
+  Args:
+    document: The document that was chunked.
+    chunk_contents: The content of each chunk, in order.
+    spans: Optional span within the original document of each chunk (same length
+      as `chunk_contents`).
+  """
+  total_number_of_chunks = len(chunk_contents)
+  chunks = []
+  for i, chunk_content in enumerate(chunk_contents):
+    # We avoid deep-copying the whole document so as not to copy the full
+    # original content (e.g. the bytes of a large PDF) once per chunk.
+    chunk = dataclasses.replace(
+        document,
+        doc_id=f'{document.doc_id}_chunk{i+1}',
+        content=chunk_content,
+        metadata=copy.deepcopy(document.metadata),
+    )
+    chunk.metadata[_ORIGINAL_DOC_ID] = document.doc_id
+    chunk.metadata[_CHUNK_NUMBER] = i + 1
+    chunk.metadata[_TOTAL_NUMBER_OF_CHUNKS] = total_number_of_chunks
+    if spans is not None:
+      chunk.metadata[_SPAN_WITHIN_ORIGINAL_DOC] = spans[i]
+    chunks.append(chunk)
+  return chunks
 
 
 class Chunker(dataclasses_json.DataClassJsonMixin, abc.ABC):
@@ -158,21 +198,101 @@ class TextChunker(Chunker):
     """
     document_text = document.text
     chunk_texts = list(await self._chunk_text(document_text))
-    total_number_of_chunks = len(chunk_texts)
-    chunks = []
-    for i, chunk_text in enumerate(chunk_texts):
-      chunk = copy.deepcopy(document)
-      chunk.content = chunk_text
-      chunk_span = get_substring_indices(document_text, chunk_text)
-      # Modify the doc_id of every chunk to produce a unique id for each chunk.
-      chunk.doc_id = f'{document.doc_id}_chunk{i+1}'
-      chunk.metadata[_ORIGINAL_DOC_ID] = document.doc_id
-      chunk.metadata[_CHUNK_NUMBER] = i + 1
-      chunk.metadata[_TOTAL_NUMBER_OF_CHUNKS] = total_number_of_chunks
-      chunk.metadata[_SPAN_WITHIN_ORIGINAL_DOC] = chunk_span
-      chunks.append(chunk)
+    return make_chunk_documents(
+        document,
+        chunk_texts,
+        spans=[
+            get_substring_indices(document_text, chunk_text)
+            for chunk_text in chunk_texts
+        ],
+    )
 
-    return chunks
+
+@dataclasses.dataclass(kw_only=True)
+class SingleMediaChunker(Chunker):
+  """Chunks documents whose content is a single media file (e.g. PDF, audio).
+
+  The input document's content must be a `ChunkList` with exactly one chunk,
+  with `bytes` content and a content type accepted by `_accepts`. Subclasses
+  implement `_split`, which splits the media into pieces, each of which becomes
+  one chunk `Document` (see `make_chunk_documents`) whose content is a
+  `ChunkList` with a single chunk holding that piece.
+
+  Attributes:
+    media_description: Description of the accepted media, used in error messages
+      (e.g. "audio").
+  """
+
+  media_description: ClassVar[str] = 'media'
+
+  @abc.abstractmethod
+  def _accepts(self, content_type: str) -> bool:
+    """Returns whether media of the given content type can be chunked."""
+
+  @abc.abstractmethod
+  def _split(
+      self, media: bytes, content_type: str
+  ) -> Sequence[tuple[bytes, str]]:
+    """Returns the pieces of `media`, as (bytes, content type), in order.
+
+    Args:
+      media: The bytes of the media file to split.
+      content_type: The content type of `media`.
+    """
+
+  def _get_media(
+      self, document: retrieval_data_structures.Document
+  ) -> tuple[bytes, str]:
+    """Returns the media bytes and content type of `document`.
+
+    Args:
+      document: The document to chunk.
+
+    Raises:
+      ValueError: If the document content is not a single accepted media chunk.
+    """
+    content = document.content
+    chunk = (
+        content.chunks[0]
+        if isinstance(content, content_lib.ChunkList) and len(content) == 1
+        else None
+    )
+    media = chunk.content if chunk is not None else None
+    if (
+        chunk is None
+        or not self._accepts(chunk.content_type)
+        or not isinstance(media, bytes)
+    ):
+      raise ValueError(
+          f'Expected document {document.doc_id!r} to contain a single'
+          f' {self.media_description} chunk, got: {content!r}'
+      )
+    return media, chunk.content_type
+
+  @executing.make_executable(copy_self=False)
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  async def __call__(
+      self,
+      document: retrieval_data_structures.Document,
+  ) -> Iterable[retrieval_data_structures.Document]:
+    """Returns one chunk per piece of the document's media.
+
+    Args:
+      document: The document to chunk.
+
+    Raises:
+      ValueError: If the document content is not a single accepted media chunk.
+    """
+    media, content_type = self._get_media(document)
+    return make_chunk_documents(
+        document,
+        [
+            content_lib.ChunkList(
+                [content_lib.Chunk(piece, content_type=piece_content_type)]
+            )
+            for piece, piece_content_type in self._split(media, content_type)
+        ],
+    )
 
 
 @executing.make_executable
@@ -374,4 +494,3 @@ class ChunkByMaxWords(TextChunker):
       return [chunk.strip() for chunk in chunks]
     else:
       return chunks
-
