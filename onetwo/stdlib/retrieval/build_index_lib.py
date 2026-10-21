@@ -21,6 +21,7 @@ from typing import Any
 from onetwo.backends import backend_registry
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
+from onetwo.evaluation.datasets import multimodal_loader
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
@@ -36,7 +37,7 @@ def build_index(
     output_directory: str,
     runtime_kwargs: Mapping[str, Any] | str,
     max_documents: int | None = None,
-    docs_path: str | None = None,
+    input_dir: str | None = None,
     index_type: str = 'embedding',
     embedding_backend_class_name: str = (
         rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME
@@ -65,17 +66,23 @@ def build_index(
   """Builds and saves a document index for the specified dataset.
 
   Args:
-    dataset_name: Name of the dataset to load from the registry.
+    dataset_name: Name of the dataset. Unless `input_dir` is set, documents are
+      loaded from the dataset registry under this name. Also used in the output
+      directory path.
     output_directory: Directory pattern where the built index will be saved.
     runtime_kwargs: Arguments for backends (e.g. API key).
     max_documents: Max documents to index.
-    docs_path: Optional path to documents.
+    input_dir: Optional path to a folder of files of any type (text, PDF, image,
+      audio, video) to index, loaded with `MultimodalDatasetLoader`.
     index_type: Type of index ('embedding' or 'hipporag').
     embedding_backend_class_name: Embedding backend class name.
     embedding_model_name: Embedding model name.
     embed_kwargs: Keyword arguments for the embedding backend.
-    chunk_size: Max tokens or words per chunk.
-    chunking_strategy: Chunking strategy ('tokens' or 'words').
+    chunk_size: Max tokens, words or PDF pages per chunk (depending on
+      `chunking_strategy`).
+    chunking_strategy: Chunking strategy ('tokens', 'words' or 'pdf_pages').
+      'pdf_pages' requires all documents to be PDFs and does not support
+      `overlap_window`.
     overlap_window: Tokens or words to overlap between chunks.
     tokenize_backend_class_name: Tokenizer backend class name (when
       `chunking_strategy` is 'tokens').
@@ -144,6 +151,15 @@ def build_index(
             ),
         },
     )
+  elif chunking_strategy == 'pdf_pages':
+    if overlap_window:
+      raise ValueError(
+          'overlap_window is not supported with chunking_strategy="pdf_pages".'
+      )
+    chunker_config = chunker_registry.ChunkerConfig(
+        chunker_name='pdf_pages',
+        kwargs={'pages_per_chunk': chunk_size},
+    )
   else:
     raise ValueError(f'Unsupported chunking strategy: {chunking_strategy!r}')
 
@@ -174,7 +190,7 @@ def build_index(
       output_directory=output_directory,
       runtime_kwargs=rt_kwargs,
       max_documents=max_documents,
-      docs_path=docs_path,
+      input_dir=input_dir,
   )
 
 
@@ -184,7 +200,7 @@ def build_index_from_spec(
     output_directory: str,
     runtime_kwargs: Mapping[str, Any] | None = None,
     max_documents: int | None = None,
-    docs_path: str | None = None,
+    input_dir: str | None = None,
 ) -> str:
   """Builds and saves the index described by `spec` for the specified dataset.
 
@@ -194,23 +210,41 @@ def build_index_from_spec(
 
   Args:
     spec: Spec of the index to build.
-    dataset_name: Name of the dataset to load from the registry.
+    dataset_name: Name of the dataset. Unless `input_dir` is set, documents are
+      loaded from the dataset registry under this name. Also used in the output
+      directory path.
     output_directory: Directory pattern where the built index will be saved.
-    runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed
-      to `spec.make_index`; not saved with the index.
+    runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed to
+      `spec.make_index`; not saved with the index.
     max_documents: Max documents to index.
-    docs_path: Optional path to documents.
+    input_dir: Optional path to a folder of files of any type (text, PDF, image,
+      audio, video) to index, loaded with `MultimodalDatasetLoader`. If set,
+      `dataset_name` must be a name for this corpus (not a registered dataset).
 
   Returns:
     The output directory path where the index was saved.
+
+  Raises:
+    ValueError: If `input_dir` is set and `dataset_name` is a registered
+    dataset.
   """
-  if docs_path:
-    if dataset_name not in docs_path:
-      raise ValueError(
-          f'Dataset name "{dataset_name}" not found in docs path "{docs_path}"'
-      )
-    docs = docs_path
-    print(f'Using documents from path: {docs}')
+  # TODO: Remove this check once the output directory is passed
+  # explicitly as `<cns_path_to_save>/<dataset_name>/` instead of being derived
+  # from `dataset_name`.
+  if input_dir and dataset_name in datasets.list_dataset_loaders():
+    raise ValueError(
+        f'dataset_name={dataset_name!r} is a registered dataset, but input_dir'
+        ' is set: set dataset_name to a name for the corpus at input_dir,'
+        ' which is used in the output directory path, so that the index is not'
+        f' saved under the directory of the {dataset_name!r} dataset.'
+    )
+  if input_dir:
+    print(f'Loading documents from input_dir {input_dir}...')
+    loader = multimodal_loader.MultimodalDatasetLoader(
+        path=input_dir, max_number_of_documents=max_documents
+    )
+    docs = list(ot_executing.run(loader.load_documents()))
+    print(f'Loaded {len(docs)} documents.')
   else:
     print(f'Loading dataset {dataset_name}...')
     docs = datasets.load_documents(

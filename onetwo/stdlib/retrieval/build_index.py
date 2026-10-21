@@ -46,10 +46,15 @@ _DATASET_NAME = flags.DEFINE_string(
     allow_override=True,
 )
 
-_DOCS_PATH = flags.DEFINE_string(
-    'docs_path',
+_INPUT = flags.DEFINE_string(
+    'input',
     None,
-    'Path to a file (SSTable or JSONL) containing the documents to index.',
+    (
+        'Path to a folder of files of any type (text, PDF, image, audio,'
+        ' video) to index. If set, documents are loaded from this folder'
+        ' instead of the dataset registry, and --dataset_name must be set to'
+        ' a name for the corpus, which is used in the output directory path.'
+    ),
 )
 
 _OUTPUT_DIRECTORY = flags.DEFINE_string(
@@ -115,15 +120,19 @@ _IGNORE_SIMILARITY_EDGES = flags.DEFINE_boolean(
 _CHUNK_SIZE = flags.DEFINE_integer(
     'chunk_size',
     None,
-    'Maximum tokens or words per chunk. If None, no chunking is performed.',
+    (
+        'Maximum tokens, words or PDF pages per chunk (depending on'
+        ' --chunking_strategy). If None, no chunking is performed.'
+    ),
 )
 
 _CHUNKING_STRATEGY = flags.DEFINE_enum(
     'chunking_strategy',
     'words',
-    ['tokens', 'words'],
-    'Chunking strategy to use ("words" for ChunkByMaxWords or "tokens" for'
-    ' ChunkByMaxTokens).',
+    ['tokens', 'words', 'pdf_pages'],
+    'Chunking strategy to use ("words" for ChunkByMaxWords, "tokens" for'
+    ' ChunkByMaxTokens or "pdf_pages" for ChunkByPdfPages, which requires all'
+    ' documents to be PDFs).',
 )
 
 _OVERLAP_WINDOW = flags.DEFINE_integer(
@@ -203,8 +212,8 @@ def main(argv: Sequence[str]) -> None:
 
   build_index_lib.build_index(
       dataset_name=_DATASET_NAME.value,
+      input_dir=_INPUT.value,
       max_documents=_MAX_DOCUMENTS.value,
-      docs_path=_DOCS_PATH.value,
       index_type=_INDEX_TYPE.value,
       output_directory=_OUTPUT_DIRECTORY.value,
       embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,

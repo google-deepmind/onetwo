@@ -26,6 +26,7 @@ from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
+import pypdf
 
 KeywordDocumentIndexSpec = keyword_index_for_test.KeywordDocumentIndexSpec
 
@@ -39,6 +40,12 @@ class FakeEmbedder(backends_test_utils.EmbedderForTest):
     del kwargs  # Runtime kwargs (e.g. max_retries) are not used.
     super().__init__(default_embedding=[0.1, 0.2])
     self.embed_model_name = embed_model_name
+
+  def _get_embed_reply(self, content):
+    # Always returns the default embedding. The base implementation looks the
+    # content up in a dict, which fails for (unhashable) multimodal ChunkLists.
+    self.contents.append(content)
+    return self.default_embedding
 
 
 class BuildIndexLibTest(absltest.TestCase):
@@ -102,6 +109,32 @@ class BuildIndexLibTest(absltest.TestCase):
         build_spy.call_args.kwargs['runtime_kwargs'], {'api_key': 'key'}
     )
 
+  def test_build_from_spec_loads_documents_from_input(self):
+    input_dir = self.create_tempdir()
+    input_dir.create_file('paris.txt', content='Paris is in France.')
+    input_dir.create_file('sub/madrid.txt', content='Madrid is in Spain.')
+
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=KeywordDocumentIndexSpec(),
+        dataset_name='my_corpus',
+        output_directory=self.output_dir,
+        input_dir=input_dir.full_path,
+    )
+
+    with open(os.path.join(out_dir, 'keyword_docs.jsonl')) as f:
+      doc_ids = [json.loads(line)['doc_id'] for line in f]
+    self.assertEqual(doc_ids, ['paris.txt', 'sub/madrid.txt'])
+    self.assertEqual(os.path.basename(os.path.dirname(out_dir)), 'my_corpus')
+
+  def test_build_from_spec_input_with_registered_dataset_name_raises(self):
+    with self.assertRaisesRegex(ValueError, 'is a registered dataset'):
+      build_index_lib.build_index_from_spec(
+          spec=KeywordDocumentIndexSpec(),
+          dataset_name=_DATASET_NAME,
+          output_directory=self.output_dir,
+          input_dir=self.create_tempdir().full_path,
+      )
+
   def test_flat_kwargs_build_simple_rewriting_embedding_index(self):
     out_dir = build_index_lib.build_index(
         dataset_name=_DATASET_NAME,
@@ -137,6 +170,49 @@ class BuildIndexLibTest(absltest.TestCase):
           embedding_model_name='fake-model',
           chunk_size=16,
           chunking_strategy='unknown_strategy',
+      )
+
+  def test_flat_kwargs_pdf_pages_chunking_strategy(self):
+    input_dir = self.create_tempdir()
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.add_blank_page(width=612, height=792)
+    with open(os.path.join(input_dir.full_path, 'two_pages.pdf'), 'wb') as f:
+      writer.write(f)
+
+    out_dir = build_index_lib.build_index(
+        dataset_name='my_pdfs',
+        input_dir=input_dir.full_path,
+        output_directory=self.output_dir,
+        runtime_kwargs={},
+        embedding_backend_class_name='FakeEmbedderBackend',
+        embedding_model_name='fake-model',
+        chunk_size=1,
+        chunking_strategy='pdf_pages',
+    )
+
+    spec = index_building.read_index_spec(out_dir)
+    self.assertIsInstance(
+        spec,
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+    )
+    self.assertEqual(
+        spec.chunker_config,
+        chunker_registry.ChunkerConfig(
+            chunker_name='pdf_pages', kwargs={'pages_per_chunk': 1}
+        ),
+    )
+
+    with self.assertRaisesRegex(ValueError, 'overlap_window is not supported'):
+      build_index_lib.build_index(
+          dataset_name=_DATASET_NAME,
+          output_directory=self.output_dir,
+          runtime_kwargs={},
+          embedding_backend_class_name='FakeEmbedderBackend',
+          embedding_model_name='fake-model',
+          chunk_size=1,
+          chunking_strategy='pdf_pages',
+          overlap_window=1,
       )
 
 
