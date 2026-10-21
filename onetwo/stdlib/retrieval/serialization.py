@@ -31,6 +31,32 @@ import tqdm
 
 DocT = TypeVar('DocT', bound=retrieval_data_structures.Document)
 
+# Default file names of the `simple` index format. Sharded files are named by
+# `get_shard_path`, e.g. `docs-00003-of-00100.jsonl`.
+DOCS_JSONL_NAME = 'docs.jsonl'
+EMBEDS_NPY_NAME = 'embeddings.npy'
+EMBED_BACKEND_CONFIG_JSON_NAME = 'embed_backend_config.json'
+MANIFEST_JSON_NAME = 'manifest.json'
+
+
+def get_shard_path(
+    file_path: str | epath.Path, *, shard: int, num_shards: int
+) -> epath.Path:
+  """Returns the path of a shard of `file_path`.
+
+  Args:
+    file_path: The unsharded path, e.g. `.../docs.jsonl`.
+    shard: The shard index.
+    num_shards: The total number of shards.
+
+  Returns:
+    The shard path, e.g. `.../docs-00003-of-00100.jsonl`.
+  """
+  file_path = epath.Path(file_path)
+  return file_path.parent / (
+      f'{file_path.stem}-{shard:05d}-of-{num_shards:05d}{file_path.suffix}'
+  )
+
 
 def load_documents(
     file_path: str | epath.Path,
@@ -117,8 +143,7 @@ def save_documents(
     shard_size = (len(docs) + num_shards - 1) // num_shards
     shards = [
         (
-            file_path.parent
-            / f'{file_path.stem}-{s:05d}-of-{num_shards:05d}{file_path.suffix}',
+            get_shard_path(file_path, shard=s, num_shards=num_shards),
             docs[s * shard_size : (s + 1) * shard_size],
         )
         for s in range(num_shards)
@@ -152,12 +177,12 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
 
   doc_class: type[DocT]
   base_path: str | epath.Path | None = None
-  docs_jsonl_name: str = 'docs.jsonl'
-  embeds_npy_name: str = 'embeddings.npy'
-  embed_backend_config_json_name: str = 'embed_backend_config.json'
+  docs_jsonl_name: str = DOCS_JSONL_NAME
+  embeds_npy_name: str = EMBEDS_NPY_NAME
+  embed_backend_config_json_name: str = EMBED_BACKEND_CONFIG_JSON_NAME
   num_shards: int = 1
   show_progress: bool = True
-  manifest_json_name: str = 'manifest.json'
+  manifest_json_name: str = MANIFEST_JSON_NAME
 
   def __post_init__(self):
     """Validates interface at initialization."""
@@ -194,12 +219,12 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     # Save embeddings to NPY (sharded if num_shards > 1).
     embeddings_path = path / self.embeds_npy_name
     embed_matrix = np.stack(state.doc_embeddings, axis=0)
-    estem = embeddings_path.stem
-    esuffix = embeddings_path.suffix
     if self.num_shards > 1:
       shard_size = (len(embed_matrix) + self.num_shards - 1) // self.num_shards
       for s in range(self.num_shards):
-        shard_path = path / f'{estem}-{s:05d}-of-{self.num_shards:05d}{esuffix}'
+        shard_path = get_shard_path(
+            embeddings_path, shard=s, num_shards=self.num_shards
+        )
         with shard_path.open('wb') as f:
           np.save(f, embed_matrix[s * shard_size : (s + 1) * shard_size])
     else:
@@ -384,5 +409,3 @@ def get_serializer(
     )
   serializer_cls = SERIALIZER_REGISTRY[serializer_type]
   return serializer_cls(doc_class=doc_class, **kwargs)
-
-
