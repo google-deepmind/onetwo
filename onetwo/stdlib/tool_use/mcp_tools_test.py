@@ -15,17 +15,21 @@
 """Tests for `mcp_tools`, against a real MCP server, in-process or over stdio."""
 
 import asyncio
+import base64
 import os
 import sys
 from typing import Any
 
 from absl.testing import absltest
+from mcp import types as mcp_types
 from mcp.server.fastmcp import server as fastmcp_server
 from mcp.shared import memory
+from onetwo.core import content as content_lib
 from onetwo.stdlib.tool_use import mcp_tools
 
 # Run this file with this argument to serve `_server()` over stdio instead.
 _SERVE = '--serve_stdio'
+_PNG_BYTES = b'\x89PNG\r\n\x1a\nfake'
 
 
 def _server() -> fastmcp_server.FastMCP:
@@ -52,7 +56,25 @@ def _server() -> fastmcp_server.FastMCP:
     """Returns text, with no output schema declared."""
     return word.upper()
 
-  del lookup, search, shout  # Registered by the decorator.
+  @mcp.tool(
+      name='inspect_portrait',
+      description='Returns metadata text and an image.',
+      structured_output=False,
+  )
+  def inspect_portrait(docid: str) -> mcp_types.CallToolResult:
+    """Returns interleaved text and image content blocks."""
+    return mcp_types.CallToolResult(
+        content=[
+            mcp_types.TextContent(type='text', text=f'docid={docid}'),
+            mcp_types.ImageContent(
+                type='image',
+                data=base64.b64encode(_PNG_BYTES).decode('ascii'),
+                mimeType='image/png',
+            ),
+        ]
+    )
+
+  del lookup, search, shout, inspect_portrait  # Registered by the decorator.
   return mcp
 
 
@@ -77,7 +99,7 @@ class McpToolsTest(absltest.TestCase):
 
     names, description = asyncio.run(_with_tools(body))
 
-    self.assertEqual(['lookup', 'search', 'shout'], names)
+    self.assertEqual(['inspect_portrait', 'lookup', 'search', 'shout'], names)
     self.assertEqual('Looks a document up by id.', description)
 
   def test_passes_the_servers_schema_through_untouched(self):
@@ -154,8 +176,22 @@ class McpToolsTest(absltest.TestCase):
 
     names, shouted = asyncio.run(body())
 
-    self.assertEqual(['lookup', 'search', 'shout'], names)
+    self.assertEqual(['inspect_portrait', 'lookup', 'search', 'shout'], names)
     self.assertEqual('HELLO', shouted)
+
+  def test_multimodal_tool_result_decodes_to_chunk_list(self):
+    async def body(tools):
+      return await tools['inspect_portrait'](docid='CV_1')
+
+    returned = asyncio.run(_with_tools(body))
+
+    self.assertEqual(
+        content_lib.ChunkList([
+            content_lib.Chunk('docid=CV_1'),
+            content_lib.Chunk(content=_PNG_BYTES, content_type='image/png'),
+        ]),
+        returned,
+    )
 
   def test_a_stdio_command_must_name_an_executable(self):
     async def body():

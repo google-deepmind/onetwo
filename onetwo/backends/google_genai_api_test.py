@@ -4010,6 +4010,103 @@ class GenerateWithToolsTest(
     with self.subTest('returns_the_final_answer'):
       self.assertEqual(turn.content, 'It is 15 degrees in London.')
 
+  @parameterized.named_parameters(
+      (
+          'chunk_list',
+          content_lib.ChunkList([
+              content_lib.Chunk('{"docid": "doc_alice"}'),
+              content_lib.Chunk(
+                  content=b'\x89PNG\r\n\x1a\nfake1', content_type='image/png'
+              ),
+              content_lib.Chunk('{"docid": "doc_bob"}'),
+              content_lib.Chunk(
+                  content=b'\x89PNG\r\n\x1a\nfake2', content_type='image/png'
+              ),
+          ]),
+          {
+              'result': [
+                  '{"docid": "doc_alice"}',
+                  {'$ref': 'media_0'},
+                  '{"docid": "doc_bob"}',
+                  {'$ref': 'media_1'},
+              ]
+          },
+          [
+              genai_types.FunctionResponsePart(
+                  inline_data=genai_types.FunctionResponseBlob(
+                      data=b'\x89PNG\r\n\x1a\nfake1',
+                      mime_type='image/png',
+                      display_name='media_0',
+                  )
+              ),
+              genai_types.FunctionResponsePart(
+                  inline_data=genai_types.FunctionResponseBlob(
+                      data=b'\x89PNG\r\n\x1a\nfake2',
+                      mime_type='image/png',
+                      display_name='media_1',
+                  )
+              ),
+          ],
+      ),
+      (
+          'nested_dict',
+          {
+              'caption': 'Alice',
+              'image': content_lib.Chunk(
+                  content=b'\x89PNG\r\n\x1a\nfake1', content_type='image/png'
+              ),
+          },
+          {'caption': 'Alice', 'image': {'$ref': 'media_0'}},
+          [
+              genai_types.FunctionResponsePart(
+                  inline_data=genai_types.FunctionResponseBlob(
+                      data=b'\x89PNG\r\n\x1a\nfake1',
+                      mime_type='image/png',
+                      display_name='media_0',
+                  )
+              )
+          ],
+      ),
+  )
+  def test_sends_multimodal_tool_results_as_function_response_parts(
+      self, tool_result, expected_payload, expected_parts
+  ):
+    _get_and_register_backend()
+    self._reply_with(genai_types.Part(text='Alice is wearing a red tie.'))
+
+    self._ask(
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.USER,
+            content='Who is wearing a red tie?',
+        ),
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.MODEL,
+            calls=[
+                function_calling.FunctionCall(
+                    function_name='search_images',
+                    kwargs={'query': 'red tie'},
+                    id='c_img',
+                )
+            ],
+        ),
+        function_calling.ConversationTurn(
+            role=function_calling.ConversationRole.TOOL,
+            responses=[
+                function_calling.FunctionResponse(
+                    function_name='search_images',
+                    response=tool_result,
+                    id='c_img',
+                )
+            ],
+        ),
+    )
+
+    contents = self._last_call_kwargs()['contents']
+    response = contents[2].parts[0].function_response
+    self.assertEqual(response.id, 'c_img')
+    self.assertEqual(response.response, expected_payload)
+    self.assertEqual(response.parts, expected_parts)
+
   def test_reports_tool_errors_to_the_model(self):
     _get_and_register_backend()
     self._reply_with(genai_types.Part(text='Sorry, that failed.'))

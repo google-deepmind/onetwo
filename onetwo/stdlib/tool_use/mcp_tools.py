@@ -49,6 +49,7 @@ same thing with the lifetime in the caller's hands:
 ```
 """
 
+import base64
 from collections.abc import AsyncIterator, Mapping, Sequence
 import contextlib
 import functools
@@ -58,6 +59,7 @@ from mcp import types as mcp_types
 from mcp.client import session as client_session
 from mcp.client import stdio
 from mcp.client import streamable_http
+from onetwo.core import content as content_lib
 from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import mcp_http
 
@@ -80,14 +82,26 @@ def _text_of(result: mcp_types.CallToolResult) -> str:
   )
 
 
-def _returned(result: mcp_types.CallToolResult) -> Any:
-  """Returns what a tool call produced, as plain Python.
+def _chunk_from_block(block: mcp_types.ContentBlock) -> content_lib.Chunk:
+  """Converts an MCP text or image `ContentBlock` into a OneTwo `Chunk`."""
+  if isinstance(block, mcp_types.TextContent):
+    return content_lib.Chunk(content=block.text)
+  if isinstance(block, mcp_types.ImageContent):
+    return content_lib.Chunk(
+        content=base64.b64decode(block.data), content_type=block.mimeType
+    )
+  raise TypeError(f'Unsupported MCP content block type: {type(block)}')
 
-  A server that declares an output schema must answer with
-  `structuredContent`, and the client session checks that it did and that the
-  content conforms -- so where there is structure, it is the server's own, not
-  something recovered by guessing at the text. Only a server that declares no
-  output schema falls back to text, which is then all the server actually sent.
+
+def _returned(result: mcp_types.CallToolResult) -> Any:
+  """Returns what a tool call produced, as plain Python or a `ChunkList`.
+
+  A server that declares an output schema must answer with `structuredContent`,
+  and the client session checks that it did and that the content conforms -- so
+  where there is structure, it is the server's own, not something recovered by
+  guessing at the text. When no output schema is declared and `result.content`
+  carries `ImageContent`, the blocks are decoded in order into a
+  `content_lib.ChunkList`; otherwise only text was sent, and is joined.
 
   Note that the structure is whatever the server chose to send, envelope
   included: a tool whose result is not itself an object has to be wrapped in
@@ -99,10 +113,15 @@ def _returned(result: mcp_types.CallToolResult) -> Any:
     result: What the server sent back.
 
   Returns:
-    The structured content if there is any, and the text otherwise.
+    The structured content if there is any, a `ChunkList` when `result.content`
+    contains image blocks, or the joined text.
   """
   if result.structuredContent is not None:
     return result.structuredContent
+  if any(isinstance(b, mcp_types.ImageContent) for b in result.content):
+    return content_lib.ChunkList(
+        [_chunk_from_block(block) for block in result.content]
+    )
   return _text_of(result)
 
 

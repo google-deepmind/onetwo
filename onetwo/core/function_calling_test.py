@@ -679,5 +679,58 @@ class CollectToolCallDetailsTest(absltest.TestCase):
     )
 
 
+class ExtractMediaTest(absltest.TestCase):
+
+  def test_leaves_plain_json_values_unchanged_without_refs(self):
+    value = {'count': 2, 'items': ['a', 'b']}
+
+    cleaned, refs = function_calling.extract_media(value)
+
+    self.assertEqual(value, cleaned)
+    self.assertEmpty(refs)
+
+  def test_extracts_media_from_chunk_list_preserving_order(self):
+    img_chunk = content_lib.Chunk(content=b'png1', content_type='image/png')
+    pdf_chunk = content_lib.Chunk(
+        content=b'pdf2', content_type='application/pdf'
+    )
+    chunk_list = content_lib.ChunkList([
+        content_lib.Chunk('doc_1'),
+        img_chunk,
+        content_lib.Chunk('doc_2'),
+        pdf_chunk,
+    ])
+
+    cleaned, refs = function_calling.extract_media(chunk_list)
+
+    self.assertEqual(
+        ['doc_1', {'$ref': 'media_0'}, 'doc_2', {'$ref': 'media_1'}], cleaned
+    )
+    self.assertEqual(
+        [
+            function_calling.MediaRef(name='media_0', chunk=img_chunk),
+            function_calling.MediaRef(name='media_1', chunk=pdf_chunk),
+        ],
+        refs,
+    )
+
+  def test_recurses_into_nested_mappings_and_sequences(self):
+    img_chunk = content_lib.Chunk(content=b'png', content_type='image/png')
+    value = {
+        'caption': 'Portrait',
+        'results': (content_lib.Chunk('note'), img_chunk),
+    }
+
+    cleaned, refs = function_calling.extract_media(value)
+
+    self.assertEqual(
+        {'caption': 'Portrait', 'results': ['note', {'$ref': 'media_0'}]},
+        cleaned,
+    )
+    self.assertEqual(
+        [function_calling.MediaRef(name='media_0', chunk=img_chunk)], refs
+    )
+
+
 if __name__ == '__main__':
   absltest.main()

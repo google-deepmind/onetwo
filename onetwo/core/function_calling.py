@@ -221,6 +221,60 @@ class FunctionResponse:
   id: str = ''
 
 
+@dataclasses.dataclass(frozen=True)
+class MediaRef:
+  """A named reference to a non-text chunk extracted from a tool response.
+
+  Attributes:
+    name: Identifier matching the `{'$ref': name}` placeholder in the JSON-safe
+      tool response (e.g., `'media_0'`).
+    chunk: The extracted non-text `Chunk`.
+  """
+
+  name: str
+  chunk: content_lib.Chunk
+
+
+def extract_media(value: Any) -> tuple[Any, list[MediaRef]]:
+  """Returns `value` made JSON-safe, with media chunks swapped for `$ref`s.
+
+  Walks mappings, lists, tuples, and `ChunkList`s in `value`, unwrapping text
+  `Chunk`s to plain strings and replacing non-text `Chunk`s with
+  `{'$ref': name}` placeholders. Reference names are numbered `media_0`,
+  `media_1`, ... in traversal order per call so the output is deterministic.
+
+  Args:
+    value: A tool return value, possibly containing `Chunk` or `ChunkList`
+      instances.
+
+  Returns:
+    A `(json_safe_value, refs)` pair, where `json_safe_value` has non-text
+    chunks replaced with `{'$ref': name}` dicts and `refs` lists the extracted
+    `MediaRef`s in traversal order.
+  """
+  refs: list[MediaRef] = []
+
+  def walk(v: Any) -> Any:
+    match v:
+      case content_lib.ChunkList():
+        return [walk(c) for c in v.chunks]
+      case content_lib.Chunk(content=str() as text):
+        return text
+      case content_lib.Chunk():
+        name = f'media_{len(refs)}'
+        refs.append(MediaRef(name=name, chunk=v))
+        # The backend resolves {'$ref': name} to the matching part.
+        return {'$ref': name}
+      case Mapping():
+        return {k: walk(x) for k, x in v.items()}
+      case list() | tuple():
+        return [walk(x) for x in v]
+      case _:
+        return v
+
+  return walk(value), refs
+
+
 FunctionCallingType: TypeAlias = (
     ToolSpec | ConversationTurn | FunctionCall | FunctionResponse
 )

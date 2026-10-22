@@ -164,6 +164,15 @@ def _configure_http_limits(
   return http_options
 
 
+def _blob_from_chunk(chunk: _Chunk) -> genai_types.Blob:
+  """Returns the bytes and MIME type of a non-text chunk."""
+  match chunk.content:
+    case bytes() as data:
+      return genai_types.Blob(data=data, mime_type=chunk.content_type)
+    case _:
+      raise TypeError(f'Unsupported media content: {type(chunk.content)}')
+
+
 def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
   """Converts a single Chunk into a Part."""
   if chunk.metadata and FUNCTION_CALL_METADATA_KEY in chunk.metadata:
@@ -172,18 +181,9 @@ def _part_from_chunk(chunk: _Chunk) -> genai_types.Part:
   if chunk.metadata and FUNCTION_RESPONSE_METADATA_KEY in chunk.metadata:
     fr = chunk.metadata[FUNCTION_RESPONSE_METADATA_KEY]
     return genai_types.Part(function_response=fr)
-
-  match chunk.content:
-    case str() as text_content:
-      return genai_types.Part(text=text_content)
-    case bytes() as bytes_content:
-      return genai_types.Part(
-          inline_data=genai_types.Blob(
-              mime_type=chunk.content_type, data=bytes_content
-          )
-      )
-    case _:
-      raise TypeError(f'Unsupported content type: {type(chunk.content)}')
+  if isinstance(chunk.content, str):
+    return genai_types.Part(text=chunk.content)
+  return genai_types.Part(inline_data=_blob_from_chunk(chunk))
 
 
 def _normalize_role(
@@ -493,6 +493,38 @@ def _as_response_dict(value: Any) -> dict[str, Any]:
   return dict(value) if isinstance(value, Mapping) else {'result': value}
 
 
+def _function_response_media_part(
+    ref: function_calling.MediaRef,
+) -> genai_types.FunctionResponsePart:
+  blob = _blob_from_chunk(ref.chunk)
+  return genai_types.FunctionResponsePart(
+      inline_data=genai_types.FunctionResponseBlob(
+          data=blob.data, mime_type=blob.mime_type, display_name=ref.name
+      )
+  )
+
+
+def _function_response_part(
+    response: function_calling.FunctionResponse,
+) -> genai_types.Part:
+  # An error is reported to the model as the content of the response, so that it
+  # can see what went wrong and try something else.
+  if response.error is not None:
+    payload, parts = {'error': response.error}, None
+  else:
+    value, refs = function_calling.extract_media(response.response)
+    payload = _as_response_dict(value)
+    parts = [_function_response_media_part(ref) for ref in refs] or None
+  return genai_types.Part(
+      function_response=genai_types.FunctionResponse(
+          name=response.function_name,
+          id=response.id or None,
+          response=payload,
+          parts=parts,
+      )
+  )
+
+
 def _thought_parts(
     thought: str | _ChunkList | None,
 ) -> list[genai_types.Part]:
@@ -570,23 +602,7 @@ def _contents_from_turns(
           )
       )
 
-    for response in turn.responses:
-      # An error is reported to the model as the content of the response, so
-      # that it can see what went wrong and try something else.
-      payload = (
-          {'error': response.error}
-          if response.error is not None
-          else _as_response_dict(response.response)
-      )
-      parts.append(
-          genai_types.Part(
-              function_response=genai_types.FunctionResponse(
-                  name=response.function_name,
-                  id=response.id or None,
-                  response=payload,
-              )
-          )
-      )
+    parts.extend(_function_response_part(r) for r in turn.responses)
 
     if parts:
       contents.append(
