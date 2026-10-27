@@ -18,6 +18,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
 from onetwo.core import content as content_lib
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import pdf_chunking
 from onetwo.stdlib.retrieval import retrieval_data_structures
 import pypdf
@@ -84,6 +85,14 @@ def _make_pdf_document(num_pages: int) -> retrieval_data_structures.Document:
 
 
 class ChunkByPdfPagesTest(parameterized.TestCase):
+
+  def test_registered_in_chunker_registry(self):
+    config = chunker_registry.ChunkerConfig(
+        chunker_name='pdf_pages', kwargs={'pages_per_chunk': 3}
+    )
+    chunker = chunker_registry.get_chunker(config)
+    self.assertIsInstance(chunker, pdf_chunking.ChunkByPdfPages)
+    self.assertEqual(chunker.pages_per_chunk, 3)
 
   def test_mock_pdf_has_expected_pages(self):
     self.assertEqual(

@@ -81,8 +81,9 @@ def build_index(
     chunk_size: Max tokens, words or PDF pages per chunk (depending on
       `chunking_strategy`).
     chunking_strategy: Chunking strategy ('tokens', 'words' or 'pdf_pages').
-      'pdf_pages' requires all documents to be PDFs and does not support
-      `overlap_window`.
+      'pdf_pages' requires all documents to be PDFs, does not support
+      `overlap_window`, and requires `pdf_chunking` to be imported (which
+      registers it), so that this library does not depend on PDF libraries.
     overlap_window: Tokens or words to overlap between chunks.
     tokenize_backend_class_name: Tokenizer backend class name (when
       `chunking_strategy` is 'tokens').

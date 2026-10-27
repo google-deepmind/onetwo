@@ -21,7 +21,6 @@ from onetwo.backends import sentencepiece_tokenizer
 from onetwo.builtins import llm
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
-from onetwo.stdlib.retrieval import pdf_chunking
 
 
 class ChunkerRegistryTest(absltest.TestCase):
@@ -29,16 +28,8 @@ class ChunkerRegistryTest(absltest.TestCase):
   def test_builtin_chunkers_are_registered(self):
     self.assertEqual(
         chunker_registry.list_chunkers(),
-        ['none', 'pdf_pages', 'tokens', 'words'],
+        ['none', 'tokens', 'words'],
     )
-
-  def test_get_pdf_pages_chunker(self):
-    config = chunker_registry.ChunkerConfig(
-        chunker_name='pdf_pages', kwargs={'pages_per_chunk': 3}
-    )
-    chunker = chunker_registry.get_chunker(config)
-    self.assertIsInstance(chunker, pdf_chunking.ChunkByPdfPages)
-    self.assertEqual(chunker.pages_per_chunk, 3)
 
   def test_get_none_chunker(self):
     config = chunker_registry.ChunkerConfig(chunker_name='none')

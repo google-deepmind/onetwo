@@ -26,6 +26,7 @@ from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
+from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
 import pypdf
 
 KeywordDocumentIndexSpec = keyword_index_for_test.KeywordDocumentIndexSpec

@@ -12,20 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry and configuration for OneTwo retrieval chunkers."""
+"""Registry and configuration for OneTwo retrieval chunkers.
+
+Only the common text chunkers defined in `chunking` are registered here.
+Chunkers with heavier dependencies are registered by their own modules when
+imported (e.g. importing `pdf_chunking` registers 'pdf_pages'), so that
+depending on this registry does not pull in those dependencies.
+"""
 
 import dataclasses
 from typing import Any
 
 import dataclasses_json
 from onetwo.stdlib.retrieval import chunking
-from onetwo.stdlib.retrieval import pdf_chunking
 
 CHUNKER_REGISTRY: dict[str, type[chunking.Chunker]] = {
     'none': chunking.NoChunking,
     'words': chunking.ChunkByMaxWords,
     'tokens': chunking.ChunkByMaxTokens,
-    'pdf_pages': pdf_chunking.ChunkByPdfPages,
 }
 
 
@@ -93,7 +97,8 @@ def get_chunker(config: ChunkerConfig) -> chunking.Chunker:
   if config.chunker_name not in CHUNKER_REGISTRY:
     raise KeyError(
         f'Unknown chunking strategy: {config.chunker_name!r}. Registered'
-        f' chunkers: {list_chunkers()}. Register one with'
-        ' chunker_registry.register_chunker(<name>, <chunker_cls>).'
+        f' chunkers: {list_chunkers()}. Make sure the module that registers'
+        ' it is imported (e.g. `pdf_chunking` for \'pdf_pages\'), or register'
+        ' one with chunker_registry.register_chunker(<name>, <chunker_cls>).'
     )
   return CHUNKER_REGISTRY[config.chunker_name].from_dict(config.kwargs)

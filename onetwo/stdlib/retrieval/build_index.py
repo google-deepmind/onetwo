@@ -34,6 +34,7 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from onetwo.stdlib.retrieval import build_index_lib
+from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
 from onetwo.stdlib.retrieval import rag_defaults
 
 # Re-export build_index for backward compatibility.
