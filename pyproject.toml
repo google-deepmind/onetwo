@@ -30,6 +30,7 @@ dependencies = [
     # still uses. The caps also keep an installed OneTwo on the same versions
     # that this package is developed and tested against internally.
     "fastmcp>=2.12,<3",
+    "ffmpeg-python",  # For `stdlib/retrieval/video_chunking.py` (needs ffmpeg).
     "freezegun",
     # Note: there is a PYPI `gemma` library, which is not what we want.
     "gemma@git+https://github.com/google-deepmind/gemma.git",
