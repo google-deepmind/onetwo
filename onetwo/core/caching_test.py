@@ -985,7 +985,7 @@ class CacheDataTest(parameterized.TestCase):
     # Bad types are not copied
     img = PIL.Image.new(mode='RGB', size=(1, 1))
     pixels = img.load()
-    pixels[0, 0] = (255, 255, 255)
+    pixels[0, 0] = (255, 255, 255)  # pyrefly: ignore[unsupported-operation]
     cache_data.values_by_key['key0'] = [content_lib.Chunk(content=img)]
 
     with self.assertRaisesRegex(

@@ -2341,7 +2341,7 @@ class GoogleGenaiApiTest(
     gc_mock = self._mock_genai_client.models.generate_content
 
     image = Image.new(mode='RGB', size=(1, 1))
-    image.load()[0, 0] = (255, 255, 255)
+    image.load()[0, 0] = (255, 255, 255)  # pyrefly: ignore[unsupported-operation]
     image_bytes = io.BytesIO()
     image.save(image_bytes, format='PNG')
     image_bytes = image_bytes.getvalue()
