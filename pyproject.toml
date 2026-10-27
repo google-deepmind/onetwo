@@ -46,6 +46,7 @@ dependencies = [
     "ollama",
     "pillow",
     "pydantic>=2.0",
+    "pydub",  # For `stdlib/retrieval/audio_chunking.py` (needs ffmpeg).
     "pypdf",  # For `stdlib/retrieval/pdf_chunking.py`.
     "pytest",
     "portpicker",  # For `backends/onetwo_api_test_script.sh`.
