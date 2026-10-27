@@ -30,6 +30,44 @@ from onetwo.stdlib.tool_use import mcp_tools
 # Run this file with this argument to serve `_server()` over stdio instead.
 _SERVE = '--serve_stdio'
 _PNG_BYTES = b'\x89PNG\r\n\x1a\nfake'
+_PDF_BYTES = b'%PDF-1.7\nfake'
+_WAV_BYTES = b'RIFF\x00\x00\x00\x00WAVEfake'
+# Content blocks of kinds that `mcp_tools` does not support, in wire format.
+_UNSUPPORTED_BLOCKS = {
+    'audio': {
+        'type': 'audio',
+        'data': base64.b64encode(_WAV_BYTES).decode('ascii'),
+        'mimeType': 'audio/wav',
+    },
+    'text_resource': {
+        'type': 'resource',
+        'resource': {
+            'uri': 'test://notes/n1',
+            'mimeType': 'text/markdown',
+            'text': '# Notes',
+        },
+    },
+    'non_pdf_blob': {
+        'type': 'resource',
+        'resource': {
+            'uri': 'test://blobs/b1',
+            'mimeType': 'application/zip',
+            'blob': base64.b64encode(b'PK fake').decode('ascii'),
+        },
+    },
+    'untyped_blob': {
+        'type': 'resource',
+        'resource': {
+            'uri': 'test://blobs/b2',
+            'blob': base64.b64encode(_PDF_BYTES).decode('ascii'),
+        },
+    },
+    'resource_link': {
+        'type': 'resource_link',
+        'name': 'appendix',
+        'uri': 'test://appendices/a1',
+    },
+}
 
 
 def _server() -> fastmcp_server.FastMCP:
@@ -75,6 +113,44 @@ def _server() -> fastmcp_server.FastMCP:
     )
 
   del lookup, search, shout, inspect_portrait  # Registered by the decorator.
+
+  @mcp.tool(
+      name='fetch_report',
+      description='Returns a report as a PDF.',
+      structured_output=False,
+  )
+  def fetch_report(docid: str) -> mcp_types.CallToolResult:
+    """Returns text and a PDF embedded as a binary resource."""
+    # Validated from the wire format, which is also how URIs are parsed.
+    return mcp_types.CallToolResult.model_validate({
+        'content': [
+            {'type': 'text', 'text': f'docid={docid}'},
+            {
+                'type': 'resource',
+                'resource': {
+                    'uri': f'test://reports/{docid}',
+                    'mimeType': 'application/pdf',
+                    'blob': base64.b64encode(_PDF_BYTES).decode('ascii'),
+                },
+            },
+        ]
+    })
+
+  @mcp.tool(
+      name='fetch_unsupported',
+      description='Returns a content block of an unsupported kind.',
+      structured_output=False,
+  )
+  def fetch_unsupported(kind: str) -> mcp_types.CallToolResult:
+    """Returns text and the unsupported block named by `kind`."""
+    return mcp_types.CallToolResult.model_validate({
+        'content': [
+            {'type': 'text', 'text': f'kind={kind}'},
+            _UNSUPPORTED_BLOCKS[kind],
+        ]
+    })
+
+  del fetch_report, fetch_unsupported  # Registered by the decorator.
   return mcp
 
 
@@ -99,7 +175,17 @@ class McpToolsTest(absltest.TestCase):
 
     names, description = asyncio.run(_with_tools(body))
 
-    self.assertEqual(['inspect_portrait', 'lookup', 'search', 'shout'], names)
+    self.assertEqual(
+        [
+            'fetch_report',
+            'fetch_unsupported',
+            'inspect_portrait',
+            'lookup',
+            'search',
+            'shout',
+        ],
+        names,
+    )
     self.assertEqual('Looks a document up by id.', description)
 
   def test_passes_the_servers_schema_through_untouched(self):
@@ -176,7 +262,17 @@ class McpToolsTest(absltest.TestCase):
 
     names, shouted = asyncio.run(body())
 
-    self.assertEqual(['inspect_portrait', 'lookup', 'search', 'shout'], names)
+    self.assertEqual(
+        [
+            'fetch_report',
+            'fetch_unsupported',
+            'inspect_portrait',
+            'lookup',
+            'search',
+            'shout',
+        ],
+        names,
+    )
     self.assertEqual('HELLO', shouted)
 
   def test_multimodal_tool_result_decodes_to_chunk_list(self):
@@ -192,6 +288,39 @@ class McpToolsTest(absltest.TestCase):
         ]),
         returned,
     )
+
+  def test_pdf_tool_result_decodes_to_chunk_list(self):
+    async def body(tools):
+      return await tools['fetch_report'](docid='R_1')
+
+    returned = asyncio.run(_with_tools(body))
+
+    self.assertEqual(
+        content_lib.ChunkList([
+            content_lib.Chunk('docid=R_1'),
+            content_lib.Chunk(
+                content=_PDF_BYTES, content_type='application/pdf'
+            ),
+        ]),
+        returned,
+    )
+
+  def test_unsupported_content_blocks_raise(self):
+    for kind in _UNSUPPORTED_BLOCKS:
+      with self.subTest(kind):
+
+        async def body(tools, kind=kind):
+          # Caught here, since the session's task group would wrap it.
+          try:
+            await tools['fetch_unsupported'](kind=kind)
+          except ValueError as error:
+            return str(error)
+          return None
+
+        message = asyncio.run(_with_tools(body))
+
+        self.assertIsNotNone(message)
+        self.assertIn('Unsupported MCP', message)
 
   def test_a_stdio_command_must_name_an_executable(self):
     async def body():

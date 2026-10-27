@@ -64,7 +64,6 @@ from onetwo.stdlib.tool_use import llm_tool_use
 from onetwo.stdlib.tool_use import mcp_http
 
 
-# TODO: Extend to handle multimodal content.
 def _text_of(result: mcp_types.CallToolResult) -> str:
   """Returns the text blocks of a result, joined.
 
@@ -83,14 +82,50 @@ def _text_of(result: mcp_types.CallToolResult) -> str:
 
 
 def _chunk_from_block(block: mcp_types.ContentBlock) -> content_lib.Chunk:
-  """Converts an MCP text or image `ContentBlock` into a OneTwo `Chunk`."""
-  if isinstance(block, mcp_types.TextContent):
-    return content_lib.Chunk(content=block.text)
-  if isinstance(block, mcp_types.ImageContent):
-    return content_lib.Chunk(
-        content=base64.b64decode(block.data), content_type=block.mimeType
-    )
-  raise TypeError(f'Unsupported MCP content block type: {type(block)}')
+  """Converts an MCP `ContentBlock` into a OneTwo `Chunk`.
+
+  Only the kinds of content that have been tested end to end are supported:
+  text becomes a text chunk, and images and PDFs (sent as embedded binary
+  resources) become bytes chunks of their MIME type, which the backends send to
+  the model as media.
+
+  Args:
+    block: A content block of a tool result.
+
+  Returns:
+    The block as a chunk.
+
+  Raises:
+    ValueError: If the block is of any other kind, e.g. audio, a text
+      resource, a resource link or a binary resource that is not a PDF.
+  """
+  match block:
+    case mcp_types.TextContent():
+      return content_lib.Chunk(content=block.text)
+    case mcp_types.ImageContent():
+      return content_lib.Chunk(
+          content=base64.b64decode(block.data), content_type=block.mimeType
+      )
+    case mcp_types.EmbeddedResource(
+        resource=mcp_types.BlobResourceContents(
+            mimeType='application/pdf'
+        ) as resource
+    ):
+      return content_lib.Chunk(
+          content=base64.b64decode(resource.blob),
+          content_type=resource.mimeType,
+      )
+    case mcp_types.EmbeddedResource():
+      raise ValueError(
+          'Unsupported MCP embedded resource of MIME type'
+          f' {block.resource.mimeType!r}. Only text, images and PDFs are'
+          ' supported.'
+      )
+    case _:
+      raise ValueError(
+          f'Unsupported MCP content block of type {block.type!r}. Only text,'
+          ' images and PDFs are supported.'
+      )
 
 
 def _returned(result: mcp_types.CallToolResult) -> Any:
@@ -100,8 +135,9 @@ def _returned(result: mcp_types.CallToolResult) -> Any:
   and the client session checks that it did and that the content conforms -- so
   where there is structure, it is the server's own, not something recovered by
   guessing at the text. When no output schema is declared and `result.content`
-  carries `ImageContent`, the blocks are decoded in order into a
-  `content_lib.ChunkList`; otherwise only text was sent, and is joined.
+  carries any block other than text (an image or a PDF), the blocks are decoded
+  in order into a `content_lib.ChunkList`; otherwise only text was sent, and is
+  joined.
 
   Note that the structure is whatever the server chose to send, envelope
   included: a tool whose result is not itself an object has to be wrapped in
@@ -114,11 +150,15 @@ def _returned(result: mcp_types.CallToolResult) -> Any:
 
   Returns:
     The structured content if there is any, a `ChunkList` when `result.content`
-    contains image blocks, or the joined text.
+    contains non-text blocks, or the joined text.
+
+  Raises:
+    ValueError: If `result.content` contains a block that is neither text, an
+      image nor a PDF.
   """
   if result.structuredContent is not None:
     return result.structuredContent
-  if any(isinstance(b, mcp_types.ImageContent) for b in result.content):
+  if any(not isinstance(b, mcp_types.TextContent) for b in result.content):
     return content_lib.ChunkList(
         [_chunk_from_block(block) for block in result.content]
     )
