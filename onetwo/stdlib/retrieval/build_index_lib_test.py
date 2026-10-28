@@ -20,6 +20,7 @@ from absl.testing import absltest
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import batching
+from onetwo.core import executing as ot_executing
 from onetwo.evaluation.datasets import datasets_lib
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
@@ -27,6 +28,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
+from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 import pypdf
 
 KeywordDocumentIndexSpec = keyword_index_for_test.KeywordDocumentIndexSpec
@@ -215,6 +217,72 @@ class BuildIndexLibTest(absltest.TestCase):
           chunking_strategy='pdf_pages',
           overlap_window=1,
       )
+
+  def _mock_index_building_build_index(self) -> mock.MagicMock:
+    """Replaces `index_building.build_index` with a no-op; returns the mock."""
+
+    @ot_executing.make_executable
+    async def fake_build_index(**kwargs):
+      del kwargs
+
+    return self.enter_context(
+        mock.patch.object(
+            index_building,
+            'build_index',
+            autospec=True,
+            side_effect=fake_build_index,
+        )
+    )
+
+  def test_flat_kwargs_hipporag_uses_spec_defaults(self):
+    build_mock = self._mock_index_building_build_index()
+
+    build_index_lib.build_index(
+        dataset_name=_DATASET_NAME,
+        output_directory=self.output_dir,
+        runtime_kwargs={},
+        index_type='hipporag',
+        embedding_backend_class_name='FakeEmbedderBackend',
+        embedding_model_name='fake-model',
+        generation_backend_class_name='FakeGenerateBackend',
+        generation_model_name='fake-generate-model',
+    )
+
+    spec = build_mock.call_args.kwargs['spec']
+    self.assertIsInstance(
+        spec, hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec
+    )
+    self.assertEqual(
+        spec.generate_backend_config.model_name, 'fake-generate-model'
+    )
+    default_spec = (
+        hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec()
+    )
+    self.assertEqual(
+        spec.similarity_threshold, default_spec.similarity_threshold
+    )
+    self.assertEqual(spec.ignore_triples, default_spec.ignore_triples)
+    self.assertEqual(
+        spec.ignore_similarity_edges, default_spec.ignore_similarity_edges
+    )
+
+  def test_build_from_spec_uses_hipporag_spec_settings(self):
+    # Non-default HippoRAG settings are set on the spec, which is passed to
+    # `build_index_from_spec`.
+    build_mock = self._mock_index_building_build_index()
+    spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
+        similarity_threshold=0.5,
+        ignore_triples=False,
+        ignore_similarity_edges=False,
+    )
+
+    build_index_lib.build_index_from_spec(
+        spec=spec,
+        dataset_name=_DATASET_NAME,
+        output_directory=self.output_dir,
+    )
+
+    self.assertIs(build_mock.call_args.kwargs['spec'], spec)
 
 
 if __name__ == '__main__':

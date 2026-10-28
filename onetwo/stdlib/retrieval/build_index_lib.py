@@ -56,9 +56,6 @@ def build_index(
         rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME
     ),
     generation_model_name: str = rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME,
-    similarity_threshold: float = 0.8,
-    ignore_triples: bool = True,
-    ignore_similarity_edges: bool = True,
     serializer_type: str = 'simple',
     max_retries: int | None = 5,
     http_timeout: int | None = 60000,
@@ -74,7 +71,10 @@ def build_index(
     max_documents: Max documents to index.
     input_dir: Optional path to a folder of files of any type (text, PDF, image,
       audio, video) to index, loaded with `MultimodalDatasetLoader`.
-    index_type: Type of index ('embedding' or 'hipporag').
+    index_type: Type of index ('embedding' or 'hipporag'). 'hipporag' uses the
+      default settings of `SimpleRewritingHippoRAGDocumentIndexSpec`; to change
+      them (e.g. `similarity_threshold`), pass that spec to
+      `build_index_from_spec` instead.
     embedding_backend_class_name: Embedding backend class name.
     embedding_model_name: Embedding model name.
     embed_kwargs: Keyword arguments for the embedding backend.
@@ -92,9 +92,6 @@ def build_index(
     format_str: Format string for document formatting.
     generation_backend_class_name: Generation backend class name for HippoRAG.
     generation_model_name: Generation model name for HippoRAG.
-    similarity_threshold: Similarity threshold for HippoRAG.
-    ignore_triples: Whether to ignore relational triples for HippoRAG.
-    ignore_similarity_edges: Whether to ignore similarity edges for HippoRAG.
     serializer_type: Serializer type to use ('simple' or 'internal').
     max_retries: Maximum number of retries for backend requests.
     http_timeout: HTTP timeout in milliseconds for backend requests.
@@ -180,9 +177,6 @@ def build_index(
         generate_backend_config=generate_backend_config,
         chunker_config=chunker_config,
         format_str=format_str,
-        similarity_threshold=similarity_threshold,
-        ignore_triples=ignore_triples,
-        ignore_similarity_edges=ignore_similarity_edges,
     )
 
   return build_index_from_spec(
