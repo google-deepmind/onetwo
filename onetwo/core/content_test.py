@@ -511,6 +511,21 @@ class ContentTest(parameterized.TestCase):
     self.assertEqual('xabc', _ChunkList(['x', chunk]).to_simple_string())
 
   @parameterized.named_parameters(
+      ('str', 'str', True),
+      ('ctrl', 'ctrl', True),
+      ('text_plain', 'text/plain', True),
+      ('text_markdown', 'text/markdown', True),
+      ('bytes', 'bytes', False),
+      ('image', 'image/jpeg', False),
+      ('pdf', 'application/pdf', False),
+      ('audio', 'audio/mpeg', False),
+      ('video', 'video/mp4', False),
+      ('unknown', 'example', False),
+  )
+  def test_is_str_content_type(self, content_type, expected):
+    self.assertEqual(content_lib.is_str_content_type(content_type), expected)
+
+  @parameterized.named_parameters(
       ('empty_str', '', True),
       ('empty_bytes', b'', True),
       ('empty_pil', PIL.Image.Image(), True),

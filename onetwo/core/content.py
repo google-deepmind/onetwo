@@ -137,12 +137,12 @@ def _get_content_type_prefix(content_type: str) -> str:
   return 'Unknown'
 
 
-def _is_str_content_type(content_type: str) -> bool:
+def is_str_content_type(content_type: str) -> bool:
   """Returns whether content_type denotes string content.
 
-  The entries of `_CONTENT_TYPE_PREFIXES_BY_PYTHON_TYPE['str']` are prefixes,
-  so e.g. 'text/plain' and 'text/markdown' are string content types, like
-  'str' and 'ctrl'.
+  String content types are 'str', 'ctrl' (control tokens) and 'text/*' (e.g.
+  'text/plain' or 'text/markdown'). The content of a `Chunk` with such a
+  content type is a `str`.
 
   Args:
     content_type: The content_type to check.
@@ -235,7 +235,7 @@ class Chunk:
 
   def __str__(self) -> str:
     # This function is lossless on string and lossy on byte content.
-    if _is_str_content_type(self.content_type):
+    if is_str_content_type(self.content_type):
       return cast(str, self.content)
     else:
       return f'<{self.content_type}>'
@@ -244,7 +244,7 @@ class Chunk:
     # For debug purposes. This function is lossless on string and lossy on any
     # other content. To idea is to have a concise representation of the chunks
     # that can be used for debugging.
-    if _is_str_content_type(self.content_type):
+    if is_str_content_type(self.content_type):
       return f'Chunk({self.content}, role={self.role})'
     else:
       return f'Chunk(<{self.content_type}>, role={self.role})'
@@ -583,7 +583,7 @@ class ChunkList:
     return ''.join([
         str(chunk)
         for chunk in self.chunks
-        if _is_str_content_type(chunk.content_type)
+        if is_str_content_type(chunk.content_type)
     ])
 
 
