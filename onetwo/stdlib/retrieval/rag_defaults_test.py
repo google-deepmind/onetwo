@@ -77,14 +77,6 @@ class RagDefaultsTest(absltest.TestCase):
         params['embedding_model_name'].default,
         rag_defaults.DEFAULT_EMBED_MODEL_NAME,
     )
-    self.assertEqual(
-        params['generation_backend_class_name'].default,
-        rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME,
-    )
-    self.assertEqual(
-        params['generation_model_name'].default,
-        rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME,
-    )
 
 
 if __name__ == '__main__':

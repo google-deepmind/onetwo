@@ -52,10 +52,6 @@ def build_index(
     ),
     tokenize_model_name: str = rag_defaults.DEFAULT_TOKENIZE_MODEL_NAME,
     format_str: str | None = None,
-    generation_backend_class_name: str = (
-        rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME
-    ),
-    generation_model_name: str = rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME,
     serializer_type: str = 'simple',
     max_retries: int | None = 5,
     http_timeout: int | None = 60000,
@@ -72,8 +68,9 @@ def build_index(
     input_dir: Optional path to a folder of files of any type (text, PDF, image,
       audio, video) to index, loaded with `MultimodalDatasetLoader`.
     index_type: Type of index ('embedding' or 'hipporag'). 'hipporag' uses the
-      default settings of `SimpleRewritingHippoRAGDocumentIndexSpec`; to change
-      them (e.g. `similarity_threshold`), pass that spec to
+      default settings of `SimpleRewritingHippoRAGDocumentIndexSpec`, including
+      its default generation model (`generate_backend_config`); to change them
+      (e.g. `similarity_threshold` or the generation model), pass that spec to
       `build_index_from_spec` instead.
     embedding_backend_class_name: Embedding backend class name.
     embedding_model_name: Embedding model name.
@@ -90,8 +87,6 @@ def build_index(
     tokenize_model_name: Tokenizer model name (when `chunking_strategy` is
       'tokens').
     format_str: Format string for document formatting.
-    generation_backend_class_name: Generation backend class name for HippoRAG.
-    generation_model_name: Generation model name for HippoRAG.
     serializer_type: Serializer type to use ('simple' or 'internal').
     max_retries: Maximum number of retries for backend requests.
     http_timeout: HTTP timeout in milliseconds for backend requests.
@@ -168,13 +163,8 @@ def build_index(
       serializer_type=serializer_type,
   )
   if index_type == 'hipporag':
-    generate_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name=generation_backend_class_name,
-        model_name=generation_model_name,
-    )
     spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
-        generate_backend_config=generate_backend_config,
         chunker_config=chunker_config,
         format_str=format_str,
     )

@@ -28,6 +28,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
+from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 import pypdf
 
@@ -244,8 +245,6 @@ class BuildIndexLibTest(absltest.TestCase):
         index_type='hipporag',
         embedding_backend_class_name='FakeEmbedderBackend',
         embedding_model_name='fake-model',
-        generation_backend_class_name='FakeGenerateBackend',
-        generation_model_name='fake-generate-model',
     )
 
     spec = build_mock.call_args.kwargs['spec']
@@ -253,7 +252,8 @@ class BuildIndexLibTest(absltest.TestCase):
         spec, hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec
     )
     self.assertEqual(
-        spec.generate_backend_config.model_name, 'fake-generate-model'
+        spec.generate_backend_config,
+        rag_defaults.default_index_generate_backend_config(),
     )
     default_spec = (
         hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec()
@@ -283,6 +283,32 @@ class BuildIndexLibTest(absltest.TestCase):
     )
 
     self.assertIs(build_mock.call_args.kwargs['spec'], spec)
+
+  def test_build_from_spec_uses_hipporag_spec_generate_backend_config(self):
+    # A non-default HippoRAG generation model is set on the spec, which is
+    # passed to `build_index_from_spec`.
+    build_mock = self._mock_index_building_build_index()
+    generate_backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name='FakeGenerateBackend',
+        model_name='fake-generate-model',
+    )
+    spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
+        generate_backend_config=generate_backend_config,
+    )
+
+    build_index_lib.build_index_from_spec(
+        spec=spec,
+        dataset_name=_DATASET_NAME,
+        output_directory=self.output_dir,
+    )
+
+    self.assertEqual(
+        build_mock.call_args.kwargs['spec'].generate_backend_config,
+        backend_registry.GenerateBackendConfig(
+            backend_class_name='FakeGenerateBackend',
+            model_name='fake-generate-model',
+        ),
+    )
 
 
 if __name__ == '__main__':

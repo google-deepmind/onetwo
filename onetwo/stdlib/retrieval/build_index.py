@@ -84,18 +84,6 @@ _INDEX_TYPE = flags.DEFINE_enum(
     'Type of index to build ("embedding" or "hipporag").',
 )
 
-_GENERATION_BACKEND_CLASS_NAME = flags.DEFINE_string(
-    'generation_backend_class_name',
-    rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME,
-    'Name of the generation backend class (for GraphRAG/HippoRAG).',
-)
-
-_GENERATION_MODEL_NAME = flags.DEFINE_string(
-    'generation_model_name',
-    rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME,
-    'Name of the generation model (for GraphRAG/HippoRAG).',
-)
-
 _CHUNK_SIZE = flags.DEFINE_integer(
     'chunk_size',
     None,
@@ -204,8 +192,6 @@ def main(argv: Sequence[str]) -> None:
       tokenize_backend_class_name=_TOKENIZE_BACKEND_CLASS_NAME.value,
       tokenize_model_name=_TOKENIZE_MODEL_NAME.value,
       format_str=_FORMAT.value,
-      generation_backend_class_name=_GENERATION_BACKEND_CLASS_NAME.value,
-      generation_model_name=_GENERATION_MODEL_NAME.value,
       serializer_type=_SERIALIZER_TYPE.value,
       runtime_kwargs=_RUNTIME_KWARGS.value,
       max_retries=_MAX_RETRIES.value,
