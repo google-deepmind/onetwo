@@ -69,14 +69,9 @@ class RagDefaultsTest(absltest.TestCase):
 
   def test_build_index_uses_defaults(self):
     params = inspect.signature(build_index_lib.build_index).parameters
-    self.assertEqual(
-        params['embedding_backend_class_name'].default,
-        rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME,
-    )
-    self.assertEqual(
-        params['embedding_model_name'].default,
-        rag_defaults.DEFAULT_EMBED_MODEL_NAME,
-    )
+    # `embedder=None` means `rag_defaults.default_embed_backend_config()`, see
+    # `build_index_lib_test.test_flat_kwargs_default_embedder`.
+    self.assertIsNone(params['embedder'].default)
 
 
 if __name__ == '__main__':

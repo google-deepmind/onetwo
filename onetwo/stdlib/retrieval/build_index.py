@@ -29,10 +29,12 @@
 r"""Binary to build an embedding-based document index.
 """
 
+import json
 from typing import Sequence
 
 from absl import app
 from absl import flags
+from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
 from onetwo.stdlib.retrieval import rag_defaults
@@ -173,6 +175,19 @@ _EMBED_KWARGS = flags.DEFINE_string(
 )
 
 
+def _embedder_from_flags() -> backend_registry.EmbedBackendConfig:
+  """Returns the embedding backend config set by the embedding flags."""
+  embed_kwargs = json.loads(_EMBED_KWARGS.value)
+  backend_kwargs = {}
+  if embed_kwargs:
+    backend_kwargs['embed_kwargs'] = dict(embed_kwargs)
+  return backend_registry.EmbedBackendConfig(
+      backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
+      model_name=_EMBEDDING_MODEL_NAME.value,
+      kwargs=backend_kwargs,
+  )
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
@@ -183,9 +198,7 @@ def main(argv: Sequence[str]) -> None:
       max_documents=_MAX_DOCUMENTS.value,
       index_type=_INDEX_TYPE.value,
       output_directory=_OUTPUT_DIRECTORY.value,
-      embedding_backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
-      embedding_model_name=_EMBEDDING_MODEL_NAME.value,
-      embed_kwargs=_EMBED_KWARGS.value,
+      embedder=_embedder_from_flags(),
       chunk_size=_CHUNK_SIZE.value,
       chunking_strategy=_CHUNKING_STRATEGY.value,
       overlap_window=_OVERLAP_WINDOW.value,

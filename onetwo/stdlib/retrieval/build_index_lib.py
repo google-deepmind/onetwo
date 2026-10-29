@@ -39,11 +39,7 @@ def build_index(
     max_documents: int | None = None,
     input_dir: str | None = None,
     index_type: str = 'embedding',
-    embedding_backend_class_name: str = (
-        rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME
-    ),
-    embedding_model_name: str = rag_defaults.DEFAULT_EMBED_MODEL_NAME,
-    embed_kwargs: Mapping[str, Any] | str | None = None,
+    embedder: backend_registry.EmbedBackendConfig | None = None,
     chunk_size: int | None = None,
     chunking_strategy: str = 'words',
     overlap_window: int = 0,
@@ -72,9 +68,14 @@ def build_index(
       its default generation model (`generate_backend_config`); to change them
       (e.g. `similarity_threshold` or the generation model), pass that spec to
       `build_index_from_spec` instead.
-    embedding_backend_class_name: Embedding backend class name.
-    embedding_model_name: Embedding model name.
-    embed_kwargs: Keyword arguments for the embedding backend.
+    embedder: Config of the embedding backend, used by both index types. If
+      None, uses `rag_defaults.default_embed_backend_config()`. Its `kwargs` are
+      passed to the backend constructor, so default arguments of the backend's
+      `embed` calls go under the `'embed_kwargs'` key, e.g.
+      `EmbedBackendConfig(backend_class_name='GoogleGenAIAPI',
+      model_name='gemini-embedding-2', kwargs={'embed_kwargs':
+      {'output_dimensionality': 768}})`. The config is saved with the index, so
+      credentials (e.g. API key) go in `runtime_kwargs` instead.
     chunk_size: Max tokens, words or PDF pages per chunk (depending on
       `chunking_strategy`).
     chunking_strategy: Chunking strategy ('tokens', 'words' or 'pdf_pages').
@@ -95,15 +96,10 @@ def build_index(
     The output directory path where the index was saved.
   """
   # Construct spec
-  if isinstance(embed_kwargs, str):
-    embed_kwargs = json.loads(embed_kwargs)
-  backend_kwargs = {}
-  if embed_kwargs:
-    backend_kwargs['embed_kwargs'] = dict(embed_kwargs)
-  embed_backend_config = backend_registry.EmbedBackendConfig(
-      backend_class_name=embedding_backend_class_name,
-      model_name=embedding_model_name,
-      kwargs=backend_kwargs,
+  embed_backend_config = (
+      embedder
+      if embedder is not None
+      else rag_defaults.default_embed_backend_config()
   )
   if isinstance(runtime_kwargs, str):
     rt_kwargs = json.loads(runtime_kwargs)

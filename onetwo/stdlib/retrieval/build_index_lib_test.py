@@ -35,6 +35,9 @@ import pypdf
 KeywordDocumentIndexSpec = keyword_index_for_test.KeywordDocumentIndexSpec
 
 _DATASET_NAME = 'build_index_lib_test_dataset'
+_FAKE_EMBEDDER = backend_registry.EmbedBackendConfig(
+    backend_class_name='FakeEmbedderBackend', model_name='fake-model'
+)
 
 
 @batching.add_batching
@@ -144,8 +147,7 @@ class BuildIndexLibTest(absltest.TestCase):
         dataset_name=_DATASET_NAME,
         output_directory=self.output_dir,
         runtime_kwargs={},
-        embedding_backend_class_name='FakeEmbedderBackend',
-        embedding_model_name='fake-model',
+        embedder=_FAKE_EMBEDDER,
         chunk_size=16,
         chunking_strategy='words',
         overlap_window=0,
@@ -170,8 +172,7 @@ class BuildIndexLibTest(absltest.TestCase):
           dataset_name=_DATASET_NAME,
           output_directory=self.output_dir,
           runtime_kwargs={},
-          embedding_backend_class_name='FakeEmbedderBackend',
-          embedding_model_name='fake-model',
+          embedder=_FAKE_EMBEDDER,
           chunk_size=16,
           chunking_strategy='unknown_strategy',
       )
@@ -189,8 +190,7 @@ class BuildIndexLibTest(absltest.TestCase):
         input_dir=input_dir.full_path,
         output_directory=self.output_dir,
         runtime_kwargs={},
-        embedding_backend_class_name='FakeEmbedderBackend',
-        embedding_model_name='fake-model',
+        embedder=_FAKE_EMBEDDER,
         chunk_size=1,
         chunking_strategy='pdf_pages',
     )
@@ -212,8 +212,7 @@ class BuildIndexLibTest(absltest.TestCase):
           dataset_name=_DATASET_NAME,
           output_directory=self.output_dir,
           runtime_kwargs={},
-          embedding_backend_class_name='FakeEmbedderBackend',
-          embedding_model_name='fake-model',
+          embedder=_FAKE_EMBEDDER,
           chunk_size=1,
           chunking_strategy='pdf_pages',
           overlap_window=1,
@@ -243,8 +242,7 @@ class BuildIndexLibTest(absltest.TestCase):
         output_directory=self.output_dir,
         runtime_kwargs={},
         index_type='hipporag',
-        embedding_backend_class_name='FakeEmbedderBackend',
-        embedding_model_name='fake-model',
+        embedder=_FAKE_EMBEDDER,
     )
 
     spec = build_mock.call_args.kwargs['spec']
@@ -265,6 +263,50 @@ class BuildIndexLibTest(absltest.TestCase):
     self.assertEqual(
         spec.ignore_similarity_edges, default_spec.ignore_similarity_edges
     )
+
+  def test_flat_kwargs_default_embedder(self):
+    build_mock = self._mock_index_building_build_index()
+
+    for index_type in ('embedding', 'hipporag'):
+      with self.subTest(index_type):
+        build_index_lib.build_index(
+            dataset_name=_DATASET_NAME,
+            output_directory=self.output_dir,
+            runtime_kwargs={},
+            index_type=index_type,
+        )
+
+        self.assertEqual(
+            build_mock.call_args.kwargs['spec'].embed_backend_config,
+            rag_defaults.default_embed_backend_config(),
+        )
+
+  def test_flat_kwargs_custom_embedder_reaches_spec(self):
+    build_mock = self._mock_index_building_build_index()
+    embedder = backend_registry.EmbedBackendConfig(
+        backend_class_name='FakeEmbedderBackend',
+        model_name='fake-model',
+        kwargs={'embed_kwargs': {'output_dimensionality': 768}},
+    )
+
+    for index_type in ('embedding', 'hipporag'):
+      with self.subTest(index_type):
+        build_index_lib.build_index(
+            dataset_name=_DATASET_NAME,
+            output_directory=self.output_dir,
+            runtime_kwargs={},
+            index_type=index_type,
+            embedder=embedder,
+        )
+
+        self.assertEqual(
+            build_mock.call_args.kwargs['spec'].embed_backend_config,
+            backend_registry.EmbedBackendConfig(
+                backend_class_name='FakeEmbedderBackend',
+                model_name='fake-model',
+                kwargs={'embed_kwargs': {'output_dimensionality': 768}},
+            ),
+        )
 
   def test_build_from_spec_uses_hipporag_spec_settings(self):
     # Non-default HippoRAG settings are set on the spec, which is passed to
