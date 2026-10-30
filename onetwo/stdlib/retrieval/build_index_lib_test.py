@@ -15,10 +15,13 @@
 import json
 import os
 from unittest import mock
+import wave
 
 from absl.testing import absltest
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
+from onetwo.backends import sentencepiece_tokenizer
+from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation.datasets import datasets_lib
@@ -27,8 +30,8 @@ from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
-from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 import pypdf
 
@@ -217,6 +220,98 @@ class BuildIndexLibTest(absltest.TestCase):
           chunking_strategy='pdf_pages',
           overlap_window=1,
       )
+
+  def test_flat_kwargs_audio_seconds_chunking_strategy(self):
+    input_dir = self.create_tempdir()
+    # A 2-second silent WAV file.
+    with wave.open(os.path.join(input_dir.full_path, 'two_s.wav'), 'wb') as f:
+      f.setnchannels(1)
+      f.setsampwidth(2)
+      f.setframerate(8000)
+      f.writeframes(b'\x00\x00' * 16000)
+
+    out_dir = build_index_lib.build_index(
+        dataset_name='my_audios',
+        input_dir=input_dir.full_path,
+        output_directory=self.output_dir,
+        runtime_kwargs={},
+        embedder=_FAKE_EMBEDDER,
+        chunk_size=1,
+        chunking_strategy='audio_seconds',
+    )
+
+    spec = index_building.read_index_spec(out_dir)
+    assert isinstance(
+        spec,
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+    )
+    self.assertEqual(
+        spec.chunker_config,
+        chunker_registry.ChunkerConfig(
+            chunker_name='audio_seconds', kwargs={'seconds_per_chunk': 1.0}
+        ),
+    )
+
+  def test_flat_kwargs_routing_chunking_strategy(self):
+    # The default text chunker of `RoutingChunker` loads and registers the
+    # default SentencePiece model, which is not available in tests.
+    llm.reset_defaults()
+    self.addCleanup(llm.reset_defaults)
+    self.enter_context(
+        mock.patch.object(
+            sentencepiece_tokenizer.SentencePieceTokenizer,
+            '_load_model',
+            return_value=mock.MagicMock(),
+        )
+    )
+    input_dir = self.create_tempdir()
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.add_blank_page(width=612, height=792)
+    with open(os.path.join(input_dir.full_path, 'two_pages.pdf'), 'wb') as f:
+      writer.write(f)
+
+    out_dir = build_index_lib.build_index(
+        dataset_name='my_files',
+        input_dir=input_dir.full_path,
+        output_directory=self.output_dir,
+        runtime_kwargs={},
+        embedder=_FAKE_EMBEDDER,
+        chunking_strategy='routing',
+    )
+
+    spec = index_building.read_index_spec(out_dir)
+    assert isinstance(
+        spec,
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec,
+    )
+    with self.subTest('uses_default_routing_chunker'):
+      self.assertEqual(
+          spec.chunker_config,
+          chunker_registry.ChunkerConfig(chunker_name='routing'),
+      )
+
+    with self.subTest('output_directory_is_path_friendly'):
+      self.assertIn('_chunker_routing_', os.path.basename(out_dir.rstrip('/')))
+
+    for name, chunk_size, overlap_window in (
+        ('chunk_size', 16, 0),
+        ('overlap_window', None, 1),
+    ):
+      with self.subTest(f'{name}_is_not_supported'):
+        with self.assertRaisesRegex(
+            ValueError,
+            'not supported with chunking_strategy="routing"',
+        ):
+          build_index_lib.build_index(
+              dataset_name=_DATASET_NAME,
+              output_directory=self.output_dir,
+              runtime_kwargs={},
+              embedder=_FAKE_EMBEDDER,
+              chunk_size=chunk_size,
+              chunking_strategy='routing',
+              overlap_window=overlap_window,
+          )
 
   def _mock_index_building_build_index(self) -> mock.MagicMock:
     """Replaces `index_building.build_index` with a no-op; returns the mock."""

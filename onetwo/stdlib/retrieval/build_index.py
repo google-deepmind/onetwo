@@ -36,8 +36,8 @@ from absl import app
 from absl import flags
 from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import build_index_lib
-from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 
 # Re-export build_index for backward compatibility.
 build_index = build_index_lib.build_index
@@ -90,18 +90,29 @@ _CHUNK_SIZE = flags.DEFINE_integer(
     'chunk_size',
     None,
     (
-        'Maximum tokens, words or PDF pages per chunk (depending on'
-        ' --chunking_strategy). If None, no chunking is performed.'
+        'Maximum tokens, words, PDF pages or seconds of audio or video per'
+        ' chunk (depending on --chunking_strategy). If None, no chunking is'
+        ' performed (unless --chunking_strategy=routing). Not supported with'
+        ' --chunking_strategy=routing.'
     ),
 )
 
 _CHUNKING_STRATEGY = flags.DEFINE_enum(
     'chunking_strategy',
-    'words',
-    ['tokens', 'words', 'pdf_pages'],
-    'Chunking strategy to use ("words" for ChunkByMaxWords, "tokens" for'
-    ' ChunkByMaxTokens or "pdf_pages" for ChunkByPdfPages, which requires all'
-    ' documents to be PDFs).',
+    'routing',
+    [
+        'routing',
+        'tokens',
+        'words',
+        'pdf_pages',
+        'audio_seconds',
+        'video_seconds',
+    ],
+    'Chunking strategy to use: "routing" (default) chunks each document'
+    ' according to its content type (see `RoutingChunker` in'
+    ' onetwo/stdlib/retrieval/routing_chunking.py); any other value is the name'
+    ' of a single chunker registered in `chunker_registry` that is applied to'
+    ' all documents.',
 )
 
 _OVERLAP_WINDOW = flags.DEFINE_integer(
