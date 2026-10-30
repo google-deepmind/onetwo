@@ -46,8 +46,13 @@ class RagDefaultsTest(absltest.TestCase):
 
   def test_default_tokenize_backend_config(self):
     config = rag_defaults.default_tokenize_backend_config()
-    self.assertEqual(config.backend_class_name, 'SentencePieceTokenizer')
-    self.assertEqual(config.model_name, 'GEMINI3_G145')
+    self.assertEqual(
+        config.backend_class_name,
+        rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME,
+    )
+    self.assertEqual(
+        config.model_name, rag_defaults.DEFAULT_TOKENIZE_MODEL_NAME
+    )
     self.assertIsNot(config, rag_defaults.default_tokenize_backend_config())
 
   def test_embedding_specs_can_be_created_without_arguments(self):

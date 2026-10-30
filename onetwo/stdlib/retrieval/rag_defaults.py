@@ -29,8 +29,13 @@ DEFAULT_EMBED_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
 DEFAULT_EMBED_MODEL_NAME = 'gemini-embedding-2'
 
 # Tokenizer used to chunk documents by tokens (`chunking_strategy='tokens'`).
+# The Gemini tokenizer is only available inside Google (see
+# `sentencepiece_tokenizer.TOKENIZER_PATHS`), so the open-source release
+# defaults to a publicly downloadable SentencePiece model.
 DEFAULT_TOKENIZE_BACKEND_CLASS_NAME = 'SentencePieceTokenizer'
-DEFAULT_TOKENIZE_MODEL_NAME = 'GEMINI3_G145'
+DEFAULT_TOKENIZE_MODEL_NAME = (
+    'https://huggingface.co/t5-small/resolve/main/spiece.model'
+)
 
 # Generation model used while building indexes (e.g. HippoRAG extraction).
 DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
