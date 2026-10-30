@@ -78,8 +78,9 @@ class ChunkerRegistryTest(absltest.TestCase):
         'tokens-max_tokens_per_chunk=64-overlap_window=8-'
         'tokenize_backend_config=SentencePieceTokenizer-GEMINI3_G145',
     )
-    mock_load.assert_called_once()
-    self.assertTrue(llm.tokenize.is_configured())
+    # The tokenizer is only loaded (and registered) when the chunker is used.
+    mock_load.assert_not_called()
+    self.assertFalse(llm.tokenize.is_configured())
 
     # Round-tripping through JSON turns tokenize_backend_config into a dict in
     # ChunkerConfig.kwargs; get_chunker reconstructs TokenizeBackendConfig.

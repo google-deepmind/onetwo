@@ -18,6 +18,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.backends import sentencepiece_tokenizer
 from onetwo.builtins import llm
@@ -146,8 +147,8 @@ class RoutingChunkerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    # The default text chunker loads and registers the default SentencePiece
-    # model, which is not available in tests.
+    # The default text chunker loads the default SentencePiece model when it is
+    # first used, which is not available in tests.
     llm.reset_defaults()
     self.addCleanup(llm.reset_defaults)
     self.mock_load = self.enter_context(
@@ -234,14 +235,21 @@ class RoutingChunkerTest(parameterized.TestCase):
   def test_chunks_with_default_chunkers(self):
     chunker = routing_chunking.RoutingChunker()
 
-    with self.subTest('loads_default_tokenizer_on_creation'):
-      self.mock_load.assert_called_once()
+    with self.subTest('does_not_load_default_tokenizer_on_creation'):
+      self.mock_load.assert_not_called()
 
     with self.subTest('text_is_chunked_by_512_tokens'):
-      # The default tokenizer was registered when the chunker was created.
-      # Replace it with one that tokenizes each character as one token.
-      backends_test_utils.LLMForTest().register(register_tokenize=True)
-      chunks = list(ot.run(chunker(_document('a' * 1200))))
+      # The default tokenizer is created on first use: replace it with one that
+      # tokenizes each character as one token.
+      with mock.patch.dict(
+          backend_registry.BACKEND_REGISTRY,
+          {
+              rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME: (
+                  lambda **_: backends_test_utils.LLMForTest()
+              )
+          },
+      ):
+        chunks = list(ot.run(chunker(_document('a' * 1200))))
       self.assertEqual([len(chunk.text) for chunk in chunks], [512, 512, 176])
 
     with self.subTest('pdf_is_chunked_by_page'):

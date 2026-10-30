@@ -25,12 +25,15 @@ LLM (and the user) can always trace information back to its source.
 """
 
 import abc
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+import contextlib
 import copy
 import dataclasses
+import functools
 from typing import Any, ClassVar, Sequence
 import dataclasses_json
 from onetwo.backends import backend_registry
+from onetwo.backends import backends_base
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -385,6 +388,9 @@ class ChunkByMaxTokens(TextChunker):
     max_tokens_per_chunk: The maximum number of tokens per chunk.
     tokenize_backend_config: Configuration for the tokenizer backend. If not
       specified, defaults to the currently-registered `llm.tokenize` backend.
+      The backend is created on first use (so creating the chunker is cheap),
+      and is only registered while this chunker tokenizes text, so it does not
+      replace the `llm.tokenize` backend registered globally.
     strip_whitespace: Whether to strip whitespace from the ends of each chunk.
     overlap_window: The number of tokens to overlap between chunks. If this is
       set to 0, then the chunks will not overlap.
@@ -398,12 +404,24 @@ class ChunkByMaxTokens(TextChunker):
   strip_whitespace: bool = True
   overlap_window: int = 0
 
-  def __post_init__(self) -> None:
-    if self.tokenize_backend_config is not None:
-      tokenizer = backend_registry.get_backend(self.tokenize_backend_config)
-      tokenizer.register()
+  @functools.cached_property
+  def _tokenize_backend(self) -> backends_base.Backend | None:
+    """Returns the tokenizer backend, which is created on first access."""
+    if self.tokenize_backend_config is None:
+      return None
+    return backend_registry.get_backend(self.tokenize_backend_config)
 
-  @executing.make_executable
+  @contextlib.contextmanager
+  def _tokenize_backend_context(self) -> Iterator[None]:
+    """Yields a context in which the tokenizer backend (if any) is registered."""
+    if self._tokenize_backend is None:
+      yield
+      return
+    with routing.RegistryContext():
+      self._tokenize_backend.register()
+      yield
+
+  @executing.make_executable(copy_self=False)
   @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
   async def _chunk_text(self, text: str) -> Iterable[str]:
     """Returns `text` broken into chunks of up to `max_tokens_per_chunk`.
@@ -425,15 +443,17 @@ class ChunkByMaxTokens(TextChunker):
           'overlap_window must be smaller than max_tokens_per_chunk, got'
           f' {self.overlap_window} >= {self.max_tokens_per_chunk}'
       )
-    all_tokens = await llm.tokenize(text)
-    step = self.max_tokens_per_chunk - self.overlap_window
-    tokenized_chunks = [
-        all_tokens[i : i + self.max_tokens_per_chunk]
-        for i in range(0, len(all_tokens), step)
-    ]
-    chunks = await executing.parallel(*[
-        llm.detokenize(tokenized_chunk) for tokenized_chunk in tokenized_chunks
-    ])
+    with self._tokenize_backend_context():
+      all_tokens = await llm.tokenize(text)
+      step = self.max_tokens_per_chunk - self.overlap_window
+      tokenized_chunks = [
+          all_tokens[i : i + self.max_tokens_per_chunk]
+          for i in range(0, len(all_tokens), step)
+      ]
+      chunks = await executing.parallel(*[
+          llm.detokenize(tokenized_chunk)
+          for tokenized_chunk in tokenized_chunks
+      ])
     if self.strip_whitespace:
       return [chunk.strip() for chunk in chunks]
     else:

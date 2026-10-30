@@ -12,11 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+import dataclasses
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
+from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -29,6 +34,17 @@ _TOTAL_NUMBER_OF_CHUNKS = (
 _SPAN_WITHIN_ORIGINAL_DOC = (
     retrieval_data_structures.METADATA_FIELD_SPAN_WITHIN_ORIGINAL_DOC
 )
+
+
+@dataclasses.dataclass
+class _CountingTokenizer(backends_test_utils.LLMForTest):
+  """Test backend that counts its `tokenize` calls."""
+
+  num_tokenize_calls: int = 0
+
+  def tokenize(self, content: str | content_lib.ChunkList) -> Sequence[int]:
+    self.num_tokenize_calls += 1
+    return super().tokenize(content)
 
 
 class ChunkingTest(parameterized.TestCase):
@@ -294,6 +310,44 @@ class ChunkingTest(parameterized.TestCase):
     )
     with self.assertRaises(ValueError):
       ot.run(chunker(document))
+
+  def testChunkByMaxTokensCreatesTokenizerLazilyAndLocally(self):
+    # `setUp` registers a global tokenizer. The configured tokenizer tokenizes
+    # the same way, but we count its calls to tell them apart.
+    tokenizer = _CountingTokenizer()
+    tokenizer_factory = mock.MagicMock(return_value=tokenizer)
+    self.enter_context(
+        mock.patch.dict(
+            backend_registry.BACKEND_REGISTRY,
+            {'TokenizerForTest': tokenizer_factory},
+        )
+    )
+    chunker = chunking.ChunkByMaxTokens(
+        max_tokens_per_chunk=6,
+        tokenize_backend_config=backend_registry.TokenizeBackendConfig(
+            backend_class_name='TokenizerForTest'
+        ),
+    )
+    document = retrieval_data_structures.Document(
+        content='hello world', doc_id='1'
+    )
+
+    with self.subTest('tokenizer_is_not_created_on_construction'):
+      tokenizer_factory.assert_not_called()
+
+    chunks = ot.run(chunker(document))
+    _ = ot.run(chunker(document))
+
+    with self.subTest('chunks_with_the_configured_tokenizer'):
+      self.assertEqual([chunk.content for chunk in chunks], ['hello', 'world'])
+      self.assertEqual(tokenizer.num_tokenize_calls, 2)
+
+    with self.subTest('tokenizer_is_created_once'):
+      tokenizer_factory.assert_called_once()
+
+    with self.subTest('tokenizer_is_not_registered_globally'):
+      _ = ot.run(llm.tokenize('hello'))
+      self.assertEqual(tokenizer.num_tokenize_calls, 2)
 
   def testTextChunkerSpans(self):
     class ConcreteTextChunker(chunking.TextChunker):

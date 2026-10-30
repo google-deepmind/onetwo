@@ -152,9 +152,8 @@ class RoutingChunker(chunking.Chunker):
   Each sub-chunker can be configured (e.g. `RoutingChunker(text=
   chunking.ChunkByMaxTokens(max_tokens_per_chunk=256))`), but its class is
   fixed: to chunk documents differently, write a custom `Chunker`. By default,
-  the sub-chunkers are created with `DEFAULT_CHUNKER_KWARGS`, so creating a
-  `RoutingChunker` with the default `text` loads (and registers) the default
-  tokenizer.
+  the sub-chunkers are created with `DEFAULT_CHUNKER_KWARGS`. The default
+  tokenizer of `text` is only loaded when the first text document is chunked.
 
   The chunks are those returned by the sub-chunker, so they carry its metadata
   (e.g. `original_doc_id` and `chunk_number`).
