@@ -34,8 +34,10 @@ from typing import Sequence
 
 from absl import app
 from absl import flags
+from absl import logging
 from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import build_index_lib
+from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 
@@ -92,7 +94,7 @@ _CHUNK_SIZE = flags.DEFINE_integer(
     (
         'Maximum tokens, words, PDF pages or seconds of audio or video per'
         ' chunk (depending on --chunking_strategy). If None, no chunking is'
-        ' performed (unless --chunking_strategy=routing). Not supported with'
+        ' performed (unless --chunking_strategy=routing). Ignored with'
         ' --chunking_strategy=routing.'
     ),
 )
@@ -118,7 +120,10 @@ _CHUNKING_STRATEGY = flags.DEFINE_enum(
 _OVERLAP_WINDOW = flags.DEFINE_integer(
     'overlap_window',
     0,
-    'Number of tokens or words to overlap between chunks.',
+    (
+        'Number of tokens or words to overlap between chunks. Ignored unless'
+        ' --chunking_strategy is tokens or words.'
+    ),
 )
 
 _TOKENIZE_BACKEND_CLASS_NAME = flags.DEFINE_string(
@@ -199,6 +204,71 @@ def _embedder_from_flags() -> backend_registry.EmbedBackendConfig:
   )
 
 
+def _chunker_from_flags() -> chunker_registry.ChunkerConfig:
+  """Returns the chunker config set by the chunking flags.
+
+  Flags that do not apply to the chunking strategy are ignored with a warning.
+  """
+  chunking_strategy = _CHUNKING_STRATEGY.value
+  chunk_size = _CHUNK_SIZE.value
+  overlap_window = _OVERLAP_WINDOW.value
+  if chunking_strategy == 'routing':
+    # TODO: Add flags to configure the chunk size
+    # of each content type (e.g. tokens for text, pages for PDFs, seconds for
+    # audio and video) with 'routing', instead of only using the defaults of
+    # `RoutingChunker`. This also requires keeping the index output directory
+    # path-friendly when the chunker config has kwargs.
+    if chunk_size is not None or overlap_window:
+      logging.warning(
+          'Ignoring --chunk_size and --overlap_window, which are not supported'
+          ' with --chunking_strategy=routing: the default chunker of each'
+          ' content type is used (see `routing_chunking`).'
+      )
+    # The defaults of `RoutingChunker` are used, so that the index output
+    # directory (which includes the chunker config) stays path-friendly.
+    return chunker_registry.ChunkerConfig(chunker_name='routing')
+  if chunk_size is None:
+    return chunker_registry.ChunkerConfig(chunker_name='none')
+  if chunking_strategy == 'words':
+    return chunker_registry.ChunkerConfig(
+        chunker_name='words',
+        kwargs={
+            'max_words_per_chunk': chunk_size,
+            'overlap_window': overlap_window,
+        },
+    )
+  if chunking_strategy == 'tokens':
+    return chunker_registry.ChunkerConfig(
+        chunker_name='tokens',
+        kwargs={
+            'max_tokens_per_chunk': chunk_size,
+            'overlap_window': overlap_window,
+            'tokenize_backend_config': backend_registry.TokenizeBackendConfig(
+                backend_class_name=_TOKENIZE_BACKEND_CLASS_NAME.value,
+                model_name=_TOKENIZE_MODEL_NAME.value,
+            ),
+        },
+    )
+  # 'pdf_pages', 'audio_seconds' or 'video_seconds', whose chunks cannot
+  # overlap.
+  if overlap_window:
+    logging.warning(
+        'Ignoring --overlap_window, which is not supported with'
+        ' --chunking_strategy=%s.',
+        chunking_strategy,
+    )
+  if chunking_strategy == 'pdf_pages':
+    return chunker_registry.ChunkerConfig(
+        chunker_name='pdf_pages',
+        kwargs={'pages_per_chunk': chunk_size},
+    )
+  # 'audio_seconds' or 'video_seconds'.
+  return chunker_registry.ChunkerConfig(
+      chunker_name=chunking_strategy,
+      kwargs={'seconds_per_chunk': float(chunk_size)},
+  )
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
@@ -210,11 +280,7 @@ def main(argv: Sequence[str]) -> None:
       index_type=_INDEX_TYPE.value,
       output_directory=_OUTPUT_DIRECTORY.value,
       embedder=_embedder_from_flags(),
-      chunk_size=_CHUNK_SIZE.value,
-      chunking_strategy=_CHUNKING_STRATEGY.value,
-      overlap_window=_OVERLAP_WINDOW.value,
-      tokenize_backend_class_name=_TOKENIZE_BACKEND_CLASS_NAME.value,
-      tokenize_model_name=_TOKENIZE_MODEL_NAME.value,
+      chunker=_chunker_from_flags(),
       format_str=_FORMAT.value,
       serializer_type=_SERIALIZER_TYPE.value,
       runtime_kwargs=_RUNTIME_KWARGS.value,

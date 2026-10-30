@@ -151,9 +151,10 @@ class BuildIndexLibTest(absltest.TestCase):
         output_directory=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
-        chunk_size=16,
-        chunking_strategy='words',
-        overlap_window=0,
+        chunker=chunker_registry.ChunkerConfig(
+            chunker_name='words',
+            kwargs={'max_words_per_chunk': 16, 'overlap_window': 0},
+        ),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -170,17 +171,16 @@ class BuildIndexLibTest(absltest.TestCase):
     )
     self.assertEqual(spec.embed_backend_config.model_name, 'fake-model')
 
-    with self.assertRaisesRegex(ValueError, 'Unsupported chunking strategy'):
+    with self.assertRaisesRegex(ValueError, "Unknown chunker: 'unknown'"):
       build_index_lib.build_index(
           dataset_name=_DATASET_NAME,
           output_directory=self.output_dir,
           runtime_kwargs={},
           embedder=_FAKE_EMBEDDER,
-          chunk_size=16,
-          chunking_strategy='unknown_strategy',
+          chunker=chunker_registry.ChunkerConfig(chunker_name='unknown'),
       )
 
-  def test_flat_kwargs_pdf_pages_chunking_strategy(self):
+  def test_flat_kwargs_pdf_pages_chunker(self):
     input_dir = self.create_tempdir()
     writer = pypdf.PdfWriter()
     writer.add_blank_page(width=612, height=792)
@@ -194,8 +194,9 @@ class BuildIndexLibTest(absltest.TestCase):
         output_directory=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
-        chunk_size=1,
-        chunking_strategy='pdf_pages',
+        chunker=chunker_registry.ChunkerConfig(
+            chunker_name='pdf_pages', kwargs={'pages_per_chunk': 1}
+        ),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -210,18 +211,7 @@ class BuildIndexLibTest(absltest.TestCase):
         ),
     )
 
-    with self.assertRaisesRegex(ValueError, 'overlap_window is not supported'):
-      build_index_lib.build_index(
-          dataset_name=_DATASET_NAME,
-          output_directory=self.output_dir,
-          runtime_kwargs={},
-          embedder=_FAKE_EMBEDDER,
-          chunk_size=1,
-          chunking_strategy='pdf_pages',
-          overlap_window=1,
-      )
-
-  def test_flat_kwargs_audio_seconds_chunking_strategy(self):
+  def test_flat_kwargs_audio_seconds_chunker(self):
     input_dir = self.create_tempdir()
     # A 2-second silent WAV file.
     with wave.open(os.path.join(input_dir.full_path, 'two_s.wav'), 'wb') as f:
@@ -236,8 +226,9 @@ class BuildIndexLibTest(absltest.TestCase):
         output_directory=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
-        chunk_size=1,
-        chunking_strategy='audio_seconds',
+        chunker=chunker_registry.ChunkerConfig(
+            chunker_name='audio_seconds', kwargs={'seconds_per_chunk': 1.0}
+        ),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -252,7 +243,7 @@ class BuildIndexLibTest(absltest.TestCase):
         ),
     )
 
-  def test_flat_kwargs_routing_chunking_strategy(self):
+  def test_flat_kwargs_routing_chunker(self):
     # The default text chunker of `RoutingChunker` loads and registers the
     # default SentencePiece model, which is not available in tests.
     llm.reset_defaults()
@@ -277,7 +268,7 @@ class BuildIndexLibTest(absltest.TestCase):
         output_directory=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
-        chunking_strategy='routing',
+        chunker=chunker_registry.ChunkerConfig(chunker_name='routing'),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -293,25 +284,6 @@ class BuildIndexLibTest(absltest.TestCase):
 
     with self.subTest('output_directory_is_path_friendly'):
       self.assertIn('_chunker_routing_', os.path.basename(out_dir.rstrip('/')))
-
-    for name, chunk_size, overlap_window in (
-        ('chunk_size', 16, 0),
-        ('overlap_window', None, 1),
-    ):
-      with self.subTest(f'{name}_is_not_supported'):
-        with self.assertRaisesRegex(
-            ValueError,
-            'not supported with chunking_strategy="routing"',
-        ):
-          build_index_lib.build_index(
-              dataset_name=_DATASET_NAME,
-              output_directory=self.output_dir,
-              runtime_kwargs={},
-              embedder=_FAKE_EMBEDDER,
-              chunk_size=chunk_size,
-              chunking_strategy='routing',
-              overlap_window=overlap_window,
-          )
 
   def _mock_index_building_build_index(self) -> mock.MagicMock:
     """Replaces `index_building.build_index` with a no-op; returns the mock."""
@@ -374,6 +346,48 @@ class BuildIndexLibTest(absltest.TestCase):
         self.assertEqual(
             build_mock.call_args.kwargs['spec'].embed_backend_config,
             rag_defaults.default_embed_backend_config(),
+        )
+
+  def test_flat_kwargs_default_chunker(self):
+    build_mock = self._mock_index_building_build_index()
+
+    for index_type in ('embedding', 'hipporag'):
+      with self.subTest(index_type):
+        build_index_lib.build_index(
+            dataset_name=_DATASET_NAME,
+            output_directory=self.output_dir,
+            runtime_kwargs={},
+            index_type=index_type,
+            embedder=_FAKE_EMBEDDER,
+        )
+
+        self.assertEqual(
+            build_mock.call_args.kwargs['spec'].chunker_config,
+            chunker_registry.ChunkerConfig(chunker_name='none'),
+        )
+
+  def test_flat_kwargs_custom_chunker_reaches_spec(self):
+    build_mock = self._mock_index_building_build_index()
+    chunker = chunker_registry.ChunkerConfig(
+        chunker_name='words', kwargs={'max_words_per_chunk': 50}
+    )
+
+    for index_type in ('embedding', 'hipporag'):
+      with self.subTest(index_type):
+        build_index_lib.build_index(
+            dataset_name=_DATASET_NAME,
+            output_directory=self.output_dir,
+            runtime_kwargs={},
+            index_type=index_type,
+            embedder=_FAKE_EMBEDDER,
+            chunker=chunker,
+        )
+
+        self.assertEqual(
+            build_mock.call_args.kwargs['spec'].chunker_config,
+            chunker_registry.ChunkerConfig(
+                chunker_name='words', kwargs={'max_words_per_chunk': 50}
+            ),
         )
 
   def test_flat_kwargs_custom_embedder_reaches_spec(self):

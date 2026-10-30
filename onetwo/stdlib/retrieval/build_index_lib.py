@@ -40,13 +40,7 @@ def build_index(
     input_dir: str | None = None,
     index_type: str = 'embedding',
     embedder: backend_registry.EmbedBackendConfig | None = None,
-    chunk_size: int | None = None,
-    chunking_strategy: str = 'words',
-    overlap_window: int = 0,
-    tokenize_backend_class_name: str = (
-        rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME
-    ),
-    tokenize_model_name: str = rag_defaults.DEFAULT_TOKENIZE_MODEL_NAME,
+    chunker: chunker_registry.ChunkerConfig | None = None,
     format_str: str | None = None,
     serializer_type: str = 'simple',
     max_retries: int | None = 5,
@@ -76,26 +70,10 @@ def build_index(
       model_name='gemini-embedding-2', kwargs={'embed_kwargs':
       {'output_dimensionality': 768}})`. The config is saved with the index, so
       credentials (e.g. API key) go in `runtime_kwargs` instead.
-    chunk_size: Max tokens, words, PDF pages or seconds of audio or video per
-      chunk (depending on `chunking_strategy`). If None, documents are not
-      chunked (unless `chunking_strategy` is 'routing').
-    chunking_strategy: Chunking strategy ('tokens', 'words', 'pdf_pages',
-      'audio_seconds', 'video_seconds' or 'routing').
-      'pdf_pages' requires all documents to be PDFs, does not support
-      `overlap_window`, and requires `pdf_chunking` to be imported (which
-      registers it), so that this library does not depend on PDF libraries.
-      Likewise, 'audio_seconds' and 'video_seconds' require all documents to be
-      audio or video files respectively, ignore `overlap_window`, and require
-      `audio_chunking` or `video_chunking` to be imported.
-      'routing' chunks each document with the default chunker of its content
-      type (see `routing_chunking.RoutingChunker`), ignores the tokenizer
-      arguments and does not support `chunk_size` or `overlap_window`. It
-      requires `routing_chunking` to be imported (which registers it).
-    overlap_window: Tokens or words to overlap between chunks.
-    tokenize_backend_class_name: Tokenizer backend class name (when
-      `chunking_strategy` is 'tokens').
-    tokenize_model_name: Tokenizer model name (when `chunking_strategy` is
-      'tokens').
+    chunker: Config of the chunker that splits documents before they are
+      indexed, e.g. `ChunkerConfig(chunker_name='routing')`. If None, documents
+      are not chunked. `chunker_name` must be registered: see
+      `chunker_registry` for the available chunkers and how to register them.
     format_str: Format string for document formatting.
     serializer_type: Serializer type to use ('simple' or 'internal').
     max_retries: Maximum number of retries for backend requests.
@@ -127,60 +105,18 @@ def build_index(
   if format_str in ('None', ''):
     format_str = None
 
-  if chunking_strategy == 'routing':
-    # TODO: Discuss how to refactor this API (and
-    # the `build_index` flags) so that the chunk size of each content type
-    # (e.g. tokens for text, pages for PDFs, seconds for audio and video) can be
-    # configured with 'routing', instead of only using the defaults of
-    # `RoutingChunker`. This also requires keeping the index output directory
-    # path-friendly when the chunker config has kwargs.
-    if chunk_size is not None or overlap_window:
-      raise ValueError(
-          'chunk_size and overlap_window are not supported with'
-          ' chunking_strategy="routing", which uses the default chunker of'
-          ' each content type (see `routing_chunking`).'
-      )
-    # The defaults of `RoutingChunker` are used, so that the index output
-    # directory (which includes the chunker config) stays path-friendly.
-    chunker_config = chunker_registry.ChunkerConfig(chunker_name='routing')
-  elif chunk_size is None:
-    chunker_config = chunker_registry.ChunkerConfig(chunker_name='none')
-  elif chunking_strategy == 'words':
-    chunker_config = chunker_registry.ChunkerConfig(
-        chunker_name='words',
-        kwargs={
-            'max_words_per_chunk': chunk_size,
-            'overlap_window': overlap_window,
-        },
+  chunker_config = (
+      chunker
+      if chunker is not None
+      else chunker_registry.ChunkerConfig(chunker_name='none')
+  )
+  if chunker_config.chunker_name not in chunker_registry.list_chunkers():
+    raise ValueError(
+        f'Unknown chunker: {chunker_config.chunker_name!r}. Registered'
+        f' chunkers: {chunker_registry.list_chunkers()}. Chunkers with heavy'
+        ' dependencies are registered by importing their module (e.g.'
+        " `routing_chunking` for 'routing' or `pdf_chunking` for 'pdf_pages')."
     )
-  elif chunking_strategy == 'tokens':
-    chunker_config = chunker_registry.ChunkerConfig(
-        chunker_name='tokens',
-        kwargs={
-            'max_tokens_per_chunk': chunk_size,
-            'overlap_window': overlap_window,
-            'tokenize_backend_config': backend_registry.TokenizeBackendConfig(
-                backend_class_name=tokenize_backend_class_name,
-                model_name=tokenize_model_name,
-            ),
-        },
-    )
-  elif chunking_strategy == 'pdf_pages':
-    if overlap_window:
-      raise ValueError(
-          'overlap_window is not supported with chunking_strategy="pdf_pages".'
-      )
-    chunker_config = chunker_registry.ChunkerConfig(
-        chunker_name='pdf_pages',
-        kwargs={'pages_per_chunk': chunk_size},
-    )
-  elif chunking_strategy in ('audio_seconds', 'video_seconds'):
-    chunker_config = chunker_registry.ChunkerConfig(
-        chunker_name=chunking_strategy,
-        kwargs={'seconds_per_chunk': float(chunk_size)},
-    )
-  else:
-    raise ValueError(f'Unsupported chunking strategy: {chunking_strategy!r}')
 
   spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
       embed_backend_config=embed_backend_config,
