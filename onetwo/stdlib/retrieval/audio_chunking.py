@@ -29,7 +29,6 @@ from typing import ClassVar
 
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
-import pydub
 
 # ffmpeg format names of the audio content types that are decoded and encoded
 # in their own format. Audio in other formats is decoded by letting ffmpeg probe
@@ -92,6 +91,10 @@ class ChunkByAudioSeconds(chunking.SingleMediaChunker):
       raise ValueError(
           f'seconds_per_chunk must be positive, got {self.seconds_per_chunk}'
       )
+    # Imported here so that importing this module (and registering the
+    # chunker) does not load the audio library.
+    import pydub  # pylint: disable=g-import-not-at-top
+
     audio_format = _FORMAT_BY_CONTENT_TYPE.get(content_type)
     audio = pydub.AudioSegment.from_file(io.BytesIO(media), format=audio_format)
     if audio_format is None:

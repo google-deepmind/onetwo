@@ -29,7 +29,6 @@ import os
 import tempfile
 from typing import ClassVar
 
-import ffmpeg
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 
@@ -103,6 +102,9 @@ class ChunkByVideoSeconds(chunking.SingleMediaChunker):
           f' content types: {sorted(_EXTENSION_BY_CONTENT_TYPE)}.'
       )
     extension = _EXTENSION_BY_CONTENT_TYPE[content_type]
+    # Imported here so that importing this module (and registering the
+    # chunker) does not load the video library.
+    import ffmpeg  # pylint: disable=g-import-not-at-top
 
     # ffmpeg reads and writes files, so we go through a temporary directory.
     with tempfile.TemporaryDirectory() as temp_dir:

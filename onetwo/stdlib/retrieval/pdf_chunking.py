@@ -29,7 +29,6 @@ from typing import ClassVar
 
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
-import pypdf
 
 PDF_CONTENT_TYPE = 'application/pdf'
 
@@ -76,6 +75,10 @@ class ChunkByPdfPages(chunking.SingleMediaChunker):
       raise ValueError(
           f'pages_per_chunk must be positive, got {self.pages_per_chunk}'
       )
+    # Imported here so that importing this module (and registering the
+    # chunker) does not load the PDF library.
+    import pypdf  # pylint: disable=g-import-not-at-top
+
     reader = pypdf.PdfReader(io.BytesIO(media))
     pieces = []
     for start in range(0, len(reader.pages), self.pages_per_chunk):
