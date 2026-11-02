@@ -17,7 +17,7 @@
 import asyncio
 import dataclasses
 import os
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -49,13 +49,13 @@ class FakeKnowledgeGraphIndex(
 
   @executing.make_executable(copy_self=False)
   async def add_docs(self, docs: Iterable[Document]) -> None:
-    if self.docs is None:
-      self.docs = []
-    self.docs.extend(docs)
+    if self._docs is None:
+      self._docs = []
+    self._docs.extend(docs)
 
   def destroy_index(self) -> None:
-    self.docs = None
-    self.graph = None
+    self._docs = None
+    self._graph = None
     self._entity_index = None
     self._passage_index = None
     self._triples_index = None
@@ -78,7 +78,7 @@ class BaseKnowledgeGraphIndexTest(parameterized.TestCase):
     """Tests round-trip saving and loading of BaseKnowledgeGraphIndex state."""
     # 1. Create original index
     index = FakeKnowledgeGraphIndex()
-    index.docs = [
+    index._docs = [
         Document(doc_id="doc_1", title="Title 1", content="Content 1")
     ]
     entity = graph_lib.EntityNode(
@@ -91,9 +91,9 @@ class BaseKnowledgeGraphIndexTest(parameterized.TestCase):
         target_node_id="ent_2",
         metadata={"triples": ["apple acquired neXT"]},
     )
-    index.graph = graph_lib.KnowledgeGraph()
-    index.graph.upsert_node(entity)
-    index.graph.upsert_edge(
+    index._graph = graph_lib.KnowledgeGraph()
+    index._graph.upsert_node(entity)
+    index._graph.upsert_edge(
         source_id=edge.source_node_id,
         target_id=edge.target_node_id,
         weight=edge.weight,
@@ -164,8 +164,8 @@ class BaseKnowledgeGraphIndexTest(parameterized.TestCase):
     self.assertEqual(list(index.get_docs()), [])
 
     doc = Document(doc_id="doc_1", content="Hello world")
-    index.docs = [doc]
-    index.graph = graph_lib.KnowledgeGraph()
+    index._docs = [doc]
+    index._graph = graph_lib.KnowledgeGraph()
     index._entity_index = indexing_lib.EmbeddingBasedDocumentIndex()
 
     self.assertEqual(index.num_docs, 1)
@@ -175,6 +175,49 @@ class BaseKnowledgeGraphIndexTest(parameterized.TestCase):
     self.assertIsNone(index.docs)
     self.assertIsNone(index.graph)
     self.assertIsNone(index._entity_index)
+
+  def test_docs_and_graph_are_not_constructor_arguments(self):
+    """Tests that `docs` and `graph` are built state, not init fields."""
+    for index_class in (
+        indexing.BaseKnowledgeGraphIndex,
+        indexing.HippoRAGDocumentIndex,
+    ):
+      with self.subTest(index_class.__name__):
+        init_field_names = {
+            f.name for f in dataclasses.fields(index_class) if f.init
+        }
+        self.assertNoCommonElements(
+            init_field_names, {"docs", "graph", "_docs", "_graph"}
+        )
+
+    built_state_kwargs: dict[str, Any] = {
+        "docs": [],
+        "graph": graph_lib.KnowledgeGraph(),
+    }
+    for name, value in built_state_kwargs.items():
+      with self.subTest(f"{name}_rejected_by_constructor"):
+        with self.assertRaises(TypeError):
+          indexing.HippoRAGDocumentIndex(**{name: value})
+
+  def test_docs_and_graph_are_read_only(self):
+    """Tests that `docs` and `graph` cannot be assigned from outside."""
+    index = FakeKnowledgeGraphIndex()
+    with self.assertRaises(AttributeError):
+      setattr(index, "docs", [])
+    with self.assertRaises(AttributeError):
+      setattr(index, "graph", graph_lib.KnowledgeGraph())
+    self.assertIsNone(index.docs)
+    self.assertIsNone(index.graph)
+
+  def test_docs_and_graph_excluded_from_repr(self):
+    """Tests that built docs are not dumped into the index repr."""
+    index = FakeKnowledgeGraphIndex()
+    ot.run(
+        index.add_docs(
+            [Document(doc_id="doc_1", content="UNIQUE_DOC_TEXT_123")]
+        )
+    )
+    self.assertNotIn("UNIQUE_DOC_TEXT_123", repr(index))
 
   def test_base_index_post_init_backend_synchronization(self):
     """Tests bidirectional backend config synchronization in __post_init__."""
@@ -230,8 +273,8 @@ class FakeHippoRAGIndex(indexing.HippoRAGDocumentIndex):
     return self.docs or []
 
   def destroy_index(self) -> None:
-    self.docs = None
-    self.graph = None
+    self._docs = None
+    self._graph = None
     self._entity_index = None
     self._passage_index = None
     self._triples_index = None
@@ -352,6 +395,35 @@ class HippoRAGIndexTest(parameterized.TestCase):
     self.extractor = FakeExtractor(mapping=self.mapping)
     self.index = FakeHippoRAGIndex(entity_and_triples_extractor=self.extractor)
     self.index._entity_index = FakeEntityIndex()
+
+  def test_save_and_load_restores_docs_and_graph_built_by_add_docs(self):
+    """Tests that docs and graph built by `add_docs` survive save and load."""
+    ot.run(self.index.add_docs([self.doc_1, self.doc_2]))
+    # Only the docs and graph are checked here; the embedding sub-indexes are
+    # fakes without embeddings.
+    self.index._entity_index = None
+    self.index._passage_index = None
+    self.index._triples_index = None
+    base_path = self.create_tempdir().full_path
+
+    self.index.save(base_path)
+    loaded_index = indexing.HippoRAGDocumentIndex()
+    ot.run(loaded_index.load(base_path))
+
+    assert self.index.docs is not None and loaded_index.docs is not None
+    self.assertEqual(
+        [d.doc_id for d in loaded_index.docs],
+        [d.doc_id for d in self.index.docs],
+    )
+    assert self.index.graph is not None and loaded_index.graph is not None
+    self.assertCountEqual(
+        [n.id for n in loaded_index.graph.nodes],
+        [n.id for n in self.index.graph.nodes],
+    )
+    self.assertCountEqual(
+        [e.id for e in loaded_index.graph.edges],
+        [e.id for e in self.index.graph.edges],
+    )
 
   def test_add_docs_basic_flow_and_topology(self):
     """Tests Phase 1 ingestion: passage nodes, doc-scoped entities, and mention edges."""

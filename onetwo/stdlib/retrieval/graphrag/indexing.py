@@ -72,19 +72,9 @@ class BaseKnowledgeGraphIndex(
   it is forwarded to `entity_and_triples_extractor`.
 
   Attributes:
-    docs: List of documents managed by the index. If `None`, the corpus has not
-      been initialized yet.
     entity_and_triples_extractor: An instance implementing
       `EntityAndTripleExtractorProtocol` used to extract entities and relational
       triples from documents during knowledge graph construction.
-    graph: The underlying `KnowledgeGraph` data structure storing nodes and
-      connecting edges constructed from `docs`.
-    entity_index: Optional `EmbeddingBasedDocumentIndex` storing indexed
-      `Document` representations of graph entity nodes (`EntityNode`).
-    passage_index: Optional `EmbeddingBasedDocumentIndex` storing indexed
-      `Document` representations of source document passages (`PassageNode`).
-    triples_index: Optional `EmbeddingBasedDocumentIndex` storing indexed
-      `Document` representations of relational triples (`Edge`).
     generate_backend_config: Configuration for the generation LLM backend used
       during graph construction (e.g., for entity and triple extraction).
     embed_backend_config: Configuration for the embedder backend used to compute
@@ -94,17 +84,30 @@ class BaseKnowledgeGraphIndex(
       that are not stored in the serializable configuration.
   """
 
-  docs: list[DocT] | None = None
   entity_and_triples_extractor: (
       graph_lib.EntityAndTripleExtractorProtocol | None
   ) = None
-  graph: graph_lib.KnowledgeGraph | None = None
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
   embed_backend_config: backend_registry.EmbedBackendConfig | None = None
-  _entity_index: indexing.EmbeddingBasedDocumentIndex | None = None
-  _passage_index: indexing.EmbeddingBasedDocumentIndex | None = None
-  _triples_index: indexing.EmbeddingBasedDocumentIndex | None = None
   runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
+  # representations of graph entity nodes (`EntityNode`).
+  _entity_index: indexing.EmbeddingBasedDocumentIndex | None = None
+  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
+  # representations of source document passages (`PassageNode`).
+  _passage_index: indexing.EmbeddingBasedDocumentIndex | None = None
+  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
+  # representations of relational triples (`Edge`).
+  _triples_index: indexing.EmbeddingBasedDocumentIndex | None = None
+  # Documents managed by the index. If `None`, the corpus has not been
+  # initialized yet.
+  _docs: list[DocT] | None = dataclasses.field(
+      default=None, init=False, repr=False
+  )
+  # Knowledge graph storing the nodes and edges constructed from `_docs`.
+  _graph: graph_lib.KnowledgeGraph | None = dataclasses.field(
+      default=None, init=False, repr=False
+  )
 
   def __post_init__(self) -> None:
     """Synchronizes backend configurations with entity_and_triples_extractor."""
@@ -167,13 +170,23 @@ class BaseKnowledgeGraphIndex(
     state: serialization.GraphRAGIndexState = await serializer.load(
         base_path, runtime_kwargs=runtime_kwargs
     )
-    self.docs = list(state.docs) if state.docs is not None else None
-    self.graph = state.graph
+    self._docs = list(state.docs) if state.docs is not None else None
+    self._graph = state.graph
     self._entity_index = state.entity_index
     self._passage_index = state.passage_index
     self._triples_index = state.triples_index
     self.generate_backend_config = state.generate_backend_config
     self.embed_backend_config = state.embed_backend_config
+
+  @property
+  def docs(self) -> list[DocT] | None:
+    """Returns the indexed documents, or `None` if no corpus was built yet."""
+    return self._docs
+
+  @property
+  def graph(self) -> graph_lib.KnowledgeGraph | None:
+    """Returns the knowledge graph, or `None` if no graph was built yet."""
+    return self._graph
 
   @property
   def entity_index(self) -> indexing.EmbeddingBasedDocumentIndex | None:
@@ -201,8 +214,8 @@ class BaseKnowledgeGraphIndex(
 
   def destroy_index(self) -> None:
     """Destroys and clears all in-memory graph index state."""
-    self.docs = None
-    self.graph = None
+    self._docs = None
+    self._graph = None
     self._entity_index = None
     self._passage_index = None
     self._triples_index = None
@@ -623,13 +636,13 @@ class HippoRAGDocumentIndex(
       return
     self._validate_docs(new_docs)
 
-    if self.docs is None:
-      self.docs = []
-    start_doc_idx = len(self.docs)
-    self.docs.extend(new_docs)
+    if self._docs is None:
+      self._docs = []
+    start_doc_idx = len(self._docs)
+    self._docs.extend(new_docs)
 
-    if self.graph is None:
-      self.graph = graph_lib.KnowledgeGraph()
+    if self._graph is None:
+      self._graph = graph_lib.KnowledgeGraph()
 
     entity_and_triples_extractor = self.entity_and_triples_extractor
     if entity_and_triples_extractor is None:
