@@ -22,6 +22,7 @@ from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import batching
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunker_registry
+from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
@@ -29,6 +30,8 @@ from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
+from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
+from onetwo.stdlib.retrieval.graphrag import graphrag_prompts
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 from onetwo.stdlib.retrieval.graphrag import indexing as graphrag_indexing
 
@@ -189,6 +192,34 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
         index.inner_index, graphrag_indexing.HippoRAGDocumentIndex
     )
     self.assertEqual(index.num_docs, 2)
+
+  def test_make_index_builds_default_extractor_from_settings(self):
+    spec = SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
+    )
+
+    index = spec.make_index(runtime_kwargs={'api_key': 'key'})
+
+    inner_index = index.inner_index
+    assert isinstance(inner_index, graphrag_indexing.HippoRAGDocumentIndex)
+    extractor = inner_index.entity_and_triples_extractor
+    assert isinstance(extractor, graph_lib.GraphRAGEntityAndTriplesExtractor)
+    # Same extractor as the one `make_index` used to build and inject.
+    self.assertEqual(
+        extractor.extraction_prompt,
+        graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT.format(
+            entity_types=', '.join(graphrag_prompts.DEFAULT_ENTITY_TYPES)
+        ),
+    )
+    self.assertEqual(
+        extractor.generate_backend_config, self.generate_backend_config
+    )
+    self.assertEqual(extractor.runtime_kwargs, {'api_key': 'key'})
+    self.assertIsInstance(
+        extractor.document_formatter,
+        document_formatting.TextDocumentFormatter,
+    )
 
   def test_local_index_runner_forwards_ignore_flags(self):
     spec = SimpleRewritingHippoRAGDocumentIndexSpec(

@@ -16,7 +16,9 @@
 
 import asyncio
 import dataclasses
+import functools
 import os
+import types
 from typing import Any, Iterable, Sequence
 
 from absl.testing import absltest
@@ -28,6 +30,7 @@ from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing as indexing_lib
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
+from onetwo.stdlib.retrieval.graphrag import graphrag_prompts
 from onetwo.stdlib.retrieval.graphrag import indexing
 
 Document = retrieval_data_structures.Document
@@ -219,28 +222,87 @@ class BaseKnowledgeGraphIndexTest(parameterized.TestCase):
     )
     self.assertNotIn("UNIQUE_DOC_TEXT_123", repr(index))
 
-  def test_base_index_post_init_backend_synchronization(self):
-    """Tests bidirectional backend config synchronization in __post_init__."""
+  def test_base_index_has_no_default_extractor(self):
+    """Tests that the base class requires subclasses to define an extractor."""
+    index = FakeKnowledgeGraphIndex()
+    with self.assertRaisesRegex(NotImplementedError, "_make_extractor"):
+      _ = index.entity_and_triples_extractor
+
+
+class HippoRAGExtractorSettingsTest(parameterized.TestCase):
+  """Tests for the extractor that HippoRAGDocumentIndex builds from settings."""
+
+  def test_default_extractor_reproduces_previous_defaults(self):
+    """Tests the default prompt, entity types and doc formatting."""
+    index = indexing.HippoRAGDocumentIndex()
+
+    extractor = index.entity_and_triples_extractor
+
+    self.assertIsInstance(
+        extractor, graph_lib.GraphRAGEntityAndTriplesExtractor
+    )
+    assert isinstance(extractor, graph_lib.GraphRAGEntityAndTriplesExtractor)
+    self.assertEqual(
+        index.entity_types, tuple(graphrag_prompts.DEFAULT_ENTITY_TYPES)
+    )
+    self.assertEqual(
+        extractor.extraction_prompt,
+        graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT.format(
+            entity_types=", ".join(graphrag_prompts.DEFAULT_ENTITY_TYPES)
+        ),
+    )
+    self.assertEqual(
+        extractor.document_formatter,
+        graph_lib.GraphRAGEntityAndTriplesExtractor().document_formatter,
+    )
+
+  def test_extractor_uses_index_settings(self):
+    """Tests that the extractor gets the settings of the index."""
     config = backend_registry.GenerateBackendConfig(
         backend_class_name="GoogleGenAIAPI", model_name="gemini-2.5-flash"
     )
-
-    # Case 1: Index has config, extractor has None -> Extractor receives config
-    extractor1 = graph_lib.GraphRAGEntityAndTriplesExtractor()
-    index1 = FakeKnowledgeGraphIndex(
-        entity_and_triples_extractor=extractor1,
+    index = indexing.HippoRAGDocumentIndex(
         generate_backend_config=config,
-    )
-    self.assertEqual(
-        extractor1.generate_backend_config, index1.generate_backend_config
+        extraction_prompt="Types: {entity_types}. Answer in {{json}}.",
+        entity_types=("person", "city"),
+        runtime_kwargs={"api_key": "key"},
     )
 
-    # Case 2: Index has None, extractor has config -> Index adopts config
-    extractor2 = graph_lib.GraphRAGEntityAndTriplesExtractor(
-        generate_backend_config=config
+    extractor = index.entity_and_triples_extractor
+
+    assert isinstance(extractor, graph_lib.GraphRAGEntityAndTriplesExtractor)
+    self.assertEqual(
+        extractor.extraction_prompt, "Types: person, city. Answer in {json}."
     )
-    index2 = FakeKnowledgeGraphIndex(entity_and_triples_extractor=extractor2)
-    self.assertEqual(index2.generate_backend_config, config)
+    self.assertEqual(extractor.generate_backend_config, config)
+    self.assertEqual(extractor.runtime_kwargs, {"api_key": "key"})
+
+  def test_extractor_is_built_once(self):
+    index = indexing.HippoRAGDocumentIndex()
+    self.assertIs(
+        index.entity_and_triples_extractor, index.entity_and_triples_extractor
+    )
+
+  def test_extractor_is_not_a_constructor_argument(self):
+    init_field_names = {
+        f.name
+        for f in dataclasses.fields(indexing.HippoRAGDocumentIndex)
+        if f.init
+    }
+    self.assertNoCommonElements(
+        init_field_names,
+        {"entity_and_triples_extractor", "_entity_and_triples_extractor"},
+    )
+
+  def test_no_dataclass_field_is_a_function(self):
+    """Tests that the index's fields are settings, not functions."""
+    index = indexing.HippoRAGDocumentIndex()
+    for field in dataclasses.fields(index):
+      with self.subTest(field.name):
+        self.assertNotIsInstance(
+            getattr(index, field.name),
+            (types.FunctionType, types.MethodType, functools.partial),
+        )
 
 
 @dataclasses.dataclass
@@ -259,11 +321,17 @@ class FakeExtractor:
 class FakeHippoRAGIndex(indexing.HippoRAGDocumentIndex):
   """Concrete subclass of HippoRAGDocumentIndex for testing."""
 
-  def __init__(self, *args, **kwargs):
+  def __init__(self, *args, extractor: FakeExtractor | None = None, **kwargs):
     super().__init__(*args, **kwargs)
+    self._fake_extractor = extractor
     self._entity_index = FakeEntityIndex()
     self._passage_index = FakeEntityIndex()
     self._triples_index = FakeEntityIndex()
+
+  def _make_extractor(self):
+    if self._fake_extractor is not None:
+      return self._fake_extractor
+    return super()._make_extractor()
 
   @property
   def num_docs(self) -> int:
@@ -393,7 +461,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
         ),
     }
     self.extractor = FakeExtractor(mapping=self.mapping)
-    self.index = FakeHippoRAGIndex(entity_and_triples_extractor=self.extractor)
+    self.index = FakeHippoRAGIndex(extractor=self.extractor)
     self.index._entity_index = FakeEntityIndex()
 
   def test_save_and_load_restores_docs_and_graph_built_by_add_docs(self):
@@ -529,7 +597,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
         ),
     }
     extractor = FakeExtractor(mapping=mapping)
-    index = FakeHippoRAGIndex(entity_and_triples_extractor=extractor)
+    index = FakeHippoRAGIndex(extractor=extractor)
     index._entity_index = FakeEntityIndex()
     ot.run(index.add_docs([doc_dup]))
 
@@ -568,7 +636,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
         ),
     }
     extractor = FakeExtractor(mapping=mapping)
-    index = FakeHippoRAGIndex(entity_and_triples_extractor=extractor)
+    index = FakeHippoRAGIndex(extractor=extractor)
     index._entity_index = FakeEntityIndex()
     ot.run(index.add_docs([doc_a, doc_b]))
 
@@ -608,13 +676,13 @@ class HippoRAGIndexTest(parameterized.TestCase):
     self.assertIsNone(self.index.docs)
     self.assertIsNone(self.index.graph)
 
-  def test_add_docs_uninitialized_extractor_raises_value_error(self):
-    """Tests that calling add_docs without an extractor raises ValueError."""
-    index = FakeHippoRAGIndex(entity_and_triples_extractor=None)
-    with self.assertRaisesWithPredicateMatch(
-        ValueError, lambda e: "extractor is not initialized" in str(e)
-    ):
-      ot.run(index.add_docs([self.doc_1]))
+  def test_overridden_make_extractor_is_used(self):
+    """Tests that a subclass overriding `_make_extractor` controls extraction."""
+    index = FakeHippoRAGIndex(extractor=self.extractor)
+    self.assertIs(index.entity_and_triples_extractor, self.extractor)
+    ot.run(index.add_docs([self.doc_1]))
+    assert index.graph is not None
+    self.assertIsNotNone(index.graph.get_node("entity_apple_company"))
 
   def test_add_docs_incremental_ingestion_preserves_corpus_indices(self):
     """Tests calling add_docs multiple times incrementally indexes corpus doc_id correctly."""
@@ -680,7 +748,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
         ),
     }
     extractor = FakeExtractor(mapping=mapping)
-    index = FakeHippoRAGIndex(entity_and_triples_extractor=extractor)
+    index = FakeHippoRAGIndex(extractor=extractor)
     fake_entity_index = FakeEntityIndex()
     index._entity_index = fake_entity_index
 
@@ -713,7 +781,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_similarity_edges=False,
     )
     index.similarity_threshold = 0.8
@@ -755,7 +823,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_similarity_edges=False,
     )
     index.similarity_threshold = 0.8
@@ -787,7 +855,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_similarity_edges=False,
     )
     fake_entity_index = FakeEntityIndex(
@@ -817,7 +885,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_similarity_edges=False,
     )
     # Unit vectors with a dot product of exactly 0.85.
@@ -863,7 +931,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_similarity_edges=False,
     )
     index.similarity_threshold = 0.8
@@ -903,7 +971,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
         ),
     }
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=FakeExtractor(mapping=mapping),
+        extractor=FakeExtractor(mapping=mapping),
         ignore_similarity_edges=True,
     )
     index._entity_index = FakeEntityIndex(
@@ -967,7 +1035,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
   def test_add_docs_triples_index_populated_when_ignore_triples_false(self):
     """Tests that _triples_index is populated when ignore_triples=False."""
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=self.extractor,
+        extractor=self.extractor,
         ignore_triples=False,
     )
     fake_passage_index = FakeEntityIndex()
@@ -982,7 +1050,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
 
   def test_defaults_ignore_triples_and_similarity_edges_are_true(self):
     """Tests that ignore_triples and ignore_similarity_edges default to True."""
-    index = FakeHippoRAGIndex(entity_and_triples_extractor=self.extractor)
+    index = FakeHippoRAGIndex(extractor=self.extractor)
     self.assertTrue(index.ignore_triples)
     self.assertTrue(index.ignore_similarity_edges)
 
@@ -990,7 +1058,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     """Tests that ignore_triples=True omits triples from triples index while keeping them in graph."""
     fake_triples_index = FakeEntityIndex()
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=self.extractor,
+        extractor=self.extractor,
         ignore_triples=True,
     )
     index._triples_index = fake_triples_index
@@ -1029,7 +1097,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_similarity_edges=True,
         similarity_threshold=0.8,
     )
@@ -1068,7 +1136,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
     }
     extractor = FakeExtractor(mapping=mapping)
     index = FakeHippoRAGIndex(
-        entity_and_triples_extractor=extractor,
+        extractor=extractor,
         ignore_triples=True,
         ignore_similarity_edges=True,
     )
@@ -1098,9 +1166,7 @@ class HippoRAGIndexTest(parameterized.TestCase):
 
   def test_retrieval_methods_raise_not_implemented_on_empty_index(self):
     """Tests that retrieval raises before checking whether the index is empty."""
-    index = indexing.HippoRAGDocumentIndex(
-        entity_and_triples_extractor=self.extractor
-    )
+    index = indexing.HippoRAGDocumentIndex()
 
     with self.assertRaisesRegex(NotImplementedError, "MCP server"):
       ot.run(index.retrieve("Apple"))

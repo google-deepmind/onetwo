@@ -23,6 +23,7 @@ from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
+from onetwo.stdlib.retrieval.graphrag import graphrag_prompts
 from onetwo.stdlib.retrieval.graphrag import serialization
 
 QueryT = TypeVar("QueryT")
@@ -52,29 +53,23 @@ class BaseKnowledgeGraphIndex(
 
   This class holds the core state and configuration for knowledge graph
   retrieval indices. It maintains the indexed documents, the underlying
-  knowledge graph (nodes and edges), the entity and triple extractor, and the
-  backend configurations required for generation and embedding. It also
-  maintains specialized, vector retrieval indices
-  (`EmbeddingBasedDocumentIndex`) for different graph subspaces (`entity_index`,
-  `passage_index`, `triples_index`). It provides default `save` and `load`
-  methods to serialize and restore the index state using
+  knowledge graph (nodes and edges), and the backend configurations required
+  for generation and embedding. It also maintains specialized, vector retrieval
+  indices (`EmbeddingBasedDocumentIndex`) for different graph subspaces
+  (`entity_index`, `passage_index`, `triples_index`). It provides default
+  `save` and `load` methods to serialize and restore the index state using
   `serialization.SimpleGraphRAGIndexSerializer`.
 
   Concrete subclasses are responsible for implementing index construction
   (e.g., `add_docs` or `create_index`) and, if supported, query retrieval
-  (`retrieve` and `retrieve_with_scores`).
+  (`retrieve` and `retrieve_with_scores`). Subclasses that extract entities and
+  triples from documents implement `_make_extractor`, which builds the extractor
+  from the index settings; the extractor is then available (built lazily, once)
+  through `entity_and_triples_extractor`. It is not a constructor argument, so
+  that the init fields of the index are plain settings.
 
-  During `__post_init__`, if `generate_backend_config` is not set on the index,
-  it automatically adopts `generate_backend_config` from
-  `entity_and_triples_extractor` (if present), ensuring backend settings are
-  preserved for `save` and `load` of the index. Conversely, if
-  `generate_backend_config` is specified on the index and not on the extractor,
-  it is forwarded to `entity_and_triples_extractor`.
 
   Attributes:
-    entity_and_triples_extractor: An instance implementing
-      `EntityAndTripleExtractorProtocol` used to extract entities and relational
-      triples from documents during knowledge graph construction.
     generate_backend_config: Configuration for the generation LLM backend used
       during graph construction (e.g., for entity and triple extraction).
     embed_backend_config: Configuration for the embedder backend used to compute
@@ -84,9 +79,6 @@ class BaseKnowledgeGraphIndex(
       that are not stored in the serializable configuration.
   """
 
-  entity_and_triples_extractor: (
-      graph_lib.EntityAndTripleExtractorProtocol | None
-  ) = None
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
   embed_backend_config: backend_registry.EmbedBackendConfig | None = None
   runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -108,25 +100,36 @@ class BaseKnowledgeGraphIndex(
   _graph: graph_lib.KnowledgeGraph | None = dataclasses.field(
       default=None, init=False, repr=False
   )
+  # Extractor built lazily by `_make_extractor` from the index settings.
+  _entity_and_triples_extractor: (
+      graph_lib.EntityAndTripleExtractorProtocol[DocT, EntityT, TripleT] | None
+  ) = dataclasses.field(default=None, init=False, repr=False, compare=False)
 
-  def __post_init__(self) -> None:
-    """Synchronizes backend configurations with entity_and_triples_extractor."""
-    if self.entity_and_triples_extractor is not None and hasattr(
-        self.entity_and_triples_extractor, "generate_backend_config"
-    ):
-      extractor_config = getattr(
-          self.entity_and_triples_extractor, "generate_backend_config"
-      )
-      if self.generate_backend_config is None and extractor_config is not None:
-        self.generate_backend_config = extractor_config
-      elif (
-          self.generate_backend_config is not None and extractor_config is None
-      ):
-        setattr(
-            self.entity_and_triples_extractor,
-            "generate_backend_config",
-            self.generate_backend_config,
-        )
+  def _make_extractor(
+      self,
+  ) -> graph_lib.EntityAndTripleExtractorProtocol[DocT, EntityT, TripleT]:
+    """Returns a new entity and triples extractor built from the settings.
+
+    Subclasses that build the knowledge graph from documents override this
+    method. It is also the extension point for using a different extractor
+    (any implementation of `EntityAndTripleExtractorProtocol`).
+
+    Raises:
+      NotImplementedError: If the subclass does not support extraction.
+    """
+    raise NotImplementedError(
+        f"{type(self).__name__} does not define an entity and triples"
+        " extractor; override `_make_extractor`."
+    )
+
+  @property
+  def entity_and_triples_extractor(
+      self,
+  ) -> graph_lib.EntityAndTripleExtractorProtocol[DocT, EntityT, TripleT]:
+    """Returns the extractor, building it with `_make_extractor` on first use."""
+    if self._entity_and_triples_extractor is None:
+      self._entity_and_triples_extractor = self._make_extractor()
+    return self._entity_and_triples_extractor
 
   def save(self, base_path: str) -> None:
     """Saves the entire index state to a directory."""
@@ -177,6 +180,8 @@ class BaseKnowledgeGraphIndex(
     self._triples_index = state.triples_index
     self.generate_backend_config = state.generate_backend_config
     self.embed_backend_config = state.embed_backend_config
+    # The extractor depends on `generate_backend_config`; rebuild it on use.
+    self._entity_and_triples_extractor = None
 
   @property
   def docs(self) -> list[DocT] | None:
@@ -240,7 +245,22 @@ class HippoRAGDocumentIndex(
   MCP server) works
   better.
 
+  Entities and triples are extracted from each document with a
+  `GraphRAGEntityAndTriplesExtractor` that the index builds from its plain
+  settings (`extraction_prompt`, `entity_types`, `generate_backend_config` and
+  `runtime_kwargs`). To customize the extraction beyond these settings (e.g.
+  `extraction_prompt_template`), subclass the extractor,
+  and override `_make_extractor` in a subclass of the index to return it.
+
   Attributes:
+    extraction_prompt: Template of the instructions given to the LLM to extract
+      entities and triples from a document, formatted with `str.format` with
+      `entity_types` (so literal braces must be doubled). The document is
+      appended to it by the extractor. Defaults to
+      `graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT`.
+    entity_types: Entity types to extract, joined with ", " into the
+      `{entity_types}` placeholder of `extraction_prompt`. Defaults to
+      `graphrag_prompts.DEFAULT_ENTITY_TYPES`.
     similarity_threshold: Minimum cosine similarity required to add a semantic
       similarity edge between two entity nodes. Defaults to 0.8, taken from
       Table 13 in https://arxiv.org/pdf/2502.14802.
@@ -250,9 +270,23 @@ class HippoRAGDocumentIndex(
       entity nodes during graph construction. Defaults to True.
   """
 
+  extraction_prompt: str = (
+      graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT
+  )
+  entity_types: tuple[str, ...] = tuple(graphrag_prompts.DEFAULT_ENTITY_TYPES)
   similarity_threshold: float = 0.8
   ignore_triples: bool = True
   ignore_similarity_edges: bool = True
+
+  def _make_extractor(self) -> graph_lib.GraphRAGEntityAndTriplesExtractor:
+    """Returns the extractor configured with the index settings."""
+    return graph_lib.GraphRAGEntityAndTriplesExtractor(
+        extraction_prompt=self.extraction_prompt.format(
+            entity_types=", ".join(self.entity_types)
+        ),
+        generate_backend_config=self.generate_backend_config,
+        runtime_kwargs=self.runtime_kwargs,
+    )
 
   def _validate_docs(self, docs: Sequence[Document]) -> None:
     """Validates that candidate documents have valid identifiers before indexing.
@@ -614,7 +648,8 @@ class HippoRAGDocumentIndex(
     This executes the indexing pipeline:
     1. Validates input documents and appends them to the index corpus
        (`self.docs`).
-    2. Concurrently invokes `entity_and_triples_extractor` across all documents.
+    2. Concurrently invokes `entity_and_triples_extractor` (built by
+       `_make_extractor`) across all documents.
     3. Populates `self.graph` with document passage nodes,
        canonical deduplicated entity nodes (`entity_{name}_{type}`),
        bidirectional mention edges connecting them, and relational triples.
@@ -627,9 +662,6 @@ class HippoRAGDocumentIndex(
 
     Args:
       docs: Sequence of documents to add to the index.
-
-    Raises:
-      ValueError: If `self.entity_and_triples_extractor` is not initialized.
     """
     new_docs = list(docs)
     if not new_docs:
@@ -645,9 +677,6 @@ class HippoRAGDocumentIndex(
       self._graph = graph_lib.KnowledgeGraph()
 
     entity_and_triples_extractor = self.entity_and_triples_extractor
-    if entity_and_triples_extractor is None:
-      raise ValueError("Entity and triples extractor is not initialized.")
-
     extraction_executables = [
         entity_and_triples_extractor(doc) for doc in new_docs
     ]

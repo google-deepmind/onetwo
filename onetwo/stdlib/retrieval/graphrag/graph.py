@@ -18,7 +18,7 @@ import abc
 from collections.abc import Iterator, Sequence
 import contextlib
 import dataclasses
-from typing import Any, Callable, Generic, Optional, Protocol, Tuple, TypeAlias, TypeVar
+from typing import Any, Generic, Optional, Protocol, Tuple, TypeVar
 from absl import logging
 import networkx as nx
 from onetwo.backends import backend_registry
@@ -26,22 +26,19 @@ from onetwo.backends import backends_base
 from onetwo.builtins import composables
 from onetwo.builtins import llm
 from onetwo.core import composing
-from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import tracing
 from onetwo.core import utils
 from onetwo.stdlib.retrieval import document_formatting
-from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 import pydantic
 
 Document = retrieval_data_structures.Document
 Composable = composing.Composable
-DocT = retrieval.DocT
+DocT = TypeVar("DocT")
 EntityT = TypeVar("EntityT")
 TripleT = TypeVar("TripleT")
-PromptContent: TypeAlias = str | content_lib.ChunkList
 
 # Built-in structural graph relations connecting passage nodes and entity nodes.
 BUILTIN_RELATION_MENTIONS = "MENTIONS"
@@ -500,9 +497,7 @@ class KnowledgeGraph(Generic[TripleT]):
     return g
 
 
-class EntityAndTripleExtractorProtocol(  # pyrefly: ignore[invalid-type-var]
-    Protocol[DocT, EntityT, TripleT]
-):
+class EntityAndTripleExtractorProtocol(Protocol[DocT, EntityT, TripleT]):
   """Protocol for entity and triple extractors.
 
   Given a document(DocT), the entity and triple extractor should return a list
@@ -521,9 +516,11 @@ class EntityAndTripleExtractorProtocol(  # pyrefly: ignore[invalid-type-var]
 
 @dataclasses.dataclass(kw_only=True)
 class GraphRAGEntityAndTriplesExtractor(
-    EntityAndTripleExtractorProtocol[DocT, EntityT, TripleT]  # pyrefly: ignore[bad-specialization]
+    EntityAndTripleExtractorProtocol[Document, Entity, Triple]
 ):
   """Entity and triples extractor for GraphRAG with referential integrity and deduplication.
+
+  Extracts `Entity`s and `Triple`s from `Document`s.
 
   Attributes:
     extraction_prompt: The system prompt or instructions defining the guidelines
@@ -535,18 +532,9 @@ class GraphRAGEntityAndTriplesExtractor(
         initializing the extractor. Do not include document placeholders (such
         as `{input_text}`) in this prompt, as the document text is combined at
         execution time via `extraction_prompt_template`.
-    extraction_prompt_template: A callable (`Callable[[Composable, Composable],
-      Composable]`) responsible for assembling the final prompt from the
-      extraction prompt (`extraction_prompt`) and the formatted document text.
-      By default, it concatenates them with a section delimiter. Users can
-      override this callable to customize prompt structuring, such as separating
-      instructions and document into distinct `system` and `user` chat turns or
-      injecting few-shot examples without dealing with string placeholders.
     document_formatter: A `DocumentFormatter` instance used to convert the input
-      document (`DocT`) into its string or `Composable` content representation
-      prior to prompt assembly.
-    doc_to_content: A callable (`Callable[[DocT], PromptContent]`) responsible
-      for extracting the content from the document object.
+      `Document` into its string or `Composable` content representation prior to
+      prompt assembly.
     generate_backend_config: Configuration for the generation LLM backend used
       during entity and triple extraction.
     runtime_kwargs: Environment-specific deployment settings (e.g.,
@@ -557,24 +545,34 @@ class GraphRAGEntityAndTriplesExtractor(
   extraction_prompt: str | Composable = (
       """Extract entities and triples from the document."""
   )
-  extraction_prompt_template: Callable[[Composable, Composable], Composable] = (
-      lambda extraction_prompt, document: (  # pyrefly: ignore[bad-assignment]
-          extraction_prompt
-          + composables.c("\n\nDocument:\n")  # pyrefly: ignore[bad-argument-type]
-          + document
-      )
-  )
   document_formatter: document_formatting.DocumentFormatter = dataclasses.field(
       default_factory=document_formatting.TextDocumentFormatter
-  )
-  doc_to_content: Callable[[DocT], PromptContent] = lambda doc: getattr(  # pyrefly: ignore[bad-assignment]
-      doc, "content", doc
   )
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
   runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   _generator_backend: backends_base.Backend | None = dataclasses.field(
       default=None, repr=False, compare=False
   )
+
+  def extraction_prompt_template(
+      self, extraction_prompt: Composable, content: Composable
+  ) -> Composable:
+    """Returns the final prompt assembled from the instructions and document.
+
+    By default, concatenates them with a section delimiter. Override this method
+    in a subclass to customize prompt structuring, such as separating
+    instructions and document into distinct `system` and `user` chat turns or
+    injecting few-shot examples without dealing with string placeholders.
+
+    Args:
+      extraction_prompt: The extraction instructions (`self.extraction_prompt`).
+      content: The content of the formatted document.
+    """
+    return (
+        extraction_prompt  # pyrefly: ignore[bad-return]
+        + composables.c("\n\nDocument:\n")  # pyrefly: ignore[bad-argument-type]
+        + content
+    )
 
   @property
   def generator_backend(self) -> backends_base.Backend | None:
@@ -605,15 +603,15 @@ class GraphRAGEntityAndTriplesExtractor(
   @executing.make_executable(copy_self=False)
   async def __call__(  # pyrefly: ignore[bad-override]
       self,
-      doc: DocT,
+      doc: Document,
   ) -> tuple[
-      Sequence[EntityT],
-      Sequence[TripleT],
+      Sequence[Entity],
+      Sequence[Triple],
   ]:
     """Returns deduplicated entities and triples from document."""
 
     formatted_doc = await self.document_formatter(doc)
-    doc_content = self.doc_to_content(formatted_doc)
+    doc_content = formatted_doc.content
 
     with self._backend_routing_context():
       try:
@@ -636,4 +634,4 @@ class GraphRAGEntityAndTriplesExtractor(
 
       result.sanitize_triples()
 
-      return (result.entities, result.triples)  # pyrefly: ignore[bad-return]
+      return (result.entities, result.triples)

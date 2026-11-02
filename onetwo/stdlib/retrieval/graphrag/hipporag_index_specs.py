@@ -28,8 +28,6 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
-from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
-from onetwo.stdlib.retrieval.graphrag import graphrag_prompts
 from onetwo.stdlib.retrieval.graphrag import indexing as graphrag_indexing
 
 
@@ -100,15 +98,9 @@ class SimpleRewritingHippoRAGDocumentIndexSpec(
   ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
     """Returns an empty chunking/formatting HippoRAG index for this spec."""
     runtime_kwargs = dict(runtime_kwargs)
-    extractor = graph_lib.GraphRAGEntityAndTriplesExtractor(
-        extraction_prompt=graphrag_prompts.GRAPHRAG_STRUCTURED_EXTRACTION_PROMPT.format(
-            entity_types=", ".join(graphrag_prompts.DEFAULT_ENTITY_TYPES)
-        ),
-        generate_backend_config=self.generate_backend_config,
-        runtime_kwargs=runtime_kwargs,
-    )
+    # The index builds its entity and triples extractor from these settings,
+    # with the default extraction prompt and entity types.
     inner_index = graphrag_indexing.HippoRAGDocumentIndex(
-        entity_and_triples_extractor=extractor,
         embed_backend_config=self.embed_backend_config,
         generate_backend_config=self.generate_backend_config,
         similarity_threshold=self.similarity_threshold,

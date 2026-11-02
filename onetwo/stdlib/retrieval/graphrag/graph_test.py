@@ -14,6 +14,10 @@
 
 """Tests for graph.py and GraphRAGEntityAndTriplesExtractor."""
 
+import dataclasses
+import functools
+import types
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import networkx as nx
@@ -249,19 +253,34 @@ class GraphRAGEntityAndTriplesExtractorTest(parameterized.TestCase):
     self.assertLen(triples, 2)
 
   def test_custom_extraction_prompt_template(self):
-    """Tests extraction when customizing extraction_prompt_template and using Composable."""
-    custom_template = lambda prompt, doc: (
-        composables.c(prompt, role="system")  # pyrefly: ignore[unexpected-keyword, unsupported-operation]
-        + composables.c("\n\nContext Document:\n")  # pyrefly: ignore[bad-argument-type, unsupported-operation]
-        + composables.c(doc, role="user")  # pyrefly: ignore[unexpected-keyword]
-    )
-    extractor = graph.GraphRAGEntityAndTriplesExtractor(
+    """Tests extraction when overriding extraction_prompt_template and using Composable."""
+
+    class ChatTurnsExtractor(graph.GraphRAGEntityAndTriplesExtractor):
+
+      def extraction_prompt_template(self, extraction_prompt, document):
+        return (
+            composables.c(extraction_prompt, role="system")  # pyrefly: ignore[unexpected-keyword, unsupported-operation]
+            + composables.c("\n\nContext Document:\n")  # pyrefly: ignore[bad-argument-type, unsupported-operation]
+            + composables.c(document, role="user")  # pyrefly: ignore[unexpected-keyword]
+        )
+
+    extractor = ChatTurnsExtractor(
         extraction_prompt="Extract entities and triples from the document.",
-        extraction_prompt_template=custom_template,
     )
     entities, triples = ot.run(extractor(DOCS[0]))
     self.assertLen(entities, 3)
     self.assertLen(triples, 2)
+
+  def test_no_dataclass_field_is_a_function(self):
+    """Tests that the extractor's fields are settings, not functions."""
+    extractor = graph.GraphRAGEntityAndTriplesExtractor()
+    for field in dataclasses.fields(extractor):
+      with self.subTest(field.name):
+        value = getattr(extractor, field.name)
+        self.assertNotIsInstance(
+            value,
+            (types.FunctionType, types.MethodType, functools.partial),
+        )
 
 
 class NodeAndEdgeDocumentConversionTest(parameterized.TestCase):
