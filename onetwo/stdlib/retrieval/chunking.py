@@ -446,10 +446,11 @@ class ChunkByMaxTokens(TextChunker):
     with self._tokenize_backend_context():
       all_tokens = await llm.tokenize(text)
       step = self.max_tokens_per_chunk - self.overlap_window
-      tokenized_chunks = [
-          all_tokens[i : i + self.max_tokens_per_chunk]
-          for i in range(0, len(all_tokens), step)
-      ]
+      tokenized_chunks = []
+      for i in range(0, len(all_tokens), step):
+        tokenized_chunks.append(all_tokens[i : i + self.max_tokens_per_chunk])
+        if i + self.max_tokens_per_chunk >= len(all_tokens):
+          break
       chunks = await executing.parallel(*[
           llm.detokenize(tokenized_chunk)
           for tokenized_chunk in tokenized_chunks
@@ -505,10 +506,11 @@ class ChunkByMaxWords(TextChunker):
     if not words:
       return []
     step = self.max_words_per_chunk - self.overlap_window
-    word_chunks = [
-        words[i : i + self.max_words_per_chunk]
-        for i in range(0, len(words), step)
-    ]
+    word_chunks = []
+    for i in range(0, len(words), step):
+      word_chunks.append(words[i : i + self.max_words_per_chunk])
+      if i + self.max_words_per_chunk >= len(words):
+        break
     chunks = [' '.join(chunk) for chunk in word_chunks]
     if self.strip_whitespace:
       return [chunk.strip() for chunk in chunks]

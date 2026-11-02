@@ -280,6 +280,35 @@ class ChunkingTest(parameterized.TestCase):
               ),
           ],
       },
+      {
+          'testcase_name': 'exact_end_with_overlap',
+          'overlap_window': 2,
+          'document': retrieval_data_structures.Document(
+              content='hello worl', doc_id='1'
+          ),
+          'expected_chunks': [
+              retrieval_data_structures.Document(
+                  content='hello',
+                  doc_id='1_chunk1',
+                  metadata={
+                      _ORIGINAL_DOC_ID: '1',
+                      _CHUNK_NUMBER: 1,
+                      _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (0, 5),
+                  },
+              ),
+              retrieval_data_structures.Document(
+                  content='o worl',
+                  doc_id='1_chunk2',
+                  metadata={
+                      _ORIGINAL_DOC_ID: '1',
+                      _CHUNK_NUMBER: 2,
+                      _TOTAL_NUMBER_OF_CHUNKS: 2,
+                      _SPAN_WITHIN_ORIGINAL_DOC: (4, 10),
+                  },
+              ),
+          ],
+      },
   ])
   def testChunkByMaxTokensWithOverlap(
       self,
@@ -454,7 +483,6 @@ class ChunkingTest(parameterized.TestCase):
               'three four five six',
               'five six seven eight',
               'seven eight nine ten',
-              'nine ten',
           ],
       },
       {
