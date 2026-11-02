@@ -1078,5 +1078,21 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
       index.save(self.temp_dir)
 
 
+class RuntimeKwargsTest(absltest.TestCase):
+  """Tests that `runtime_kwargs` (credentials) stay out of repr and equality."""
+
+  def test_runtime_kwargs_not_in_repr(self):
+    index = indexing.EmbeddingBasedDocumentIndex(
+        runtime_kwargs={'api_key': 'SECRET_VALUE_123'}
+    )
+    self.assertNotIn('SECRET_VALUE_123', repr(index))
+
+  def test_indexes_differing_only_in_runtime_kwargs_are_equal(self):
+    self.assertEqual(
+        indexing.EmbeddingBasedDocumentIndex(runtime_kwargs={'api_key': 'a'}),
+        indexing.EmbeddingBasedDocumentIndex(runtime_kwargs={'api_key': 'b'}),
+    )
+
+
 if __name__ == '__main__':
   absltest.main()

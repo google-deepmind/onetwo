@@ -305,6 +305,26 @@ class HippoRAGExtractorSettingsTest(parameterized.TestCase):
         )
 
 
+class HippoRAGRuntimeKwargsTest(parameterized.TestCase):
+  """Tests that `runtime_kwargs` (credentials) stay out of repr and equality."""
+
+  def test_runtime_kwargs_not_in_repr(self):
+    index = indexing.HippoRAGDocumentIndex(
+        runtime_kwargs={"api_key": "SECRET_VALUE_123"}
+    )
+    self.assertNotIn("SECRET_VALUE_123", repr(index))
+    # The extractor built from the index settings gets the credentials too.
+    self.assertNotIn(
+        "SECRET_VALUE_123", repr(index.entity_and_triples_extractor)
+    )
+
+  def test_indexes_differing_only_in_runtime_kwargs_are_equal(self):
+    self.assertEqual(
+        indexing.HippoRAGDocumentIndex(runtime_kwargs={"api_key": "a"}),
+        indexing.HippoRAGDocumentIndex(runtime_kwargs={"api_key": "b"}),
+    )
+
+
 @dataclasses.dataclass
 class FakeExtractor:
   """Fake entity and triples extractor for testing."""

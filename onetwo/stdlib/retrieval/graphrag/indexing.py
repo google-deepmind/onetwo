@@ -76,7 +76,9 @@ class BaseKnowledgeGraphIndex(
       vector embeddings for graph nodes and queries.
     runtime_kwargs: Environment-specific deployment settings (e.g.,
       `threadpool_size`, `project`) and credentials (`api_key`, `credentials`)
-      that are not stored in the serializable configuration.
+      that are not stored in the serializable configuration. Since it may hold
+      credentials, it is excluded from `repr` and equality, and never saved by
+      the serializers.
   """
 
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
@@ -91,6 +93,11 @@ class BaseKnowledgeGraphIndex(
   # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
   # representations of relational triples (`Edge`).
   _triples_index: indexing.EmbeddingBasedDocumentIndex | None = None
+  # Environment settings and credentials: excluded from `repr` and equality,
+  # and never saved by the serializers.
+  runtime_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict, repr=False, compare=False
+  )
   # Documents managed by the index. If `None`, the corpus has not been
   # initialized yet.
   _docs: list[DocT] | None = dataclasses.field(

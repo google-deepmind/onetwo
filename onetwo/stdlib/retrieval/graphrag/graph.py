@@ -539,7 +539,9 @@ class GraphRAGEntityAndTriplesExtractor(
       during entity and triple extraction.
     runtime_kwargs: Environment-specific deployment settings (e.g.,
       `threadpool_size`, `project`) and credentials (`api_key`, `credentials`)
-      that are used when instantiating `generator_backend`.
+      that are used when instantiating `generator_backend`. Since it may hold
+      credentials, it is excluded from `repr` and equality, and never saved by
+      the serializers.
   """
 
   extraction_prompt: str | Composable = (
@@ -549,7 +551,11 @@ class GraphRAGEntityAndTriplesExtractor(
       default_factory=document_formatting.TextDocumentFormatter
   )
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
-  runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  # Environment settings and credentials: excluded from `repr` and equality,
+  # and never saved by the serializers.
+  runtime_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict, repr=False, compare=False
+  )
   _generator_backend: backends_base.Backend | None = dataclasses.field(
       default=None, repr=False, compare=False
   )

@@ -721,14 +721,20 @@ class AbstractEmbeddingBasedIndex(
       `threadpool_size`, `project`) and credentials (`api_key`, `credentials`)
       that are not stored in the serializable configuration. Used in conjunction
       with `embed_backend_config` to lazily instantiate the embedder backend
-      upon initialization or when the index is loaded.
+      upon initialization or when the index is loaded. Since it may hold
+      credentials, it is excluded from `repr` and equality, and never saved by
+      the serializers.
   """
   query_task_type: str | None = 'RETRIEVAL_QUERY'
   document_task_type: str | None = 'RETRIEVAL_DOCUMENT'
 
   # Configuration for the embedder backend.
   embed_backend_config: backend_registry.EmbedBackendConfig | None = None
-  runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  # Environment settings and credentials: excluded from `repr` and equality,
+  # and never saved by the serializers.
+  runtime_kwargs: dict[str, Any] = dataclasses.field(
+      default_factory=dict, repr=False, compare=False
+  )
 
   # Localized embedder backend to use for calculating embeddings. This is
   # lazily instantiated from the embedder configuration during initialization
