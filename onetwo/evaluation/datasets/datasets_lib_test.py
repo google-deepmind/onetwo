@@ -14,6 +14,9 @@
 
 """Tests for datasets_lib module."""
 
+import dataclasses
+import functools
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
@@ -154,6 +157,16 @@ class JsonlDatasetLoaderTest(parameterized.TestCase):
     self.assertEqual(str(loader.corpus_path), corpus_file.full_path)
 
 
+@dataclasses.dataclass
+class _SplitLoader(datasets_lib.DatasetLoader):
+  split: str = 'train'
+  dataset_name: str | None = None
+
+  @ot.make_executable
+  async def load_examples(self):
+    return []
+
+
 class DatasetLoaderRegistryTest(absltest.TestCase):
 
   def setUp(self):
@@ -200,6 +213,31 @@ class DatasetLoaderRegistryTest(absltest.TestCase):
   def test_get_unregistered_raises(self):
     with self.assertRaises(KeyError):
       datasets_lib.get_dataset_loader('nonexistent_loader')
+
+  def test_get_dataset_loader_sets_dataset_name(self):
+    datasets_lib.register_dataset_loader('dummy', _SplitLoader)
+    for split in ('train', 'test'):
+      datasets_lib.register_dataset_loader(
+          f'dummy_{split}', functools.partial(_SplitLoader, split=split)
+      )
+
+    for name in ('dummy', 'dummy_train', 'dummy_test'):
+      with self.subTest(name):
+        self.assertEqual(
+            datasets_lib.get_dataset_loader(name).dataset_name, name
+        )
+
+  def test_get_dataset_loader_keeps_dataset_name_set_by_loader(self):
+    datasets_lib.register_dataset_loader(
+        'dummy', functools.partial(_SplitLoader, dataset_name='custom_name')
+    )
+
+    self.assertEqual(
+        datasets_lib.get_dataset_loader('dummy').dataset_name, 'custom_name'
+    )
+
+  def test_directly_constructed_loader_has_no_dataset_name(self):
+    self.assertIsNone(_SplitLoader().dataset_name)
 
 
 if __name__ == '__main__':

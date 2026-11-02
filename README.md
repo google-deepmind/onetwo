@@ -114,11 +114,12 @@ searchable index
 
 ```python
 from onetwo import rag
+from onetwo.evaluation import datasets
 
 # 1. Build an index over your corpus
 index_dir = rag.build_index(
-    dataset_name='browsecomp_plus',
-    output_directory='/tmp/onetwo_rag_index',
+    corpus=datasets.get_dataset_loader('browsecomp_plus'),
+    output='/tmp/onetwo_rag_index',
     runtime_kwargs={'api_key': google_api_key},
 )
 ```

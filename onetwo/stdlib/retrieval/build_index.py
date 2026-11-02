@@ -36,6 +36,7 @@ from absl import app
 from absl import flags
 from absl import logging
 from onetwo.backends import backend_registry
+from onetwo.evaluation import datasets
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import rag_defaults
@@ -44,26 +45,23 @@ from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-i
 # Re-export build_index for backward compatibility.
 build_index = build_index_lib.build_index
 
-_DATASET_NAME = flags.DEFINE_string(
-    'dataset_name',
+_CORPUS = flags.DEFINE_string(
+    'corpus',
     'browsecomp_plus',
-    'Name of the dataset to load from the registry.',
+    (
+        'What to index: the name of a registered dataset (see'
+        ' `datasets.list_dataset_loaders()`), or else a path to a folder of'
+        ' files of any type (text, PDF, image, audio, video). A value that is'
+        ' a registered dataset name is always loaded from the dataset'
+        ' registry; any other value is passed to `build_index` as a path. The'
+        ' dataset name or the folder basename is used in the output directory'
+        ' path.'
+    ),
     allow_override=True,
 )
 
-_INPUT = flags.DEFINE_string(
-    'input',
-    None,
-    (
-        'Path to a folder of files of any type (text, PDF, image, audio,'
-        ' video) to index. If set, documents are loaded from this folder'
-        ' instead of the dataset registry, and --dataset_name must be set to'
-        ' a name for the corpus, which is used in the output directory path.'
-    ),
-)
-
-_OUTPUT_DIRECTORY = flags.DEFINE_string(
-    'output_directory',
+_OUTPUT = flags.DEFINE_string(
+    'output',
     None,
     'Directory where the built index will be saved.',
     required=True,
@@ -160,7 +158,12 @@ _RUNTIME_KWARGS = flags.DEFINE_string(
 _MAX_DOCUMENTS = flags.DEFINE_integer(
     'max_documents',
     None,
-    'Maximum number of documents to load and index (useful for testing).',
+    (
+        'Maximum number of documents to load and index (useful for testing).'
+        ' Only applies when --corpus is a registered dataset, whose loader'
+        ' loads at most this many documents; it is an error with a folder'
+        ' --corpus.'
+    ),
 )
 
 _MAX_RETRIES = flags.DEFINE_integer(
@@ -189,6 +192,40 @@ _EMBED_KWARGS = flags.DEFINE_string(
         'JSON string containing keyword arguments for the embedding backend.'
     ),
 )
+
+
+def _corpus_from_flag(
+    value: str, max_documents: int | None
+) -> str | datasets.DatasetLoader:
+  """Returns the corpus to index for the value of --corpus.
+
+  Args:
+    value: The name of a registered dataset, or a path to a folder of files.
+    max_documents: Maximum number of documents to load (--max_documents). Only
+      supported for registered datasets.
+
+  Returns:
+    The loader of the dataset registered under `value` (loading at most
+    `max_documents` documents) if any, else `value` (a path to a folder of
+    files).
+
+  Raises:
+    app.UsageError: If `max_documents` is set and `value` is not a registered
+      dataset.
+  """
+  registered = datasets.list_dataset_loaders()
+  if value in registered:
+    return datasets.get_dataset_loader(
+        value, max_number_of_documents=max_documents
+    )
+  if max_documents is not None:
+    raise app.UsageError(
+        '--max_documents only applies to registered datasets (one of'
+        f' {registered}); to limit a folder corpus, use the Python API with'
+        ' datasets.MultimodalDatasetLoader(path=...,'
+        ' max_number_of_documents=N).'
+    )
+  return value
 
 
 def _embedder_from_flags() -> backend_registry.EmbedBackendConfig:
@@ -274,11 +311,9 @@ def main(argv: Sequence[str]) -> None:
     raise app.UsageError('Too many command-line arguments.')
 
   build_index_lib.build_index(
-      dataset_name=_DATASET_NAME.value,
-      input_dir=_INPUT.value,
-      max_documents=_MAX_DOCUMENTS.value,
+      corpus=_corpus_from_flag(_CORPUS.value, _MAX_DOCUMENTS.value),
       index_type=_INDEX_TYPE.value,
-      output_directory=_OUTPUT_DIRECTORY.value,
+      output=_OUTPUT.value,
       embedder=_embedder_from_flags(),
       chunker=_chunker_from_flags(),
       format_str=_FORMAT.value,

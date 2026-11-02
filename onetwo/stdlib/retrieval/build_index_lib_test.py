@@ -24,13 +24,16 @@ from onetwo.backends import sentencepiece_tokenizer
 from onetwo.builtins import llm
 from onetwo.core import batching
 from onetwo.core import executing as ot_executing
+from onetwo.evaluation import datasets
 from onetwo.evaluation.datasets import datasets_lib
+from onetwo.evaluation.datasets import multimodal_loader
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 import pypdf
@@ -56,6 +59,21 @@ class FakeEmbedder(backends_test_utils.EmbedderForTest):
     # content up in a dict, which fails for (unhashable) multimodal ChunkLists.
     self.contents.append(content)
     return self.default_embedding
+
+
+class _CustomLoader(datasets_lib.DatasetLoader):
+  """An unregistered dataset loader."""
+
+  @ot_executing.make_executable
+  async def load_examples(self):
+    return []
+
+  @ot_executing.make_executable
+  async def load_documents(self):
+    return [
+        retrieval_data_structures.Document(doc_id=f'c{i}', content=f'doc {i}')
+        for i in range(1, 4)
+    ]
 
 
 class BuildIndexLibTest(absltest.TestCase):
@@ -89,8 +107,8 @@ class BuildIndexLibTest(absltest.TestCase):
   def test_build_custom_spec_saves_index_and_spec(self):
     out_dir = build_index_lib.build_index_from_spec(
         spec=KeywordDocumentIndexSpec(lowercase=False),
-        dataset_name=_DATASET_NAME,
-        output_directory=self.output_dir,
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
     )
 
     self.assertEqual(
@@ -110,8 +128,8 @@ class BuildIndexLibTest(absltest.TestCase):
 
     build_index_lib.build_index_from_spec(
         spec=KeywordDocumentIndexSpec(),
-        dataset_name=_DATASET_NAME,
-        output_directory=self.output_dir,
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
         runtime_kwargs={'api_key': 'key'},
     )
 
@@ -119,16 +137,15 @@ class BuildIndexLibTest(absltest.TestCase):
         build_spy.call_args.kwargs['runtime_kwargs'], {'api_key': 'key'}
     )
 
-  def test_build_from_spec_loads_documents_from_input(self):
-    input_dir = self.create_tempdir()
-    input_dir.create_file('paris.txt', content='Paris is in France.')
-    input_dir.create_file('sub/madrid.txt', content='Madrid is in Spain.')
+  def test_build_from_spec_loads_documents_from_folder(self):
+    corpus_dir = self.create_tempdir().mkdir('my_corpus')
+    corpus_dir.create_file('paris.txt', content='Paris is in France.')
+    corpus_dir.create_file('sub/madrid.txt', content='Madrid is in Spain.')
 
     out_dir = build_index_lib.build_index_from_spec(
         spec=KeywordDocumentIndexSpec(),
-        dataset_name='my_corpus',
-        output_directory=self.output_dir,
-        input_dir=input_dir.full_path,
+        corpus=corpus_dir.full_path,
+        output=self.output_dir,
     )
 
     with open(os.path.join(out_dir, 'keyword_docs.jsonl')) as f:
@@ -136,19 +153,95 @@ class BuildIndexLibTest(absltest.TestCase):
     self.assertEqual(doc_ids, ['paris.txt', 'sub/madrid.txt'])
     self.assertEqual(os.path.basename(os.path.dirname(out_dir)), 'my_corpus')
 
-  def test_build_from_spec_input_with_registered_dataset_name_raises(self):
-    with self.assertRaisesRegex(ValueError, 'is a registered dataset'):
-      build_index_lib.build_index_from_spec(
-          spec=KeywordDocumentIndexSpec(),
-          dataset_name=_DATASET_NAME,
-          output_directory=self.output_dir,
-          input_dir=self.create_tempdir().full_path,
-      )
+  def test_registered_loader_corpus(self):
+    build_mock = self._mock_index_building_build_index()
+
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=KeywordDocumentIndexSpec(),
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+    )
+
+    self.assertEqual(
+        [doc.doc_id for doc in build_mock.call_args.kwargs['docs']],
+        ['d1', 'd2'],
+    )
+    self.assertEqual(build_mock.call_args.kwargs['output_dir'], out_dir)
+    self.assertEqual(os.path.basename(os.path.dirname(out_dir)), _DATASET_NAME)
+
+  def test_custom_loader_corpus(self):
+    build_mock = self._mock_index_building_build_index()
+
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=KeywordDocumentIndexSpec(),
+        corpus=_CustomLoader(),
+        output=self.output_dir,
+    )
+
+    self.assertEqual(
+        [doc.doc_id for doc in build_mock.call_args.kwargs['docs']],
+        ['c1', 'c2', 'c3'],
+    )
+    self.assertEqual(
+        os.path.basename(os.path.dirname(out_dir)), '_CustomLoader'
+    )
+
+  def test_custom_loader_corpus_with_dataset_name(self):
+    loader = _CustomLoader()
+    loader.dataset_name = 'my_corpus'
+
+    self.assertEqual(build_index_lib._corpus_name(loader), 'my_corpus')
+
+  def test_path_corpus_loads_with_multimodal_loader(self):
+    build_mock = self._mock_index_building_build_index()
+
+    @ot_executing.make_executable
+    async def fake_load_documents():
+      return [retrieval_data_structures.Document(doc_id='d1', content='doc')]
+
+    loader_cls = self.enter_context(
+        mock.patch.object(multimodal_loader, 'MultimodalDatasetLoader')
+    )
+    loader_cls.return_value.load_documents = fake_load_documents
+
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=KeywordDocumentIndexSpec(),
+        corpus='/some/path/my_corpus/',
+        output=self.output_dir,
+    )
+
+    loader_cls.assert_called_once_with(path='/some/path/my_corpus/')
+    self.assertLen(build_mock.call_args.kwargs['docs'], 1)
+    self.assertEqual(build_mock.call_args.kwargs['output_dir'], out_dir)
+    self.assertEqual(os.path.basename(os.path.dirname(out_dir)), 'my_corpus')
+
+  def test_corpus_name(self):
+    for corpus, expected_name in (
+        (datasets.get_dataset_loader(_DATASET_NAME), _DATASET_NAME),
+        (_CustomLoader(), '_CustomLoader'),
+        ('/some/path/my_corpus', 'my_corpus'),
+        ('/some/path/my_corpus/', 'my_corpus'),
+        ('relative/my_corpus/', 'my_corpus'),
+    ):
+      with self.subTest(expected_name + ':' + str(corpus)):
+        self.assertEqual(build_index_lib._corpus_name(corpus), expected_name)
+
+  def test_corpus_name_of_loaders_of_public_datasets(self):
+    # Loaders are only constructed, no data is loaded.
+    for name in (
+        'browsecomp_plus',
+        'hotpotqa_validation',
+        'narrativeqa_validation',
+        'nfcorpus_test',
+    ):
+      with self.subTest(name):
+        loader = datasets.get_dataset_loader(name, max_number_of_documents=3)
+        self.assertEqual(build_index_lib._corpus_name(loader), name)
 
   def test_flat_kwargs_build_simple_rewriting_embedding_index(self):
     out_dir = build_index_lib.build_index(
-        dataset_name=_DATASET_NAME,
-        output_directory=self.output_dir,
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
         chunker=chunker_registry.ChunkerConfig(
@@ -173,8 +266,8 @@ class BuildIndexLibTest(absltest.TestCase):
 
     with self.assertRaisesRegex(ValueError, "Unknown chunker: 'unknown'"):
       build_index_lib.build_index(
-          dataset_name=_DATASET_NAME,
-          output_directory=self.output_dir,
+          corpus=datasets.get_dataset_loader(_DATASET_NAME),
+          output=self.output_dir,
           runtime_kwargs={},
           embedder=_FAKE_EMBEDDER,
           chunker=chunker_registry.ChunkerConfig(chunker_name='unknown'),
@@ -189,9 +282,8 @@ class BuildIndexLibTest(absltest.TestCase):
       writer.write(f)
 
     out_dir = build_index_lib.build_index(
-        dataset_name='my_pdfs',
-        input_dir=input_dir.full_path,
-        output_directory=self.output_dir,
+        corpus=input_dir.full_path,
+        output=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
         chunker=chunker_registry.ChunkerConfig(
@@ -221,9 +313,8 @@ class BuildIndexLibTest(absltest.TestCase):
       f.writeframes(b'\x00\x00' * 16000)
 
     out_dir = build_index_lib.build_index(
-        dataset_name='my_audios',
-        input_dir=input_dir.full_path,
-        output_directory=self.output_dir,
+        corpus=input_dir.full_path,
+        output=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
         chunker=chunker_registry.ChunkerConfig(
@@ -263,9 +354,8 @@ class BuildIndexLibTest(absltest.TestCase):
       writer.write(f)
 
     out_dir = build_index_lib.build_index(
-        dataset_name='my_files',
-        input_dir=input_dir.full_path,
-        output_directory=self.output_dir,
+        corpus=input_dir.full_path,
+        output=self.output_dir,
         runtime_kwargs={},
         embedder=_FAKE_EMBEDDER,
         chunker=chunker_registry.ChunkerConfig(chunker_name='routing'),
@@ -305,8 +395,8 @@ class BuildIndexLibTest(absltest.TestCase):
     build_mock = self._mock_index_building_build_index()
 
     build_index_lib.build_index(
-        dataset_name=_DATASET_NAME,
-        output_directory=self.output_dir,
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
         runtime_kwargs={},
         index_type='hipporag',
         embedder=_FAKE_EMBEDDER,
@@ -337,8 +427,8 @@ class BuildIndexLibTest(absltest.TestCase):
     for index_type in ('embedding', 'hipporag'):
       with self.subTest(index_type):
         build_index_lib.build_index(
-            dataset_name=_DATASET_NAME,
-            output_directory=self.output_dir,
+            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            output=self.output_dir,
             runtime_kwargs={},
             index_type=index_type,
         )
@@ -354,8 +444,8 @@ class BuildIndexLibTest(absltest.TestCase):
     for index_type in ('embedding', 'hipporag'):
       with self.subTest(index_type):
         build_index_lib.build_index(
-            dataset_name=_DATASET_NAME,
-            output_directory=self.output_dir,
+            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            output=self.output_dir,
             runtime_kwargs={},
             index_type=index_type,
             embedder=_FAKE_EMBEDDER,
@@ -375,8 +465,8 @@ class BuildIndexLibTest(absltest.TestCase):
     for index_type in ('embedding', 'hipporag'):
       with self.subTest(index_type):
         build_index_lib.build_index(
-            dataset_name=_DATASET_NAME,
-            output_directory=self.output_dir,
+            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            output=self.output_dir,
             runtime_kwargs={},
             index_type=index_type,
             embedder=_FAKE_EMBEDDER,
@@ -401,8 +491,8 @@ class BuildIndexLibTest(absltest.TestCase):
     for index_type in ('embedding', 'hipporag'):
       with self.subTest(index_type):
         build_index_lib.build_index(
-            dataset_name=_DATASET_NAME,
-            output_directory=self.output_dir,
+            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            output=self.output_dir,
             runtime_kwargs={},
             index_type=index_type,
             embedder=embedder,
@@ -429,8 +519,8 @@ class BuildIndexLibTest(absltest.TestCase):
 
     build_index_lib.build_index_from_spec(
         spec=spec,
-        dataset_name=_DATASET_NAME,
-        output_directory=self.output_dir,
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
     )
 
     self.assertIs(build_mock.call_args.kwargs['spec'], spec)
@@ -449,8 +539,8 @@ class BuildIndexLibTest(absltest.TestCase):
 
     build_index_lib.build_index_from_spec(
         spec=spec,
-        dataset_name=_DATASET_NAME,
-        output_directory=self.output_dir,
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
     )
 
     self.assertEqual(

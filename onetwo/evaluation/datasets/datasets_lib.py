@@ -212,7 +212,15 @@ def load_examples_from_file(
 
 
 class DatasetLoader(Protocol[_Example]):
-  """Abstract base class for loading a dataset and returning examples."""
+  """Abstract base class for loading a dataset and returning examples.
+
+  Attributes:
+    dataset_name: Name under which the loader is registered (set by
+      `get_dataset_loader`), or a name chosen by a custom loader. Used e.g. to
+      name index output directories.
+  """
+
+  dataset_name: str | None = None
 
   @executing.make_executable()
   async def load_examples(self) -> Iterable[_Example]:
@@ -433,7 +441,8 @@ def get_dataset_loader(name: str, **kwargs) -> DatasetLoader:
     **kwargs: Keyword arguments forwarded to the dataset loader factory.
 
   Returns:
-    A DatasetLoader instance.
+    A DatasetLoader instance. Its `dataset_name` is set to `name`, unless the
+    loader sets it itself.
 
   Raises:
     KeyError: If no dataset loader with the given name is registered.
@@ -444,7 +453,10 @@ def get_dataset_loader(name: str, **kwargs) -> DatasetLoader:
         f"Dataset loader '{name}' is not registered. Available dataset loaders:"
         f' {available}'
     )
-  return _DATASET_LOADER_REGISTRY[name](**kwargs)
+  loader = _DATASET_LOADER_REGISTRY[name](**kwargs)
+  if getattr(loader, 'dataset_name', None) is None:
+    loader.dataset_name = name
+  return loader
 
 
 def list_dataset_loaders() -> list[str]:

@@ -18,6 +18,7 @@ from collections.abc import Mapping
 import json
 from typing import Any
 
+from etils import epath
 from onetwo.backends import backend_registry
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
@@ -30,14 +31,19 @@ from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 
 
+def _corpus_name(corpus: str | datasets.DatasetLoader) -> str:
+  """Returns the name of `corpus`, used in the index output directory path."""
+  if isinstance(corpus, str):
+    return epath.Path(corpus).name
+  return corpus.dataset_name or type(corpus).__name__
+
+
 # TODO: Consider merging max_retries and http_timeout
 # into runtime_kwargs.
 def build_index(
-    dataset_name: str,
-    output_directory: str,
+    corpus: str | datasets.DatasetLoader,
+    output: str,
     runtime_kwargs: Mapping[str, Any] | str,
-    max_documents: int | None = None,
-    input_dir: str | None = None,
     index_type: str = 'embedding',
     embedder: backend_registry.EmbedBackendConfig | None = None,
     chunker: chunker_registry.ChunkerConfig | None = None,
@@ -46,17 +52,22 @@ def build_index(
     max_retries: int | None = 5,
     http_timeout: int | None = 60000,
 ) -> str:
-  """Builds and saves a document index for the specified dataset.
+  """Builds and saves a document index of the specified corpus.
 
   Args:
-    dataset_name: Name of the dataset. Unless `input_dir` is set, documents are
-      loaded from the dataset registry under this name. Also used in the output
-      directory path.
-    output_directory: Directory pattern where the built index will be saved.
+    corpus: What to index: either a path to a folder of files of any type (text,
+      PDF, image, audio, video), loaded with `MultimodalDatasetLoader`, or a
+      `datasets.DatasetLoader` whose `load_documents` is used, e.g.
+      `datasets.get_dataset_loader(name)` for a registered dataset, or a custom
+      loader. The output directory path includes the name of the corpus: the
+      basename of the folder for a path; for a loader, its `dataset_name` (set
+      by `datasets.get_dataset_loader` to the registered name, or by a custom
+      loader) if any, else its class name. To index only the first documents,
+      pass a loader with a limit, e.g.
+      `datasets.MultimodalDatasetLoader(path=..., max_number_of_documents=N)` or
+      `datasets.get_dataset_loader(name, max_number_of_documents=N)`.
+    output: Base directory (pattern) where the built index will be saved.
     runtime_kwargs: Arguments for backends (e.g. API key).
-    max_documents: Max documents to index.
-    input_dir: Optional path to a folder of files of any type (text, PDF, image,
-      audio, video) to index, loaded with `MultimodalDatasetLoader`.
     index_type: Type of index ('embedding' or 'hipporag'). 'hipporag' uses the
       default settings of `SimpleRewritingHippoRAGDocumentIndexSpec`, including
       its default generation model (`generate_backend_config`); to change them
@@ -72,8 +83,8 @@ def build_index(
       credentials (e.g. API key) go in `runtime_kwargs` instead.
     chunker: Config of the chunker that splits documents before they are
       indexed, e.g. `ChunkerConfig(chunker_name='routing')`. If None, documents
-      are not chunked. `chunker_name` must be registered: see
-      `chunker_registry` for the available chunkers and how to register them.
+      are not chunked. `chunker_name` must be registered: see `chunker_registry`
+      for the available chunkers and how to register them.
     format_str: Format string for document formatting.
     serializer_type: Serializer type to use ('simple' or 'internal').
     max_retries: Maximum number of retries for backend requests.
@@ -133,23 +144,19 @@ def build_index(
 
   return build_index_from_spec(
       spec=spec,
-      dataset_name=dataset_name,
-      output_directory=output_directory,
+      corpus=corpus,
+      output=output,
       runtime_kwargs=rt_kwargs,
-      max_documents=max_documents,
-      input_dir=input_dir,
   )
 
 
 def build_index_from_spec(
     spec: index_build_interface.IndexSpec,
-    dataset_name: str,
-    output_directory: str,
+    corpus: str | datasets.DatasetLoader,
+    output: str,
     runtime_kwargs: Mapping[str, Any] | None = None,
-    max_documents: int | None = None,
-    input_dir: str | None = None,
 ) -> str:
-  """Builds and saves the index described by `spec` for the specified dataset.
+  """Builds and saves the index described by `spec` of the specified corpus.
 
   Use this for custom indexes: register the spec type with
   `rag.register_index_spec`, then pass an instance of the spec here. The spec
@@ -157,55 +164,41 @@ def build_index_from_spec(
 
   Args:
     spec: Spec of the index to build.
-    dataset_name: Name of the dataset. Unless `input_dir` is set, documents are
-      loaded from the dataset registry under this name. Also used in the output
-      directory path.
-    output_directory: Directory pattern where the built index will be saved.
+    corpus: What to index: either a path to a folder of files of any type (text,
+      PDF, image, audio, video), loaded with `MultimodalDatasetLoader`, or a
+      `datasets.DatasetLoader` whose `load_documents` is used, e.g.
+      `datasets.get_dataset_loader(name)` for a registered dataset, or a custom
+      loader. The output directory path includes the name of the corpus: the
+      basename of the folder for a path; for a loader, its `dataset_name` (set
+      by `datasets.get_dataset_loader` to the registered name, or by a custom
+      loader) if any, else its class name. To index only the first documents,
+      pass a loader with a limit, e.g.
+      `datasets.MultimodalDatasetLoader(path=..., max_number_of_documents=N)` or
+      `datasets.get_dataset_loader(name, max_number_of_documents=N)`.
+    output: Base directory (pattern) where the built index will be saved.
     runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed to
       `spec.make_index`; not saved with the index.
-    max_documents: Max documents to index.
-    input_dir: Optional path to a folder of files of any type (text, PDF, image,
-      audio, video) to index, loaded with `MultimodalDatasetLoader`. If set,
-      `dataset_name` must be a name for this corpus (not a registered dataset).
 
   Returns:
     The output directory path where the index was saved.
-
-  Raises:
-    ValueError: If `input_dir` is set and `dataset_name` is a registered
-    dataset.
   """
-  # TODO: Remove this check once the output directory is passed
-  # explicitly as `<cns_path_to_save>/<dataset_name>/` instead of being derived
-  # from `dataset_name`.
-  if input_dir and dataset_name in datasets.list_dataset_loaders():
-    raise ValueError(
-        f'dataset_name={dataset_name!r} is a registered dataset, but input_dir'
-        ' is set: set dataset_name to a name for the corpus at input_dir,'
-        ' which is used in the output directory path, so that the index is not'
-        f' saved under the directory of the {dataset_name!r} dataset.'
-    )
-  if input_dir:
-    print(f'Loading documents from input_dir {input_dir}...')
-    loader = multimodal_loader.MultimodalDatasetLoader(
-        path=input_dir, max_number_of_documents=max_documents
-    )
+  if isinstance(corpus, str):
+    print(f'Loading documents from {corpus}...')
+    loader = multimodal_loader.MultimodalDatasetLoader(path=corpus)
     docs = list(ot_executing.run(loader.load_documents()))
-    print(f'Loaded {len(docs)} documents.')
   else:
-    print(f'Loading dataset {dataset_name}...')
-    docs = datasets.load_documents(
-        dataset_name,
-        max_number_of_documents=max_documents,
-    )
-    print(f'Loaded {len(docs)} documents.')
+    # `DatasetLoader` is a Protocol that is not runtime checkable: any other
+    # corpus is used as a loader.
+    print('Loading documents...')
+    docs = list(ot_executing.run(corpus.load_documents()))
+  print(f'Loaded {len(docs)} documents.')
 
   out_dir = index_building.resolve_index_output_directory(
-      output_directory_pattern=output_directory,
-      dataset_name=dataset_name,
+      output_directory_pattern=output,
+      dataset_name=_corpus_name(corpus),
       spec=spec,
   )
-  print(f'Will save the index to output_directory: {out_dir}')
+  print(f'Will save the index to output directory: {out_dir}')
 
   # Build index
   print('Building index...')
