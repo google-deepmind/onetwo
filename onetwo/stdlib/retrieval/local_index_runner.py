@@ -59,16 +59,17 @@ class LocalIndexRunner(
       )
 
     index = index_spec_registry.make_index(spec, runtime_kwargs)
+    # Check before building, so that an index that can't be saved fails fast
+    # instead of after a possibly expensive build.
+    if output_dir and not indexing.supports_save(index):
+      raise TypeError(
+          f'{type(index).__name__} (built for {type(spec).__name__}) does'
+          ' not implement save(base_path) and load(base_path), so it cannot be'
+          f' written to output_dir={output_dir!r}.'
+      )
     await index.add_docs(docs)
 
     if output_dir:
-      save = getattr(index, 'save', None)
-      if not callable(save):
-        raise TypeError(
-            f'{type(index).__name__} (built for {type(spec).__name__}) does'
-            ' not implement save(base_path), so it cannot be written to'
-            f' output_dir={output_dir!r}.'
-        )
-      save(output_dir)
+      index.save(output_dir)
 
     return index

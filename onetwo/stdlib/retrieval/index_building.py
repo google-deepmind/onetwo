@@ -16,7 +16,7 @@
 
 import getpass
 import json
-from typing import Any, Awaitable, Callable, Iterable, Mapping, cast
+from typing import Any, Callable, Iterable, Mapping
 
 from absl import logging
 from etils import epath
@@ -180,13 +180,12 @@ def load_index(
     index = indexing.EmbeddingBasedDocumentIndex(runtime_kwargs=runtime_kwargs)
   else:
     index = index_spec_registry.make_index(spec, runtime_kwargs)
-  load = getattr(index, "load", None)
-  if not callable(load):
+  if not indexing.supports_save(index):
     raise TypeError(
         f"{type(index).__name__} (built for {type(spec).__name__}) does not"
         f" implement load(base_path), so {index_directory!r} cannot be loaded."
     )
-  executing.run(cast(Callable[[str], Awaitable[Any]], load)(index_directory))
+  executing.run(index.load(index_directory))
   return index
 
 

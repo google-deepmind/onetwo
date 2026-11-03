@@ -158,6 +158,22 @@ class IndexBuildingTest(absltest.TestCase):
     self.assertEqual(index.runtime_kwargs, {'k': 'v'})
     self.assertEqual(index.num_docs, 2)
 
+  def test_load_index_unloadable_index_raises(self):
+    self.enter_context(
+        keyword_index_for_test.registered_unsaveable_index_spec()
+    )
+    out_dir = self.create_tempdir().full_path
+    spec_path = os.path.join(out_dir, index_building.INDEX_SPEC_FILENAME)
+    with open(spec_path, 'w') as f:
+      f.write('{"spec_type": "UnsaveableDocumentIndexSpec", "spec": {}}')
+
+    with self.assertRaisesRegex(
+        TypeError,
+        'UnsaveableDocumentIndex \\(built for UnsaveableDocumentIndexSpec\\)'
+        ' does not implement load',
+    ):
+      index_building.load_index(out_dir)
+
 
 if __name__ == '__main__':
   absltest.main()

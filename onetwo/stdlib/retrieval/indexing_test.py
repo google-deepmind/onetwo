@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterable
+import dataclasses
 import shutil
 import tempfile
 from unittest import mock
@@ -1125,6 +1127,98 @@ class RuntimeKwargsTest(absltest.TestCase):
         indexing.EmbeddingBasedDocumentIndex(runtime_kwargs={'api_key': 'a'}),
         indexing.EmbeddingBasedDocumentIndex(runtime_kwargs={'api_key': 'b'}),
     )
+
+
+@dataclasses.dataclass(kw_only=True)
+class _MinimalDocumentIndex(indexing.DocumentIndex):
+  """Custom index that implements only the abstract methods."""
+
+  docs: list[Document] = dataclasses.field(default_factory=list)
+
+  @property
+  def num_docs(self) -> int:
+    return len(self.docs)
+
+  def get_docs(self) -> Iterable[Document]:
+    return self.docs
+
+  @executing.make_executable(copy_self=False)
+  async def add_docs(self, docs: Iterable[Document]) -> None:
+    self.docs.extend(docs)
+
+  def destroy_index(self) -> None:
+    self.docs.clear()
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve(
+      self,
+      query: str,
+      *,
+      max_results: int | None = None,
+      **kwargs,
+  ) -> Iterable[Document]:
+    del query, kwargs
+    return self.docs[:max_results]
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SaveOnlyDocumentIndex(_MinimalDocumentIndex):
+  """Custom index that overrides `save` but not `load`."""
+
+  def save(self, base_path: str) -> None:
+    del base_path
+
+
+class IndexSaveLoadContractTest(absltest.TestCase):
+
+  def test_minimal_index_can_be_built_and_used(self):
+    index = _MinimalDocumentIndex()
+    docs = [
+        Document(doc_id='a', content='A'),
+        Document(doc_id='b', content='B'),
+    ]
+
+    ot.run(index.create_index(corpus_name='test', docs=docs))
+
+    self.assertEqual(index.num_docs, 2)
+    self.assertEqual(index.get_doc('b'), docs[1])
+    self.assertEqual(ot.run(index.retrieve('query', max_results=1)), docs[:1])
+
+  def test_supports_save(self):
+    with self.subTest('minimal_index'):
+      self.assertFalse(indexing.supports_save(_MinimalDocumentIndex()))
+    with self.subTest('save_without_load'):
+      self.assertFalse(indexing.supports_save(_SaveOnlyDocumentIndex()))
+    with self.subTest('naive_index'):
+      self.assertFalse(indexing.supports_save(indexing.NaiveIndex()))
+    with self.subTest('embedding_based_document_index'):
+      self.assertTrue(
+          indexing.supports_save(indexing.EmbeddingBasedDocumentIndex())
+      )
+    with self.subTest('rewriting_embedding_based_document_index'):
+      self.assertTrue(
+          indexing.supports_save(
+              indexing.RewritingEmbeddingBasedDocumentIndex()
+          )
+      )
+
+  def test_default_save_raises_not_implemented(self):
+    index = _MinimalDocumentIndex()
+    with self.assertRaisesRegex(
+        NotImplementedError,
+        '_MinimalDocumentIndex does not support saving; override save\\(\\)'
+        ' and load\\(\\)',
+    ):
+      index.save(self.create_tempdir().full_path)
+
+  def test_default_load_raises_not_implemented(self):
+    index = _MinimalDocumentIndex()
+    with self.assertRaisesRegex(
+        NotImplementedError,
+        '_MinimalDocumentIndex does not support loading; override save\\(\\)'
+        ' and load\\(\\)',
+    ):
+      ot.run(index.load(self.create_tempdir().full_path))
 
 
 if __name__ == '__main__':

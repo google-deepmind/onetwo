@@ -18,6 +18,9 @@
 in the document content. It needs no model backends, which makes it suitable
 for end-to-end tests of the custom index path (`index_spec_registry`,
 `index_building`, `rag.build_index` and `rag.evaluate`).
+
+`UnsaveableDocumentIndex` is a minimal index that does not support saving, for
+testing the errors raised for such indexes.
 """
 
 from collections.abc import Iterable, Iterator, Mapping
@@ -130,6 +133,71 @@ class KeywordDocumentIndex(indexing.DocumentIndex):
     ]
 
 
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(kw_only=True)
+class UnsaveableDocumentIndexSpec(index_build_interface.IndexSpec):
+  """Specification for building an `UnsaveableDocumentIndex`."""
+
+  def make_index(
+      self, runtime_kwargs: Mapping[str, Any]
+  ) -> indexing.DocumentIndex:
+    del runtime_kwargs  # The index has no backends.
+    return UnsaveableDocumentIndex()
+
+
+@dataclasses.dataclass(kw_only=True)
+class UnsaveableDocumentIndex(indexing.DocumentIndex):
+  """Minimal index that implements only the abstract methods of `Index`.
+
+  It does not override `save`/`load`, so it can't be saved. It counts calls to
+  `add_docs`, so that tests can check that no documents are added when building
+  it fails early.
+
+  Attributes:
+    add_docs_calls: Number of calls to `add_docs`.
+  """
+
+  add_docs_calls: int = 0
+  _docs: list[Document] = dataclasses.field(default_factory=list, repr=False)
+
+  @property
+  def num_docs(self) -> int:
+    return len(self._docs)
+
+  def get_docs(self) -> Iterable[Document]:
+    return self._docs
+
+  @executing.make_executable(copy_self=False)
+  async def add_docs(self, docs: Iterable[Document]) -> None:
+    self.add_docs_calls += 1
+    self._docs.extend(docs)
+
+  def destroy_index(self) -> None:
+    self._docs.clear()
+
+  @executing.make_executable(copy_self=False)
+  async def retrieve(
+      self,
+      query: str,
+      *,
+      max_results: int | None = None,
+      **kwargs,
+  ) -> Iterable[Document]:
+    del query, kwargs
+    return self._docs if max_results is None else self._docs[:max_results]
+
+
+@contextlib.contextmanager
+def _restored_registry() -> Iterator[None]:
+  """Restores the index spec registry on exit."""
+  # pylint: disable=protected-access
+  with mock.patch.dict(
+      index_spec_registry._REGISTRATIONS_BY_NAME
+  ), mock.patch.dict(index_spec_registry._REGISTRATIONS_BY_TYPE):
+    # pylint: enable=protected-access
+    yield
+
+
 @contextlib.contextmanager
 def registered_keyword_index_spec(name: str | None = None) -> Iterator[None]:
   """Registers `KeywordDocumentIndexSpec` for the duration of the context.
@@ -143,10 +211,21 @@ def registered_keyword_index_spec(name: str | None = None) -> Iterator[None]:
   Yields:
     None.
   """
-  # pylint: disable=protected-access
-  with mock.patch.dict(
-      index_spec_registry._REGISTRATIONS_BY_NAME
-  ), mock.patch.dict(index_spec_registry._REGISTRATIONS_BY_TYPE):
-    # pylint: enable=protected-access
+  with _restored_registry():
     index_spec_registry.register_index_spec(name)(KeywordDocumentIndexSpec)
+    yield
+
+
+@contextlib.contextmanager
+def registered_unsaveable_index_spec() -> Iterator[None]:
+  """Registers `UnsaveableDocumentIndexSpec` for the duration of the context.
+
+  The registry is restored on exit, including any other registrations made
+  inside the context, so that tests don't leak registrations.
+
+  Yields:
+    None.
+  """
+  with _restored_registry():
+    index_spec_registry.register_index_spec()(UnsaveableDocumentIndexSpec)
     yield

@@ -43,6 +43,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
@@ -318,6 +319,55 @@ class LocalIndexRunnerTest(parameterized.TestCase):
         'EmbeddingBasedDocumentIndex_chunker_tokens-max_tokens_per_chunk=512-overlap_window=50_gemini-embedding-2__hash_',
         str(spec),
     )
+
+  def test_build_index_unsaveable_index_with_output_dir_raises_before_add(
+      self,
+  ):
+    self.enter_context(
+        keyword_index_for_test.registered_unsaveable_index_spec()
+    )
+    index = keyword_index_for_test.UnsaveableDocumentIndex()
+    self.enter_context(
+        mock.patch.object(
+            keyword_index_for_test.UnsaveableDocumentIndexSpec,
+            'make_index',
+            return_value=index,
+        )
+    )
+    output_dir = self.create_tempdir().full_path
+    runner = local_index_runner.LocalIndexRunner()
+
+    with self.assertRaisesRegex(
+        TypeError,
+        'UnsaveableDocumentIndex \\(built for UnsaveableDocumentIndexSpec\\)'
+        ' does not implement save',
+    ):
+      ot.run(
+          runner.build_index(
+              spec=keyword_index_for_test.UnsaveableDocumentIndexSpec(),
+              docs=[Document(doc_id='doc1', content='One.')],
+              output_dir=output_dir,
+          )
+      )
+
+    self.assertEqual(index.add_docs_calls, 0)
+    self.assertEmpty(os.listdir(output_dir))
+
+  def test_build_index_unsaveable_index_without_output_dir_builds(self):
+    self.enter_context(
+        keyword_index_for_test.registered_unsaveable_index_spec()
+    )
+    runner = local_index_runner.LocalIndexRunner()
+
+    index = ot.run(
+        runner.build_index(
+            spec=keyword_index_for_test.UnsaveableDocumentIndexSpec(),
+            docs=[Document(doc_id='doc1', content='One.')],
+        )
+    )
+
+    self.assertIsInstance(index, keyword_index_for_test.UnsaveableDocumentIndex)
+    self.assertEqual(index.num_docs, 1)
 
 
 if __name__ == '__main__':

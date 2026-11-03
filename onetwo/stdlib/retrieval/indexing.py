@@ -251,6 +251,54 @@ class Index(
   def destroy_index(self) -> None:
     """Destroys the index and frees up related resources."""
 
+  def save(self, base_path: str) -> None:
+    """Saves the index state to the directory `base_path`.
+
+    Not supported by default. Subclasses that support saving override both
+    `save` and `load` (see `supports_save`).
+
+    Args:
+      base_path: The directory to save the index state to.
+
+    Raises:
+      NotImplementedError: If the subclass does not override `save`.
+    """
+    raise NotImplementedError(
+        f'{type(self).__name__} does not support saving; override save() and'
+        ' load().'
+    )
+
+  @executing.make_executable(copy_self=False)
+  async def load(self, base_path: str) -> None:
+    """Loads the index state from the directory `base_path`.
+
+    Not supported by default. Subclasses that support saving override both
+    `save` and `load` (see `supports_save`).
+
+    Args:
+      base_path: The directory that the index state was saved to by `save`.
+
+    Raises:
+      NotImplementedError: If the subclass does not override `load`.
+    """
+    raise NotImplementedError(
+        f'{type(self).__name__} does not support loading; override save() and'
+        ' load().'
+    )
+
+
+def supports_save(index: Index) -> bool:
+  """Returns whether `index` can be saved with `save` and loaded with `load`.
+
+  An index supports saving if its class overrides both `Index.save` and
+  `Index.load`.
+
+  Args:
+    index: The index to check.
+  """
+  index_type = type(index)
+  return index_type.save is not Index.save and index_type.load is not Index.load
+
 
 @dataclasses.dataclass(kw_only=True)
 class IndexWrapper(
