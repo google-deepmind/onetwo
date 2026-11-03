@@ -47,7 +47,9 @@ as your index size grows, without changing your high-level RAG logic.
 
 import abc
 import dataclasses
-from typing import Sequence
+from typing import Any, Sequence
+
+import dataclasses_json
 import numpy as np
 from onetwo.core import batching
 from onetwo.core import executing
@@ -291,3 +293,26 @@ class ConstrainedBruteForceSearcher(BruteForceSearcher, ConstrainedSearcher):
     top_ids = original_indices_map[top_ids_local]
     top_scores = np.take_along_axis(scores, top_ids_local, axis=1)
     return top_ids, top_scores  # (Q x top_k, Q x top_k)
+
+
+@dataclasses_json.dataclass_json
+@dataclasses.dataclass(frozen=True)
+class SearcherConfig(dataclasses_json.DataClassJsonMixin):
+  """Configuration for a Searcher.
+
+  Attributes:
+    class_name: Name of the searcher class in this module (e.g.
+      'BruteForceSearcher').
+    kwargs: Keyword arguments to pass to the searcher constructor.
+  """
+
+  class_name: str
+  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
+def make_searcher(config: SearcherConfig) -> Searcher:
+  """Instantiates a Searcher from its configuration."""
+  cls = globals().get(config.class_name)
+  if not isinstance(cls, type) or not issubclass(cls, Searcher):
+    raise ValueError(f'Unknown searcher: {config.class_name}')
+  return cls(**config.kwargs)

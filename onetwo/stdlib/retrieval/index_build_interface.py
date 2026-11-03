@@ -27,26 +27,8 @@ from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import searchers
 
 
-@dataclasses_json.dataclass_json
-@dataclasses.dataclass(frozen=True)
-class SearcherConfig(dataclasses_json.DataClassJsonMixin):
-  """Configuration for a Searcher.
-
-  Attributes:
-    class_name: Name of the searcher class (e.g. 'BruteForceSearcher').
-    kwargs: Keyword arguments to pass to the searcher constructor.
-  """
-
-  class_name: str
-  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-
-def make_searcher(config: SearcherConfig) -> searchers.Searcher:
-  """Instantiates a Searcher from its configuration."""
-  cls = getattr(searchers, config.class_name, None)
-  if cls is None or not issubclass(cls, searchers.Searcher):
-    raise ValueError(f"Unknown searcher: {config.class_name}")
-  return cls(**config.kwargs)
+SearcherConfig = searchers.SearcherConfig
+make_searcher = searchers.make_searcher
 
 
 @dataclasses_json.dataclass_json

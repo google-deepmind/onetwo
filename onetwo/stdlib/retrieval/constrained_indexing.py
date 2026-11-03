@@ -64,16 +64,19 @@ class ConstrainedEmbeddingBasedIndex(
             constraint_type=LIST_CONTAINS_ANY,
             value=['python', 'java'])`.
       ```
-    searcher: Searcher used for nearest neighbor search between query and
-      document embeddings, restricted to candidate documents matching the
-      retrieval constraints.
+    searcher_config: Configuration of the searcher used for nearest neighbor
+      search between query and document embeddings, restricted to candidate
+      documents matching the retrieval constraints. It should name a
+      `ConstrainedSearcher` (defaults to `ConstrainedBruteForceSearcher`).
   """
 
   discrete_field_extractors: dict[str, Callable[[DocT], Any]] = (
       dataclasses.field(default_factory=dict)
   )
-  searcher: searchers.ConstrainedSearcher = dataclasses.field(  # pyrefly: ignore[bad-assignment]
-      default_factory=searchers.ConstrainedBruteForceSearcher
+  searcher_config: searchers.SearcherConfig = dataclasses.field(
+      default_factory=lambda: searchers.SearcherConfig(
+          class_name='ConstrainedBruteForceSearcher'
+      )
   )
 
   # Internal reverse index for discrete field values, used for constrained

@@ -167,8 +167,9 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
         mock_embed_fn.embeddings = [doc_embed, query_embed, query_embed]  # pyrefly: ignore[missing-attribute]
         mock_embed_fn.call_count = 0  # pyrefly: ignore[missing-attribute]
         index = indexing.EmbeddingBasedIndex(
-            searcher=searchers.BruteForceSearcher(
-                normalize_embeds=normalize_embeds
+            searcher_config=searchers.SearcherConfig(
+                class_name='BruteForceSearcher',
+                kwargs={'normalize_embeds': normalize_embeds},
             )
         )
         ot.run(index.add_docs(docs))
@@ -181,6 +182,38 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
         self.assertIsInstance(score, float)
         self.assertAlmostEqual(score, expected_score)
         self.assertAlmostEqual(score, searcher_score)
+
+  def test_searcher_created_from_default_config(self):
+    index = indexing.EmbeddingBasedIndex()
+    rewriting_index = indexing.RewritingEmbeddingBasedDocumentIndex()
+
+    with self.subTest('default_config_is_brute_force'):
+      self.assertEqual(
+          index.searcher_config,
+          searchers.SearcherConfig(class_name='BruteForceSearcher'),
+      )
+    with self.subTest('searcher_is_brute_force'):
+      self.assertIsInstance(index.searcher, searchers.BruteForceSearcher)
+    with self.subTest('rewriting_index_has_searcher'):
+      self.assertIsInstance(
+          rewriting_index.searcher, searchers.BruteForceSearcher
+      )
+
+  def test_searcher_uses_config_kwargs(self):
+    index = indexing.EmbeddingBasedIndex(
+        searcher_config=searchers.SearcherConfig(
+            class_name='BruteForceSearcher',
+            kwargs={'normalize_embeds': True},
+        )
+    )
+
+    self.assertTrue(getattr(index.searcher, 'normalize_embeds'))
+
+  def test_unknown_searcher_raises_at_construction(self):
+    with self.assertRaisesRegex(ValueError, 'Unknown searcher: NoSuchSearcher'):
+      indexing.EmbeddingBasedIndex(
+          searcher_config=searchers.SearcherConfig(class_name='NoSuchSearcher')
+      )
 
   def test_get_doc_and_get_doc_embedding(self):
     docs = [
