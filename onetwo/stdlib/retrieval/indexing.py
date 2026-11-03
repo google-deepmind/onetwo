@@ -377,7 +377,7 @@ class RewritingIndex(
   retrieval_target: RetrievalTarget = RetrievalTarget.REWRITTEN
   preserve_original_docs: bool = False
   _original_docs: dict[str, DocT] = dataclasses.field(
-      default_factory=dict, repr=False
+      default_factory=dict, init=False, repr=False
   )
 
   def get_original_doc(self, chunk: DocT) -> DocT | None:
@@ -740,7 +740,7 @@ class AbstractEmbeddingBasedIndex(
   # lazily instantiated from the embedder configuration during initialization
   # and the manifest when the index is loaded.
   _embedder_backend: backends_base.Backend | None = dataclasses.field(
-      default=None, repr=False, compare=False
+      default=None, init=False, repr=False, compare=False
   )
 
   @property
@@ -812,14 +812,18 @@ class EmbeddingBasedIndex(
       default_factory=searchers.BruteForceSearcher
   )
   # List of the documents that are added to the index.
-  _docs: list[DocT] = dataclasses.field(default_factory=list)
+  _docs: list[DocT] = dataclasses.field(
+      default_factory=list, init=False, repr=False
+  )
   # List of the embeddings of the documents that are added to the index.
-  _doc_embeddings: list[np.ndarray] = dataclasses.field(default_factory=list)
+  _doc_embeddings: list[np.ndarray] = dataclasses.field(
+      default_factory=list, init=False, repr=False
+  )
   # Mapping from doc ID to the row of that document in `_docs` (and, equally,
   # in `_doc_embeddings` and the searcher). If several documents share a doc
   # ID, this maps to the first of them.
   _row_by_id: dict[str, int] = dataclasses.field(
-      default_factory=dict, repr=False, compare=False
+      default_factory=dict, init=False, repr=False, compare=False
   )
 
   @executing.make_executable(copy_self=False)
