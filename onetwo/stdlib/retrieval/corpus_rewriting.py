@@ -70,6 +70,7 @@ class CorpusRewriter(Protocol[DocT]):
     """
 
 
+@dataclasses.dataclass(frozen=True)
 class NoRewriting(CorpusRewriter[DocT]):
   """Rewriter that returns the corpus as is."""
 

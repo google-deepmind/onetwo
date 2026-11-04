@@ -56,6 +56,7 @@ class DocumentFormatter(Protocol):
     """
 
 
+@dataclasses.dataclass(frozen=True)
 class NoFormatting(DocumentFormatter):
   """Formatter that returns the document as-is."""
 
