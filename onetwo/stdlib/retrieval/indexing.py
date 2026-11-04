@@ -690,15 +690,22 @@ class NaiveIndex(DocumentIndex):
   Simply returns the first K added documents each time, regardless of the query.
 
   Attributes:
-    docs: The documents that were added to the corpus.
     shuffle_results: Whether to shuffle the resulting documents before returning
       them. Useful for synthetic datasets where distractor documents (i.e.,
       documents that are irrelevant to the query, used to challenge the
       retriever) are added in the same order as golden documents.
   """
 
-  docs: list[Document] = dataclasses.field(default_factory=list)
   shuffle_results: bool = False
+  # Documents added with `add_docs`.
+  _docs: list[Document] = dataclasses.field(
+      default_factory=list, init=False, repr=False
+  )
+
+  @property
+  def docs(self) -> list[Document]:
+    """Returns the documents that were added to the index."""
+    return self._docs
 
   @property
   def num_docs(self) -> int:
@@ -713,12 +720,12 @@ class NaiveIndex(DocumentIndex):
   @tracing.trace('NaiveIndex.add_docs')
   async def add_docs(self, docs: Iterable[Document]) -> None:
     """Overridden from base class (Index)."""
-    self.docs.extend(docs)
+    self._docs.extend(docs)
 
   @tracing.trace('NaiveIndex.destroy_index')
   def destroy_index(self) -> None:
     """Overridden from base class (Index)."""
-    self.docs.clear()
+    self._docs.clear()
 
   @executing.make_executable(copy_self=False)
   @tracing.trace('NaiveIndex.retrieve')

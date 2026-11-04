@@ -161,7 +161,10 @@ class BruteForceSearcher(Searcher):
   """
 
   normalize_embeds: bool = False
-  _doc_embeds: np.ndarray | None = None
+  # Document embeddings stored by `build`.
+  _doc_embeds: np.ndarray | None = dataclasses.field(
+      default=None, init=False, repr=False
+  )
   threadpool_size: int = 1
 
   @executing.make_executable(copy_self=False)

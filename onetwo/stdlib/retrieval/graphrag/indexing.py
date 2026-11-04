@@ -83,20 +83,25 @@ class BaseKnowledgeGraphIndex(
 
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
   embed_backend_config: backend_registry.EmbedBackendConfig | None = None
-  runtime_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
-  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
-  # representations of graph entity nodes (`EntityNode`).
-  _entity_index: indexing.EmbeddingBasedDocumentIndex | None = None
-  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
-  # representations of source document passages (`PassageNode`).
-  _passage_index: indexing.EmbeddingBasedDocumentIndex | None = None
-  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
-  # representations of relational triples (`Edge`).
-  _triples_index: indexing.EmbeddingBasedDocumentIndex | None = None
   # Environment settings and credentials: excluded from `repr` and equality,
   # and never saved by the serializers.
   runtime_kwargs: dict[str, Any] = dataclasses.field(
       default_factory=dict, repr=False, compare=False
+  )
+  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
+  # representations of graph entity nodes (`EntityNode`).
+  _entity_index: indexing.EmbeddingBasedDocumentIndex | None = (
+      dataclasses.field(default=None, init=False, repr=False)
+  )
+  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
+  # representations of source document passages (`PassageNode`).
+  _passage_index: indexing.EmbeddingBasedDocumentIndex | None = (
+      dataclasses.field(default=None, init=False, repr=False)
+  )
+  # Optional `EmbeddingBasedDocumentIndex` storing indexed `Document`
+  # representations of relational triples (`Edge`).
+  _triples_index: indexing.EmbeddingBasedDocumentIndex | None = (
+      dataclasses.field(default=None, init=False, repr=False)
   )
   # Documents managed by the index. If `None`, the corpus has not been
   # initialized yet.
