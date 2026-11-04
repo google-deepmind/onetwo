@@ -216,9 +216,11 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
         extractor.generate_backend_config, self.generate_backend_config
     )
     self.assertEqual(extractor.runtime_kwargs, {'api_key': 'key'})
+    # The documents are passed as-is, so that multimodal content (e.g. PDFs)
+    # reaches the model.
     self.assertIsInstance(
         extractor.document_formatter,
-        document_formatting.TextDocumentFormatter,
+        document_formatting.NoFormatting,
     )
 
   def test_default_format_str_is_no_formatting(self):

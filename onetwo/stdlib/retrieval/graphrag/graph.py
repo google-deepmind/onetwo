@@ -23,9 +23,8 @@ from absl import logging
 import networkx as nx
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_base
-from onetwo.builtins import composables
 from onetwo.builtins import llm
-from onetwo.core import composing
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import tracing
@@ -35,7 +34,6 @@ from onetwo.stdlib.retrieval import retrieval_data_structures
 import pydantic
 
 Document = retrieval_data_structures.Document
-Composable = composing.Composable
 DocT = TypeVar("DocT")
 EntityT = TypeVar("EntityT")
 TripleT = TypeVar("TripleT")
@@ -525,16 +523,18 @@ class GraphRAGEntityAndTriplesExtractor(
   Attributes:
     extraction_prompt: The system prompt or instructions defining the guidelines
       for extracting entities and relational triples. Can be a plain string or a
-      pre-structured `Composable` object (e.g., tagged with a specific
-      conversational role).
+      `ChunkList` (e.g., whose chunks are tagged with a conversational role).
       Note: Any domain-specific configuration (such as target entity types or
         ontology definitions) should be pre-formatted into this prompt before
         initializing the extractor. Do not include document placeholders (such
         as `{input_text}`) in this prompt, as the document text is combined at
         execution time via `extraction_prompt_template`.
     document_formatter: A `DocumentFormatter` instance used to convert the input
-      `Document` into its string or `Composable` content representation prior to
-      prompt assembly.
+      `Document` into its string or `ChunkList` content prior to prompt
+      assembly. By default, the document is passed as-is (`NoFormatting`), so
+      that the content of multimodal documents (e.g. the PDF of a page, as a
+      `ChunkList`) reaches the model as such. A `TextDocumentFormatter` would
+      instead turn it into text placeholders (e.g. `<application/pdf>`).
     generate_backend_config: Configuration for the generation LLM backend used
       during entity and triple extraction.
     runtime_kwargs: Environment-specific deployment settings (e.g.,
@@ -544,11 +544,11 @@ class GraphRAGEntityAndTriplesExtractor(
       the serializers.
   """
 
-  extraction_prompt: str | Composable = (
+  extraction_prompt: str | content_lib.ChunkList = (
       """Extract entities and triples from the document."""
   )
   document_formatter: document_formatting.DocumentFormatter = dataclasses.field(
-      default_factory=document_formatting.TextDocumentFormatter
+      default_factory=document_formatting.NoFormatting
   )
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
   # Environment settings and credentials: excluded from `repr` and equality,
@@ -561,8 +561,10 @@ class GraphRAGEntityAndTriplesExtractor(
   )
 
   def extraction_prompt_template(
-      self, extraction_prompt: Composable, content: Composable
-  ) -> Composable:
+      self,
+      extraction_prompt: content_lib.ChunkList,
+      content: content_lib.ChunkList,
+  ) -> content_lib.ChunkList:
     """Returns the final prompt assembled from the instructions and document.
 
     By default, concatenates them with a section delimiter. Override this method
@@ -574,11 +576,7 @@ class GraphRAGEntityAndTriplesExtractor(
       extraction_prompt: The extraction instructions (`self.extraction_prompt`).
       content: The content of the formatted document.
     """
-    return (
-        extraction_prompt  # pyrefly: ignore[bad-return]
-        + composables.c("\n\nDocument:\n")  # pyrefly: ignore[bad-argument-type]
-        + content
-    )
+    return extraction_prompt + "\n\nDocument:\n" + content
 
   @property
   def generator_backend(self) -> backends_base.Backend | None:
@@ -619,14 +617,17 @@ class GraphRAGEntityAndTriplesExtractor(
     formatted_doc = await self.document_formatter(doc)
     doc_content = formatted_doc.content
 
+    # The prompt is a `ChunkList`, so that multimodal content (e.g. a PDF)
+    # reaches the model as such rather than as text placeholders.
+    prompt = self.extraction_prompt_template(
+        content_lib.ChunkList() + self.extraction_prompt,
+        content_lib.ChunkList() + doc_content,
+    )
+
     with self._backend_routing_context():
       try:
         result: TripleExtractionResult = await llm.generate_object(  # pyrefly: ignore[bad-assignment]
-            self.extraction_prompt_template(
-                composables.c(self.extraction_prompt),  # pyrefly: ignore[bad-argument-type]
-                composables.c(doc_content),  # pyrefly: ignore[bad-argument-type]
-            ),
-            TripleExtractionResult,
+            prompt, TripleExtractionResult
         )
       except (pydantic.ValidationError, ValueError) as e:
         logging.warning(

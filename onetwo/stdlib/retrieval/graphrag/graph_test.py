@@ -24,7 +24,7 @@ import networkx as nx
 from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
-from onetwo.builtins import composables
+from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.graphrag import graph
@@ -240,6 +240,36 @@ class GraphRAGEntityAndTriplesExtractorTest(parameterized.TestCase):
         if "output" in leaf.outputs and isinstance(leaf.outputs["output"], str):
           self.assertNotIn(DEFAULT_REPLY, leaf.outputs["output"])
 
+  def test_extractor_sends_multimodal_content_to_model(self):
+    """Tests that the content of a PDF page reaches the model as such.
+
+    The mock backend only finds the entities in the bytes of the PDF chunk, so
+    a text placeholder (e.g. `<application/pdf>`) yields none.
+    """
+    pdf_doc = retrieval_data_structures.Document(
+        doc_id="pdf_page_1",
+        title="PDF page 1",
+        content=content_lib.ChunkList([
+            content_lib.Chunk(
+                content=(
+                    b"%PDF-1.7\nSteve Jobs was CEO of Apple. Steve Jobs was"
+                    b" born in San Francisco."
+                ),
+                content_type="application/pdf",
+            )
+        ]),
+    )
+    extractor = graph.GraphRAGEntityAndTriplesExtractor()
+
+    entities, triples = ot.run(extractor(pdf_doc))
+
+    with self.subTest("entities"):
+      self.assertEqual(
+          {e.name for e in entities}, {"steve jobs", "apple", "san francisco"}
+      )
+    with self.subTest("triples"):
+      self.assertLen(triples, 2)
+
   def test_custom_document_formatter(self):
     """Tests extraction when using a custom document formatter."""
     custom_formatter = document_formatting.TextDocumentFormatter(
@@ -253,15 +283,26 @@ class GraphRAGEntityAndTriplesExtractorTest(parameterized.TestCase):
     self.assertLen(triples, 2)
 
   def test_custom_extraction_prompt_template(self):
-    """Tests extraction when overriding extraction_prompt_template and using Composable."""
+    """Tests extraction when overriding extraction_prompt_template with roles."""
+
+    def with_role(
+        chunks: content_lib.ChunkList, role: str
+    ) -> content_lib.ChunkList:
+      return content_lib.ChunkList(
+          [dataclasses.replace(chunk, role=role) for chunk in chunks]
+      )
 
     class ChatTurnsExtractor(graph.GraphRAGEntityAndTriplesExtractor):
 
-      def extraction_prompt_template(self, extraction_prompt, document):
+      def extraction_prompt_template(
+          self,
+          extraction_prompt: content_lib.ChunkList,
+          content: content_lib.ChunkList,
+      ) -> content_lib.ChunkList:
         return (
-            composables.c(extraction_prompt, role="system")  # pyrefly: ignore[unexpected-keyword, unsupported-operation]
-            + composables.c("\n\nContext Document:\n")  # pyrefly: ignore[bad-argument-type, unsupported-operation]
-            + composables.c(document, role="user")  # pyrefly: ignore[unexpected-keyword]
+            with_role(extraction_prompt, "system")
+            + "\n\nContext Document:\n"
+            + with_role(content, "user")
         )
 
     extractor = ChatTurnsExtractor(

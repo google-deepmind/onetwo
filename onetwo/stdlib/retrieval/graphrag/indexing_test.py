@@ -251,9 +251,10 @@ class HippoRAGExtractorSettingsTest(parameterized.TestCase):
             entity_types=", ".join(graphrag_prompts.DEFAULT_ENTITY_TYPES)
         ),
     )
-    self.assertEqual(
+    # `NoFormatting` has no fields to compare, so its type is checked.
+    self.assertIsInstance(
         extractor.document_formatter,
-        graph_lib.GraphRAGEntityAndTriplesExtractor().document_formatter,
+        type(graph_lib.GraphRAGEntityAndTriplesExtractor().document_formatter),
     )
 
   def test_extractor_uses_index_settings(self):
