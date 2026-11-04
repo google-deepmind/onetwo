@@ -35,6 +35,7 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
 
     index = spec.make_index({'api_key': 'key'})
 
+    self.assertIsInstance(index, indexing.RewritingEmbeddingBasedDocumentIndex)
     self.assertEqual(index.inner_index.runtime_kwargs, {'api_key': 'key'})
 
   def test_custom_chunker_strategy(self):

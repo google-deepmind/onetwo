@@ -291,13 +291,18 @@ def supports_save(index: Index) -> bool:
   """Returns whether `index` can be saved with `save` and loaded with `load`.
 
   An index supports saving if its class overrides both `Index.save` and
-  `Index.load`.
+  `Index.load`. A `RewritingDocumentIndex` also requires that its inner index
+  supports saving.
 
   Args:
     index: The index to check.
   """
   index_type = type(index)
-  return index_type.save is not Index.save and index_type.load is not Index.load
+  if index_type.save is Index.save or index_type.load is Index.load:
+    return False
+  if isinstance(index, RewritingDocumentIndex):
+    return supports_save(index.inner_index)
+  return True
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -644,6 +649,35 @@ class DocumentIndex(
     metaclass=abc.ABCMeta,
 ):
   """All DocumentIndex classes should be subclasses of this type."""
+
+
+@dataclasses.dataclass(kw_only=True)
+class RewritingDocumentIndex(
+    RewritingIndex[str, Document, Document],
+    DocumentIndex,
+):
+  """`RewritingIndex` for `Document` objects, wrapping any such index.
+
+  Supports `save` and `load` if the inner index does: the inner index is saved
+  to the same directory, next to the original documents (if preserved).
+
+  Attributes:
+    inner_index: The index that the rewritten documents are added to.
+  """
+
+  inner_index: Index[str, Document, Document]
+
+  def save(self, base_path: str) -> None:
+    """Saves the index state."""
+    self.inner_index.save(base_path)
+    if self.preserve_original_docs:
+      self._save_original_docs(base_path)
+
+  @executing.make_executable(copy_self=False)
+  async def load(self, base_path: str) -> None:
+    """Loads the index state."""
+    await self.inner_index.load(base_path)
+    self._load_original_docs(base_path, Document)
 
 
 @dataclasses.dataclass
@@ -1193,27 +1227,14 @@ class EmbeddingBasedDocumentIndex(
 @dataclasses.dataclass(kw_only=True)
 class RewritingEmbeddingBasedDocumentIndex(
     RewritingEmbeddingBasedIndex[str, Document, Document],
-    EmbeddingBasedDocumentIndex,
+    RewritingDocumentIndex,
 ):
-  """Embedding-based index with rewriting for Document objects."""
+  """Embedding-based index with rewriting for Document objects.
+
+  The embedding settings (e.g. `embed_backend_config`, `serializer_type`) are
+  those of `inner_index`.
+  """
 
   inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(
       default_factory=EmbeddingBasedDocumentIndex
   )
-
-  def __post_init__(self):
-    super().__post_init__()
-    if hasattr(self, 'serializer_type') and self.serializer_type:
-      self.inner_index.serializer_type = self.serializer_type
-
-  def save(self, base_path: str) -> None:
-    """Saves the index state."""
-    self.inner_index.save(base_path)
-    if self.preserve_original_docs:
-      self._save_original_docs(base_path)
-
-  @executing.make_executable(copy_self=False)
-  async def load(self, base_path: str) -> None:
-    """Loads the index state."""
-    await self.inner_index.load(base_path)
-    self._load_original_docs(base_path, Document)

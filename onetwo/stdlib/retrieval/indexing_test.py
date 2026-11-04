@@ -187,7 +187,6 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
 
   def test_searcher_created_from_default_config(self):
     index = indexing.EmbeddingBasedIndex()
-    rewriting_index = indexing.RewritingEmbeddingBasedDocumentIndex()
 
     with self.subTest('default_config_is_brute_force'):
       self.assertEqual(
@@ -196,10 +195,6 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
       )
     with self.subTest('searcher_is_brute_force'):
       self.assertIsInstance(index.searcher, searchers.BruteForceSearcher)
-    with self.subTest('rewriting_index_has_searcher'):
-      self.assertIsInstance(
-          rewriting_index.searcher, searchers.BruteForceSearcher
-      )
 
   def test_searcher_uses_config_kwargs(self):
     index = indexing.EmbeddingBasedIndex(
@@ -1199,6 +1194,12 @@ class IndexSaveLoadContractTest(absltest.TestCase):
       self.assertTrue(
           indexing.supports_save(
               indexing.RewritingEmbeddingBasedDocumentIndex()
+          )
+      )
+    with self.subTest('rewriting_index_with_unsavable_inner_index'):
+      self.assertFalse(
+          indexing.supports_save(
+              indexing.RewritingDocumentIndex(inner_index=indexing.NaiveIndex())
           )
       )
 

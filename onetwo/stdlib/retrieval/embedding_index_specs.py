@@ -16,7 +16,7 @@
 
 Importing this module registers the embedding specs in `index_spec_registry`.
 Custom specs can reuse them, e.g. by subclassing a spec and calling
-`super().make_index(...)` to build an inner embedding index, or by calling
+`make_embedding_index(...)` to build an inner embedding index, or by calling
 `make_rewriter` to build the chunk-then-format rewriter.
 """
 
@@ -68,6 +68,12 @@ class EmbeddingBasedDocumentIndexSpec(index_build_interface.IndexSpec):
   )
 
   def make_index(
+      self, runtime_kwargs: Mapping[str, Any]
+  ) -> indexing.DocumentIndex:
+    """Returns an empty `EmbeddingBasedDocumentIndex` configured by this spec."""
+    return self.make_embedding_index(runtime_kwargs)
+
+  def make_embedding_index(
       self, runtime_kwargs: Mapping[str, Any]
   ) -> indexing.EmbeddingBasedDocumentIndex:
     """Returns an empty `EmbeddingBasedDocumentIndex` configured by this spec."""
@@ -125,12 +131,11 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
 
   def make_index(
       self, runtime_kwargs: Mapping[str, Any]
-  ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
+  ) -> indexing.RewritingDocumentIndex:
     """Returns an empty chunking/formatting embedding index for this spec."""
     return indexing.RewritingEmbeddingBasedDocumentIndex(
         rewriter=make_rewriter(self),
-        inner_index=super().make_index(runtime_kwargs),
-        serializer_type=self.serializer_type,
+        inner_index=self.make_embedding_index(runtime_kwargs),
         preserve_original_docs=self.preserve_original_docs,
         retrieval_target=self.retrieval_target,
     )

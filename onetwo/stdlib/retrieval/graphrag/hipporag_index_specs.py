@@ -95,7 +95,7 @@ class SimpleRewritingHippoRAGDocumentIndexSpec(
 
   def make_index(
       self, runtime_kwargs: Mapping[str, Any]
-  ) -> indexing.RewritingEmbeddingBasedDocumentIndex:
+  ) -> indexing.RewritingDocumentIndex:
     """Returns an empty chunking/formatting HippoRAG index for this spec."""
     runtime_kwargs = dict(runtime_kwargs)
     # The index builds its entity and triples extractor from these settings,
@@ -108,9 +108,9 @@ class SimpleRewritingHippoRAGDocumentIndexSpec(
         ignore_similarity_edges=self.ignore_similarity_edges,
         runtime_kwargs=runtime_kwargs,
     )
-    return indexing.RewritingEmbeddingBasedDocumentIndex(
+    return indexing.RewritingDocumentIndex(
         rewriter=embedding_index_specs.make_rewriter(self),
-        inner_index=inner_index,  # pyrefly: ignore[bad-argument-type]
+        inner_index=inner_index,
         preserve_original_docs=self.preserve_original_docs,
         retrieval_target=self.retrieval_target,
     )

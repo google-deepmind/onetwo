@@ -149,7 +149,7 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
     runner = local_index_runner.LocalIndexRunner()
     index = executing.run(runner.build_index(spec=spec, docs=docs))
 
-    self.assertIsInstance(index, indexing.RewritingEmbeddingBasedDocumentIndex)
+    self.assertIsInstance(index, indexing.RewritingDocumentIndex)
     inner_index = index.inner_index
     self.assertIsInstance(inner_index, graphrag_indexing.HippoRAGDocumentIndex)
     if inner_index._entity_index is not None:
@@ -187,7 +187,7 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
 
     index = index_building.load_index(out_dir)
 
-    self.assertIsInstance(index, indexing.RewritingEmbeddingBasedDocumentIndex)
+    self.assertIsInstance(index, indexing.RewritingDocumentIndex)
     self.assertIsInstance(
         index.inner_index, graphrag_indexing.HippoRAGDocumentIndex
     )
