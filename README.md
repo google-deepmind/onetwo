@@ -180,7 +180,7 @@ To cite this repository:
 
 ```bibtex
 @software{onetwo2026github,
-  author = {Olivier Bousquet and Parth Kothari and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
+  author = {Olivier Bousquet and Parth Kothari and Elias Abad Rocamora and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
   url = {https://github.com/google-deepmind/onetwo},
   version = {0.5.0},
