@@ -76,7 +76,6 @@ def build_index(
     index_type: str = 'embedding',
     embedder: backend_registry.EmbedBackendConfig | None = None,
     chunker: chunker_registry.ChunkerConfig | None = None,
-    format_str: str | None = None,
     storage_format: serialization.StorageFormat = (
         serialization.StorageFormat.JSONL_NPY
     ),
@@ -119,7 +118,6 @@ def build_index(
       indexed, e.g. `ChunkerConfig(chunker_name='routing')`. If None, documents
       are not chunked. `chunker_name` must be registered: see `chunker_registry`
       for the available chunkers and how to register them.
-    format_str: Format string for document formatting.
     storage_format: How the index is saved on disk (see
       `serialization.StorageFormat`).
 
@@ -137,9 +135,6 @@ def build_index(
   )
   rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
 
-  if format_str in ('None', ''):
-    format_str = None
-
   chunker_config = (
       chunker
       if chunker is not None
@@ -156,14 +151,12 @@ def build_index(
   spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
       embed_backend_config=embed_backend_config,
       chunker_config=chunker_config,
-      format_str=format_str,
       serializer_type=storage_format.value,
   )
   if index_type == 'hipporag':
     spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=embed_backend_config,
         chunker_config=chunker_config,
-        format_str=format_str,
     )
 
   return build_index_from_spec(

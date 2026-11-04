@@ -105,7 +105,9 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
 
   Attributes:
     chunker_config: Configuration for the chunker used for corpus rewriting.
-    format_str: Format string for document formatting.
+    format_str: Format string for document formatting with
+      `document_formatting.TextDocumentFormatter`, e.g. '{title}: {text}'. If
+      None (the default), documents are not formatted (`NoFormatting`).
     preserve_original_docs: Whether to preserve the pre-rewriting documents in
       the index.
     retrieval_target: Default target objects to return upon retrieval (rewritten
@@ -115,7 +117,7 @@ class SimpleRewritingEmbeddingBasedDocumentIndexSpec(
   chunker_config: chunker_registry.ChunkerConfig = dataclasses.field(
       default_factory=chunker_registry.ChunkerConfig
   )
-  format_str: str | None = '{text}'
+  format_str: str | None = None
   preserve_original_docs: bool = False
   retrieval_target: indexing.RetrievalTarget = (
       indexing.RetrievalTarget.REWRITTEN

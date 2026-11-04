@@ -137,15 +137,6 @@ _TOKENIZE_MODEL_NAME = flags.DEFINE_string(
     'Name of the tokenizer model (when --chunking_strategy=tokens).',
 )
 
-_FORMAT = flags.DEFINE_string(
-    'format',
-    None,
-    (
-        'Format string for document formatting. If "None" (string) or empty,'
-        ' no formatting is done.'
-    ),
-)
-
 _RUNTIME_KWARGS = flags.DEFINE_string(
     'runtime_kwargs',
     '{}',
@@ -328,7 +319,6 @@ def main(argv: Sequence[str]) -> None:
       output=_OUTPUT.value,
       embedder=_embedder_from_flags(),
       chunker=_chunker_from_flags(),
-      format_str=_FORMAT.value,
       storage_format=_STORAGE_FORMAT.value,
       runtime_kwargs=build_index_lib.get_default_runtime_kwargs(
           json.loads(_RUNTIME_KWARGS.value),

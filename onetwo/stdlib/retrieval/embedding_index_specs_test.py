@@ -18,7 +18,9 @@ from absl.testing import absltest
 from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import embedding_index_specs
+from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 
 
@@ -73,6 +75,49 @@ class EmbeddingIndexSpecsTest(absltest.TestCase):
     index = spec.make_index({})
     self.assertTrue(index.preserve_original_docs)
     self.assertEqual(index.retrieval_target, indexing.RetrievalTarget.ORIGINAL)
+
+  def test_default_format_str_is_no_formatting(self):
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='FakeEmbedderBackend'
+        ),
+    )
+
+    self.assertIsNone(spec.format_str)
+    rewriters = getattr(spec.make_index({}).rewriter, 'rewriters')
+    self.assertIsInstance(
+        getattr(rewriters[1], 'formatter'), document_formatting.NoFormatting
+    )
+
+  def test_format_str_uses_text_document_formatter(self):
+    spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=backend_registry.EmbedBackendConfig(
+            backend_class_name='FakeEmbedderBackend'
+        ),
+        format_str='{title}: {text}',
+    )
+
+    rewriters = getattr(spec.make_index({}).rewriter, 'rewriters')
+    formatter = getattr(rewriters[1], 'formatter')
+    self.assertIsInstance(formatter, document_formatting.TextDocumentFormatter)
+    self.assertEqual(formatter.format_str, '{title}: {text}')
+
+  def test_saved_spec_keeps_its_format_str(self):
+    # Saved specs store `format_str` explicitly, so specs saved with the
+    # previous default ('{text}') are restored with it.
+    spec_dict = index_spec_registry.spec_to_dict(
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+            format_str='{text}'
+        )
+    )
+    self.assertEqual(spec_dict['spec']['format_str'], '{text}')
+    self.assertEqual(
+        index_spec_registry.spec_from_dict(spec_dict).format_str, '{text}'
+    )
+    default_spec_dict = index_spec_registry.spec_to_dict(
+        embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec()
+    )
+    self.assertIsNone(default_spec_dict['spec']['format_str'])
 
 
 if __name__ == '__main__':

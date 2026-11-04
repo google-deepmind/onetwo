@@ -221,6 +221,20 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
         document_formatting.TextDocumentFormatter,
     )
 
+  def test_default_format_str_is_no_formatting(self):
+    spec = SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=self.embed_backend_config,
+        generate_backend_config=self.generate_backend_config,
+    )
+
+    self.assertIsNone(spec.format_str)
+    rewriters = getattr(
+        spec.make_index(runtime_kwargs={}).rewriter, 'rewriters'
+    )
+    self.assertIsInstance(
+        getattr(rewriters[1], 'formatter'), document_formatting.NoFormatting
+    )
+
   def test_local_index_runner_forwards_ignore_flags(self):
     spec = SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=self.embed_backend_config,
