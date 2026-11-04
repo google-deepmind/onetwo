@@ -15,7 +15,6 @@
 """Library to build an embedding-based document index."""
 
 from collections.abc import Mapping
-import json
 from typing import Any
 
 from etils import epath
@@ -28,6 +27,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import serialization
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 
 
@@ -38,19 +38,48 @@ def _corpus_name(corpus: str | datasets.DatasetLoader) -> str:
   return corpus.dataset_name or type(corpus).__name__
 
 
-# TODO: Consider merging max_retries and http_timeout
-# into runtime_kwargs.
+def get_default_runtime_kwargs(
+    runtime_kwargs: Mapping[str, Any] | None,
+    *,
+    max_retries: int = rag_defaults.DEFAULT_MAX_RETRIES,
+    http_timeout_ms: int = rag_defaults.DEFAULT_HTTP_TIMEOUT_MS,
+) -> dict[str, Any]:
+  """Returns `runtime_kwargs` with default backend request settings.
+
+  Settings already in `runtime_kwargs` are kept. The input is not modified.
+
+  Args:
+    runtime_kwargs: Arguments for backends (e.g. API key).
+    max_retries: Maximum number of retries of backend requests, set as
+      `'max_retries'` if absent.
+    http_timeout_ms: HTTP timeout of backend requests in milliseconds, set as
+      `'http_options': {'timeout': http_timeout_ms}` if `'http_options'` is
+      absent, or as its `'timeout'` if `'http_options'` is a dict without one.
+
+  Returns:
+    A new dict of runtime kwargs with the defaults applied.
+  """
+  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  rt_kwargs.setdefault('max_retries', max_retries)
+  http_options = rt_kwargs.get('http_options')
+  if 'http_options' not in rt_kwargs:
+    rt_kwargs['http_options'] = {'timeout': http_timeout_ms}
+  elif isinstance(http_options, dict) and 'timeout' not in http_options:
+    rt_kwargs['http_options'] = {**http_options, 'timeout': http_timeout_ms}
+  return rt_kwargs
+
+
 def build_index(
     corpus: str | datasets.DatasetLoader,
     output: str,
-    runtime_kwargs: Mapping[str, Any] | str,
+    runtime_kwargs: Mapping[str, Any] | None = None,
     index_type: str = 'embedding',
     embedder: backend_registry.EmbedBackendConfig | None = None,
     chunker: chunker_registry.ChunkerConfig | None = None,
     format_str: str | None = None,
-    serializer_type: str = 'simple',
-    max_retries: int | None = 5,
-    http_timeout: int | None = 60000,
+    storage_format: serialization.StorageFormat = (
+        serialization.StorageFormat.JSONL_NPY
+    ),
 ) -> str:
   """Builds and saves a document index of the specified corpus.
 
@@ -67,7 +96,12 @@ def build_index(
       `datasets.MultimodalDatasetLoader(path=..., max_number_of_documents=N)` or
       `datasets.get_dataset_loader(name, max_number_of_documents=N)`.
     output: Base directory (pattern) where the built index will be saved.
-    runtime_kwargs: Arguments for backends (e.g. API key).
+    runtime_kwargs: Arguments for backends (e.g. API key), not saved with the
+      index. Backend requests are retried up to `'max_retries'` times (default
+      `rag_defaults.DEFAULT_MAX_RETRIES`) and time out after `'http_options':
+      {'timeout': ...}` milliseconds (default
+      `rag_defaults.DEFAULT_HTTP_TIMEOUT_MS`, also added to an `'http_options'`
+      dict without `'timeout'`). See `with_request_defaults`.
     index_type: Type of index ('embedding' or 'hipporag'). 'hipporag' uses the
       default settings of `SimpleRewritingHippoRAGDocumentIndexSpec`, including
       its default generation model (`generate_backend_config`); to change them
@@ -86,12 +120,14 @@ def build_index(
       are not chunked. `chunker_name` must be registered: see `chunker_registry`
       for the available chunkers and how to register them.
     format_str: Format string for document formatting.
-    serializer_type: Serializer type to use ('simple' or 'internal').
-    max_retries: Maximum number of retries for backend requests.
-    http_timeout: HTTP timeout in milliseconds for backend requests.
+    storage_format: How the index is saved on disk (see
+      `serialization.StorageFormat`).
 
   Returns:
     The output directory path where the index was saved.
+
+  Raises:
+    ValueError: If the chunker is not registered.
   """
   # Construct spec
   embed_backend_config = (
@@ -99,19 +135,7 @@ def build_index(
       if embedder is not None
       else rag_defaults.default_embed_backend_config()
   )
-  if isinstance(runtime_kwargs, str):
-    rt_kwargs = json.loads(runtime_kwargs)
-  else:
-    rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
-  if 'max_retries' not in rt_kwargs and max_retries is not None:
-    rt_kwargs['max_retries'] = max_retries
-  if 'http_options' not in rt_kwargs and http_timeout is not None:
-    rt_kwargs['http_options'] = {'timeout': http_timeout}
-  elif 'http_options' in rt_kwargs and isinstance(
-      rt_kwargs['http_options'], dict
-  ):
-    if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
-      rt_kwargs['http_options']['timeout'] = http_timeout
+  rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
 
   if format_str in ('None', ''):
     format_str = None
@@ -133,7 +157,7 @@ def build_index(
       embed_backend_config=embed_backend_config,
       chunker_config=chunker_config,
       format_str=format_str,
-      serializer_type=serializer_type,
+      serializer_type=storage_format.value,
   )
   if index_type == 'hipporag':
     spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(

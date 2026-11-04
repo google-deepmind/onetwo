@@ -41,6 +41,7 @@ from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
+from onetwo.stdlib.retrieval import serialization
 
 # Re-export build_index for backward compatibility.
 build_index = build_index_lib.build_index
@@ -168,21 +169,32 @@ _MAX_DOCUMENTS = flags.DEFINE_integer(
 
 _MAX_RETRIES = flags.DEFINE_integer(
     'max_retries',
-    5,
-    'Maximum number of retries for backend requests.',
+    rag_defaults.DEFAULT_MAX_RETRIES,
+    (
+        'Maximum number of retries for backend requests. Ignored if'
+        ' --runtime_kwargs sets "max_retries".'
+    ),
 )
 
 _HTTP_TIMEOUT = flags.DEFINE_integer(
     'http_timeout',
-    60000,
-    'HTTP timeout in milliseconds for backend requests (default: 60s).',
+    rag_defaults.DEFAULT_HTTP_TIMEOUT_MS,
+    (
+        'HTTP timeout in milliseconds for backend requests (default: 60s).'
+        ' Ignored if --runtime_kwargs sets "http_options" with a "timeout" (or'
+        ' an "http_options" that is not a dict).'
+    ),
 )
 
-_SERIALIZER_TYPE = flags.DEFINE_enum(
-    'serializer_type',
-    'simple',
-    ['simple', 'internal'],
-    'Serializer type to use for saving the index.',
+_STORAGE_FORMAT = flags.DEFINE_enum_class(
+    'storage_format',
+    serialization.StorageFormat.JSONL_NPY,
+    serialization.StorageFormat,
+    (
+        'How the index is saved on disk (see `serialization.StorageFormat`).'
+        ' Only used with --index_type=embedding: --index_type=hipporag'
+        ' indexes are always saved in their own graph format.'
+    ),
 )
 
 _EMBED_KWARGS = flags.DEFINE_string(
@@ -317,10 +329,12 @@ def main(argv: Sequence[str]) -> None:
       embedder=_embedder_from_flags(),
       chunker=_chunker_from_flags(),
       format_str=_FORMAT.value,
-      serializer_type=_SERIALIZER_TYPE.value,
-      runtime_kwargs=_RUNTIME_KWARGS.value,
-      max_retries=_MAX_RETRIES.value,
-      http_timeout=_HTTP_TIMEOUT.value,
+      storage_format=_STORAGE_FORMAT.value,
+      runtime_kwargs=build_index_lib.get_default_runtime_kwargs(
+          json.loads(_RUNTIME_KWARGS.value),
+          max_retries=_MAX_RETRIES.value,
+          http_timeout_ms=_HTTP_TIMEOUT.value,
+      ),
   )
 
 

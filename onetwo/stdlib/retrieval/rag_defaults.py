@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Default models used by the OneTwo RAG API.
+"""Default models and settings used by the OneTwo RAG API.
 
 All default backends and models of `rag.build_index`, `rag.evaluate`, their
-command-line tools and the built-in index specs are defined here, so that they
-can be found (and updated) in one place.
+command-line tools and the built-in index specs, as well as the default backend
+request settings of `rag.build_index`, are defined here, so that they can be
+found (and updated) in one place.
 
 Defaults specific to one index type (e.g. chunk size or searcher) are defined
 on its spec class instead (see `index_build_interface`).
@@ -48,6 +49,13 @@ DEFAULT_INDEX_GENERATE_MODEL_NAME = 'gemini-3-flash-preview'
 DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
 DEFAULT_QA_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
 DEFAULT_AI_RATER_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
+
+# Backend request settings applied by `rag.build_index` (and its command-line
+# tool) unless set in its `runtime_kwargs`: the maximum number of retries
+# (`runtime_kwargs['max_retries']`) and the HTTP timeout in milliseconds
+# (`runtime_kwargs['http_options']['timeout']`).
+DEFAULT_MAX_RETRIES = 5
+DEFAULT_HTTP_TIMEOUT_MS = 60_000
 
 
 def default_embed_backend_config() -> backend_registry.EmbedBackendConfig:

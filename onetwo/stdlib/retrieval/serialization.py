@@ -16,6 +16,7 @@
 
 import collections
 import dataclasses
+import enum
 import io
 import json
 from typing import Any, Generic, Sequence, TypeVar
@@ -37,6 +38,21 @@ DOCS_JSONL_NAME = 'docs.jsonl'
 EMBEDS_NPY_NAME = 'embeddings.npy'
 EMBED_BACKEND_CONFIG_JSON_NAME = 'embed_backend_config.json'
 MANIFEST_JSON_NAME = 'manifest.json'
+
+
+class StorageFormat(enum.StrEnum):
+  """How an index is saved on disk, independently of the index type.
+
+  Each value is the key of the serializer in `SERIALIZER_REGISTRY` and the
+  `serializer_type` written to the `manifest.json` of the saved index.
+
+  Attributes:
+    JSONL_NPY: Documents in JSON lines files (`docs.jsonl`) and embeddings in
+      NumPy files (`embeddings.npy`), possibly sharded. See
+      `SimpleEmbeddingBasedIndexSerializer`.
+  """
+
+  JSONL_NPY = 'simple'
 
 
 def get_shard_path(
@@ -246,7 +262,7 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
     # Save manifest.json.
     manifest_path = path / self.manifest_json_name
     manifest_data = {
-        'serializer_type': 'simple',
+        'serializer_type': StorageFormat.JSONL_NPY.value,
         'format_version': '1.0',
         'docs_count': len(state.docs) if state.docs else 0,
         'embeds_count': (
@@ -392,7 +408,7 @@ class SimpleConstrainedEmbeddingBasedIndexSerializer(
 
 
 SERIALIZER_REGISTRY: dict[str, type[Any]] = {
-    'simple': SimpleEmbeddingBasedIndexSerializer,
+    StorageFormat.JSONL_NPY.value: SimpleEmbeddingBasedIndexSerializer,
 }
 
 

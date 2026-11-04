@@ -14,6 +14,7 @@
 
 import json
 import os
+import types
 from unittest import mock
 import wave
 
@@ -35,6 +36,7 @@ from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
+from onetwo.stdlib.retrieval import serialization
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 import pypdf
 
@@ -550,6 +552,192 @@ class BuildIndexLibTest(absltest.TestCase):
             model_name='fake-generate-model',
         ),
     )
+
+  def test_flat_kwargs_runtime_kwargs_defaults_to_request_defaults(self):
+    build_mock = self._mock_index_building_build_index()
+
+    build_index_lib.build_index(
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        embedder=_FAKE_EMBEDDER,
+    )
+
+    self.assertEqual(
+        build_mock.call_args.kwargs['runtime_kwargs'],
+        {
+            'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
+            'http_options': {'timeout': rag_defaults.DEFAULT_HTTP_TIMEOUT_MS},
+        },
+    )
+
+  def test_flat_kwargs_mapping_runtime_kwargs_get_request_defaults(self):
+    build_mock = self._mock_index_building_build_index()
+    runtime_kwargs = types.MappingProxyType({'api_key': 'key'})
+
+    build_index_lib.build_index(
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        runtime_kwargs=runtime_kwargs,
+        embedder=_FAKE_EMBEDDER,
+    )
+
+    self.assertEqual(
+        build_mock.call_args.kwargs['runtime_kwargs'],
+        {
+            'api_key': 'key',
+            'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
+            'http_options': {'timeout': rag_defaults.DEFAULT_HTTP_TIMEOUT_MS},
+        },
+    )
+    self.assertEqual(runtime_kwargs, {'api_key': 'key'})
+
+  def test_flat_kwargs_runtime_kwargs_override_request_defaults(self):
+    build_mock = self._mock_index_building_build_index()
+
+    build_index_lib.build_index(
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        runtime_kwargs={'max_retries': 2, 'http_options': {'timeout': 10}},
+        embedder=_FAKE_EMBEDDER,
+    )
+
+    self.assertEqual(
+        build_mock.call_args.kwargs['runtime_kwargs'],
+        {'max_retries': 2, 'http_options': {'timeout': 10}},
+    )
+
+  def test_with_request_defaults(self):
+    default_timeout = rag_defaults.DEFAULT_HTTP_TIMEOUT_MS
+    for name, runtime_kwargs, expected in (
+        (
+            'none',
+            None,
+            {
+                'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
+                'http_options': {'timeout': default_timeout},
+            },
+        ),
+        (
+            'set_values_are_kept',
+            {'max_retries': 0, 'http_options': {'timeout': 10}},
+            {'max_retries': 0, 'http_options': {'timeout': 10}},
+        ),
+        (
+            'timeout_is_merged_into_http_options',
+            {'max_retries': 1, 'http_options': {'base_url': 'url'}},
+            {
+                'max_retries': 1,
+                'http_options': {'base_url': 'url', 'timeout': default_timeout},
+            },
+        ),
+        (
+            'non_dict_http_options_is_kept',
+            {'max_retries': 1, 'http_options': None},
+            {'max_retries': 1, 'http_options': None},
+        ),
+    ):
+      with self.subTest(name):
+        self.assertEqual(
+            build_index_lib.get_default_runtime_kwargs(runtime_kwargs), expected
+        )
+
+  def test_with_request_defaults_custom_defaults(self):
+    self.assertEqual(
+        build_index_lib.get_default_runtime_kwargs(
+            {'http_options': {}}, max_retries=3, http_timeout_ms=100
+        ),
+        {'max_retries': 3, 'http_options': {'timeout': 100}},
+    )
+    # Values set in `runtime_kwargs` take precedence over custom defaults.
+    self.assertEqual(
+        build_index_lib.get_default_runtime_kwargs(
+            {'max_retries': 1, 'http_options': {'timeout': 10}},
+            max_retries=3,
+            http_timeout_ms=100,
+        ),
+        {'max_retries': 1, 'http_options': {'timeout': 10}},
+    )
+
+  def test_with_request_defaults_does_not_modify_input(self):
+    http_options = {'base_url': 'url'}
+    runtime_kwargs = {'http_options': http_options}
+
+    build_index_lib.get_default_runtime_kwargs(runtime_kwargs)
+
+    self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
+    self.assertEqual(http_options, {'base_url': 'url'})
+
+  def test_flat_kwargs_storage_format_reaches_spec(self):
+    build_mock = self._mock_index_building_build_index()
+
+    for storage_format, expected_serializer_type in (
+        (serialization.StorageFormat.JSONL_NPY, 'simple'),
+    ):
+      with self.subTest(storage_format.name):
+        build_index_lib.build_index(
+            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            output=self.output_dir,
+            embedder=_FAKE_EMBEDDER,
+            storage_format=storage_format,
+        )
+
+        self.assertEqual(
+            build_mock.call_args.kwargs['spec'].serializer_type,
+            expected_serializer_type,
+        )
+
+  def test_flat_kwargs_hipporag_accepts_default_storage_format(self):
+    build_mock = self._mock_index_building_build_index()
+
+    build_index_lib.build_index(
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        index_type='hipporag',
+        embedder=_FAKE_EMBEDDER,
+        storage_format=serialization.StorageFormat.JSONL_NPY,
+    )
+
+    self.assertIsInstance(
+        build_mock.call_args.kwargs['spec'],
+        hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec,
+    )
+
+  def test_flat_kwargs_default_storage_format(self):
+    build_mock = self._mock_index_building_build_index()
+
+    build_index_lib.build_index(
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        embedder=_FAKE_EMBEDDER,
+    )
+
+    self.assertEqual(
+        build_mock.call_args.kwargs['spec'].serializer_type, 'simple'
+    )
+
+  def test_storage_formats_are_registered_serializers(self):
+    # The values are the keys of `SERIALIZER_REGISTRY` and the
+    # `serializer_type` saved in `manifest.json`, so that saved indexes can be
+    # loaded. The internal serializers are registered when `build_index_lib`
+    # is imported.
+    for storage_format in serialization.StorageFormat:
+      with self.subTest(storage_format.name):
+        self.assertIn(storage_format.value, serialization.SERIALIZER_REGISTRY)
+    self.assertEqual(serialization.StorageFormat.JSONL_NPY.value, 'simple')
+
+  def test_flat_kwargs_saves_manifest_with_storage_format(self):
+    out_dir = build_index_lib.build_index(
+        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        embedder=_FAKE_EMBEDDER,
+        storage_format=serialization.StorageFormat.JSONL_NPY,
+    )
+
+    with open(os.path.join(out_dir, serialization.MANIFEST_JSON_NAME)) as f:
+      self.assertEqual(
+          json.load(f)['serializer_type'],
+          serialization.StorageFormat.JSONL_NPY.value,
+      )
 
 
 if __name__ == '__main__':
