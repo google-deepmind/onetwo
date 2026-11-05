@@ -41,42 +41,44 @@ class ConstrainedEmbeddingBasedIndex(
 ):
   """Embedding-based index that supports constrained retrieval.
 
+  Example of `discrete_field_extractors`:
+
+  ```python
+  discrete_field_extractors = {
+      'author': lambda doc: doc.author,
+      'tags': lambda doc: doc.tags,
+  }
+  # This allows constraints such as:
+  RetrievalConstraint(field_name='author', value='Jane Doe')
+  RetrievalConstraint(
+      field_name='tags',
+      constraint_type=LIST_CONTAINS_ANY,
+      value=['python', 'java'],
+  )
+  ```
+
   Attributes:
     discrete_field_extractors: A dictionary where keys are string field names
       and values are functions. Each function accepts a document (DocT) and
-      returns a discrete value (e.g., str, int) or a list of such values
-      for that field. These extractors populate internal reverse indices,
-      mapping field values to document indices. This allows for efficient
-      application of `RetrievalConstraints` during the retrieval process, using
-      the keys in this dictionary as `field_name` in the constraints.
-      The 'discrete_' qualifier distinguishes these from potential future
-      non-discrete fields (e.g., continuous values).
-      Example:
-      ```python
-        discrete_field_extractors = {
-          'author': lambda doc: doc.author,
-          'tags': lambda doc: doc.tags
-        }
-        # This would allow for constraints like
-        `RetrievalConstraint(field_name='author', value='Jane Doe')`
-        `RetrievalConstraint(
-            field_name='tags',
-            constraint_type=LIST_CONTAINS_ANY,
-            value=['python', 'java'])`.
-      ```
-    searcher_config: Configuration of the searcher used for nearest neighbor
-      search between query and document embeddings, restricted to candidate
-      documents matching the retrieval constraints. It should name a
-      `ConstrainedSearcher` (defaults to `ConstrainedBruteForceSearcher`).
+      returns a discrete value (e.g., str, int) or a list of such values for
+      that field. These extractors populate internal reverse indices, mapping
+      field values to document indices. This allows for efficient application of
+      `RetrievalConstraints` during the retrieval process, using the keys in
+      this dictionary as `field_name` in the constraints. The 'discrete_'
+      qualifier distinguishes these from potential future non-discrete fields
+      (e.g., continuous values). See the example above.
+    searcher: Searcher used for nearest neighbor search between query and
+      document embeddings, restricted to candidate documents matching the
+      retrieval constraints. It should be a `ConstrainedSearcher` (defaults to
+      `ConstrainedBruteForceSearcher`). Each index needs its own searcher
+      instance (see `EmbeddingBasedIndex`).
   """
 
   discrete_field_extractors: dict[str, Callable[[DocT], Any]] = (
       dataclasses.field(default_factory=dict)
   )
-  searcher_config: searchers.SearcherConfig = dataclasses.field(
-      default_factory=lambda: searchers.SearcherConfig(
-          class_name='ConstrainedBruteForceSearcher'
-      )
+  searcher: searchers.Searcher = dataclasses.field(
+      default_factory=searchers.ConstrainedBruteForceSearcher
   )
 
   # Internal reverse index for discrete field values, used for constrained

@@ -893,20 +893,14 @@ class EmbeddingBasedIndex(
   embeddings. It uses the `llm.embed` action to generate embeddings.
 
   Attributes:
-    searcher_config: Configuration of the searcher used for nearest neighbor
-      search between query and document embeddings. The live searcher is
-      created from it at construction and available via the read-only
-      `searcher` property.
+    searcher: Searcher used for nearest neighbor search between query and
+      document embeddings. It holds the built search state of the index
+      (`init=False` fields), so each index needs its own searcher instance: do
+      not share one between indexes.
   """
 
-  searcher_config: searchers.SearcherConfig = dataclasses.field(
-      default_factory=lambda: searchers.SearcherConfig(
-          class_name='BruteForceSearcher'
-      )
-  )
-  # Live searcher, created from `searcher_config` in `__post_init__`.
-  _searcher: searchers.Searcher = dataclasses.field(
-      init=False, repr=False, compare=False
+  searcher: searchers.Searcher = dataclasses.field(
+      default_factory=searchers.BruteForceSearcher
   )
   # List of the documents that are added to the index.
   _docs: list[DocT] = dataclasses.field(
@@ -955,19 +949,6 @@ class EmbeddingBasedIndex(
           progress_desc='Embedding docs',
           total=len(docs),
       )
-
-  def __post_init__(self) -> None:
-    """Creates the searcher from `searcher_config`.
-
-    Unlike the embedder backend, the searcher is created eagerly: this is cheap,
-    needs no credentials, and fails fast on an invalid `searcher_config`.
-    """
-    self._searcher = searchers.make_searcher(self.searcher_config)
-
-  @property
-  def searcher(self) -> searchers.Searcher:
-    """Returns the searcher created from `searcher_config`."""
-    return self._searcher
 
   @property
   def num_docs(self) -> int:
