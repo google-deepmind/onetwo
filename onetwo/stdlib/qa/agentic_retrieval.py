@@ -151,6 +151,9 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     final_instruction: If set, a model still calling tools when `max_steps` runs
       out gets one more call, without tools and with this instruction, to answer
       from what it has found so far (see `agent_lib.Agent`).
+    empty_reply_instruction: If set, sent as a user turn to prompt the model
+      again when it replies with neither text nor tool calls (see
+      `agent_lib.Agent`).
     query_template: What the model is sent before it has made any tool call. A
       `str.format` template with a `{question}` placeholder and, optionally, an
       `{additional_instructions}` one, the latter filled with whatever
@@ -167,6 +170,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   tools: Sequence[agent_lib.AgentTool] = ()
   max_steps: int = 100
   final_instruction: str = ''
+  empty_reply_instruction: str = ''
   query_template: str = DEFAULT_MCP_QUERY_TEMPLATE
   generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   doc_ids_from_answer: Callable[[str], Sequence[str]] | None = None
@@ -231,6 +235,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         tools=self.tools,
         max_steps=self.max_steps,
         final_instruction=self.final_instruction,
+        empty_reply_instruction=self.empty_reply_instruction,
         generate_kwargs=self.generate_kwargs,
     )
     turn = fc_types.ConversationTurn(

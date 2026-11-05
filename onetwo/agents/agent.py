@@ -80,6 +80,19 @@ AgentTool: TypeAlias = (
 DEFAULT_FINAL_INSTRUCTION = (
     'You can no longer use tools. Answer now, using what you have found so far.'
 )
+DEFAULT_EMPTY_REPLY_INSTRUCTION = (
+    'Your previous response was empty. Either call a tool or provide your'
+    ' answer.'
+)
+
+
+def _is_empty_reply(turn: fc_types.ConversationTurn) -> bool:
+  """Returns whether `turn` is a model turn with neither calls nor content."""
+  return (
+      turn.role == fc_types.ConversationRole.MODEL
+      and not turn.calls
+      and not str(turn.content or '').strip()
+  )
 
 
 def _answered(state: AgentState) -> bool:
@@ -147,10 +160,10 @@ class AgentStep:
     tool_turn: The results of the calls requested in `model_turn`, with
       `role=TOOL`, or None if no calls were requested (or none were executed).
     user_turn: A turn with `role=USER` that the agent itself sends the model
-      ahead of `model_turn`, or None. It is currently set only on the call made
-      with `Agent.final_instruction` once `max_steps` has run out, but is the
-      place for any other turn the agent needs to inject in the future. The
-      user's own request is not one: it opens `AgentState.turns` instead.
+      ahead of `model_turn`, or None. It is set on the call made with
+      `Agent.final_instruction` once `max_steps` has run out, and with
+      `Agent.empty_reply_instruction` after an empty model reply. The user's own
+      request is not one: it opens `AgentState.turns` instead.
   """
 
   model_turn: fc_types.ConversationTurn
@@ -270,6 +283,10 @@ class Agent(
       now, using what you have found.'. The instruction is recorded in the
       conversation like any other user turn. By default the exchange is cut off
       instead.
+    empty_reply_instruction: If set, sent as a user turn to prompt the model
+      again when it replies with neither text nor tool calls, e.g. 'Your
+      previous response was empty. Either call a tool or provide your answer.'.
+      By default (`''`) an empty reply ends the exchange.
     parallel_calls: Whether to execute the calls of a single turn concurrently.
       Models routinely request several at once and tools are usually IO-bound,
       so this is on by default. Results are always reported in the order the
@@ -284,6 +301,7 @@ class Agent(
   tools: Sequence[AgentTool] = ()
   max_steps: int = 10
   final_instruction: str = ''
+  empty_reply_instruction: str = ''
   parallel_calls: bool = True
   stop_on_tool_error: bool = False
   generate_kwargs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
@@ -348,9 +366,21 @@ class Agent(
           specs=[tool.to_spec() for tool in tools_by_name.values()],
       )
 
+  def _should_retry_empty_reply(self, state: AgentState) -> bool:
+    """Returns whether the last turn is an empty reply to re-prompt."""
+    return (
+        bool(self.empty_reply_instruction)
+        and bool(state.turns)
+        and _is_empty_reply(state.turns[-1])
+    )
+
+  def _done_answering(self, state: AgentState) -> bool:
+    """Returns whether the model has replied and no retry is due."""
+    return _answered(state) and not self._should_retry_empty_reply(state)
+
   def steps_exhausted(self, state: AgentState) -> bool:
     """Returns whether the exchange ran out of steps without an answer."""
-    return state.num_steps >= self.max_steps and not _answered(state)
+    return state.num_steps >= self.max_steps and not self._done_answering(state)
 
   @executing.make_executable(copy_self=False, non_copied_args=['environment'])
   async def _execute_call(
@@ -461,6 +491,14 @@ class Agent(
           role=fc_types.ConversationRole.USER, content=self.final_instruction
       )
       turns, tools = turns + [user_turn], ()
+    elif self._should_retry_empty_reply(state):
+      # A model turn with neither calls nor text (e.g. thoughts only) did not
+      # finish the run; inject a user nudge so turn roles alternate cleanly.
+      user_turn = fc_types.ConversationTurn(
+          role=fc_types.ConversationRole.USER,
+          content=self.empty_reply_instruction,
+      )
+      turns = turns + [user_turn]
     model_turn = await llm.generate_with_tools(
         turns=turns, tools=tools, **self.generate_kwargs
     )
@@ -486,6 +524,7 @@ class Agent(
         tool_turn=fc_types.ConversationTurn(
             role=fc_types.ConversationRole.TOOL, responses=responses
         ),
+        user_turn=user_turn,
     )
 
   def _record_step_in_trace(
@@ -535,7 +574,7 @@ class Agent(
     Args:
       state: Current state of the agent.
     """
-    if _answered(state):
+    if self._done_answering(state):
       return True
     budget = self.max_steps + (1 if self.final_instruction else 0)
     return state.num_steps >= budget

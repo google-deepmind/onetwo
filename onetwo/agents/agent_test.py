@@ -562,6 +562,78 @@ class FCAgentTest(parameterized.TestCase):
     with self.subTest('does_not_record_the_instruction'):
       self.assertEqual([turn.role for turn in state.turns], [_USER, _MODEL])
 
+  def test_empty_reply_stops_by_default(self):
+    backend = _ScriptedBackend(replies=[_model_turn()])
+    backend.register()
+    agent = agent_lib.Agent(max_steps=3)
+
+    _, state = _run_with_state(agent, 'Hi')
+
+    self.assertLen(backend.seen_turns, 1)
+    self.assertFalse(agent.steps_exhausted(state))
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='answers_directly',
+          empty_turn=fc_types.ConversationTurn(role=_MODEL, thought='Ready.'),
+          followup_turns=[_model_turn('15 degrees.')],
+          expected_roles=[_USER, _MODEL, _USER, _MODEL],
+      ),
+      dict(
+          testcase_name='calls_tool_first',
+          empty_turn=_model_turn('   '),
+          followup_turns=[
+              _model_turn(
+                  calls=[
+                      fc_types.FunctionCall(
+                          '_get_weather', kwargs={'location': 'London'}
+                      )
+                  ]
+              ),
+              _model_turn('15 degrees.'),
+          ],
+          expected_roles=[_USER, _MODEL, _USER, _MODEL, _TOOL, _MODEL],
+      ),
+  )
+  def test_empty_reply_is_retried_with_tools(
+      self, empty_turn, followup_turns, expected_roles
+  ):
+    backend = _ScriptedBackend(replies=[empty_turn, *followup_turns])
+    backend.register()
+    agent = agent_lib.Agent(
+        tools=[_get_weather],
+        max_steps=5,
+        empty_reply_instruction=agent_lib.DEFAULT_EMPTY_REPLY_INSTRUCTION,
+    )
+
+    answer, state = _run_with_state(agent, 'Weather in London?')
+
+    self.assertEqual(answer, '15 degrees.')
+    self.assertEqual(
+        [spec.name for spec in backend.seen_tools[1]], ['_get_weather']
+    )
+    self.assertEqual(
+        backend.seen_turns[1][-1].content,
+        agent_lib.DEFAULT_EMPTY_REPLY_INSTRUCTION,
+    )
+    self.assertEqual([turn.role for turn in state.turns], expected_roles)
+
+  def test_persistent_empty_replies_stop_at_max_steps(self):
+    backend = _ScriptedBackend(replies=[_model_turn()])
+    backend.register()
+    agent = agent_lib.Agent(
+        tools=[_get_weather],
+        max_steps=3,
+        empty_reply_instruction='Please reply.',
+    )
+
+    answer, state = _run_with_state(agent, 'Weather in London?')
+
+    self.assertEqual(answer, '')
+    self.assertLen(backend.seen_turns, 3)
+    self.assertEqual(backend.seen_turns[1][-1].content, 'Please reply.')
+    self.assertTrue(agent.steps_exhausted(state))
+
   def test_a_single_step_exposes_the_calls_without_running_them(self):
     backend = _ScriptedBackend(
         replies=[
