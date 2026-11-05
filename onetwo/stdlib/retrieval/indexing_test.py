@@ -31,6 +31,7 @@ from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
+from onetwo.stdlib.retrieval import serialization
 
 Document = retrieval_data_structures.Document
 
@@ -640,6 +641,37 @@ class RewritingEmbeddingBasedDocumentIndexTest(absltest.TestCase):
         new_index.inner_index.embed_backend_config.kwargs, {'reply': 'val1'}
     )
 
+  def test_default_storage_format_is_used_by_save_and_load(self):
+    default_format = mock.sentinel.default_storage_format
+    self.enter_context(
+        mock.patch.object(
+            indexing.EmbeddingBasedDocumentIndex,
+            'default_storage_format',
+            default_format,
+        )
+    )
+    get_serializer = serialization.get_serializer
+    get_serializer_spy = self.enter_context(
+        mock.patch.object(
+            serialization,
+            'get_serializer',
+            side_effect=lambda storage_format, doc_class: get_serializer(
+                serialization.StorageFormat.JSONL_NPY, doc_class
+            ),
+        )
+    )
+    index = indexing.EmbeddingBasedDocumentIndex()
+    mock_embed_fn.embeddings = [np.array([0.1, 0.2])]  # pyrefly: ignore[missing-attribute]
+    ot.run(index.add_docs([Document(doc_id='a', content='A')]))
+
+    with self.subTest('save'):
+      index.save(self.temp_dir)
+      get_serializer_spy.assert_called_with(default_format, Document)
+    with self.subTest('load_without_manifest'):
+      (epath.Path(self.temp_dir) / 'manifest.json').unlink()
+      ot.run(indexing.EmbeddingBasedDocumentIndex().load(self.temp_dir))
+      get_serializer_spy.assert_called_with(default_format, Document)
+
   def test_retrieve_after_load(self):
     rewriter = corpus_rewriting.ChunkingCorpusRewriter(
         chunker=chunking.NoChunking()
@@ -1075,18 +1107,6 @@ class RewritingEmbeddingBasedDocumentIndexSaveLoadTest(absltest.TestCase):
     self.assertTrue(new_index.preserve_original_docs)
     self.assertEqual(new_index.get_doc('a'), docs[0])
 
-  def test_unsupported_serializer_type_raises_error(self):
-    index = indexing.EmbeddingBasedDocumentIndex(
-        serializer_type='nonexistent_type'
-    )
-    docs = [Document(doc_id='a', content='A')]
-    mock_embed_fn.embeddings = [np.array([0.1, 0.2])]  # pyrefly: ignore[missing-attribute]
-    ot.run(index.add_docs(docs))
-    with self.assertRaisesRegex(
-        ValueError, 'Unsupported serializer type: nonexistent_type'
-    ):
-      index.save(self.temp_dir)
-
 
 class RuntimeKwargsTest(absltest.TestCase):
   """Tests that `runtime_kwargs` (credentials) stay out of repr and equality."""
@@ -1140,8 +1160,12 @@ class _MinimalDocumentIndex(indexing.DocumentIndex):
 class _SaveOnlyDocumentIndex(_MinimalDocumentIndex):
   """Custom index that overrides `save` but not `load`."""
 
-  def save(self, base_path: str) -> None:
-    del base_path
+  def save(
+      self,
+      base_path: str,
+      storage_format: serialization.StorageFormat | None = None,
+  ) -> None:
+    del base_path, storage_format
 
 
 class IndexSaveLoadContractTest(absltest.TestCase):

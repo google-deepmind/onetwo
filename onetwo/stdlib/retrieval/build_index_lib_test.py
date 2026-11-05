@@ -667,11 +667,11 @@ class BuildIndexLibTest(absltest.TestCase):
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
     self.assertEqual(http_options, {'base_url': 'url'})
 
-  def test_flat_kwargs_storage_format_reaches_spec(self):
+  def test_flat_kwargs_storage_format_reaches_index_building(self):
     build_mock = self._mock_index_building_build_index()
 
-    for storage_format, expected_serializer_type in (
-        (serialization.StorageFormat.JSONL_NPY, 'simple'),
+    for storage_format in (
+        serialization.StorageFormat.JSONL_NPY,
     ):
       with self.subTest(storage_format.name):
         build_index_lib.build_index(
@@ -682,8 +682,7 @@ class BuildIndexLibTest(absltest.TestCase):
         )
 
         self.assertEqual(
-            build_mock.call_args.kwargs['spec'].serializer_type,
-            expected_serializer_type,
+            build_mock.call_args.kwargs['storage_format'], storage_format
         )
 
   def test_flat_kwargs_hipporag_accepts_default_storage_format(self):
@@ -712,7 +711,8 @@ class BuildIndexLibTest(absltest.TestCase):
     )
 
     self.assertEqual(
-        build_mock.call_args.kwargs['spec'].serializer_type, 'simple'
+        build_mock.call_args.kwargs['storage_format'],
+        serialization.StorageFormat.JSONL_NPY,
     )
 
   def test_storage_formats_are_registered_serializers(self):

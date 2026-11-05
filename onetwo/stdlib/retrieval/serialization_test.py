@@ -272,14 +272,12 @@ class SerializationTest(absltest.TestCase):
     )
 
   def test_get_serializer(self):
-    serializer = serialization.get_serializer('simple', _Document)
+    serializer = serialization.get_serializer(
+        serialization.StorageFormat.JSONL_NPY, _Document
+    )
     self.assertIsInstance(
         serializer, serialization.SimpleEmbeddingBasedIndexSerializer
     )
-    with self.assertRaisesRegex(
-        ValueError, 'Unsupported serializer type: unknown'
-    ):
-      serialization.get_serializer('unknown', _Document)
 
   def test_multimodal_serialization_roundtrip(self):
     """Verifies that multimodal documents with ChunkList content survive save/load."""

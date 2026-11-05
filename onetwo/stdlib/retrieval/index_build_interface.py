@@ -25,6 +25,7 @@ import dataclasses_json
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import searchers
+from onetwo.stdlib.retrieval import serialization
 
 
 SearcherConfig = searchers.SearcherConfig
@@ -80,6 +81,10 @@ class IndexRunner(abc.ABC, Generic[SpecT, DocsT]):
       spec: SpecT,
       docs: DocsT,
       output_dir: str | None = None,
+      *,
+      storage_format: serialization.StorageFormat = (
+          serialization.StorageFormat.JSONL_NPY
+      ),
       **kwargs,
   ) -> Any:
     """Builds the index.
@@ -88,6 +93,7 @@ class IndexRunner(abc.ABC, Generic[SpecT, DocsT]):
       spec: Index specification.
       docs: Documents to index (e.g., Iterable[Document] or path).
       output_dir: Optional directory to save the built index.
+      storage_format: How the index is saved to `output_dir`.
       **kwargs: Runner-specific arguments.
 
     Returns:

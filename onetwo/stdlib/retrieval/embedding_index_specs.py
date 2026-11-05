@@ -62,10 +62,6 @@ class EmbeddingBasedDocumentIndexSpec(index_build_interface.IndexSpec):
           class_name='BruteForceSearcher'
       )
   )
-  serializer_type: str = dataclasses.field(
-      default='simple',
-      metadata=dataclasses_json.config(exclude=lambda _: True),
-  )
 
   def make_index(
       self, runtime_kwargs: Mapping[str, Any]
@@ -82,7 +78,6 @@ class EmbeddingBasedDocumentIndexSpec(index_build_interface.IndexSpec):
         query_task_type=self.query_task_type,
         document_task_type=self.document_task_type,
         searcher=index_build_interface.make_searcher(self.searcher_config),
-        serializer_type=self.serializer_type,
         runtime_kwargs=dict(runtime_kwargs),
     )
 

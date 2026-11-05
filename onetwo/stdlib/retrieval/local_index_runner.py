@@ -23,6 +23,7 @@ from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import serialization as ot_serialization
 
 from onetwo.stdlib.retrieval import serialization
 
@@ -50,6 +51,10 @@ class LocalIndexRunner(
       docs: Iterable[retrieval_data_structures.Document] | str,
       output_dir: str | None = None,
       runtime_kwargs: Mapping[str, Any] | None = None,
+      *,
+      storage_format: ot_serialization.StorageFormat = (
+          ot_serialization.StorageFormat.JSONL_NPY
+      ),
       **kwargs,
   ) -> indexing.Index:
     """Builds a DocumentIndex in memory and optionally saves it."""
@@ -70,6 +75,6 @@ class LocalIndexRunner(
     await index.add_docs(docs)
 
     if output_dir:
-      index.save(output_dir)
+      index.save(output_dir, storage_format)
 
     return index

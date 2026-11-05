@@ -52,7 +52,7 @@ import dataclasses
 import enum
 import json
 import random
-from typing import Any, Generic, Iterable, Iterator, Sequence, TypeVar, cast
+from typing import Any, ClassVar, Generic, Iterable, Iterator, Sequence, TypeVar, cast
 
 from absl import logging
 from etils import epath
@@ -251,7 +251,11 @@ class Index(
   def destroy_index(self) -> None:
     """Destroys the index and frees up related resources."""
 
-  def save(self, base_path: str) -> None:
+  def save(
+      self,
+      base_path: str,
+      storage_format: serialization.StorageFormat | None = None,
+  ) -> None:
     """Saves the index state to the directory `base_path`.
 
     Not supported by default. Subclasses that support saving override both
@@ -259,6 +263,8 @@ class Index(
 
     Args:
       base_path: The directory to save the index state to.
+      storage_format: How to save the index state, or None for the index's
+        default format. `load` reads it from the saved files.
 
     Raises:
       NotImplementedError: If the subclass does not override `save`.
@@ -544,7 +550,7 @@ class RewritingIndex(
     self.inner_index.destroy_index()
 
   # TODO: Original documents are always saved as JSONL,
-  # regardless of the inner index's `serializer_type`. Fix in follow-up CL.
+  # regardless of the storage format. Fix in follow-up CL.
   def _save_original_docs(self, base_path: str) -> None:
     """Saves the original documents to `ORIGINAL_DOCS_JSONL_NAME`.
 
@@ -667,9 +673,13 @@ class RewritingDocumentIndex(
 
   inner_index: Index[str, Document, Document]
 
-  def save(self, base_path: str) -> None:
+  def save(
+      self,
+      base_path: str,
+      storage_format: serialization.StorageFormat | None = None,
+  ) -> None:
     """Saves the index state."""
-    self.inner_index.save(base_path)
+    self.inner_index.save(base_path, storage_format)
     if self.preserve_original_docs:
       self._save_original_docs(base_path)
 
@@ -1162,37 +1172,45 @@ class EmbeddingBasedDocumentIndex(
     EmbeddingBasedIndex[str, Document],
     DocumentIndex,
 ):
-  """Embedding-based index for Document objects.
+  """Embedding-based index for Document objects."""
 
-  Attributes:
-    serializer_type: Serializer type to use ('simple', 'internal', etc.).
-  """
+  # How the index is saved by default, and how `load` reads a directory without
+  # a `manifest.json` (which records the format otherwise). A class constant,
+  # not part of the index config.
+  default_storage_format: ClassVar[serialization.StorageFormat] = (
+      serialization.StorageFormat.JSONL_NPY
+  )
 
-  serializer_type: str = 'simple'
-
-  def save(self, base_path: str) -> None:
+  def save(
+      self,
+      base_path: str,
+      storage_format: serialization.StorageFormat | None = None,
+  ) -> None:
     """Saves the index state."""
     index_state_dto = index_state.EmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
         embed_backend_config=self.embed_backend_config,
     )
-    serializer = serialization.get_serializer(self.serializer_type, Document)
+    serializer = serialization.get_serializer(
+        storage_format or self.default_storage_format, Document
+    )
     serializer.save(index_state_dto, base_path)
 
   # TODO: Consider passing runtime_kwargs to the load method.
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
-    """Loads the index state."""
-    serializer_type = self.serializer_type
-    path = epath.Path(base_path)
-    manifest_path = path / 'manifest.json'
+    """Loads the index state, in the storage format it was saved in."""
+    storage_format = self.default_storage_format
+    manifest_path = epath.Path(base_path) / 'manifest.json'
     if manifest_path.exists():
       with manifest_path.open('r') as f:
         manifest_data = json.load(f)
-      serializer_type = manifest_data.get('serializer_type', serializer_type)
+      storage_format = serialization.StorageFormat(
+          manifest_data.get('serializer_type', storage_format.value)
+      )
 
-    serializer = serialization.get_serializer(serializer_type, Document)
+    serializer = serialization.get_serializer(storage_format, Document)
     index_state_dto = await serializer.load(base_path)
     self._docs = index_state_dto.docs
     self._row_by_id = {}
@@ -1212,8 +1230,8 @@ class RewritingEmbeddingBasedDocumentIndex(
 ):
   """Embedding-based index with rewriting for Document objects.
 
-  The embedding settings (e.g. `embed_backend_config`, `serializer_type`) are
-  those of `inner_index`.
+  The embedding settings (e.g. `embed_backend_config`) are those of
+  `inner_index`.
   """
 
   inner_index: EmbeddingBasedDocumentIndex = dataclasses.field(

@@ -28,6 +28,7 @@ from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import serialization
 
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs  # pylint: disable=unused-import
 
@@ -69,6 +70,9 @@ async def build_index(
     output_dir: str | None = None,
     runner: str = "local",
     runtime_kwargs: Mapping[str, Any] | None = None,
+    storage_format: serialization.StorageFormat = (
+        serialization.StorageFormat.JSONL_NPY
+    ),
     **kwargs,
 ) -> Any:
   """Builds an index using the specified runner.
@@ -80,6 +84,7 @@ async def build_index(
     runner: The runner to use (e.g., "local").
     runtime_kwargs: Environment-specific settings and credentials for the
       index's backends (e.g. API key). Not saved with the index.
+    storage_format: How the index is saved to `output_dir`.
     **kwargs: Runner-specific arguments.
 
   Returns:
@@ -97,6 +102,7 @@ async def build_index(
       docs=docs,
       output_dir=output_dir,
       runtime_kwargs=runtime_kwargs,
+      storage_format=storage_format,
       **kwargs,
   )
   if output_dir:

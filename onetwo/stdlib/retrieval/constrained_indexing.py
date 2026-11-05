@@ -26,6 +26,7 @@ from onetwo.stdlib.retrieval import index_state
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
+from onetwo.stdlib.retrieval import serialization as ot_serialization
 
 QueryT = TypeVar('QueryT')
 RetrievalResultT = TypeVar('RetrievalResultT')
@@ -281,8 +282,19 @@ class ConstrainedEmbeddingBasedDocumentIndex(
 ):
   """Embedding-based index for Document objects with support for constraints."""
 
-  def save(self, base_path: str) -> None:
-    """Saves the index state."""
+  def save(
+      self,
+      base_path: str,
+      storage_format: ot_serialization.StorageFormat | None = None,
+  ) -> None:
+    """Saves the index state with `constrained_serializer`.
+
+    Args:
+      base_path: The directory to save the index state to.
+      storage_format: Ignored: constrained indexes are always saved with
+        `constrained_serializer`.
+    """
+    del storage_format
     index_state_dto = index_state.ConstrainedEmbeddingBasedIndexState(
         docs=self._docs,
         doc_embeddings=self._doc_embeddings,
@@ -324,12 +336,16 @@ class RewritingConstrainedEmbeddingBasedDocumentIndex(
       default_factory=ConstrainedEmbeddingBasedDocumentIndex
   )
 
-  def save(self, base_path: str) -> None:
+  def save(
+      self,
+      base_path: str,
+      storage_format: ot_serialization.StorageFormat | None = None,
+  ) -> None:
     """Saves the index state."""
     # TODO: Parameterize RewritingIndex with InnerIndexT to avoid
     # this assertion.
     assert isinstance(self.inner_index, ConstrainedEmbeddingBasedDocumentIndex)
-    self.inner_index.save(base_path)
+    self.inner_index.save(base_path, storage_format)
     if self.preserve_original_docs:
       self._save_original_docs(base_path)
 

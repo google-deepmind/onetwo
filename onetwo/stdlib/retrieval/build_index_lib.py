@@ -151,7 +151,6 @@ def build_index(
   spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
       embed_backend_config=embed_backend_config,
       chunker_config=chunker_config,
-      serializer_type=storage_format.value,
   )
   if index_type == 'hipporag':
     spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
@@ -164,6 +163,7 @@ def build_index(
       corpus=corpus,
       output=output,
       runtime_kwargs=rt_kwargs,
+      storage_format=storage_format,
   )
 
 
@@ -172,6 +172,9 @@ def build_index_from_spec(
     corpus: str | datasets.DatasetLoader,
     output: str,
     runtime_kwargs: Mapping[str, Any] | None = None,
+    storage_format: serialization.StorageFormat = (
+        serialization.StorageFormat.JSONL_NPY
+    ),
 ) -> str:
   """Builds and saves the index described by `spec` of the specified corpus.
 
@@ -195,6 +198,8 @@ def build_index_from_spec(
     output: Base directory (pattern) where the built index will be saved.
     runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed to
       `spec.make_index`; not saved with the index.
+    storage_format: How the index is saved on disk (see
+      `serialization.StorageFormat`).
 
   Returns:
     The output directory path where the index was saved.
@@ -226,6 +231,7 @@ def build_index_from_spec(
           output_dir=out_dir,
           runner='local',
           runtime_kwargs=runtime_kwargs,
+          storage_format=storage_format,
       )
   )
   print(f'Index built and saved to {out_dir}.')

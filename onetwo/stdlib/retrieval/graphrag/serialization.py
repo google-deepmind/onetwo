@@ -23,6 +23,7 @@ from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing as indexing_lib
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import serialization as retrieval_serialization
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
 import pydantic
 
@@ -113,6 +114,7 @@ class SimpleGraphRAGIndexSerializer(Generic[DocT]):  # pyrefly: ignore[invalid-t
       self,
       index_state_dto: GraphRAGIndexState[DocT],
       base_path: str,
+      storage_format: retrieval_serialization.StorageFormat | None = None,
   ) -> None:
     """Saves index state (docs, graph, and backend configs) to base_path.
 
@@ -120,6 +122,8 @@ class SimpleGraphRAGIndexSerializer(Generic[DocT]):  # pyrefly: ignore[invalid-t
       index_state_dto: Container representing the GraphRAG index snapshot to
         save.
       base_path: Destination directory path.
+      storage_format: How the subspace indices are saved. The documents and
+        graph are always saved as JSON lines.
 
     Raises:
       ValueError: If `base_path` is not specified or set on the serializer.
@@ -193,13 +197,13 @@ class SimpleGraphRAGIndexSerializer(Generic[DocT]):  # pyrefly: ignore[invalid-t
     # Save subspace indices (`EmbeddingBasedDocumentIndex`).
     if index_state_dto.entity_index is not None:
       entity_dir = path / self.entity_index_dir_name
-      index_state_dto.entity_index.save(str(entity_dir))
+      index_state_dto.entity_index.save(str(entity_dir), storage_format)
     if index_state_dto.passage_index is not None:
       passage_dir = path / self.passage_index_dir_name
-      index_state_dto.passage_index.save(str(passage_dir))
+      index_state_dto.passage_index.save(str(passage_dir), storage_format)
     if index_state_dto.triples_index is not None:
       triples_dir = path / self.triples_index_dir_name
-      index_state_dto.triples_index.save(str(triples_dir))
+      index_state_dto.triples_index.save(str(triples_dir), storage_format)
 
   @executing.make_executable(copy_self=False)
   async def load(

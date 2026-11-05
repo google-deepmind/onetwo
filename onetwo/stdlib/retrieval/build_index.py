@@ -183,8 +183,8 @@ _STORAGE_FORMAT = flags.DEFINE_enum_class(
     serialization.StorageFormat,
     (
         'How the index is saved on disk (see `serialization.StorageFormat`).'
-        ' Only used with --index_type=embedding: --index_type=hipporag'
-        ' indexes are always saved in their own graph format.'
+        ' With --index_type=hipporag, only its embedding indexes are saved in'
+        ' this format.'
     ),
 )
 

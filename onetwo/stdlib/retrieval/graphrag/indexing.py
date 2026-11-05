@@ -22,6 +22,7 @@ from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import serialization as retrieval_serialization
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
 from onetwo.stdlib.retrieval.graphrag import graphrag_prompts
 from onetwo.stdlib.retrieval.graphrag import serialization
@@ -143,8 +144,18 @@ class BaseKnowledgeGraphIndex(
       self._entity_and_triples_extractor = self._make_extractor()
     return self._entity_and_triples_extractor
 
-  def save(self, base_path: str) -> None:
-    """Saves the entire index state to a directory."""
+  def save(
+      self,
+      base_path: str,
+      storage_format: retrieval_serialization.StorageFormat | None = None,
+  ) -> None:
+    """Saves the entire index state to a directory.
+
+    Args:
+      base_path: The directory to save the index state to.
+      storage_format: How the entity, passage and triples indexes are saved. The
+        documents and graph are always saved as JSON lines.
+    """
     state = serialization.GraphRAGIndexState(
         docs=self.docs,
         graph=self.graph,
@@ -155,7 +166,7 @@ class BaseKnowledgeGraphIndex(
         embed_backend_config=self.embed_backend_config,
     )
     serializer = serialization.SimpleGraphRAGIndexSerializer(doc_class=Document)
-    serializer.save(state, base_path)
+    serializer.save(state, base_path, storage_format)
 
   @executing.make_executable(copy_self=False)
   async def load(

@@ -38,6 +38,7 @@ from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import serialization
 
 Document = retrieval_data_structures.Document
 
@@ -111,7 +112,12 @@ class KeywordDocumentIndex(indexing.DocumentIndex):
     ranked = [doc for score, _, doc in scored if score > 0]
     return ranked if max_results is None else ranked[:max_results]
 
-  def save(self, base_path: str) -> None:
+  def save(
+      self,
+      base_path: str,
+      storage_format: serialization.StorageFormat | None = None,
+  ) -> None:
+    del storage_format  # Always saved as JSON.
     path = epath.Path(base_path)
     path.mkdir(parents=True, exist_ok=True)
     (path / _CONFIG_FILENAME).write_text(

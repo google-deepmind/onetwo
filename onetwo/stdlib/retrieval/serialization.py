@@ -413,15 +413,15 @@ SERIALIZER_REGISTRY: dict[str, type[Any]] = {
 
 
 def get_serializer(
-    serializer_type: str,
+    storage_format: StorageFormat,
     doc_class: type[DocT],
     **kwargs: Any,
 ) -> Any:
-  """Returns a serializer instance for the given serializer type and doc class."""
-  if serializer_type not in SERIALIZER_REGISTRY:
+  """Returns a serializer instance for the given storage format and doc class."""
+  if storage_format.value not in SERIALIZER_REGISTRY:
     raise ValueError(
-        f'Unsupported serializer type: {serializer_type}. '
-        f'Available types: {list(SERIALIZER_REGISTRY.keys())}'
+        f'Unsupported storage format: {storage_format.value}. '
+        f'Available formats: {list(SERIALIZER_REGISTRY.keys())}'
     )
-  serializer_cls = SERIALIZER_REGISTRY[serializer_type]
+  serializer_cls = SERIALIZER_REGISTRY[storage_format.value]
   return serializer_cls(doc_class=doc_class, **kwargs)
