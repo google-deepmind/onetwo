@@ -36,12 +36,22 @@ Tools provided:
      entity.
   7. get_document: Complete document text, URL, and metadata retrieval by
      doc_id.
+
+The tools that return source documents (`search_passages`,
+`get_entity_passages` and `get_document`) return unstructured MCP tool results:
+for each document, a JSON header (e.g. its doc_id, title and score) followed by
+the document's content as MCP content blocks (see
+`mcp_tools_utils.content_blocks`). Text documents are a single text block, and
+multimodal documents (e.g. the single PDF pages of a `pdf_pages` index) a block
+per chunk, so that e.g. PDF pages reach the model as PDFs rather than as text
+placeholders (`<application/pdf>`).
 """
 
 import json
 from typing import Any, Literal, cast
 
 from absl import logging
+from mcp import types as mcp_types
 from mcp.server.fastmcp import server
 import networkx as nx
 from onetwo import ot
@@ -50,8 +60,23 @@ from onetwo.builtins import llm
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
 from onetwo.stdlib.retrieval.graphrag import indexing
+from onetwo.stdlib.tool_use import mcp_tools_utils
 
 Document = retrieval_data_structures.Document
+
+
+def _error_result(message: str) -> mcp_types.CallToolResult:
+  """Returns a tool error as a `{"error": ...}` JSON block.
+
+  Like the tools that return JSON, the error is returned as a regular result
+  rather than with `isError=True`.
+
+  Args:
+    message: The error message.
+  """
+  return mcp_types.CallToolResult(
+      content=[mcp_tools_utils.json_block({'error': message})]
+  )
 
 
 def load_index(
@@ -271,6 +296,33 @@ def create_server_for_index(
       return truncated + ' [truncated]'
     return text
 
+  async def _document_blocks(
+      header: dict[str, Any], doc: Document | None, *, truncate: bool
+  ) -> list[mcp_types.ContentBlock]:
+    """Returns a document's JSON header block followed by its content blocks.
+
+    Args:
+      header: JSON metadata of the document, e.g. its doc_id, title and score.
+      doc: The document, or None to return only the header (e.g. for a passage
+        node without a document).
+      truncate: Whether to truncate each text block to `snippet_max_tokens`
+        (see `_truncate`). Media (e.g. PDFs) is always sent whole.
+    """
+    blocks: list[mcp_types.ContentBlock] = [mcp_tools_utils.json_block(header)]
+    if doc is None:
+      return blocks
+    # Truncation is done here rather than by `content_blocks`, so that
+    # snippets are truncated by words when no tokenizer is configured.
+    for block in await mcp_tools_utils.content_blocks(
+        doc.content, max_tokens=-1, resource_id=str(doc.doc_id)
+    ):
+      if truncate and isinstance(block, mcp_types.TextContent):
+        block = mcp_types.TextContent(
+            type='text', text=await _truncate(block.text)
+        )
+      blocks.append(block)
+    return blocks
+
   # ─── TOOL 1: Search Entities ──────────────────────────────────────────
   @mcp.tool(
       name='search_entities',
@@ -330,8 +382,11 @@ def create_server_for_index(
           ' their doc_id, title, snippet (truncated to max_tokens length, for'
           ' example 512), and similarity score.'
       ),
+      structured_output=False,
   )
-  async def search_passages(query: str, max_results: int = 5) -> str:
+  async def search_passages(
+      query: str, max_results: int = 5
+  ) -> mcp_types.CallToolResult:
     """Semantic vector search over passage documents in the index.
 
     Args:
@@ -340,33 +395,30 @@ def create_server_for_index(
       max_results: Number of matching passages to return.
 
     Returns:
-      JSON list of matching passages with doc_id, title, snippet, and score.
+      For each matching passage, a JSON block with its doc_id, title and score,
+      followed by its content blocks (text truncated to `snippet_max_tokens`).
     """
     if passage_index is None:
-      return json.dumps({
-          'error': (
-              'Passage index is not initialized or not found in the index'
-              ' directory.'
-          )
-      })
+      return _error_result(
+          'Passage index is not initialized or not found in the index'
+          ' directory.'
+      )
     try:
       results = await passage_index.retrieve_with_scores(
           query, max_results=max_results
       )
-      output = []
+      content: list[mcp_types.ContentBlock] = []
       for doc, score in results:
-        text = doc.content
-        snippet = await _truncate(text if isinstance(text, str) else str(text))
-        output.append({
+        header = {
             'doc_id': str(doc.doc_id),
             'title': doc.title,
-            'snippet': snippet,
             'score': round(float(score), 4),
-        })
-      return json.dumps(output, indent=2, ensure_ascii=False)
+        }
+        content.extend(await _document_blocks(header, doc, truncate=True))
+      return mcp_types.CallToolResult(content=content)
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception('search_passages failed for query: %s', query)
-      return json.dumps({'error': str(e)})
+      return _error_result(str(e))
 
   # ─── TOOL 3: Get Entity Details ───────────────────────────────────────
   @mcp.tool(
@@ -584,8 +636,11 @@ def create_server_for_index(
           ' entity by its entity_id. Use this to read the local textual'
           ' evidence surrounding an entity.'
       ),
+      structured_output=False,
   )
-  async def get_entity_passages(entity_id: str, limit: int = 5) -> str:
+  async def get_entity_passages(
+      entity_id: str, limit: int = 5
+  ) -> mcp_types.CallToolResult:
     """Fetches passage snippets linked to an entity node.
 
     Args:
@@ -593,27 +648,27 @@ def create_server_for_index(
       limit: Maximum number of passage snippets to return.
 
     Returns:
-      JSON list of passages with doc_id, title, and snippet.
+      For each passage, a JSON block with its doc_id and title, followed by its
+      content blocks (text truncated to `snippet_max_tokens`).
     """
     if not graph or entity_id not in nx_graph:
-      return json.dumps({'error': f"Entity '{entity_id}' not found in graph."})
+      return _error_result(f"Entity '{entity_id}' not found in graph.")
 
-    passages = []
+    content: list[mcp_types.ContentBlock] = []
+    num_passages = 0
     for nbr_id in nx_graph.neighbors(entity_id):
+      if num_passages >= limit:
+        break
       node = graph.get_node(nbr_id)
-      if isinstance(node, graph_lib.PassageNode):
-        raw_doc_id = node.id.removeprefix('passage_')
-        doc = docs_by_id.get(raw_doc_id)
-        snippet = await _truncate(doc.text if doc else '')
-        passages.append({
-            'doc_id': raw_doc_id,
-            'title': doc.title if doc else '',
-            'snippet': snippet,
-        })
-        if len(passages) >= limit:
-          break
+      if not isinstance(node, graph_lib.PassageNode):
+        continue
+      raw_doc_id = node.id.removeprefix('passage_')
+      doc = docs_by_id.get(raw_doc_id)
+      header = {'doc_id': raw_doc_id, 'title': doc.title if doc else ''}
+      content.extend(await _document_blocks(header, doc, truncate=True))
+      num_passages += 1
 
-    return json.dumps(passages, indent=2, ensure_ascii=False)
+    return mcp_types.CallToolResult(content=content)
 
   # ─── TOOL 7: Get Full Document ────────────────────────────────────────
   @mcp.tool(
@@ -623,31 +678,31 @@ def create_server_for_index(
           ' by its doc_id. Use this when you need to inspect full details,'
           ' dates, numbers, or verify fine-grained factual claims.'
       ),
+      structured_output=False,
   )
-  def get_document(doc_id: str) -> str:
+  async def get_document(doc_id: str) -> mcp_types.CallToolResult:
     """Retrieves full text of a document for factual verification.
 
     Args:
       doc_id: Document ID to retrieve (e.g. "0" or "passage_0").
 
     Returns:
-      JSON object containing doc_id, title, full text, and metadata.
+      A JSON block with the document's doc_id, title, url and metadata, followed
+      by its untruncated content blocks.
     """
     clean_doc_id = str(doc_id).removeprefix('passage_')
     doc = docs_by_id.get(clean_doc_id)
     if doc is None:
-      return json.dumps({'error': f"Document '{doc_id}' not found."})
+      return _error_result(f"Document '{doc_id}' not found.")
 
-    return json.dumps(
-        {
-            'doc_id': doc.doc_id,
-            'title': doc.title,
-            'text': doc.text,
-            'url': doc.url,
-            'metadata': doc.metadata,
-        },
-        indent=2,
-        ensure_ascii=False,
+    header = {
+        'doc_id': doc.doc_id,
+        'title': doc.title,
+        'url': doc.url,
+        'metadata': doc.metadata,
+    }
+    return mcp_types.CallToolResult(
+        content=await _document_blocks(header, doc, truncate=False)
     )
 
   return mcp

@@ -131,4 +131,7 @@ async def content_blocks(
 
 def json_block(value: Any) -> mcp_types.TextContent:
   """Returns `value` as a JSON text content block."""
+  # TODO: Make the typing of the JSON headers of the documents
+  # that MCP servers return more explicit (e.g. a dataclass with their doc_id,
+  # title and score), instead of the free-form dicts passed here.
   return mcp_types.TextContent(type='text', text=json.dumps(value, default=str))
