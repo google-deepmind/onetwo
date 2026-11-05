@@ -40,6 +40,7 @@ from onetwo.core import executing
 from onetwo.core import routing
 from onetwo.core import tracing
 from onetwo.core import utils
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 _ORIGINAL_DOC_ID = retrieval_data_structures.METADATA_FIELD_ORIGINAL_DOC_ID
@@ -146,6 +147,7 @@ class Chunker(dataclasses_json.DataClassJsonMixin, abc.ABC):
     """
 
 
+@registry.register('NoChunking')
 @dataclasses.dataclass(kw_only=True)
 class NoChunking(Chunker):
   """Simple chunker that returns the original document as-is."""
@@ -371,6 +373,7 @@ async def filter_by_max_tokens(
     return filtered_texts
 
 
+@registry.register('ChunkByMaxTokens')
 @dataclasses.dataclass(kw_only=True)
 class ChunkByMaxTokens(TextChunker):
   """Chunks text by max tokens.
@@ -461,6 +464,7 @@ class ChunkByMaxTokens(TextChunker):
       return chunks
 
 
+@registry.register('ChunkByMaxWords')
 @dataclasses.dataclass(kw_only=True)
 class ChunkByMaxWords(TextChunker):
   """Chunks text by max words.

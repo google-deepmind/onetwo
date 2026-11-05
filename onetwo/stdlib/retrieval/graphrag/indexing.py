@@ -21,6 +21,7 @@ import numpy as np
 from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import serialization as retrieval_serialization
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
@@ -249,6 +250,7 @@ class BaseKnowledgeGraphIndex(
     self._triples_index = None
 
 
+@registry.register("HippoRAGDocumentIndex")
 @dataclasses.dataclass(kw_only=True)
 class HippoRAGDocumentIndex(
     BaseKnowledgeGraphIndex[

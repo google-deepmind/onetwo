@@ -29,10 +29,12 @@ from typing import ClassVar
 
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import registry
 
 PDF_CONTENT_TYPE = 'application/pdf'
 
 
+@registry.register('ChunkByPdfPages')
 @dataclasses.dataclass(kw_only=True)
 class ChunkByPdfPages(chunking.SingleMediaChunker):
   """Chunks a PDF document into PDFs of up to `pages_per_chunk` pages each.

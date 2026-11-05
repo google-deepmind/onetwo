@@ -54,6 +54,7 @@ import numpy as np
 from onetwo.core import batching
 from onetwo.core import executing
 from onetwo.core import utils
+from onetwo.stdlib.retrieval import registry
 
 
 class Searcher(metaclass=abc.ABCMeta):
@@ -140,6 +141,7 @@ class ConstrainedSearcher(Searcher):
     raise NotImplementedError()
 
 
+@registry.register('BruteForceSearcher')
 @dataclasses.dataclass
 class BruteForceSearcher(Searcher):
   """Searcher that determines nearest neighbors via dot product similarity.
@@ -244,6 +246,7 @@ class BruteForceSearcher(Searcher):
     return np.array_equal(self._doc_embeds, other._doc_embeds)
 
 
+@registry.register('ConstrainedBruteForceSearcher')
 class ConstrainedBruteForceSearcher(BruteForceSearcher, ConstrainedSearcher):
   """Brute force searcher that applies constraints to the retrieval process."""
 

@@ -65,6 +65,7 @@ from onetwo.core import routing
 from onetwo.core import tracing
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_state
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import searchers
@@ -657,6 +658,7 @@ class DocumentIndex(
   """All DocumentIndex classes should be subclasses of this type."""
 
 
+@registry.register('RewritingDocumentIndex')
 @dataclasses.dataclass(kw_only=True)
 class RewritingDocumentIndex(
     RewritingIndex[str, Document, Document],
@@ -727,6 +729,7 @@ class EmptyIndex(DocumentIndex):
     return []
 
 
+@registry.register('NaiveIndex')
 @dataclasses.dataclass
 class NaiveIndex(DocumentIndex):
   """Index that stores the original document text as-is and retrieves naively.
@@ -1167,6 +1170,7 @@ class RewritingEmbeddingBasedIndex(
     )
 
 
+@registry.register('EmbeddingBasedDocumentIndex')
 @dataclasses.dataclass(kw_only=True)
 class EmbeddingBasedDocumentIndex(
     EmbeddingBasedIndex[str, Document],
@@ -1223,6 +1227,7 @@ class EmbeddingBasedDocumentIndex(
     await self.searcher.build(np.stack(self._doc_embeddings, axis=0))
 
 
+@registry.register('RewritingEmbeddingBasedDocumentIndex')
 @dataclasses.dataclass(kw_only=True)
 class RewritingEmbeddingBasedDocumentIndex(
     RewritingEmbeddingBasedIndex[str, Document, Document],

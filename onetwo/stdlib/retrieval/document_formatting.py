@@ -29,6 +29,7 @@ from typing import Protocol
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 
@@ -56,6 +57,7 @@ class DocumentFormatter(Protocol):
     """
 
 
+@registry.register('NoFormatting')
 @dataclasses.dataclass(frozen=True)
 class NoFormatting(DocumentFormatter):
   """Formatter that returns the document as-is."""
@@ -70,6 +72,7 @@ class NoFormatting(DocumentFormatter):
     return document
 
 
+@registry.register('TextDocumentFormatter')
 @dataclasses.dataclass(kw_only=True)
 class TextDocumentFormatter(DocumentFormatter):
   """Formats the document text based on a configurable format string.

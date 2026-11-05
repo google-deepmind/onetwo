@@ -31,6 +31,7 @@ from typing import ClassVar
 
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import registry
 
 # File extensions of the supported video content types. Chunks are encoded in
 # the same container format (and with the same content type) as the input.
@@ -50,6 +51,7 @@ _EXTENSION_BY_CONTENT_TYPE = {
 _NUM_CHUNKS_ROUNDING_DECIMALS = 3
 
 
+@registry.register('ChunkByVideoSeconds')
 @dataclasses.dataclass(kw_only=True)
 class ChunkByVideoSeconds(chunking.SingleMediaChunker):
   """Chunks a video document into clips of up to `seconds_per_chunk` each.

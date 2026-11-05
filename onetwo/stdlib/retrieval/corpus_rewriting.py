@@ -42,6 +42,7 @@ from onetwo.core import tracing
 from onetwo.core import utils
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import document_formatting
+from onetwo.stdlib.retrieval import registry
 
 DocT = TypeVar('DocT')
 
@@ -70,6 +71,7 @@ class CorpusRewriter(Protocol[DocT]):
     """
 
 
+@registry.register('NoRewriting')
 @dataclasses.dataclass(frozen=True)
 class NoRewriting(CorpusRewriter[DocT]):
   """Rewriter that returns the corpus as is."""
@@ -91,6 +93,7 @@ class NoRewriting(CorpusRewriter[DocT]):
     return corpus
 
 
+@registry.register('ChunkingCorpusRewriter')
 @dataclasses.dataclass(frozen=True)
 class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
   """Rewriter that fragments documents into smaller pieces (chunks).
@@ -121,6 +124,7 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
     return chunked_corpus
 
 
+@registry.register('FormattingCorpusRewriter')
 @dataclasses.dataclass(frozen=True)
 class FormattingCorpusRewriter(CorpusRewriter[DocT]):
   """Rewriter that applies a consistent structure to every document.
@@ -151,6 +155,7 @@ class FormattingCorpusRewriter(CorpusRewriter[DocT]):
     )
 
 
+@registry.register('SequentialCorpusRewriter')
 @dataclasses.dataclass(frozen=True)
 class SequentialCorpusRewriter(CorpusRewriter[DocT]):
   r"""Rewriter that applies a sequence of corpus rewriters in order.

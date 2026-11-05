@@ -36,6 +36,7 @@ from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import pdf_chunking
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import video_chunking
 
@@ -133,6 +134,7 @@ def get_content_and_media_type(
   return content_type, media_type
 
 
+@registry.register('RoutingChunker')
 @dataclasses.dataclass(kw_only=True)
 class RoutingChunker(chunking.Chunker):
   """Chunks each document with a sub-chunker chosen by its content type.

@@ -29,6 +29,7 @@ from typing import ClassVar
 
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import registry
 
 # ffmpeg format names of the audio content types that are decoded and encoded
 # in their own format. Audio in other formats is decoded by letting ffmpeg probe
@@ -48,6 +49,7 @@ _FALLBACK_FORMAT = 'wav'
 _FALLBACK_CONTENT_TYPE = 'audio/wav'
 
 
+@registry.register('ChunkByAudioSeconds')
 @dataclasses.dataclass(kw_only=True)
 class ChunkByAudioSeconds(chunking.SingleMediaChunker):
   """Chunks an audio document into clips of up to `seconds_per_chunk` each.
