@@ -15,21 +15,74 @@
 """Library to build an embedding-based document index."""
 
 from collections.abc import Mapping
+import dataclasses
+import enum
+import hashlib
+import json
 from typing import Any
 
 from etils import epath
-from onetwo.backends import backend_registry
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
 from onetwo.evaluation.datasets import multimodal_loader
 from onetwo.stdlib.retrieval import chunker_registry
+from onetwo.stdlib.retrieval import config_serialization
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import serialization
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
+
+
+class IndexType(str, enum.Enum):
+  """Ready-made indexes, with default settings.
+
+  EMBEDDING: An embedding-based index of the documents, unchunked, with the
+    default embedding model.
+  HIPPORAG: A HippoRAG knowledge graph index, with the default embedding and
+    generation models.
+  """
+
+  EMBEDDING = 'embedding'
+  HIPPORAG = 'hipporag'
+
+
+# TODO: Will be updated once the we move away from specs.
+def _preset_spec(index_type: IndexType) -> index_build_interface.IndexSpec:
+  """Returns the spec of the ready-made index `index_type`."""
+  embed_backend_config = rag_defaults.default_embed_backend_config()
+  chunker_config = chunker_registry.ChunkerConfig(chunker_name='none')
+  if index_type == IndexType.HIPPORAG:
+    return hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=embed_backend_config,
+        chunker_config=chunker_config,
+    )
+  return embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+      embed_backend_config=embed_backend_config,
+      chunker_config=chunker_config,
+  )
+
+
+# TODO: Remove this function once it is determined how to pass
+# runtime kwargs to the index.
+def _has_runtime_kwargs(obj: Any) -> bool:
+  """Returns whether `obj` or a nested dataclass has `runtime_kwargs` set."""
+  if isinstance(obj, (list, tuple)):
+    return any(_has_runtime_kwargs(item) for item in obj)
+  if not dataclasses.is_dataclass(obj) or isinstance(obj, type):
+    return False
+  for field in dataclasses.fields(obj):
+    if not field.init:
+      continue
+    value = getattr(obj, field.name)
+    if field.name == 'runtime_kwargs' and value:
+      return True
+    if _has_runtime_kwargs(value):
+      return True
+  return False
 
 
 def _corpus_name(corpus: str | datasets.DatasetLoader) -> str:
@@ -72,16 +125,25 @@ def get_default_runtime_kwargs(
 
 def build_index(
     corpus: str | datasets.DatasetLoader,
+    index: IndexType | indexing.DocumentIndex = IndexType.EMBEDDING,
+    *,
     output: str,
-    runtime_kwargs: Mapping[str, Any] | None = None,
-    index_type: str = 'embedding',
-    embedder: backend_registry.EmbedBackendConfig | None = None,
-    chunker: chunker_registry.ChunkerConfig | None = None,
     storage_format: serialization.StorageFormat = (
         serialization.StorageFormat.JSONL_NPY
     ),
+    runtime_kwargs: Mapping[str, Any] | None = None,
 ) -> str:
   """Builds and saves a document index of the specified corpus.
+
+  To customize the index (e.g. its embedding model or chunker), pass an index
+  object instead of a ready-made `IndexType`, e.g.
+  `indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=...,
+  inner_index=...)`.
+  Its config is saved as `index_config.json`, so it can be loaded from its
+  directory alone (e.g. by `rag.evaluate(index_directory=...)`). The classes of
+  a custom index and its components must be registered with
+  `@registry.register(...)`, and the module that registers them must be
+  imported before the index is loaded.
 
   Args:
     corpus: What to index: either a path to a folder of files of any type (text,
@@ -95,77 +157,69 @@ def build_index(
       pass a loader with a limit, e.g.
       `datasets.MultimodalDatasetLoader(path=..., max_number_of_documents=N)` or
       `datasets.get_dataset_loader(name, max_number_of_documents=N)`.
+    index: The index to build: a ready-made `IndexType`, or an (empty)
+      `DocumentIndex` object.
     output: Base directory (pattern) where the built index will be saved.
+    storage_format: How the index is saved on disk (see
+      `serialization.StorageFormat`).
     runtime_kwargs: Arguments for backends (e.g. API key), not saved with the
       index. Backend requests are retried up to `'max_retries'` times (default
       `rag_defaults.DEFAULT_MAX_RETRIES`) and time out after `'http_options':
       {'timeout': ...}` milliseconds (default
       `rag_defaults.DEFAULT_HTTP_TIMEOUT_MS`, also added to an `'http_options'`
-      dict without `'timeout'`). See `with_request_defaults`.
-    index_type: Type of index ('embedding' or 'hipporag'). 'hipporag' uses the
-      default settings of `SimpleRewritingHippoRAGDocumentIndexSpec`, including
-      its default generation model (`generate_backend_config`); to change them
-      (e.g. `similarity_threshold` or the generation model), pass that spec to
-      `build_index_from_spec` instead.
-    embedder: Config of the embedding backend, used by both index types. If
-      None, uses `rag_defaults.default_embed_backend_config()`. Its `kwargs` are
-      passed to the backend constructor, so default arguments of the backend's
-      `embed` calls go under the `'embed_kwargs'` key, e.g.
-      `EmbedBackendConfig(backend_class_name='GoogleGenAIAPI',
-      model_name='gemini-embedding-2', kwargs={'embed_kwargs':
-      {'output_dimensionality': 768}})`. The config is saved with the index, so
-      credentials (e.g. API key) go in `runtime_kwargs` instead.
-    chunker: Config of the chunker that splits documents before they are
-      indexed, e.g. `ChunkerConfig(chunker_name='routing')`. If None, documents
-      are not chunked. `chunker_name` must be registered: see `chunker_registry`
-      for the available chunkers and how to register them.
-    storage_format: How the index is saved on disk (see
-      `serialization.StorageFormat`).
+      dict without `'timeout'`). See `get_default_runtime_kwargs`.
 
   Returns:
     The output directory path where the index was saved.
 
   Raises:
-    ValueError: If the chunker is not registered.
+    KeyError, TypeError: If an index object cannot be saved, e.g. because the
+      class of one of its components is not registered. Raised before the
+      corpus is loaded.
+    ValueError: If an index object (or one of its components) has
+      `runtime_kwargs` set; pass them to `build_index` instead.
   """
-  # Construct spec
-  embed_backend_config = (
-      embedder
-      if embedder is not None
-      else rag_defaults.default_embed_backend_config()
-  )
   rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
+  if isinstance(index, str):
+    return build_index_from_spec(
+        spec=_preset_spec(IndexType(index)),
+        corpus=corpus,
+        output=output,
+        runtime_kwargs=rt_kwargs,
+        storage_format=storage_format,
+    )
 
-  chunker_config = (
-      chunker
-      if chunker is not None
-      else chunker_registry.ChunkerConfig(chunker_name='none')
-  )
-  if chunker_config.chunker_name not in chunker_registry.list_chunkers():
+  # Fail fast, before loading the corpus.
+  if _has_runtime_kwargs(index):
     raise ValueError(
-        f'Unknown chunker: {chunker_config.chunker_name!r}. Registered'
-        f' chunkers: {chunker_registry.list_chunkers()}. Chunkers with heavy'
-        ' dependencies are registered by importing their module (e.g.'
-        " `routing_chunking` for 'routing' or `pdf_chunking` for 'pdf_pages')."
+        'Pass runtime kwargs (e.g. credentials) to `build_index(...,'
+        ' runtime_kwargs=...)`, not to the index or its components.'
     )
+  config = config_serialization.get_config(index)
+  if not indexing.supports_save(index):
+    raise TypeError(f'{type(index).__name__} does not support saving.')
+  # Rebuilds the index with the runtime kwargs, without modifying `index`.
+  # TODO: Pass runtime kwargs with `connect` instead.
+  index = config_serialization.from_config(config, rt_kwargs)
 
-  spec = embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-      embed_backend_config=embed_backend_config,
-      chunker_config=chunker_config,
+  docs = _load_documents(corpus)
+  config_hash = hashlib.sha256(
+      json.dumps(config, sort_keys=True).encode()
+  ).hexdigest()[:8]
+  out_dir = index_building.resolve_index_output_directory(
+      output_directory_pattern=output,
+      dataset_name=_corpus_name(corpus),
+      subdirectory=f'{config["class"]}__hash_{config_hash}',
   )
-  if index_type == 'hipporag':
-    spec = hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=embed_backend_config,
-        chunker_config=chunker_config,
-    )
-
-  return build_index_from_spec(
-      spec=spec,
-      corpus=corpus,
-      output=output,
-      runtime_kwargs=rt_kwargs,
-      storage_format=storage_format,
+  print(f'Will save the index to output directory: {out_dir}')
+  print('Building index...')
+  ot_executing.run(
+      index.create_index(corpus_name=_corpus_name(corpus), docs=docs)
   )
+  index.save(out_dir, storage_format)
+  config_serialization.save_index_config(index, out_dir)
+  print(f'Index built and saved to {out_dir}.')
+  return out_dir
 
 
 def _load_documents(

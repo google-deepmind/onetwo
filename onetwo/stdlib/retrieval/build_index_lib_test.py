@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterable
+import dataclasses
 import json
 import os
+import re
 import types
 from unittest import mock
 import wave
@@ -30,10 +33,15 @@ from onetwo.evaluation.datasets import datasets_lib
 from onetwo.evaluation.datasets import multimodal_loader
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
+from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import config_serialization
+from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 from onetwo.stdlib.retrieval import serialization
@@ -61,6 +69,47 @@ class FakeEmbedder(backends_test_utils.EmbedderForTest):
     # content up in a dict, which fails for (unhashable) multimodal ChunkLists.
     self.contents.append(content)
     return self.default_embedding
+
+
+@batching.add_batching
+class _KeywordEmbedder(backends_test_utils.EmbedderForTest):
+  """Embeds text as the counts of a few keywords in it."""
+
+  def __init__(self, **kwargs):
+    del kwargs  # Unused (e.g. credentials passed as runtime kwargs).
+    super().__init__()
+
+  def _get_embed_reply(self, content):
+    words = re.findall('[a-z]+', str(content).lower())
+    return [words.count(w) for w in ('paris', 'madrid')] + [0.1]
+
+
+@registry.register('build_index_lib_test.SentenceChunker')
+@dataclasses.dataclass(kw_only=True)
+class _SentenceChunker(chunking.TextChunker):
+  """Splits text into sentences."""
+
+  @ot_executing.make_executable(copy_self=False)
+  async def _chunk_text(self, text: str) -> Iterable[str]:
+    return [f'{s.strip()}.' for s in text.split('.') if s.strip()]
+
+
+@dataclasses.dataclass(kw_only=True)
+class _UnregisteredChunker(chunking.NoChunking):
+  pass
+
+
+def _custom_index(
+    chunker: chunking.Chunker,
+) -> indexing.RewritingEmbeddingBasedDocumentIndex:
+  return indexing.RewritingEmbeddingBasedDocumentIndex(
+      rewriter=corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
+      inner_index=indexing.EmbeddingBasedDocumentIndex(
+          embed_backend_config=backend_registry.EmbedBackendConfig(
+              backend_class_name='KeywordEmbedderForTest'
+          )
+      ),
+  )
 
 
 class _CustomLoader(datasets_lib.DatasetLoader):
@@ -105,6 +154,51 @@ class BuildIndexLibTest(absltest.TestCase):
         backend_registry.BACKEND_REGISTRY.pop, 'FakeEmbedderBackend', None
     )
     self.output_dir = self.create_tempdir().full_path
+
+  def test_build_index_object(self):
+    self.enter_context(
+        mock.patch.dict(
+            backend_registry.BACKEND_REGISTRY,
+            {'KeywordEmbedderForTest': _KeywordEmbedder},
+        )
+    )
+
+    out_dir = build_index_lib.build_index(
+        datasets.get_dataset_loader(_DATASET_NAME),
+        _custom_index(_SentenceChunker()),
+        output=self.output_dir,
+        runtime_kwargs={'api_key': 'secret'},
+    )
+    loaded = index_building.load_index(
+        out_dir, runtime_kwargs={'api_key': 'secret'}
+    )
+
+    with self.subTest('saves_index_config_without_credentials'):
+      with open(
+          os.path.join(out_dir, config_serialization.INDEX_CONFIG_FILENAME)
+      ) as f:
+        self.assertNotIn('secret', f.read())
+    with self.subTest('loads_the_index'):
+      [doc] = ot_executing.run(loaded.retrieve('madrid', max_results=1))
+      self.assertEqual(doc.text, 'Madrid is in Spain.')
+    with self.subTest('unregistered_class_raises_before_loading_corpus'):
+      corpus = mock.MagicMock()
+      with self.assertRaisesRegex(TypeError, 'register its class'):
+        build_index_lib.build_index(
+            corpus,
+            _custom_index(_UnregisteredChunker()),
+            output=self.output_dir,
+        )
+      corpus.load_documents.assert_not_called()
+    with self.subTest('runtime_kwargs_on_the_index_raise'):
+      index = _custom_index(_SentenceChunker())
+      index.inner_index.runtime_kwargs = {'api_key': 'secret'}
+      with self.assertRaisesRegex(ValueError, 'Pass runtime kwargs'):
+        build_index_lib.build_index(
+            datasets.get_dataset_loader(_DATASET_NAME),
+            index,
+            output=self.output_dir,
+        )
 
   def test_build_custom_spec_saves_index_and_spec(self):
     out_dir = build_index_lib.build_index_from_spec(
@@ -240,16 +334,17 @@ class BuildIndexLibTest(absltest.TestCase):
         loader = datasets.get_dataset_loader(name, max_number_of_documents=3)
         self.assertEqual(build_index_lib._corpus_name(loader), name)
 
-  def test_flat_kwargs_build_simple_rewriting_embedding_index(self):
-    out_dir = build_index_lib.build_index(
+  def test_build_from_spec_simple_rewriting_embedding_index(self):
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+            embed_backend_config=_FAKE_EMBEDDER,
+            chunker_config=chunker_registry.ChunkerConfig(
+                chunker_name='words',
+                kwargs={'max_words_per_chunk': 16, 'overlap_window': 0},
+            ),
+        ),
         corpus=datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
-        runtime_kwargs={},
-        embedder=_FAKE_EMBEDDER,
-        chunker=chunker_registry.ChunkerConfig(
-            chunker_name='words',
-            kwargs={'max_words_per_chunk': 16, 'overlap_window': 0},
-        ),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -266,16 +361,7 @@ class BuildIndexLibTest(absltest.TestCase):
     )
     self.assertEqual(spec.embed_backend_config.model_name, 'fake-model')
 
-    with self.assertRaisesRegex(ValueError, "Unknown chunker: 'unknown'"):
-      build_index_lib.build_index(
-          corpus=datasets.get_dataset_loader(_DATASET_NAME),
-          output=self.output_dir,
-          runtime_kwargs={},
-          embedder=_FAKE_EMBEDDER,
-          chunker=chunker_registry.ChunkerConfig(chunker_name='unknown'),
-      )
-
-  def test_flat_kwargs_pdf_pages_chunker(self):
+  def test_build_from_spec_pdf_pages_chunker(self):
     input_dir = self.create_tempdir()
     writer = pypdf.PdfWriter()
     writer.add_blank_page(width=612, height=792)
@@ -283,14 +369,15 @@ class BuildIndexLibTest(absltest.TestCase):
     with open(os.path.join(input_dir.full_path, 'two_pages.pdf'), 'wb') as f:
       writer.write(f)
 
-    out_dir = build_index_lib.build_index(
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+            embed_backend_config=_FAKE_EMBEDDER,
+            chunker_config=chunker_registry.ChunkerConfig(
+                chunker_name='pdf_pages', kwargs={'pages_per_chunk': 1}
+            ),
+        ),
         corpus=input_dir.full_path,
         output=self.output_dir,
-        runtime_kwargs={},
-        embedder=_FAKE_EMBEDDER,
-        chunker=chunker_registry.ChunkerConfig(
-            chunker_name='pdf_pages', kwargs={'pages_per_chunk': 1}
-        ),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -305,7 +392,7 @@ class BuildIndexLibTest(absltest.TestCase):
         ),
     )
 
-  def test_flat_kwargs_audio_seconds_chunker(self):
+  def test_build_from_spec_audio_seconds_chunker(self):
     input_dir = self.create_tempdir()
     # A 2-second silent WAV file.
     with wave.open(os.path.join(input_dir.full_path, 'two_s.wav'), 'wb') as f:
@@ -314,14 +401,15 @@ class BuildIndexLibTest(absltest.TestCase):
       f.setframerate(8000)
       f.writeframes(b'\x00\x00' * 16000)
 
-    out_dir = build_index_lib.build_index(
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+            embed_backend_config=_FAKE_EMBEDDER,
+            chunker_config=chunker_registry.ChunkerConfig(
+                chunker_name='audio_seconds', kwargs={'seconds_per_chunk': 1.0}
+            ),
+        ),
         corpus=input_dir.full_path,
         output=self.output_dir,
-        runtime_kwargs={},
-        embedder=_FAKE_EMBEDDER,
-        chunker=chunker_registry.ChunkerConfig(
-            chunker_name='audio_seconds', kwargs={'seconds_per_chunk': 1.0}
-        ),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -336,7 +424,7 @@ class BuildIndexLibTest(absltest.TestCase):
         ),
     )
 
-  def test_flat_kwargs_routing_chunker(self):
+  def test_build_from_spec_routing_chunker(self):
     # The default text chunker of `RoutingChunker` loads and registers the
     # default SentencePiece model, which is not available in tests.
     llm.reset_defaults()
@@ -355,12 +443,15 @@ class BuildIndexLibTest(absltest.TestCase):
     with open(os.path.join(input_dir.full_path, 'two_pages.pdf'), 'wb') as f:
       writer.write(f)
 
-    out_dir = build_index_lib.build_index(
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+            embed_backend_config=_FAKE_EMBEDDER,
+            chunker_config=chunker_registry.ChunkerConfig(
+                chunker_name='routing'
+            ),
+        ),
         corpus=input_dir.full_path,
         output=self.output_dir,
-        runtime_kwargs={},
-        embedder=_FAKE_EMBEDDER,
-        chunker=chunker_registry.ChunkerConfig(chunker_name='routing'),
     )
 
     spec = index_building.read_index_spec(out_dir)
@@ -393,15 +484,13 @@ class BuildIndexLibTest(absltest.TestCase):
         )
     )
 
-  def test_flat_kwargs_hipporag_uses_spec_defaults(self):
+  def test_hipporag_preset_uses_spec_defaults(self):
     build_mock = self._mock_index_building_build_index()
 
     build_index_lib.build_index(
-        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        datasets.get_dataset_loader(_DATASET_NAME),
+        build_index_lib.IndexType.HIPPORAG,
         output=self.output_dir,
-        runtime_kwargs={},
-        index_type='hipporag',
-        embedder=_FAKE_EMBEDDER,
     )
 
     spec = build_mock.call_args.kwargs['spec']
@@ -423,16 +512,15 @@ class BuildIndexLibTest(absltest.TestCase):
         spec.ignore_similarity_edges, default_spec.ignore_similarity_edges
     )
 
-  def test_flat_kwargs_default_embedder(self):
+  def test_presets_use_default_embedder(self):
     build_mock = self._mock_index_building_build_index()
 
-    for index_type in ('embedding', 'hipporag'):
+    for index_type in build_index_lib.IndexType:
       with self.subTest(index_type):
         build_index_lib.build_index(
-            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            datasets.get_dataset_loader(_DATASET_NAME),
+            index_type,
             output=self.output_dir,
-            runtime_kwargs={},
-            index_type=index_type,
         )
 
         self.assertEqual(
@@ -440,73 +528,20 @@ class BuildIndexLibTest(absltest.TestCase):
             rag_defaults.default_embed_backend_config(),
         )
 
-  def test_flat_kwargs_default_chunker(self):
+  def test_presets_do_not_chunk(self):
     build_mock = self._mock_index_building_build_index()
 
-    for index_type in ('embedding', 'hipporag'):
+    for index_type in build_index_lib.IndexType:
       with self.subTest(index_type):
         build_index_lib.build_index(
-            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+            datasets.get_dataset_loader(_DATASET_NAME),
+            index_type,
             output=self.output_dir,
-            runtime_kwargs={},
-            index_type=index_type,
-            embedder=_FAKE_EMBEDDER,
         )
 
         self.assertEqual(
             build_mock.call_args.kwargs['spec'].chunker_config,
             chunker_registry.ChunkerConfig(chunker_name='none'),
-        )
-
-  def test_flat_kwargs_custom_chunker_reaches_spec(self):
-    build_mock = self._mock_index_building_build_index()
-    chunker = chunker_registry.ChunkerConfig(
-        chunker_name='words', kwargs={'max_words_per_chunk': 50}
-    )
-
-    for index_type in ('embedding', 'hipporag'):
-      with self.subTest(index_type):
-        build_index_lib.build_index(
-            corpus=datasets.get_dataset_loader(_DATASET_NAME),
-            output=self.output_dir,
-            runtime_kwargs={},
-            index_type=index_type,
-            embedder=_FAKE_EMBEDDER,
-            chunker=chunker,
-        )
-
-        self.assertEqual(
-            build_mock.call_args.kwargs['spec'].chunker_config,
-            chunker_registry.ChunkerConfig(
-                chunker_name='words', kwargs={'max_words_per_chunk': 50}
-            ),
-        )
-
-  def test_flat_kwargs_custom_embedder_reaches_spec(self):
-    build_mock = self._mock_index_building_build_index()
-    embedder = backend_registry.EmbedBackendConfig(
-        backend_class_name='FakeEmbedderBackend',
-        model_name='fake-model',
-        kwargs={'embed_kwargs': {'output_dimensionality': 768}},
-    )
-
-    for index_type in ('embedding', 'hipporag'):
-      with self.subTest(index_type):
-        build_index_lib.build_index(
-            corpus=datasets.get_dataset_loader(_DATASET_NAME),
-            output=self.output_dir,
-            runtime_kwargs={},
-            index_type=index_type,
-            embedder=embedder,
-        )
-
-        self.assertEqual(
-            build_mock.call_args.kwargs['spec'].embed_backend_config,
-            backend_registry.EmbedBackendConfig(
-                backend_class_name='FakeEmbedderBackend',
-                model_name='fake-model',
-                kwargs={'embed_kwargs': {'output_dimensionality': 768}},
-            ),
         )
 
   def test_build_from_spec_uses_hipporag_spec_settings(self):
@@ -553,13 +588,12 @@ class BuildIndexLibTest(absltest.TestCase):
         ),
     )
 
-  def test_flat_kwargs_runtime_kwargs_defaults_to_request_defaults(self):
+  def test_runtime_kwargs_defaults_to_request_defaults(self):
     build_mock = self._mock_index_building_build_index()
 
     build_index_lib.build_index(
         corpus=datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
-        embedder=_FAKE_EMBEDDER,
     )
 
     self.assertEqual(
@@ -570,7 +604,7 @@ class BuildIndexLibTest(absltest.TestCase):
         },
     )
 
-  def test_flat_kwargs_mapping_runtime_kwargs_get_request_defaults(self):
+  def test_mapping_runtime_kwargs_get_request_defaults(self):
     build_mock = self._mock_index_building_build_index()
     runtime_kwargs = types.MappingProxyType({'api_key': 'key'})
 
@@ -578,7 +612,6 @@ class BuildIndexLibTest(absltest.TestCase):
         corpus=datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
         runtime_kwargs=runtime_kwargs,
-        embedder=_FAKE_EMBEDDER,
     )
 
     self.assertEqual(
@@ -591,14 +624,13 @@ class BuildIndexLibTest(absltest.TestCase):
     )
     self.assertEqual(runtime_kwargs, {'api_key': 'key'})
 
-  def test_flat_kwargs_runtime_kwargs_override_request_defaults(self):
+  def test_runtime_kwargs_override_request_defaults(self):
     build_mock = self._mock_index_building_build_index()
 
     build_index_lib.build_index(
         corpus=datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
         runtime_kwargs={'max_retries': 2, 'http_options': {'timeout': 10}},
-        embedder=_FAKE_EMBEDDER,
     )
 
     self.assertEqual(
@@ -667,7 +699,7 @@ class BuildIndexLibTest(absltest.TestCase):
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
     self.assertEqual(http_options, {'base_url': 'url'})
 
-  def test_flat_kwargs_storage_format_reaches_index_building(self):
+  def test_storage_format_reaches_index_building(self):
     build_mock = self._mock_index_building_build_index()
 
     for storage_format in (
@@ -677,7 +709,6 @@ class BuildIndexLibTest(absltest.TestCase):
         build_index_lib.build_index(
             corpus=datasets.get_dataset_loader(_DATASET_NAME),
             output=self.output_dir,
-            embedder=_FAKE_EMBEDDER,
             storage_format=storage_format,
         )
 
@@ -685,14 +716,13 @@ class BuildIndexLibTest(absltest.TestCase):
             build_mock.call_args.kwargs['storage_format'], storage_format
         )
 
-  def test_flat_kwargs_hipporag_accepts_default_storage_format(self):
+  def test_hipporag_accepts_default_storage_format(self):
     build_mock = self._mock_index_building_build_index()
 
     build_index_lib.build_index(
-        corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        datasets.get_dataset_loader(_DATASET_NAME),
+        build_index_lib.IndexType.HIPPORAG,
         output=self.output_dir,
-        index_type='hipporag',
-        embedder=_FAKE_EMBEDDER,
         storage_format=serialization.StorageFormat.JSONL_NPY,
     )
 
@@ -701,13 +731,12 @@ class BuildIndexLibTest(absltest.TestCase):
         hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec,
     )
 
-  def test_flat_kwargs_default_storage_format(self):
+  def test_default_storage_format(self):
     build_mock = self._mock_index_building_build_index()
 
     build_index_lib.build_index(
         corpus=datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
-        embedder=_FAKE_EMBEDDER,
     )
 
     self.assertEqual(
@@ -725,11 +754,13 @@ class BuildIndexLibTest(absltest.TestCase):
         self.assertIn(storage_format.value, serialization.SERIALIZER_REGISTRY)
     self.assertEqual(serialization.StorageFormat.JSONL_NPY.value, 'simple')
 
-  def test_flat_kwargs_saves_manifest_with_storage_format(self):
-    out_dir = build_index_lib.build_index(
+  def test_saves_manifest_with_storage_format(self):
+    out_dir = build_index_lib.build_index_from_spec(
+        spec=embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+            embed_backend_config=_FAKE_EMBEDDER
+        ),
         corpus=datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
-        embedder=_FAKE_EMBEDDER,
         storage_format=serialization.StorageFormat.JSONL_NPY,
     )
 

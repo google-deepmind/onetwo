@@ -21,6 +21,7 @@ from onetwo.stdlib.retrieval import serialization as _serialization
 
 build_index = _build_index_module.build_index
 build_index_from_spec = _build_index_module.build_index_from_spec
+IndexType = _build_index_module.IndexType
 evaluate = _evaluate_rag_module.evaluate_rag
 register_index_spec = _index_spec_registry.register_index_spec
 StorageFormat = _serialization.StorageFormat

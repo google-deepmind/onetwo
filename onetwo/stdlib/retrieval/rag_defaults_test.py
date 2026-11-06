@@ -72,11 +72,14 @@ class RagDefaultsTest(absltest.TestCase):
     spec_2 = embedding_index_specs.EmbeddingBasedDocumentIndexSpec()
     self.assertIsNot(spec_1.embed_backend_config, spec_2.embed_backend_config)
 
-  def test_build_index_uses_defaults(self):
+  def test_build_index_default_index_uses_defaults(self):
     params = inspect.signature(build_index_lib.build_index).parameters
-    # `embedder=None` means `rag_defaults.default_embed_backend_config()`, see
+    # The default `IndexType.EMBEDDING` uses
+    # `rag_defaults.default_embed_backend_config()`, see
     # `build_index_lib_test.test_flat_kwargs_default_embedder`.
-    self.assertIsNone(params['embedder'].default)
+    self.assertEqual(
+        params['index'].default, build_index_lib.IndexType.EMBEDDING
+    )
 
 
 if __name__ == '__main__':
