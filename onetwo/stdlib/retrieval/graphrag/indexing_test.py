@@ -232,6 +232,11 @@ class BaseKnowledgeGraphIndexTest(parameterized.TestCase):
 class HippoRAGExtractorSettingsTest(parameterized.TestCase):
   """Tests for the extractor that HippoRAGDocumentIndex builds from settings."""
 
+  def test_is_a_document_index(self):
+    self.assertIsInstance(
+        indexing.HippoRAGDocumentIndex(), indexing_lib.DocumentIndex
+    )
+
   def test_default_extractor_reproduces_previous_defaults(self):
     """Tests the default prompt, entity types and doc formatting."""
     index = indexing.HippoRAGDocumentIndex()

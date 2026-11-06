@@ -256,6 +256,7 @@ class HippoRAGDocumentIndex(
     BaseKnowledgeGraphIndex[
         str, Document, Document, graph_lib.Entity, graph_lib.Triple
     ],
+    indexing.DocumentIndex,
 ):
   """Knowledge graph index for HippoRAG.
 
