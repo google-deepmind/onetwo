@@ -56,8 +56,8 @@ class FakeEmbedder(backends_test_utils.EmbedderForTest):
 class FakeLLM(backends_test_utils.LLMForTest):
 
   def __init__(self, model_name: str | None = None, **kwargs):
-    kwargs.setdefault('default_reply', "{'entities': [], 'triples': []}")
-    super().__init__(**kwargs)
+    del kwargs  # Runtime kwargs (e.g. api_key) are not used.
+    super().__init__(default_reply="{'entities': [], 'triples': []}")
     self.model_name = model_name
 
 
@@ -215,7 +215,6 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
     self.assertEqual(
         extractor.generate_backend_config, self.generate_backend_config
     )
-    self.assertEqual(extractor.runtime_kwargs, {'api_key': 'key'})
     # The documents are passed as-is, so that multimodal content (e.g. PDFs)
     # reaches the model.
     self.assertIsInstance(

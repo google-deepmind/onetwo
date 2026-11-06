@@ -17,6 +17,7 @@
 import dataclasses
 import functools
 import types
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -615,17 +616,21 @@ class KnowledgeGraphTest(parameterized.TestCase):
 
   def test_extractor_generator_backend_property_and_setter(self):
     """Tests lazy instantiation and manual setter for generator_backend."""
-    extractor = graph.GraphRAGEntityAndTriplesExtractor(
-        runtime_kwargs={"api_key": "fake_api_key"}
-    )
+    extractor = graph.GraphRAGEntityAndTriplesExtractor()
     self.assertIsNone(extractor.generator_backend)
 
-    config = backend_registry.GenerateBackendConfig(
-        backend_class_name="GoogleGenAIAPI", model_name="gemini-2.5-flash"
+    self.enter_context(
+        mock.patch.dict(
+            backend_registry.BACKEND_REGISTRY,
+            {"LLMForTest": backends_test_utils.LLMForTest},
+        )
     )
-    extractor.generate_backend_config = config
-    backend = extractor.generator_backend
-    self.assertIsNotNone(backend)
+    extractor.generate_backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name="LLMForTest"
+    )
+    self.assertIsInstance(
+        extractor.generator_backend, backends_test_utils.LLMForTest
+    )
 
     custom_backend = backends_test_utils.LLMForTest()
     extractor.generator_backend = custom_backend

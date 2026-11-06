@@ -536,12 +536,9 @@ class GraphRAGEntityAndTriplesExtractor(
       `ChunkList`) reaches the model as such. A `TextDocumentFormatter` would
       instead turn it into text placeholders (e.g. `<application/pdf>`).
     generate_backend_config: Configuration for the generation LLM backend used
-      during entity and triple extraction.
-    runtime_kwargs: Environment-specific deployment settings (e.g.,
-      `threadpool_size`, `project`) and credentials (`api_key`, `credentials`)
-      that are used when instantiating `generator_backend`. Since it may hold
-      credentials, it is excluded from `repr` and equality, and never saved by
-      the serializers.
+      during entity and triple extraction. The backend is created from it
+      without runtime kwargs (e.g. credentials); to use a backend that needs
+      them, set `generator_backend` instead (as `HippoRAGDocumentIndex` does).
   """
 
   extraction_prompt: str | content_lib.ChunkList = (
@@ -551,11 +548,6 @@ class GraphRAGEntityAndTriplesExtractor(
       default_factory=document_formatting.NoFormatting
   )
   generate_backend_config: backend_registry.GenerateBackendConfig | None = None
-  # Environment settings and credentials: excluded from `repr` and equality,
-  # and never saved by the serializers.
-  runtime_kwargs: dict[str, Any] = dataclasses.field(
-      default_factory=dict, repr=False, compare=False
-  )
   _generator_backend: backends_base.Backend | None = dataclasses.field(
       default=None, repr=False, compare=False
   )
@@ -586,7 +578,7 @@ class GraphRAGEntityAndTriplesExtractor(
         and self.generate_backend_config is not None
     ):
       self._generator_backend = backend_registry.get_backend(
-          self.generate_backend_config, **self.runtime_kwargs
+          self.generate_backend_config
       )
     return self._generator_backend
 

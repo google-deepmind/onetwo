@@ -20,6 +20,7 @@ import functools
 import os
 import types
 from typing import Any, Iterable, Sequence
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -274,6 +275,10 @@ class HippoRAGExtractorSettingsTest(parameterized.TestCase):
         runtime_kwargs={"api_key": "key"},
     )
 
+    get_backend_mock = self.enter_context(
+        mock.patch.object(backend_registry, "get_backend", autospec=True)
+    )
+
     extractor = index.entity_and_triples_extractor
 
     assert isinstance(extractor, graph_lib.GraphRAGEntityAndTriplesExtractor)
@@ -281,7 +286,12 @@ class HippoRAGExtractorSettingsTest(parameterized.TestCase):
         extractor.extraction_prompt, "Types: person, city. Answer in {json}."
     )
     self.assertEqual(extractor.generate_backend_config, config)
-    self.assertEqual(extractor.runtime_kwargs, {"api_key": "key"})
+    with self.subTest("generator_is_created_with_the_runtime_kwargs"):
+      self.assertEqual(
+          get_backend_mock.call_args,
+          mock.call(config, api_key="key"),
+      )
+      self.assertIs(extractor.generator_backend, get_backend_mock.return_value)
 
   def test_extractor_is_built_once(self):
     index = indexing.HippoRAGDocumentIndex()

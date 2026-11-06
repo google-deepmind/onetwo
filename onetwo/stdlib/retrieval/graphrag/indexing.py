@@ -306,13 +306,19 @@ class HippoRAGDocumentIndex(
 
   def _make_extractor(self) -> graph_lib.GraphRAGEntityAndTriplesExtractor:
     """Returns the extractor configured with the index settings."""
-    return graph_lib.GraphRAGEntityAndTriplesExtractor(
+    extractor = graph_lib.GraphRAGEntityAndTriplesExtractor(
         extraction_prompt=self.extraction_prompt.format(
             entity_types=", ".join(self.entity_types)
         ),
         generate_backend_config=self.generate_backend_config,
-        runtime_kwargs=self.runtime_kwargs,
     )
+    # The index creates the generator, with its runtime kwargs (e.g.
+    # credentials), so that the extractor never holds them.
+    if self.generate_backend_config is not None:
+      extractor.generator_backend = backend_registry.get_backend(
+          self.generate_backend_config, **self.runtime_kwargs
+      )
+    return extractor
 
   def _validate_docs(self, docs: Sequence[Document]) -> None:
     """Validates that candidate documents have valid identifiers before indexing.
