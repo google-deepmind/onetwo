@@ -193,6 +193,28 @@ class EmbeddingBasedIndexTest(absltest.TestCase):
     with self.subTest('is_not_shared_between_indexes'):
       self.assertIsNot(index.searcher, indexing.EmbeddingBasedIndex().searcher)
 
+  def test_retrieve_doc_indices_and_scores_uses_num_docs(self):
+    """Tests retrieval from subclasses that do not keep documents in `_docs`."""
+
+    class DocsOnDiskIndex(indexing.EmbeddingBasedIndex):
+      """Index that keeps only the embeddings in memory, not the documents."""
+
+      @property
+      def num_docs(self) -> int:
+        return len(self._doc_embeddings)
+
+    # An index with two embedded documents, and an empty `_docs`.
+    index = DocsOnDiskIndex()
+    index._doc_embeddings = [np.array([1.0, 0.0]), np.array([0.0, 1.0])]  # pylint: disable=protected-access
+    ot.run(index.searcher.build(np.stack(index._doc_embeddings)))  # pylint: disable=protected-access
+    mock_embed_fn.embeddings = [np.array([1.0, 0.0])]  # pyrefly: ignore[missing-attribute]
+
+    results = ot.run(index.retrieve_doc_indices_and_scores('query'))
+    with self.subTest('returns_correct_results'):
+      self.assertEqual(results, [(0, 1.0), (1, 0.0)])
+    with self.subTest('num_docs_is_correct'):
+      self.assertEqual(index.num_docs, 2)
+
   def test_get_doc_and_get_doc_embedding(self):
     docs = [
         Document(doc_id='doc1', content='hello'),

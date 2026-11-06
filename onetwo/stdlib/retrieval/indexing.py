@@ -1026,7 +1026,7 @@ class EmbeddingBasedIndex(
       **kwargs: Additional keyword arguments.
     """
     del kwargs  # Unused.
-    if not self._docs:
+    if not self.num_docs:
       return []
     query_embedding = await self._calculate_query_embedding(query)
 
