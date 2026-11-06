@@ -74,6 +74,26 @@ def get_shard_path(
   )
 
 
+def get_storage_format(
+    base_path: str | epath.Path, *, default: StorageFormat
+) -> StorageFormat:
+  """Returns the storage format of the index saved in `base_path`.
+
+  Args:
+    base_path: The index directory.
+    default: The storage format of indexes without a `manifest.json` (which
+      records the format otherwise), or whose manifest has no `serializer_type`.
+  """
+  manifest_path = epath.Path(base_path) / MANIFEST_JSON_NAME
+  if not manifest_path.exists():
+    return default
+  with manifest_path.open('r') as f:
+    manifest_data = json.load(f)
+  if 'serializer_type' not in manifest_data:
+    return default
+  return StorageFormat(manifest_data['serializer_type'])
+
+
 def load_documents(
     file_path: str | epath.Path,
     doc_class: type[DocT],

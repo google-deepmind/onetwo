@@ -50,7 +50,6 @@ from collections.abc import Container
 import contextlib
 import dataclasses
 import enum
-import json
 import random
 from typing import Any, ClassVar, Generic, Iterable, Iterator, Sequence, TypeVar, cast
 
@@ -1205,15 +1204,9 @@ class EmbeddingBasedDocumentIndex(
   @executing.make_executable(copy_self=False)
   async def load(self, base_path: str) -> None:
     """Loads the index state, in the storage format it was saved in."""
-    storage_format = self.default_storage_format
-    manifest_path = epath.Path(base_path) / 'manifest.json'
-    if manifest_path.exists():
-      with manifest_path.open('r') as f:
-        manifest_data = json.load(f)
-      storage_format = serialization.StorageFormat(
-          manifest_data.get('serializer_type', storage_format.value)
-      )
-
+    storage_format = serialization.get_storage_format(
+        base_path, default=self.default_storage_format
+    )
     serializer = serialization.get_serializer(storage_format, Document)
     index_state_dto = await serializer.load(base_path)
     self._docs = index_state_dto.docs

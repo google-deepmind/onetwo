@@ -17,6 +17,7 @@ import os
 import shutil
 import tempfile
 from typing import Any, cast
+from unittest import mock
 
 from absl.testing import absltest
 import numpy as np
@@ -263,6 +264,36 @@ class SerializationTest(absltest.TestCase):
     np.testing.assert_array_equal(
         new_state.doc_embeddings[1], state.doc_embeddings[1]
     )
+
+  def test_get_storage_format(self):
+    default = cast(Any, mock.sentinel.default_storage_format)
+    manifest_path = os.path.join(self.test_dir, 'manifest.json')
+
+    with self.subTest('no_manifest_returns_default'):
+      self.assertEqual(
+          serialization.get_storage_format(self.test_dir, default=default),
+          default,
+      )
+    with self.subTest('manifest_without_serializer_type_returns_default'):
+      with open(manifest_path, 'w') as f:
+        json.dump({'format_version': '1.0'}, f)
+      self.assertEqual(
+          serialization.get_storage_format(self.test_dir, default=default),
+          default,
+      )
+    with self.subTest('reads_the_format_saved_by_the_serializer'):
+      os.remove(manifest_path)
+      serialization.SimpleEmbeddingBasedIndexSerializer(_Document).save(
+          index_state.EmbeddingBasedIndexState(
+              docs=[_Document(doc_id='doc')],
+              doc_embeddings=[np.array([1.0])],
+          ),
+          self.test_dir,
+      )
+      self.assertEqual(
+          serialization.get_storage_format(self.test_dir, default=default),
+          serialization.StorageFormat.JSONL_NPY,
+      )
 
   def test_serializer_registry(self):
     self.assertIn('simple', serialization.SERIALIZER_REGISTRY)
