@@ -99,6 +99,12 @@ def get_class(name: str) -> type[Any]:
   return _CLASSES_BY_NAME[name]
 
 
+def is_registered(obj_or_cls: Any) -> bool:
+  """Returns whether the class of `obj_or_cls` (or the class) is registered."""
+  cls = obj_or_cls if isinstance(obj_or_cls, type) else type(obj_or_cls)
+  return cls in _NAMES_BY_CLASS
+
+
 def get_name(obj_or_cls: Any) -> str:
   """Returns the registered name of the class of `obj_or_cls` (or the class).
 

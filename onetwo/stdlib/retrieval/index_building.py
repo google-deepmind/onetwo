@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterable, Mapping
 from absl import logging
 from etils import epath
 from onetwo.core import executing
+from onetwo.stdlib.retrieval import config_serialization
 
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
@@ -161,11 +162,12 @@ def load_index(
     index_directory: str,
     runtime_kwargs: Mapping[str, Any] | None = None,
 ) -> indexing.DocumentIndex:
-  """Loads an index saved by `build_index`, whatever its spec type.
+  """Loads a saved index, whatever its type.
 
-  The index type is determined by the `index_spec.json` written next to the
-  index. Directories without that file (built before specs were saved) are
-  loaded as an `EmbeddingBasedDocumentIndex`.
+  The index is built from the `index_config.json` written next to it if any
+  (see `config_serialization`), else from its `index_spec.json`. Directories
+  without either file (built before specs were saved) are loaded as an
+  `EmbeddingBasedDocumentIndex`.
 
   Args:
     index_directory: Directory of the saved index.
@@ -176,20 +178,30 @@ def load_index(
     The loaded index.
 
   Raises:
-    KeyError: If the saved spec type is not registered (e.g. the module that
-      registers a custom spec has not been imported).
-    TypeError: If the index built for the spec does not implement `load`.
+    KeyError: If the saved spec type or a class in the saved config is not
+      registered (e.g. the module that registers it has not been imported).
+    ValueError: If the saved config has an unsupported `format_version`.
+    TypeError: If the saved config does not describe a `DocumentIndex`, or the
+      index does not implement `load`.
   """
   runtime_kwargs = dict(runtime_kwargs or {})
-  spec = read_index_spec(index_directory)
-  if spec is None:
+  spec = None
+  if (
+      epath.Path(index_directory) / config_serialization.INDEX_CONFIG_FILENAME
+  ).exists():
+    index = config_serialization.make_index_from_config_file(
+        index_directory, runtime_kwargs
+    )
+  elif (spec := read_index_spec(index_directory)) is None:
     index = indexing.EmbeddingBasedDocumentIndex(runtime_kwargs=runtime_kwargs)
   else:
     index = index_spec_registry.make_index(spec, runtime_kwargs)
   if not indexing.supports_save(index):
     raise TypeError(
-        f"{type(index).__name__} (built for {type(spec).__name__}) does not"
-        f" implement load(base_path), so {index_directory!r} cannot be loaded."
+        f"{type(index).__name__}"
+        + (f" (built for {type(spec).__name__})" if spec else "")
+        + f" does not implement load(base_path), so {index_directory!r}"
+        " cannot be loaded."
     )
   executing.run(index.load(index_directory))
   return index

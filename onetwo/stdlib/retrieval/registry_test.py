@@ -29,6 +29,8 @@ class RegistryTest(absltest.TestCase):
   def test_register(self):
     self.assertIs(registry.get_class('test.Registered'), _Registered)
     self.assertEqual(registry.get_name(_Registered()), 'test.Registered')
+    self.assertTrue(registry.is_registered(_Registered))
+    self.assertFalse(registry.is_registered(object()))
 
   def test_registering_the_same_class_again_replaces_it(self):
     # Same module and qualified name, as when a module is reloaded.
