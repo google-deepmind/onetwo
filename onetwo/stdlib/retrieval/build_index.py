@@ -39,9 +39,12 @@ from onetwo.backends import backend_registry
 from onetwo.evaluation import datasets
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
+from onetwo.stdlib.retrieval import embedding_index_specs
+from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 from onetwo.stdlib.retrieval import serialization
+from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 
 # Re-export build_index for backward compatibility.
 build_index = build_index_lib.build_index
@@ -309,16 +312,27 @@ def _chunker_from_flags() -> chunker_registry.ChunkerConfig:
   )
 
 
+def _spec_from_flags() -> index_build_interface.IndexSpec:
+  """Returns the spec of the index set by the index, embedding and chunking flags."""
+  embedder = _embedder_from_flags()
+  chunker = _chunker_from_flags()
+  if _INDEX_TYPE.value == 'hipporag':
+    return hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
+        embed_backend_config=embedder, chunker_config=chunker
+    )
+  return embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+      embed_backend_config=embedder, chunker_config=chunker
+  )
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  build_index_lib.build_index(
+  build_index_lib.build_index_from_spec(
+      spec=_spec_from_flags(),
       corpus=_corpus_from_flag(_CORPUS.value, _MAX_DOCUMENTS.value),
-      index_type=_INDEX_TYPE.value,
       output=_OUTPUT.value,
-      embedder=_embedder_from_flags(),
-      chunker=_chunker_from_flags(),
       storage_format=_STORAGE_FORMAT.value,
       runtime_kwargs=build_index_lib.get_default_runtime_kwargs(
           json.loads(_RUNTIME_KWARGS.value),

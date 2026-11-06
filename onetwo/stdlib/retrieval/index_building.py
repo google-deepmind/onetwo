@@ -203,7 +203,7 @@ register_runner("local", local_index_runner.LocalIndexRunner)
 def resolve_index_output_directory(
     output_directory_pattern: str,
     dataset_name: str,
-    spec: index_build_interface.IndexSpec,
+    subdirectory: str,
 ) -> str:
   """Resolves the output directory for an index, handling internal paths.
 
@@ -211,7 +211,7 @@ def resolve_index_output_directory(
     output_directory_pattern: Pattern for the output directory (may contain
       {username}).
     dataset_name: Name of the dataset.
-    spec: The index spec to use for sub-directory naming.
+    subdirectory: Name of the subdirectory of the index, e.g. `str(spec)`.
 
   Returns:
     The resolved path as a string.

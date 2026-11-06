@@ -27,6 +27,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import serialization
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
 
@@ -167,6 +168,23 @@ def build_index(
   )
 
 
+def _load_documents(
+    corpus: str | datasets.DatasetLoader,
+) -> list[retrieval_data_structures.Document]:
+  """Returns the documents of `corpus` (see `build_index`)."""
+  if isinstance(corpus, str):
+    print(f'Loading documents from {corpus}...')
+    loader = multimodal_loader.MultimodalDatasetLoader(path=corpus)
+    docs = list(ot_executing.run(loader.load_documents()))
+  else:
+    # `DatasetLoader` is a Protocol that is not runtime checkable: any other
+    # corpus is used as a loader.
+    print('Loading documents...')
+    docs = list(ot_executing.run(corpus.load_documents()))
+  print(f'Loaded {len(docs)} documents.')
+  return docs
+
+
 def build_index_from_spec(
     spec: index_build_interface.IndexSpec,
     corpus: str | datasets.DatasetLoader,
@@ -178,9 +196,8 @@ def build_index_from_spec(
 ) -> str:
   """Builds and saves the index described by `spec` of the specified corpus.
 
-  Use this for custom indexes: register the spec type with
-  `rag.register_index_spec`, then pass an instance of the spec here. The spec
-  is used as-is.
+  Used for the ready-made indexes of `build_index` and by the `build_index`
+  command-line tool. The spec is used as-is.
 
   Args:
     spec: Spec of the index to build.
@@ -204,21 +221,11 @@ def build_index_from_spec(
   Returns:
     The output directory path where the index was saved.
   """
-  if isinstance(corpus, str):
-    print(f'Loading documents from {corpus}...')
-    loader = multimodal_loader.MultimodalDatasetLoader(path=corpus)
-    docs = list(ot_executing.run(loader.load_documents()))
-  else:
-    # `DatasetLoader` is a Protocol that is not runtime checkable: any other
-    # corpus is used as a loader.
-    print('Loading documents...')
-    docs = list(ot_executing.run(corpus.load_documents()))
-  print(f'Loaded {len(docs)} documents.')
-
+  docs = _load_documents(corpus)
   out_dir = index_building.resolve_index_output_directory(
       output_directory_pattern=output,
       dataset_name=_corpus_name(corpus),
-      spec=spec,
+      subdirectory=str(spec),
   )
   print(f'Will save the index to output directory: {out_dir}')
 
