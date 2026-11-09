@@ -15,7 +15,6 @@
 """Library to build an embedding-based document index."""
 
 from collections.abc import Mapping
-import dataclasses
 import enum
 import hashlib
 import json
@@ -64,25 +63,6 @@ def _preset_spec(index_type: IndexType) -> index_build_interface.IndexSpec:
       embed_backend_config=embed_backend_config,
       chunker_config=chunker_config,
   )
-
-
-# TODO: Remove this function once it is determined how to pass
-# runtime kwargs to the index.
-def _has_runtime_kwargs(obj: Any) -> bool:
-  """Returns whether `obj` or a nested dataclass has `runtime_kwargs` set."""
-  if isinstance(obj, (list, tuple)):
-    return any(_has_runtime_kwargs(item) for item in obj)
-  if not dataclasses.is_dataclass(obj) or isinstance(obj, type):
-    return False
-  for field in dataclasses.fields(obj):
-    if not field.init:
-      continue
-    value = getattr(obj, field.name)
-    if field.name == 'runtime_kwargs' and value:
-      return True
-    if _has_runtime_kwargs(value):
-      return True
-  return False
 
 
 def _corpus_name(corpus: str | datasets.DatasetLoader) -> str:
@@ -163,7 +143,8 @@ def build_index(
     storage_format: How the index is saved on disk (see
       `serialization.StorageFormat`).
     runtime_kwargs: Arguments for backends (e.g. API key), not saved with the
-      index. Backend requests are retried up to `'max_retries'` times (default
+      index. Any `runtime_kwargs` set on an index object are ignored. Backend
+      requests are retried up to `'max_retries'` times (default
       `rag_defaults.DEFAULT_MAX_RETRIES`) and time out after `'http_options':
       {'timeout': ...}` milliseconds (default
       `rag_defaults.DEFAULT_HTTP_TIMEOUT_MS`, also added to an `'http_options'`
@@ -176,8 +157,6 @@ def build_index(
     KeyError, TypeError: If an index object cannot be saved, e.g. because the
       class of one of its components is not registered. Raised before the
       corpus is loaded.
-    ValueError: If an index object (or one of its components) has
-      `runtime_kwargs` set; pass them to `build_index` instead.
   """
   rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
   if isinstance(index, str):
@@ -190,11 +169,6 @@ def build_index(
     )
 
   # Fail fast, before loading the corpus.
-  if _has_runtime_kwargs(index):
-    raise ValueError(
-        'Pass runtime kwargs (e.g. credentials) to `build_index(...,'
-        ' runtime_kwargs=...)`, not to the index or its components.'
-    )
   config = config_serialization.get_config(index)
   if not indexing.supports_save(index):
     raise TypeError(f'{type(index).__name__} does not support saving.')

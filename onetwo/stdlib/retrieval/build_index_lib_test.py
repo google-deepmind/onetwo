@@ -190,15 +190,6 @@ class BuildIndexLibTest(absltest.TestCase):
             output=self.output_dir,
         )
       corpus.load_documents.assert_not_called()
-    with self.subTest('runtime_kwargs_on_the_index_raise'):
-      index = _custom_index(_SentenceChunker())
-      index.inner_index.runtime_kwargs = {'api_key': 'secret'}
-      with self.assertRaisesRegex(ValueError, 'Pass runtime kwargs'):
-        build_index_lib.build_index(
-            datasets.get_dataset_loader(_DATASET_NAME),
-            index,
-            output=self.output_dir,
-        )
 
   def test_build_custom_spec_saves_index_and_spec(self):
     out_dir = build_index_lib.build_index_from_spec(
