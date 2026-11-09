@@ -87,10 +87,6 @@ ORIGINAL_DOCS_JSONL_NAME = 'original_docs.jsonl'
 def _validate_docs(docs: Sequence[Any]) -> None:
   """Validates that the given documents all have doc_id attributes.
 
-  Note that doc_ids are not required to be unique: some callers intentionally
-  index several documents (e.g. different name variants of an entity) under
-  the same doc_id.
-
   Args:
     docs: The documents to validate.
 
@@ -109,8 +105,8 @@ def _validate_docs(docs: Sequence[Any]) -> None:
 
 def _find_duplicate_doc_ids(
     docs: Sequence[Any], existing_doc_ids: Container[str]
-) -> None:
-  """Logs a warning if any of `docs` has a doc_id that is already used.
+) -> list[str]:
+  """Returns the doc_ids of `docs` that are already used.
 
   A doc_id counts as already used if it is in `existing_doc_ids` or belongs to
   an earlier document in `docs`. Such documents are counted once each.
@@ -126,14 +122,7 @@ def _find_duplicate_doc_ids(
     if doc_id in existing_doc_ids or doc_id in seen_doc_ids:
       duplicate_doc_ids.append(doc_id)
     seen_doc_ids.add(doc_id)
-  if duplicate_doc_ids:
-    logging.warning(
-        'Added %d documents whose doc_id is already used by another document'
-        ' in the index (e.g. %s). `get_doc` returns the first document added'
-        ' for each doc_id.',
-        len(duplicate_doc_ids),
-        duplicate_doc_ids[:10],
-    )
+  return duplicate_doc_ids
 
 
 class RetrievalTarget(str, enum.Enum):
@@ -923,8 +912,9 @@ class EmbeddingBasedIndex(
       default_factory=list, init=False, repr=False
   )
   # Mapping from doc ID to the row of that document in `_docs` (and, equally,
-  # in `_doc_embeddings` and the searcher). If several documents share a doc
-  # ID, this maps to the first of them.
+  # in `_doc_embeddings` and the searcher). `add_docs` requires doc_ids to be
+  # unique, but indices saved before that was enforced may contain duplicate
+  # doc_ids; for these, this maps to the first document with each doc_id.
   _row_by_id: dict[str, int] = dataclasses.field(
       default_factory=dict, init=False, repr=False, compare=False
   )
@@ -973,9 +963,9 @@ class EmbeddingBasedIndex(
 
   def _update_row_by_id(self) -> None:
     """Adds the rows of `_docs` that are not yet in `_row_by_id`."""
-    # TODO: With duplicate doc_ids, `_row_by_id` has fewer
-    # entries than `_docs`, so rows already indexed get re-visited (harmlessly,
-    # due to `setdefault`) on every call. Revisit how duplicates are handled.
+    # If a loaded index has duplicate doc_ids, `_row_by_id` has fewer entries
+    # than `_docs`, so some rows get re-visited (harmlessly, due to
+    # `setdefault`) on every call.
     for row in range(len(self._row_by_id), len(self._docs)):
       self._row_by_id.setdefault(getattr(self._docs[row], 'doc_id'), row)
 
@@ -995,7 +985,12 @@ class EmbeddingBasedIndex(
     if not docs:
       return
     _validate_docs(docs)
-    _find_duplicate_doc_ids(docs, self._row_by_id)
+    if duplicate_doc_ids := _find_duplicate_doc_ids(docs, self._row_by_id):
+      raise ValueError(
+          f'{len(duplicate_doc_ids)} documents have a doc_id that is already'
+          f' used by another document (e.g. {duplicate_doc_ids[:10]}). doc_ids'
+          ' must be unique within an index.'
+      )
     self._docs.extend(docs)
     self._update_row_by_id()
     embedded_results = await self._calculate_doc_embeddings(docs)
@@ -1209,6 +1204,16 @@ class EmbeddingBasedDocumentIndex(
     )
     serializer = serialization.get_serializer(storage_format, Document)
     index_state_dto = await serializer.load(base_path)
+    if duplicate_doc_ids := _find_duplicate_doc_ids(index_state_dto.docs, {}):
+      # Only `add_docs` enforces unique doc_ids, so that indices saved before
+      # it did can still be loaded.
+      logging.warning(
+          'Loaded %d documents whose doc_id is already used by another document'
+          ' in the index (e.g. %s). `get_doc` returns the first document for'
+          ' each doc_id.',
+          len(duplicate_doc_ids),
+          duplicate_doc_ids[:10],
+      )
     self._docs = index_state_dto.docs
     self._row_by_id = {}
     self._update_row_by_id()
