@@ -321,6 +321,20 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
         show_progress=self.show_progress,
     )
 
+    return index_state.EmbeddingBasedIndexState(
+        docs=docs,
+        doc_embeddings=self.load_embeddings(path),
+        embed_backend_config=self.load_embed_backend_config(path),
+    )
+
+  def load_embeddings(self, base_path: str | epath.Path) -> list[np.ndarray]:
+    """Returns the embeddings saved in `base_path`, one per document.
+
+    Args:
+      base_path: The directory the index was saved to.
+    """
+    path = epath.Path(base_path)
+
     # Load embeddings from NPY (sharded or single).
     def _load_single_npy(s: epath.Path) -> np.ndarray:
       content = s.read_bytes()
@@ -345,22 +359,22 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
       doc_embeddings = list(_load_single_npy(embeddings_path))
     else:
       doc_embeddings = []
+    return doc_embeddings
 
-    # Load embed_backend_config if it exists.
-    config_path = path / self.embed_backend_config_json_name
-    embed_backend_config = None
-    if config_path.exists():
-      with config_path.open('r') as f:
-        json_str = f.read()
-      embed_backend_config = backend_registry.EmbedBackendConfig.from_json(
-          json_str
-      )
+  def load_embed_backend_config(
+      self, base_path: str | epath.Path
+  ) -> backend_registry.EmbedBackendConfig | None:
+    """Returns the embedding backend config saved in `base_path`, if any.
 
-    return index_state.EmbeddingBasedIndexState(
-        docs=docs,
-        doc_embeddings=doc_embeddings,
-        embed_backend_config=embed_backend_config,
-    )
+    Args:
+      base_path: The directory the index was saved to.
+    """
+    config_path = epath.Path(base_path) / self.embed_backend_config_json_name
+    if not config_path.exists():
+      return None
+    with config_path.open('r') as f:
+      json_str = f.read()
+    return backend_registry.EmbedBackendConfig.from_json(json_str)
 
 
 @dataclasses.dataclass
