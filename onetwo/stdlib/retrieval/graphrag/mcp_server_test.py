@@ -20,6 +20,7 @@ from collections.abc import Sequence
 import json
 import types
 from typing import Any, cast
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -27,6 +28,8 @@ from mcp import types as mcp_types
 from mcp.shared import memory
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import indexing as indexing_lib
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
 from onetwo.stdlib.retrieval.graphrag import indexing
@@ -284,6 +287,70 @@ class McpServerDocumentsTest(parameterized.TestCase):
     result = _call_tool([_TEXT_DOC], tool_name, arguments)
 
     self.assertEqual(result.content, [_json_text_block({'error': message})])
+
+
+class UnwrapHippoRAGIndexTest(parameterized.TestCase):
+
+  def test_returns_hipporag_index(self):
+    hipporag_index = indexing.HippoRAGDocumentIndex()
+
+    self.assertIs(
+        mcp_server.unwrap_hipporag_index(hipporag_index), hipporag_index
+    )
+
+  def test_unwraps_rewriting_index(self):
+    hipporag_index = indexing.HippoRAGDocumentIndex()
+    rewriting_index = indexing_lib.RewritingDocumentIndex(
+        inner_index=indexing_lib.RewritingDocumentIndex(
+            inner_index=hipporag_index
+        )
+    )
+
+    self.assertIs(
+        mcp_server.unwrap_hipporag_index(rewriting_index), hipporag_index
+    )
+
+  @parameterized.named_parameters(
+      (
+          'non_hipporag_index',
+          indexing_lib.NaiveIndex(),
+          'but got a NaiveIndex.',
+      ),
+      (
+          'rewriting_non_hipporag_index',
+          indexing_lib.RewritingDocumentIndex(
+              inner_index=indexing_lib.NaiveIndex()
+          ),
+          'but got a RewritingDocumentIndex wrapping a NaiveIndex.',
+      ),
+  )
+  def test_raises_for_non_hipporag_index(
+      self, index: indexing_lib.DocumentIndex, message: str
+  ):
+    with self.assertRaisesRegex(TypeError, message):
+      mcp_server.unwrap_hipporag_index(index)
+
+
+class LoadIndexTest(absltest.TestCase):
+
+  def test_loads_and_unwraps_index(self):
+    hipporag_index = indexing.HippoRAGDocumentIndex()
+    rewriting_index = indexing_lib.RewritingDocumentIndex(
+        inner_index=hipporag_index
+    )
+
+    with mock.patch.object(
+        index_building,
+        'load_index',
+        autospec=True,
+        return_value=rewriting_index,
+    ) as mock_load_index:
+      index = mcp_server.load_index('/path/to/index', '{"api_key": "key"}')
+
+    self.assertIs(index, hipporag_index)
+    mock_load_index.assert_called_once_with(
+        '/path/to/index', {'api_key': 'key'}
+    )
 
 
 if __name__ == '__main__':

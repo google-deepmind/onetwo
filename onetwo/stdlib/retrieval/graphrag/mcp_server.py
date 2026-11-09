@@ -54,9 +54,10 @@ from absl import logging
 from mcp import types as mcp_types
 from mcp.server.fastmcp import server
 import networkx as nx
-from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.builtins import llm
+from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import indexing as indexing_lib
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.graphrag import graph as graph_lib
 from onetwo.stdlib.retrieval.graphrag import indexing
@@ -79,11 +80,54 @@ def _error_result(message: str) -> mcp_types.CallToolResult:
   )
 
 
+def unwrap_hipporag_index(
+    index: indexing_lib.DocumentIndex,
+) -> indexing.HippoRAGDocumentIndex:
+  """Returns the HippoRAG index that `index` is or wraps.
+
+  HippoRAG indexes built from a spec (e.g. by `build_index` with
+  `SimpleRewritingHippoRAGDocumentIndexSpec`) are wrapped in a
+  `RewritingDocumentIndex`, which chunks and formats the documents. This
+  unwraps `index` through any `RewritingDocumentIndex`es and checks that the
+  innermost index is a `HippoRAGDocumentIndex`, which holds the (rewritten)
+  documents that the server serves.
+
+  Args:
+    index: The index, e.g. as loaded by `index_building.load_index`.
+
+  Returns:
+    `index` if it is a `HippoRAGDocumentIndex`, else the `HippoRAGDocumentIndex`
+    that it wraps.
+
+  Raises:
+    TypeError: If `index` neither is nor wraps (through
+      `RewritingDocumentIndex`es) a `HippoRAGDocumentIndex`.
+  """
+  inner_index = index
+  while isinstance(inner_index, indexing_lib.RewritingDocumentIndex):
+    inner_index = inner_index.inner_index
+  if not isinstance(inner_index, indexing.HippoRAGDocumentIndex):
+    raise TypeError(
+        'The GraphRAG MCP server requires a HippoRAGDocumentIndex, but got a'
+        f' {type(index).__name__}'
+        + (
+            f' wrapping a {type(inner_index).__name__}'
+            if inner_index is not index
+            else ''
+        )
+        + '.'
+    )
+  return inner_index
+
+
 def load_index(
     index_path: str,
     index_runtime_kwargs: dict[str, Any] | str | None = None,
 ) -> indexing.HippoRAGDocumentIndex:
   """Loads a saved HippoRAG index and prepares its sub-indexes for querying.
+
+  The index is loaded with `index_building.load_index`, and unwrapped with
+  `unwrap_hipporag_index`.
 
   Args:
     index_path: Directory of the saved HippoRAG index.
@@ -93,6 +137,10 @@ def load_index(
 
   Returns:
     The loaded index.
+
+  Raises:
+    TypeError: If the saved index is not a `HippoRAGDocumentIndex`, possibly
+      wrapped in `RewritingDocumentIndex`es.
   """
   if isinstance(index_runtime_kwargs, str):
     runtime_kwargs = (
@@ -101,9 +149,10 @@ def load_index(
   else:
     runtime_kwargs = index_runtime_kwargs or {}
 
-  index = indexing.HippoRAGDocumentIndex(runtime_kwargs=runtime_kwargs)
   logging.info('Loading GraphRAG index from: %s', index_path)
-  ot.run(index.load(index_path))
+  index = unwrap_hipporag_index(
+      index_building.load_index(index_path, runtime_kwargs)
+  )
   logging.info(
       'Loaded graph with %d nodes, %d edges, %s entity index, and %s passage'
       ' index.',
