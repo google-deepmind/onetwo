@@ -321,17 +321,24 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
         show_progress=self.show_progress,
     )
 
+    embeddings = self.load_embeddings(path)
     return index_state.EmbeddingBasedIndexState(
         docs=docs,
-        doc_embeddings=self.load_embeddings(path),
+        doc_embeddings=[] if embeddings is None else list(embeddings),
         embed_backend_config=self.load_embed_backend_config(path),
     )
 
-  def load_embeddings(self, base_path: str | epath.Path) -> list[np.ndarray]:
-    """Returns the embeddings saved in `base_path`, one per document.
+  def load_embeddings(
+      self, base_path: str | epath.Path
+  ) -> np.ndarray | None:
+    """Returns the embeddings saved in `base_path`, one row per document.
 
     Args:
       base_path: The directory the index was saved to.
+
+    Returns:
+      The embeddings as a matrix with one row per document, or None if no
+      embeddings are saved in `base_path`.
     """
     path = epath.Path(base_path)
 
@@ -354,12 +361,11 @@ class SimpleEmbeddingBasedIndexSerializer(Generic[DocT]):
       )
       for s in shards_iter:
         loaded_embed_shards.append(_load_single_npy(s))
-      doc_embeddings = list(np.concatenate(loaded_embed_shards, axis=0))
+      return np.concatenate(loaded_embed_shards, axis=0)
     elif embeddings_path.exists():
-      doc_embeddings = list(_load_single_npy(embeddings_path))
+      return _load_single_npy(embeddings_path)
     else:
-      doc_embeddings = []
-    return doc_embeddings
+      return None
 
   def load_embed_backend_config(
       self, base_path: str | epath.Path

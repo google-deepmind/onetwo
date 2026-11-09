@@ -230,6 +230,33 @@ class SerializationTest(absltest.TestCase):
         new_state.doc_embeddings[1], state.doc_embeddings[1]
     )
 
+  def test_load_embeddings_returns_a_matrix(self):
+    embeddings = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], np.float32)
+    state = index_state.EmbeddingBasedIndexState(
+        docs=[_Document(doc_id=f'id{i}', content=f'C{i}') for i in range(3)],
+        doc_embeddings=list(embeddings),
+    )
+    for num_shards in (1, 2):
+      with self.subTest(f'num_shards={num_shards}'):
+        base_path = os.path.join(self.test_dir, f'index_{num_shards}')
+        serializer = serialization.SimpleEmbeddingBasedIndexSerializer(
+            _Document, num_shards=num_shards
+        )
+        serializer.save(state, base_path)
+
+        loaded = serializer.load_embeddings(base_path)
+
+        self.assertIsInstance(loaded, np.ndarray)
+        np.testing.assert_array_equal(loaded, embeddings)
+
+    with self.subTest('no_embeddings'):
+      empty_path = os.path.join(self.test_dir, 'empty')
+      os.makedirs(empty_path)
+      loaded = serialization.SimpleEmbeddingBasedIndexSerializer(
+          _Document
+      ).load_embeddings(empty_path)
+      self.assertIsNone(loaded)
+
   def test_serialization_with_manifest(self):
     serializer = serialization.SimpleEmbeddingBasedIndexSerializer(_Document)
 
