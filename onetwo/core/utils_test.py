@@ -21,6 +21,7 @@ import multiprocessing.pool
 import threading
 import time
 from typing import TypeAlias
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -1127,6 +1128,78 @@ class PrependPrefixToContentTest(absltest.TestCase):
         'prefix: ', 'hello', default_for_empty_content='none'
     )
     self.assertEqual(result, 'prefix: hello')
+
+
+class CropTextTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='string_within_limit',
+          content='hello',
+          expected_content='hello',
+      ),
+      dict(
+          testcase_name='string_over_limit',
+          content='hello world',
+          expected_content='hello',
+      ),
+      dict(
+          testcase_name='chunk_list_within_limit',
+          content=content_lib.ChunkList(
+              chunks=['hel', b'image_data', 'lo', b'more_image_data']
+          ),
+          expected_content=content_lib.ChunkList(
+              chunks=['hel', b'image_data', 'lo', b'more_image_data']
+          ),
+      ),
+      dict(
+          testcase_name='chunk_list_crops_text_chunk_and_drops_the_rest',
+          content=content_lib.ChunkList(
+              chunks=['hel', b'image_data', 'lo world', b'more_image_data']
+          ),
+          expected_content=content_lib.ChunkList(
+              chunks=['hel', b'image_data', 'lo']
+          ),
+      ),
+      dict(
+          testcase_name='chunk_list_drops_text_chunk_past_the_limit',
+          content=content_lib.ChunkList(
+              chunks=['hello', b'image_data', ' world']
+          ),
+          expected_content=content_lib.ChunkList(
+              chunks=['hello', b'image_data']
+          ),
+      ),
+  )
+  def test_crop_text(self, content, expected_content):
+    self.assertEqual(utils.crop_text(content, max_chars=5), expected_content)
+
+  def test_returns_the_same_object_within_limit(self):
+    for content in ('hello', content_lib.ChunkList(chunks=['hel', 'lo'])):
+      with self.subTest(repr(content)):
+        self.assertIs(utils.crop_text(content, max_chars=5), content)
+
+  def test_preserves_chunk_attributes(self):
+    content = content_lib.ChunkList(
+        chunks=[content_lib.Chunk('hello world', role='user', metadata='m')]
+    )
+    self.assertEqual(
+        utils.crop_text(content, max_chars=5),
+        content_lib.ChunkList(
+            chunks=[content_lib.Chunk('hello', role='user', metadata='m')]
+        ),
+    )
+
+  def test_logs_a_warning_only_when_cropping(self):
+    with mock.patch.object(
+        utils.absl_logging, 'log_every_n_seconds', autospec=True
+    ) as log_every_n_seconds:
+      with self.subTest('within_limit'):
+        utils.crop_text('hello', max_chars=5)
+        log_every_n_seconds.assert_not_called()
+      with self.subTest('over_limit'):
+        utils.crop_text('hello world', max_chars=5)
+        log_every_n_seconds.assert_called_once()
 
 
 class L2NormalizeEmbeddingTest(parameterized.TestCase):

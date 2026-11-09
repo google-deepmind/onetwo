@@ -2254,6 +2254,87 @@ class GoogleGenaiApiTest(
         mock_kwargs['contents'], [genai_types.Part(text='hello world')]
     )
 
+  def test_embed_crops_long_text_after_cache_lookup(self):
+    self.enter_context(
+        mock.patch.object(google_genai_api, 'DEFAULT_EMBED_MAX_CHARS', 5)
+    )
+    backend = _get_and_register_backend()
+    handler = backend.cache
+    assert isinstance(handler, caching.SimpleFunctionCache)
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+
+    _ = executing.run(llm.embed(content='hello world'))
+    _ = executing.run(llm.embed(content='hello world'))
+    # Same text after cropping, but a different cache key.
+    _ = executing.run(llm.embed(content='hello there'))
+
+    mock_embed = self._mock_genai_client.models.embed_content
+    with self.subTest('sends_cropped_text'):
+      self.assertEqual(
+          mock_embed.call_args_list[0][1]['contents'],
+          [genai_types.Part(text='hello')],
+      )
+    with self.subTest('cache_key_uses_full_content'):
+      self.assertEqual(mock_embed.call_count, 2)
+      self.assertCounterEqual(
+          handler._cache_data.counters,
+          Counter(add_new=2, get_miss=2, get_hit=1),
+      )
+
+  def test_embed_crops_long_chunk_list(self):
+    self.enter_context(
+        mock.patch.object(google_genai_api, 'DEFAULT_EMBED_MAX_CHARS', 30)
+    )
+    _ = _get_and_register_backend(embed_model_name='models/gemini-embedding-2')
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+    content = content_lib.ChunkList(
+        chunks=[
+            content_lib.Chunk(content='hello world'),
+            content_lib.Chunk(content=b'image_data', content_type='image/png'),
+        ]
+    )
+
+    _ = executing.run(
+        llm.embed(
+            content=content, title='My Title', task_type='RETRIEVAL_DOCUMENT'
+        )
+    )
+
+    _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+    # The 24-character prefix counts towards the limit, so the text chunk is
+    # cropped and the image chunk after it is dropped.
+    self.assertEqual(
+        mock_kwargs['contents'],
+        [
+            genai_types.Part(text='title: My Title | text: '),
+            genai_types.Part(text='hello '),
+        ],
+    )
+
+  def test_embed_crops_text_to_default_embed_max_chars(self):
+    _ = _get_and_register_backend()
+    self._mock_genai_client.models.embed_content.return_value = (
+        genai_types.EmbedContentResponse(
+            embeddings=[genai_types.ContentEmbedding(values=_MOCK_EMBEDDING)]
+        )
+    )
+    max_chars = google_genai_api.DEFAULT_EMBED_MAX_CHARS
+
+    _ = executing.run(llm.embed(content='a' * (max_chars + 1)))
+
+    _, mock_kwargs = self._mock_genai_client.models.embed_content.call_args
+    self.assertEqual(
+        mock_kwargs['contents'], [genai_types.Part(text='a' * max_chars)]
+    )
+
   def test_embed_with_non_retriable_error(self):
     """Tests that non-retriable errors are not retried in embed."""
     self._mock_genai_client.models.embed_content.side_effect = (

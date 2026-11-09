@@ -96,6 +96,22 @@ DEFAULT_EMBED_MODEL: Final[ModelName] = ModelName(
     gemini_api='models/gemini-embedding-001',
 )
 
+# Maximum number of characters of text sent in a single `embed` request.
+# The embedding models only embed the beginning of their input (2048 tokens for
+# gemini-embedding-001 and 8192 tokens for gemini-embedding-2) and truncate the
+# rest server-side. Cropping the text beyond what fits in these limits does not
+# change the embedding, and avoids sending huge payloads (e.g. whole files) that
+# can make the backend fail.
+# We assume that a token never covers more than 32 characters, so that the first
+# 8192 tokens of any text fit in 8192 * 32 = 262,144 characters. For typical
+# text (~4 characters per token) this is still ~64k tokens, and it bounds the
+# size of the text to 1MB in UTF-8.
+_EMBED_MAX_INPUT_TOKENS: Final[int] = 8192
+_MAX_CHARS_PER_TOKEN: Final[int] = 32
+DEFAULT_EMBED_MAX_CHARS: Final[int] = (
+    _EMBED_MAX_INPUT_TOKENS * _MAX_CHARS_PER_TOKEN
+)
+
 # Refer to
 # https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/configure-safety-filters
 SAFETY_DISABLED: Final[Sequence[genai_types.SafetySetting]] = [
@@ -1585,6 +1601,7 @@ class GoogleGenAIAPI(
   ) -> Sequence[float]:
     """Inner method for llm.embed."""
     self._counters['embed'] += 1
+    content = utils.crop_text(content, DEFAULT_EMBED_MAX_CHARS)
     content = _convert_chunk_list_to_part_list(content)  # pyrefly: ignore[bad-assignment]
     embed_config_kwargs = {}
     if 'task_type' in kwargs and kwargs['task_type'] is not None:

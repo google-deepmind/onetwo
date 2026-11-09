@@ -30,6 +30,7 @@ import threading
 import time
 from typing import Any, Concatenate, Final, Generic, ParamSpec, TypeAlias, TypeVar, cast, overload
 
+from absl import logging as absl_logging
 import numpy as np
 from onetwo.core import content as content_lib
 from onetwo.core import executing_impl
@@ -865,6 +866,57 @@ def prepend_prefix_to_content(
       new_chunks = [content_lib.Chunk(content=prefix)] + list(content.chunks)
     return content_lib.ChunkList(chunks=new_chunks)
   return content
+
+
+def crop_text(
+    content: str | content_lib.ChunkList, max_chars: int
+) -> str | content_lib.ChunkList:
+  """Returns the content with its text cropped to at most `max_chars` chars.
+
+  This can be used to avoid sending huge requests to models that only use the
+  beginning of their input (e.g. embedding models, which truncate long inputs
+  server-side).
+
+  For a ChunkList, the text chunks count towards the limit together: the text
+  chunk that exceeds the limit is cropped and all the chunks after it (including
+  non-text ones) are dropped.
+
+  When the text is cropped, a warning is logged (at most once per minute).
+
+  Args:
+    content: The content to crop.
+    max_chars: Maximum number of characters of text to keep.
+
+  Returns:
+    The cropped content, or `content` itself if it is within the limit.
+  """
+  if isinstance(content, str):
+    if len(content) <= max_chars:
+      return content
+    cropped = content[:max_chars]
+  else:
+    remaining = max_chars
+    chunks = []
+    for chunk in content.chunks:
+      if isinstance(chunk.content, str):
+        if len(chunk.content) > remaining:
+          if remaining:
+            chunks.append(
+                dataclasses.replace(chunk, content=chunk.content[:remaining])
+            )
+          break
+        remaining -= len(chunk.content)
+      chunks.append(chunk)
+    else:
+      return content
+    cropped = content_lib.ChunkList(chunks)
+  absl_logging.log_every_n_seconds(
+      absl_logging.WARNING,
+      'Cropped content to %d characters.',
+      60,
+      max_chars,
+  )
+  return cropped
 
 
 _UNIT_NORM_REL_TOL: Final[float] = 1e-6
