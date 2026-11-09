@@ -85,8 +85,7 @@ _RUNTIME_KWARGS = flags.DEFINE_string(
     'runtime_kwargs',
     None,
     (
-        'JSON-encoded dictionary of runtime kwargs passed to the'
-        ' EmbeddingBasedDocumentIndex constructor (e.g.'
+        'JSON-encoded dictionary of runtime kwargs of the loaded index (e.g.'
         ' \'{"api_key": "YOUR_API_KEY"}\').'
     ),
 )
@@ -118,7 +117,7 @@ def main(argv: Sequence[str]) -> None:
       host=_HOST.value,
       transport=transport,
       include_get_document=_INCLUDE_GET_DOCUMENT.value,
-      index_runtime_kwargs=runtime_kwargs,
+      runtime_kwargs=runtime_kwargs,
       tokenizer_model_name=_TOKENIZER_MODEL_NAME.value,
   )
   mcp.run(transport=transport)

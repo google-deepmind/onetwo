@@ -14,13 +14,13 @@
 
 r"""OneTwo Index MCP Server library.
 
-Exposes a pre-built OneTwo EmbeddingBasedDocumentIndex as an MCP tool, allowing
-AI agents (e.g., Antigravity) to perform agentic retrieval over an existing
-index.
+Exposes a pre-built OneTwo document index (e.g. an EmbeddingBasedDocumentIndex)
+as an MCP tool, allowing AI agents (e.g., Antigravity) to perform agentic
+retrieval over an existing index.
 
 This module provides the reusable ``create_server`` function that can be called
 from any launch script.  Environment-specific settings (e.g. the embedding
-backend's credentials or cache) are passed via the ``index_runtime_kwargs``
+backend's credentials or cache) are passed via the ``runtime_kwargs``
 parameter.
 
 Typical workflow:
@@ -75,7 +75,7 @@ from mcp import types as mcp_types
 from mcp.server.fastmcp import server
 from onetwo.backends import sentencepiece_tokenizer
 from onetwo.core import executing
-from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.tool_use import mcp_tools_utils
 
 
@@ -99,13 +99,13 @@ def create_server(
     transport: str,
     host: str = 'localhost',
     include_get_document: bool = False,
-    index_runtime_kwargs: dict[str, Any] | None = None,
+    runtime_kwargs: dict[str, Any] | None = None,
     tokenizer_model_name: str | None = None,
 ) -> server.FastMCP:
   """Creates and configures the OneTwo Index MCP server.
 
   Args:
-    index_path: Path to the pre-built embedding index.
+    index_path: Path to the pre-built index.
     max_results: Default number of top results to return.
     snippet_max_tokens: Maximum tokens per snippet (-1 = no truncation). Text
       only, per text chunk for multimodal documents. Media is never truncated.
@@ -113,9 +113,9 @@ def create_server(
     transport: Transport type (stdio, sse, streamable-http).
     host: Host/interface to bind the server on (default: localhost).
     include_get_document: If True, register a get_document tool.
-    index_runtime_kwargs: Optional runtime kwargs passed to the
-      ``EmbeddingBasedDocumentIndex`` constructor (e.g. the embedding backend's
-      credentials or cache).  When ``None``, an empty dict is used.
+    runtime_kwargs: Optional runtime kwargs of the loaded index (e.g. the
+      embedding backend's credentials or cache), see
+      ``index_building.load_index``.  When ``None``, an empty dict is used.
     tokenizer_model_name: Name of the SentencePiece tokenizer model to use for
       snippet truncation.  Must be a key in
       ``sentencepiece_tokenizer.TOKENIZER_PATHS`` or a direct file path.
@@ -138,14 +138,10 @@ def create_server(
   else:
     mcp = server.FastMCP('OneTwo Index MCP Server', host=host, port=port)
 
-  # TODO: Support other index types (e.g. any
-  # `RewritingIndex`), not only `EmbeddingBasedDocumentIndex`.
-  document_index = indexing.EmbeddingBasedDocumentIndex(
-      runtime_kwargs=index_runtime_kwargs or {},
-  )
-
   logging.info('Loading index from: %s', index_path)
-  executing.run(document_index.load(index_path))
+  document_index = index_building.load_index(
+      index_path, runtime_kwargs=runtime_kwargs
+  )
   logging.info(
       'Index loaded successfully. %d documents in the index.',
       document_index.num_docs,

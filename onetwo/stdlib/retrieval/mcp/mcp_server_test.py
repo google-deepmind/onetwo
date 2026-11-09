@@ -16,7 +16,8 @@
 
 import asyncio
 import base64
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+import dataclasses
 import json
 from typing import Any
 from unittest import mock
@@ -27,6 +28,7 @@ from mcp.shared import memory
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.mcp import mcp_server
 
@@ -105,29 +107,24 @@ _FAKE_MULTIMODAL_DOCS: Sequence[Document] = (
 )
 
 
-def _make_fake_retrieve_with_scores(docs: Sequence[Document]) -> Any:
-  """Returns a fake ``retrieve_with_scores`` over ``docs``."""
+@dataclasses.dataclass
+class _FakeIndex(indexing.NaiveIndex):
+  """`NaiveIndex` whose hits have the deterministic scores 0.9, 0.8, ..."""
 
-  @executing.make_executable
-  async def _fake_retrieve_with_scores(
-      query: str, *, max_results: int = 5
-  ) -> Sequence[tuple[Document, float]]:
-    """Returns a deterministic subset of ``docs`` with mock scores."""
-    del query  # Unused — every query returns the same results.
-    results = [(doc, 0.9 - 0.1 * i) for i, doc in enumerate(docs)]
-    return results[:max_results]
-
-  return _fake_retrieve_with_scores
+  @executing.make_executable(copy_self=False)
+  async def retrieve_with_scores(
+      self, query: str, *, max_results: int | None = None, **kwargs
+  ) -> Iterable[tuple[Document, float]]:
+    """Overridden from base class (Retriever)."""
+    results = await self.retrieve(query, max_results=max_results, **kwargs)
+    return [(doc, 0.9 - 0.1 * i) for i, doc in enumerate(results)]
 
 
-@executing.make_executable
-async def _fake_load(base_path: str) -> None:
-  """No-op stand-in for ``EmbeddingBasedDocumentIndex.load``.
-
-  The fake index is served entirely from ``_FAKE_DOCS``, so there is no
-  on-disk state to read.
-  """
-  del base_path  # Unused — nothing is loaded from disk in tests.
+def _make_fake_index(docs: Sequence[Document]) -> _FakeIndex:
+  """Returns a `_FakeIndex` with `docs`."""
+  index = _FakeIndex()
+  executing.run(index.add_docs(docs))
+  return index
 
 
 async def _fake_tokenize(content: str | content_lib.ChunkList) -> list[int]:
@@ -172,13 +169,10 @@ def _create_test_server(
   """Creates a ``FastMCP`` server backed by fake data.
 
   Patches the index loading and tokenizer construction so no real CNS path or
-  backend credentials are required.  The tokenizer registers character-level
-  fakes as ``llm.tokenize`` and ``llm.detokenize``.  The patch on
-  ``retrieve_with_scores`` must remain active while the server handles tool
-  calls, so the patches are returned as a list of started patchers that the
-  caller must stop after the tests.  ``retrieve_with_scores`` is replaced
-  by an ``executing.make_executable`` fake so that the real ``executing.run``
-  still drives it, exercising the actual execution path.
+  backend credentials are required.  ``index_building.load_index`` returns a
+  ``_FakeIndex`` with ``docs``, and the tokenizer registers character-level
+  fakes as ``llm.tokenize`` and ``llm.detokenize``.  The patches are returned
+  as a list of started patchers that the caller must stop after the tests.
 
   Args:
     include_get_document: If True, also register the ``get_document`` tool.
@@ -196,34 +190,11 @@ def _create_test_server(
     patchers.append(patcher)
     return patcher.start()
 
-  # ── Patches needed only during create_server (init / load) ──────────
   _start(
       mock.patch.object(
-          mcp_server.indexing.EmbeddingBasedDocumentIndex,
-          '__init__',
-          return_value=None,
-      )
-  )
-  _start(
-      mock.patch.object(
-          mcp_server.indexing.EmbeddingBasedDocumentIndex,
-          'load',
-          side_effect=_fake_load,
-      )
-  )
-  _start(
-      mock.patch.object(
-          mcp_server.indexing.EmbeddingBasedDocumentIndex,
-          'num_docs',
-          new_callable=mock.PropertyMock,
-          return_value=len(docs),
-      )
-  )
-  _start(
-      mock.patch.object(
-          mcp_server.indexing.EmbeddingBasedDocumentIndex,
-          'get_doc',
-          side_effect={doc.doc_id: doc for doc in docs}.__getitem__,
+          mcp_server.index_building,
+          'load_index',
+          return_value=_make_fake_index(docs),
       )
   )
   _start(
@@ -238,15 +209,6 @@ def _create_test_server(
           mcp_server.sentencepiece_tokenizer.SentencePieceTokenizer,
           'register',
           side_effect=_register_fake_tokenizer,
-      )
-  )
-
-  # ── Patches that must stay active during tool calls ─────────────────
-  _start(
-      mock.patch.object(
-          mcp_server.indexing.EmbeddingBasedDocumentIndex,
-          'retrieve_with_scores',
-          side_effect=_make_fake_retrieve_with_scores(docs),
       )
   )
 
@@ -669,6 +631,53 @@ class MultimodalIndexTest(absltest.TestCase):
       self.assertFalse(result.isError)
     with self.subTest('no_content'):
       self.assertEmpty(result.content)
+
+
+class LoadIndexTest(absltest.TestCase):
+  """Tests that the index is loaded with `index_building.load_index`."""
+
+  def _create_server_and_get_load_index_call(self, **kwargs: Any) -> Any:
+    """Creates a server and returns the call of `load_index`.
+
+    Args:
+      **kwargs: Extra arguments of `create_server`.
+
+    Returns:
+      The only call of the mocked `index_building.load_index`.
+    """
+    with mock.patch.object(
+        mcp_server.index_building,
+        'load_index',
+        autospec=True,
+        return_value=_make_fake_index(_FAKE_DOCS),
+    ) as mock_load_index:
+      mcp_server.create_server(
+          index_path='/fake/index/path',
+          max_results=3,
+          snippet_max_tokens=-1,
+          port=0,
+          transport='streamable-http',
+          **kwargs,
+      )
+    mock_load_index.assert_called_once()
+    return mock_load_index.call_args
+
+  def test_loads_the_index_with_its_runtime_kwargs(self):
+    call = self._create_server_and_get_load_index_call(
+        runtime_kwargs={'api_key': 'fake_key'}
+    )
+
+    self.assertEqual(
+        call,
+        mock.call('/fake/index/path', runtime_kwargs={'api_key': 'fake_key'}),
+    )
+
+  def test_runtime_kwargs_default_to_none(self):
+    call = self._create_server_and_get_load_index_call()
+
+    self.assertEqual(
+        call, mock.call('/fake/index/path', runtime_kwargs=None)
+    )
 
 
 if __name__ == '__main__':
