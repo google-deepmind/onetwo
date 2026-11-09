@@ -26,6 +26,7 @@ results in exactly one output document.
 import copy
 import dataclasses
 from typing import Protocol
+from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
@@ -119,3 +120,66 @@ class TextDocumentFormatter(DocumentFormatter):
     formatted_document = copy.deepcopy(document)
     formatted_document.content = self._format_text(document, self.format_str)
     return formatted_document
+
+
+@registry.register('KeepTextFormatter')
+@dataclasses.dataclass(frozen=True)
+class KeepTextFormatter(DocumentFormatter):
+  """Keeps only text chunks, dropping all non-text content of each document.
+
+  If the document contains no text content, content is set to an empty
+  ChunkList.
+  """
+
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  @executing.make_executable(copy_self=False)
+  async def __call__(
+      self,
+      document: retrieval_data_structures.Document,
+  ) -> retrieval_data_structures.Document:
+    """Returns `document` with only text content kept."""
+    if isinstance(document.content, str):
+      return document
+    content = content_lib.ChunkList([
+        chunk
+        for chunk in document.content
+        if content_lib.is_str_content_type(chunk.content_type)
+    ])
+    return dataclasses.replace(document, content=content)
+
+
+@registry.register('KeepImageFormatter')
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class KeepImageFormatter(DocumentFormatter):
+  """Keeps only image chunks, dropping all other content of each document.
+
+  If the document contains no image chunks, content is set to an empty
+  ChunkList.
+
+  Attributes:
+    keep_title: Whether to preserve the document title. Defaults to False,
+      clearing the title to '' so that no textual fields remain.
+  """
+
+  keep_title: bool = False
+
+  @tracing.trace(name=utils.FROM_INSTANCE_CLASS_NAME)
+  @executing.make_executable(copy_self=False)
+  async def __call__(
+      self,
+      document: retrieval_data_structures.Document,
+  ) -> retrieval_data_structures.Document:
+    """Returns `document` with only image chunks kept."""
+    if isinstance(document.content, str):
+      image_chunks = []
+    else:
+      image_chunks = [
+          chunk
+          for chunk in document.content
+          if chunk.content_type.startswith('image/')
+      ]
+    return dataclasses.replace(
+        document,
+        title=document.title if self.keep_title else '',
+        content=content_lib.ChunkList(image_chunks),
+    )

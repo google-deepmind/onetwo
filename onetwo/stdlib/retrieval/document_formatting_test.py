@@ -17,6 +17,7 @@ from absl.testing import parameterized
 from onetwo import ot
 from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import document_formatting
+from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 
@@ -150,6 +151,106 @@ class DocumentFormattingTest(parameterized.TestCase):
     )
     ot.run(formatter(document))
     self.assertEqual(document.content, 'hello world')
+
+  def testKeepTextFormatterKeepsOnlyText(self):
+    image_chunk = content_lib.Chunk(
+        content=b'mock_image_bytes', content_type='image/png'
+    )
+    pdf_chunk = content_lib.Chunk(
+        content=b'%PDF-1.4', content_type='application/pdf'
+    )
+    text_chunk = content_lib.Chunk(content='Sample document text')
+    markdown_chunk = content_lib.Chunk(
+        content='# Heading', content_type='text/markdown'
+    )
+    multimodal_doc = retrieval_data_structures.Document(
+        doc_id='doc_1',
+        title='Sample Title',
+        content=content_lib.ChunkList(
+            [image_chunk, text_chunk, markdown_chunk, pdf_chunk]
+        ),
+    )
+    non_text_doc = retrieval_data_structures.Document(
+        doc_id='doc_2',
+        title='Second Title',
+        content=content_lib.ChunkList([image_chunk, pdf_chunk]),
+    )
+    str_doc = retrieval_data_structures.Document(
+        doc_id='doc_3',
+        title='Third Title',
+        content='Plain string content',
+    )
+
+    formatter = document_formatting.KeepTextFormatter()
+    result = ot.run(formatter(multimodal_doc))
+    non_text_result = ot.run(formatter(non_text_doc))
+    str_result = ot.run(formatter(str_doc))
+
+    self.assertEqual(
+        result.content, content_lib.ChunkList([text_chunk, markdown_chunk])
+    )
+    self.assertEqual(result.title, 'Sample Title')
+    self.assertEmpty(non_text_result.content)
+    self.assertEqual(non_text_result.title, 'Second Title')
+    self.assertEqual(str_result, str_doc)
+
+  @parameterized.named_parameters([
+      {
+          'testcase_name': 'clears_title_by_default',
+          'formatter': document_formatting.KeepImageFormatter(),
+          'expected_titles': ('', '', ''),
+      },
+      {
+          'testcase_name': 'preserves_title_when_keep_title_true',
+          'formatter': document_formatting.KeepImageFormatter(keep_title=True),
+          'expected_titles': ('Sample Title', 'Second Title', 'Third Title'),
+      },
+  ])
+  def testKeepImageFormatterKeepsOnlyImages(self, formatter, expected_titles):
+    image_chunk = content_lib.Chunk(
+        content=b'mock_image_bytes', content_type='image/png'
+    )
+    pdf_chunk = content_lib.Chunk(
+        content=b'%PDF-1.4', content_type='application/pdf'
+    )
+    text_chunk = content_lib.Chunk(content='Sample document text')
+    multimodal_doc = retrieval_data_structures.Document(
+        doc_id='doc_1',
+        title='Sample Title',
+        content=content_lib.ChunkList([image_chunk, text_chunk, pdf_chunk]),
+    )
+    non_image_doc = retrieval_data_structures.Document(
+        doc_id='doc_2',
+        title='Second Title',
+        content=content_lib.ChunkList([text_chunk, pdf_chunk]),
+    )
+    str_doc = retrieval_data_structures.Document(
+        doc_id='doc_3',
+        title='Third Title',
+        content='Plain string content',
+    )
+
+    result = ot.run(formatter(multimodal_doc))
+    non_image_result = ot.run(formatter(non_image_doc))
+    empty_str_result = ot.run(formatter(str_doc))
+
+    self.assertEqual(result.doc_id, 'doc_1')
+    self.assertEqual(result.title, expected_titles[0])
+    self.assertEqual(result.content, content_lib.ChunkList([image_chunk]))
+    self.assertEqual(non_image_result.title, expected_titles[1])
+    self.assertEmpty(non_image_result.content)
+    self.assertEqual(empty_str_result.title, expected_titles[2])
+    self.assertEmpty(empty_str_result.content)
+
+  def testMultimodalFormattersAreRegistered(self):
+    self.assertIs(
+        registry.get_class('KeepTextFormatter'),
+        document_formatting.KeepTextFormatter,
+    )
+    self.assertIs(
+        registry.get_class('KeepImageFormatter'),
+        document_formatting.KeepImageFormatter,
+    )
 
 
 if __name__ == '__main__':
