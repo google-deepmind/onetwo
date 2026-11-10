@@ -37,14 +37,17 @@ from absl import flags
 from absl import logging
 from onetwo.backends import backend_registry
 from onetwo.evaluation import datasets
+from onetwo.stdlib.retrieval import audio_chunking
 from onetwo.stdlib.retrieval import build_index_lib
-from onetwo.stdlib.retrieval import chunker_registry
-from onetwo.stdlib.retrieval import embedding_index_specs
-from onetwo.stdlib.retrieval import index_build_interface
+from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import corpus_rewriting
+from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import pdf_chunking
 from onetwo.stdlib.retrieval import rag_defaults
-from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
+from onetwo.stdlib.retrieval import routing_chunking
 from onetwo.stdlib.retrieval import serialization
-from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
+from onetwo.stdlib.retrieval import video_chunking
+from onetwo.stdlib.retrieval.graphrag import indexing as graphrag_indexing
 
 # Re-export build_index for backward compatibility.
 build_index = build_index_lib.build_index
@@ -96,8 +99,7 @@ _CHUNK_SIZE = flags.DEFINE_integer(
     (
         'Maximum tokens, words, PDF pages or seconds of audio or video per'
         ' chunk (depending on --chunking_strategy). If None, no chunking is'
-        ' performed (unless --chunking_strategy=routing). Ignored with'
-        ' --chunking_strategy=routing.'
+        ' performed. Ignored with --chunking_strategy=routing.'
     ),
 )
 
@@ -112,11 +114,10 @@ _CHUNKING_STRATEGY = flags.DEFINE_enum(
         'audio_seconds',
         'video_seconds',
     ],
-    'Chunking strategy to use: "routing" (default) chunks each document'
-    ' according to its content type (see `RoutingChunker` in'
-    ' onetwo/stdlib/retrieval/routing_chunking.py); any other value is the name'
-    ' of a single chunker registered in `chunker_registry` that is applied to'
-    ' all documents.',
+    'Chunking strategy to use: "routing" (default, as in the ready-made'
+    ' indexes) chunks each document according to its content type (see'
+    ' `RoutingChunker` in onetwo/stdlib/retrieval/routing_chunking.py); any'
+    ' other value chunks all documents with a single chunker.',
 )
 
 _OVERLAP_WINDOW = flags.DEFINE_integer(
@@ -247,8 +248,8 @@ def _embedder_from_flags() -> backend_registry.EmbedBackendConfig:
   )
 
 
-def _chunker_from_flags() -> chunker_registry.ChunkerConfig:
-  """Returns the chunker config set by the chunking flags.
+def _chunker_from_flags() -> chunking.Chunker | None:
+  """Returns the chunker set by the chunking flags, or None for no chunking.
 
   Flags that do not apply to the chunking strategy are ignored with a warning.
   """
@@ -259,38 +260,27 @@ def _chunker_from_flags() -> chunker_registry.ChunkerConfig:
     # TODO: Add flags to configure the chunk size
     # of each content type (e.g. tokens for text, pages for PDFs, seconds for
     # audio and video) with 'routing', instead of only using the defaults of
-    # `RoutingChunker`. This also requires keeping the index output directory
-    # path-friendly when the chunker config has kwargs.
+    # `RoutingChunker`.
     if chunk_size is not None or overlap_window:
       logging.warning(
-          'Ignoring --chunk_size and --overlap_window, which are not supported'
-          ' with --chunking_strategy=routing: the default chunker of each'
-          ' content type is used (see `routing_chunking`).'
+          'Ignoring --chunk_size and --overlap_window, which require a'
+          ' --chunking_strategy other than "routing".'
       )
-    # The defaults of `RoutingChunker` are used, so that the index output
-    # directory (which includes the chunker config) stays path-friendly.
-    return chunker_registry.ChunkerConfig(chunker_name='routing')
+    return routing_chunking.RoutingChunker()
   if chunk_size is None:
-    return chunker_registry.ChunkerConfig(chunker_name='none')
+    return None
   if chunking_strategy == 'words':
-    return chunker_registry.ChunkerConfig(
-        chunker_name='words',
-        kwargs={
-            'max_words_per_chunk': chunk_size,
-            'overlap_window': overlap_window,
-        },
+    return chunking.ChunkByMaxWords(
+        max_words_per_chunk=chunk_size, overlap_window=overlap_window
     )
   if chunking_strategy == 'tokens':
-    return chunker_registry.ChunkerConfig(
-        chunker_name='tokens',
-        kwargs={
-            'max_tokens_per_chunk': chunk_size,
-            'overlap_window': overlap_window,
-            'tokenize_backend_config': backend_registry.TokenizeBackendConfig(
-                backend_class_name=_TOKENIZE_BACKEND_CLASS_NAME.value,
-                model_name=_TOKENIZE_MODEL_NAME.value,
-            ),
-        },
+    return chunking.ChunkByMaxTokens(
+        max_tokens_per_chunk=chunk_size,
+        overlap_window=overlap_window,
+        tokenize_backend_config=backend_registry.TokenizeBackendConfig(
+            backend_class_name=_TOKENIZE_BACKEND_CLASS_NAME.value,
+            model_name=_TOKENIZE_MODEL_NAME.value,
+        ),
     )
   # 'pdf_pages', 'audio_seconds' or 'video_seconds', whose chunks cannot
   # overlap.
@@ -301,43 +291,51 @@ def _chunker_from_flags() -> chunker_registry.ChunkerConfig:
         chunking_strategy,
     )
   if chunking_strategy == 'pdf_pages':
-    return chunker_registry.ChunkerConfig(
-        chunker_name='pdf_pages',
-        kwargs={'pages_per_chunk': chunk_size},
+    return pdf_chunking.ChunkByPdfPages(pages_per_chunk=chunk_size)
+  if chunking_strategy == 'audio_seconds':
+    return audio_chunking.ChunkByAudioSeconds(
+        seconds_per_chunk=float(chunk_size)
     )
-  # 'audio_seconds' or 'video_seconds'.
-  return chunker_registry.ChunkerConfig(
-      chunker_name=chunking_strategy,
-      kwargs={'seconds_per_chunk': float(chunk_size)},
-  )
+  return video_chunking.ChunkByVideoSeconds(seconds_per_chunk=float(chunk_size))
 
 
-def _spec_from_flags() -> index_build_interface.IndexSpec:
-  """Returns the spec of the index set by the index, embedding and chunking flags."""
+def _index_from_flags() -> indexing.DocumentIndex:
+  """Returns the (empty) index set by the index, embedding and chunking flags.
+
+  Without other flags than --index_type, this is the ready-made index of
+  `build_index_lib.IndexType`.
+  """
   embedder = _embedder_from_flags()
   chunker = _chunker_from_flags()
   if _INDEX_TYPE.value == 'graphrag':
-    return hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=embedder, chunker_config=chunker
+    index = graphrag_indexing.HippoRAGDocumentIndex(
+        embed_backend_config=embedder,
+        generate_backend_config=(
+            rag_defaults.default_index_generate_backend_config()
+        ),
     )
-  elif _INDEX_TYPE.value == 'embedding':
-    return embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-        embed_backend_config=embedder, chunker_config=chunker
+    if chunker is None:
+      return index
+    return indexing.RewritingDocumentIndex(
+        rewriter=corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
+        inner_index=index,
     )
-  else:
-    raise app.UsageError(
-        f'Unknown index type: {_INDEX_TYPE.value}. Must be one of'
-        ' "embedding", "graphrag".'
-    )
+  index = indexing.EmbeddingBasedDocumentIndex(embed_backend_config=embedder)
+  if chunker is None:
+    return index
+  return indexing.RewritingEmbeddingBasedDocumentIndex(
+      rewriter=corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
+      inner_index=index,
+  )
 
 
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  build_index_lib.build_index_from_spec(
-      spec=_spec_from_flags(),
-      corpus=_corpus_from_flag(_CORPUS.value, _MAX_DOCUMENTS.value),
+  build_index_lib.build_index(
+      _corpus_from_flag(_CORPUS.value, _MAX_DOCUMENTS.value),
+      _index_from_flags(),
       output=_OUTPUT.value,
       storage_format=_STORAGE_FORMAT.value,
       runtime_kwargs=build_index_lib.get_default_runtime_kwargs(
