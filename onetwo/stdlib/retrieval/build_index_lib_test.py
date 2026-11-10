@@ -30,6 +30,7 @@ from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
 from onetwo.evaluation.datasets import datasets_lib
 from onetwo.evaluation.datasets import multimodal_loader
+from onetwo.stdlib.retrieval import audio_chunking  # pylint: disable=unused-import  # Registers 'audio_seconds'.
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
@@ -39,6 +40,7 @@ from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import keyword_index_for_test
+from onetwo.stdlib.retrieval import pdf_chunking  # pylint: disable=unused-import  # Registers 'pdf_pages'.
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures

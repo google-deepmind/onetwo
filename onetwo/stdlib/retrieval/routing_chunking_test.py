@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import io
 from unittest import mock
 
@@ -184,25 +185,38 @@ class RoutingChunkerTest(parameterized.TestCase):
             ),
         ),
     )
-    self.assertEqual(
-        chunker.pdf, pdf_chunking.ChunkByPdfPages(pages_per_chunk=1)
-    )
-    self.assertEqual(
-        chunker.audio,
-        audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=30.0),
-    )
-    self.assertEqual(
-        chunker.video,
-        video_chunking.ChunkByVideoSeconds(seconds_per_chunk=30.0),
-    )
+    with self.subTest('heavy_sub_chunkers_are_none_until_used'):
+      self.assertIsNone(chunker.pdf)
+      self.assertIsNone(chunker.audio)
+      self.assertIsNone(chunker.video)
+
+    with self.subTest('default_heavy_sub_chunkers'):
+      self.assertEqual(
+          chunker.get_chunker(_media_document('application/pdf')),
+          pdf_chunking.ChunkByPdfPages(pages_per_chunk=1),
+      )
+      self.assertEqual(
+          chunker.get_chunker(_media_document('audio/mpeg')),
+          audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=30.0),
+      )
+      self.assertEqual(
+          chunker.get_chunker(_media_document('video/mp4')),
+          video_chunking.ChunkByVideoSeconds(seconds_per_chunk=30.0),
+      )
+
+    with self.subTest('creating_defaults_does_not_change_fields'):
+      self.assertEqual(chunker, routing_chunking.RoutingChunker())
+
     self.assertEqual(chunker.image, chunking.NoChunking())
     self.assertEqual(chunker.multipart, chunking.NoChunking())
 
+  def test_pdf_content_type_matches_pdf_chunking(self):
+    self.assertEqual(
+        routing_chunking._PDF_CONTENT_TYPE, pdf_chunking.PDF_CONTENT_TYPE
+    )
+
   @parameterized.named_parameters(
       ('text', _document('some text'), 'text'),
-      ('pdf', _media_document('application/pdf'), 'pdf'),
-      ('audio', _media_document('audio/mpeg'), 'audio'),
-      ('video', _media_document('video/webm'), 'video'),
       ('image', _media_document('image/png'), 'image'),
       ('mixed_content', _mixed_document(), 'multipart'),
   )
@@ -212,6 +226,60 @@ class RoutingChunkerTest(parameterized.TestCase):
     self.assertIs(
         chunker.get_chunker(document), getattr(chunker, expected_field)
     )
+
+  @parameterized.named_parameters(
+      (
+          'pdf',
+          _media_document('application/pdf'),
+          'pdf',
+          pdf_chunking.ChunkByPdfPages(pages_per_chunk=3),
+      ),
+      (
+          'audio',
+          _media_document('audio/mpeg'),
+          'audio',
+          audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=5.0),
+      ),
+      (
+          'video',
+          _media_document('video/webm'),
+          'video',
+          video_chunking.ChunkByVideoSeconds(seconds_per_chunk=5.0),
+      ),
+  )
+  def test_routes_heavy_content_types(
+      self, document, field_name, custom_chunker
+  ):
+    with self.subTest('default_is_created_once'):
+      chunker = routing_chunking.RoutingChunker()
+      default_chunker = chunker.get_chunker(document)
+      self.assertIs(chunker.get_chunker(document), default_chunker)
+
+    with self.subTest('custom'):
+      chunker = routing_chunking.RoutingChunker(
+          **{field_name: custom_chunker}
+      )
+      self.assertIs(chunker.get_chunker(document), custom_chunker)
+
+  def test_missing_heavy_module_raises_only_when_needed(self):
+    real_import_module = importlib.import_module
+
+    def import_module(name, *args, **kwargs):
+      if name == 'onetwo.stdlib.retrieval.pdf_chunking':
+        raise ImportError(f'No module named {name!r}')
+      return real_import_module(name, *args, **kwargs)
+
+    chunker = routing_chunking.RoutingChunker()
+    with mock.patch.object(importlib, 'import_module', import_module):
+      with self.subTest('other_content_types_are_routed'):
+        self.assertIs(chunker.get_chunker(_document('text')), chunker.text)
+        chunker.get_chunker(_media_document('audio/mpeg'))
+
+      with self.subTest('pdf_raises'):
+        with self.assertRaisesRegex(
+            ImportError, 'retrieval:pdf_chunking to the deps'
+        ):
+          chunker.get_chunker(_media_document('application/pdf'))
 
   @parameterized.named_parameters(
       ('image', _media_document('image/png')),

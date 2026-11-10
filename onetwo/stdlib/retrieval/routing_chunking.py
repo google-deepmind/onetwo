@@ -20,25 +20,32 @@ media type: tokens for text, pages for PDFs and seconds for audio and video,
 while images and mixed content are left as-is.
 
 Importing this module registers `RoutingChunker` in `chunker_registry` under the
-name 'routing' (and, through its imports, the PDF, audio and video chunkers).
+name 'routing'.
+
+The PDF, audio and video chunkers have heavy dependencies (e.g. `pypdf`, `pydub`
+and `ffmpeg`), so this module does not depend on them: they are only imported
+when needed, i.e. when a PDF, audio or video document is chunked with the
+default sub-chunker, or when such a sub-chunker is configured from a dict. Using
+them requires depending on their modules (`pdf_chunking`, `audio_chunking` and
+`video_chunking`), else an `ImportError` is raised.
 """
 
 from collections.abc import Iterable
 import dataclasses
+import functools
+import importlib
 from typing import Any
 
+import dataclasses_json
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
-from onetwo.stdlib.retrieval import audio_chunking
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
-from onetwo.stdlib.retrieval import pdf_chunking
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
-from onetwo.stdlib.retrieval import video_chunking
 
 # Content type under which documents with text content (a `str`, or a
 # `ChunkList` with only string chunks) are routed, whatever the content type of
@@ -51,11 +58,35 @@ _TEXT_CONTENT_TYPE = 'text/plain'
 # the standard MIME type for content made of several parts of different types.
 _MIXED_CONTENT_TYPE = 'multipart/mixed'
 
+# Content type of PDF documents (same as `pdf_chunking.PDF_CONTENT_TYPE`, which
+# is not imported to avoid depending on `pdf_chunking`).
+_PDF_CONTENT_TYPE = 'application/pdf'
+
 # Media types (the part of a content type before '/') of the single-chunk
 # documents that can be routed, besides text and PDFs.
 _AUDIO_MEDIA_TYPE = 'audio'
 _VIDEO_MEDIA_TYPE = 'video'
 _IMAGE_MEDIA_TYPE = 'image'
+
+# Module, class and build target of the default sub-chunker of each field of
+# `RoutingChunker` with heavy dependencies, which is only imported when needed.
+_LAZY_CHUNKERS: dict[str, tuple[str, str, str]] = {
+    'pdf': (
+        'onetwo.stdlib.retrieval.pdf_chunking',
+        'ChunkByPdfPages',
+        '//third_party/py/onetwo/stdlib/retrieval:pdf_chunking',
+    ),
+    'audio': (
+        'onetwo.stdlib.retrieval.audio_chunking',
+        'ChunkByAudioSeconds',
+        '//third_party/py/onetwo/stdlib/retrieval:audio_chunking',
+    ),
+    'video': (
+        'onetwo.stdlib.retrieval.video_chunking',
+        'ChunkByVideoSeconds',
+        '//third_party/py/onetwo/stdlib/retrieval:video_chunking',
+    ),
+}
 
 # Keyword arguments of the default sub-chunker of each field of
 # `RoutingChunker`. Text is tokenized with the default SentencePiece tokenizer
@@ -80,6 +111,48 @@ DEFAULT_CHUNKER_KWARGS: dict[str, dict[str, Any]] = {
 def _media_type(content_type: str) -> str:
   """Returns the media type of `content_type` (the part before '/')."""
   return content_type.partition('/')[0]
+
+
+def _lazy_chunker_class(field_name: str) -> type[chunking.Chunker]:
+  """Imports and returns the class of the sub-chunker `field_name`.
+
+  Args:
+    field_name: A key of `_LAZY_CHUNKERS` ('pdf', 'audio' or 'video').
+
+  Returns:
+    The class of the default sub-chunker `field_name`.
+
+  Raises:
+    ImportError: If the module of the sub-chunker is not available.
+  """
+  module_name, class_name, target = _LAZY_CHUNKERS[field_name]
+  try:
+    # Imported dynamically so that it is not detected as a static dependency
+    # (e.g. by build tools and type checkers).
+    module = importlib.import_module(module_name)
+  except ImportError as e:
+    raise ImportError(
+        f'Chunking {field_name} documents with `RoutingChunker` requires'
+        f' `{module_name}`: add {target} to the deps of your target.'
+    ) from e
+  return getattr(module, class_name)
+
+
+def _decode_lazy_chunker(field_name: str, value: Any) -> chunking.Chunker:
+  """Decodes the sub-chunker `field_name` from `value` (in `from_dict`)."""
+  if isinstance(value, chunking.Chunker):
+    return value
+  return _lazy_chunker_class(field_name).from_dict(value)
+
+
+def _lazy_chunker_field(field_name: str) -> Any:
+  """Returns the dataclass field of the sub-chunker `field_name`."""
+  return dataclasses.field(
+      default=None,
+      metadata=dataclasses_json.config(
+          decoder=functools.partial(_decode_lazy_chunker, field_name)
+      ),
+  )
 
 
 def get_content_and_media_type(
@@ -121,7 +194,7 @@ def get_content_and_media_type(
     return _MIXED_CONTENT_TYPE, _media_type(_MIXED_CONTENT_TYPE)
   content_type = chunks[0].content_type
   media_type = _media_type(content_type)
-  if content_type != pdf_chunking.PDF_CONTENT_TYPE and media_type not in (
+  if content_type != _PDF_CONTENT_TYPE and media_type not in (
       _AUDIO_MEDIA_TYPE,
       _VIDEO_MEDIA_TYPE,
       _IMAGE_MEDIA_TYPE,
@@ -134,6 +207,7 @@ def get_content_and_media_type(
   return content_type, media_type
 
 
+# TODO: Find a better way to import all sub-chunkers.
 @registry.register('RoutingChunker')
 @dataclasses.dataclass(kw_only=True)
 class RoutingChunker(chunking.Chunker):
@@ -157,14 +231,24 @@ class RoutingChunker(chunking.Chunker):
   the sub-chunkers are created with `DEFAULT_CHUNKER_KWARGS`. The default
   tokenizer of `text` is only loaded when the first text document is chunked.
 
+  `pdf`, `audio` and `video` default to None, meaning that their default
+  sub-chunker (`pdf_chunking.ChunkByPdfPages`,
+  `audio_chunking.ChunkByAudioSeconds` and `video_chunking.ChunkByVideoSeconds`
+  respectively) is created when the first document of their type is chunked: so
+  that their heavy dependencies are only needed to chunk such documents (see the
+  module docstring).
+
   The chunks are those returned by the sub-chunker, so they carry its metadata
   (e.g. `original_doc_id` and `chunk_number`).
 
   Attributes:
     text: Chunker for text documents.
-    pdf: Chunker for PDF documents.
-    audio: Chunker for audio documents.
-    video: Chunker for video documents.
+    pdf: Chunker for PDF documents (a `pdf_chunking.ChunkByPdfPages`), or None
+      for the default one.
+    audio: Chunker for audio documents (an
+      `audio_chunking.ChunkByAudioSeconds`), or None for the default one.
+    video: Chunker for video documents (a `video_chunking.ChunkByVideoSeconds`),
+      or None for the default one.
     image: Chunker for image documents. Images are small enough to be embedded
       whole, so they are left as-is.
     multipart: Chunker for documents mixing several kinds of chunks. There is
@@ -176,21 +260,9 @@ class RoutingChunker(chunking.Chunker):
           **DEFAULT_CHUNKER_KWARGS['text']
       )
   )
-  pdf: pdf_chunking.ChunkByPdfPages = dataclasses.field(
-      default_factory=lambda: pdf_chunking.ChunkByPdfPages(
-          **DEFAULT_CHUNKER_KWARGS['pdf']
-      )
-  )
-  audio: audio_chunking.ChunkByAudioSeconds = dataclasses.field(
-      default_factory=lambda: audio_chunking.ChunkByAudioSeconds(
-          **DEFAULT_CHUNKER_KWARGS['audio']
-      )
-  )
-  video: video_chunking.ChunkByVideoSeconds = dataclasses.field(
-      default_factory=lambda: video_chunking.ChunkByVideoSeconds(
-          **DEFAULT_CHUNKER_KWARGS['video']
-      )
-  )
+  pdf: chunking.Chunker | None = _lazy_chunker_field('pdf')
+  audio: chunking.Chunker | None = _lazy_chunker_field('audio')
+  video: chunking.Chunker | None = _lazy_chunker_field('video')
   image: chunking.NoChunking = dataclasses.field(
       default_factory=lambda: chunking.NoChunking(
           **DEFAULT_CHUNKER_KWARGS['image']
@@ -201,6 +273,26 @@ class RoutingChunker(chunking.Chunker):
           **DEFAULT_CHUNKER_KWARGS['multipart']
       )
   )
+
+  @functools.cached_property
+  def _default_chunkers(self) -> dict[str, chunking.Chunker]:
+    """Returns the default sub-chunkers created so far, by field name.
+
+    Not a dataclass field, so that it is not part of the config, equality or
+    repr of the chunker.
+    """
+    return {}
+
+  def _get_lazy_chunker(self, field_name: str) -> chunking.Chunker:
+    """Returns the sub-chunker `field_name`, creating the default if None."""
+    chunker = getattr(self, field_name)
+    if chunker is not None:
+      return chunker
+    if field_name not in self._default_chunkers:
+      self._default_chunkers[field_name] = _lazy_chunker_class(field_name)(
+          **DEFAULT_CHUNKER_KWARGS[field_name]
+      )
+    return self._default_chunkers[field_name]
 
   def get_chunker(
       self, document: retrieval_data_structures.Document
@@ -213,16 +305,18 @@ class RoutingChunker(chunking.Chunker):
     Raises:
       ValueError: If the content type of `document` is not supported (see
         `get_content_and_media_type`).
+      ImportError: If the default sub-chunker of a PDF, audio or video
+        `document` is needed, but its module is not available.
     """
     content_type, media_type = get_content_and_media_type(document)
     if content_type == _TEXT_CONTENT_TYPE:
       return self.text
-    if content_type == pdf_chunking.PDF_CONTENT_TYPE:
-      return self.pdf
+    if content_type == _PDF_CONTENT_TYPE:
+      return self._get_lazy_chunker('pdf')
     if media_type == _AUDIO_MEDIA_TYPE:
-      return self.audio
+      return self._get_lazy_chunker('audio')
     if media_type == _VIDEO_MEDIA_TYPE:
-      return self.video
+      return self._get_lazy_chunker('video')
     if media_type == _IMAGE_MEDIA_TYPE:
       return self.image
     if content_type == _MIXED_CONTENT_TYPE:
