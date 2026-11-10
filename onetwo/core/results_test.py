@@ -1351,6 +1351,49 @@ dict_with_multiple_elements_and_custom_collapsed_html
           f'\nFull html:\n{rendered_html}',
       )
 
+  def test_render_escapes_untrusted_strings(self):
+    renderer = results.HTMLRenderer(levels_to_expand=5)
+    payload = '<img src=x onerror=alert(1)>'
+    escaped_payload = '&lt;img src=x onerror=alert(1)&gt;'
+    result = results.ExecutionResult(
+        stage_name=f'outer{payload}',
+        stages=[
+            results.ExecutionResult(
+                stage_name='generate_text',
+                inputs={'request': f'request\n{payload}'},
+                outputs={'output': f'reply\n{payload}'},
+            )
+        ],
+    )
+
+    rendered_html = renderer.render(result)
+
+    with self.subTest('should_not_contain_unescaped_payload'):
+      self.assertNotIn(payload, rendered_html)
+
+    with self.subTest('should_escape_llm_request_and_reply'):
+      self.assertIn(
+          f'<span style="color:black">request<br>{escaped_payload}</span>',
+          rendered_html,
+      )
+      self.assertIn(
+          f'<span style="color:blue">reply<br>{escaped_payload}</span>',
+          rendered_html,
+      )
+
+    with self.subTest('should_escape_stage_name'):
+      self.assertIn(f'<u>outer{escaped_payload}</u>', rendered_html)
+
+    with self.subTest('should_escape_dict_keys'):
+      dict_rendering = renderer.render_dict(
+          {f'key{payload}': 'value'},
+          title='dict',
+          element_id='0',
+          levels_to_expand=1,
+      )
+      self.assertNotIn(payload, dict_rendering.html)
+      self.assertIn(f'<b>key{escaped_payload}:</b>', dict_rendering.html)
+
   def test_render_handles_cyclic_reference(self):
     renderer = results.HTMLRenderer(levels_to_expand=5)
 
