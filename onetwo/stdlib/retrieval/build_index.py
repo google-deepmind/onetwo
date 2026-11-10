@@ -86,8 +86,8 @@ _EMBEDDING_MODEL_NAME = flags.DEFINE_string(
 _INDEX_TYPE = flags.DEFINE_enum(
     'index_type',
     'embedding',
-    ['embedding', 'hipporag'],
-    'Type of index to build ("embedding" or "hipporag").',
+    ['embedding', 'graphrag'],
+    'Type of index to build ("embedding" or "graphrag").',
 )
 
 _CHUNK_SIZE = flags.DEFINE_integer(
@@ -186,7 +186,7 @@ _STORAGE_FORMAT = flags.DEFINE_enum_class(
     serialization.StorageFormat,
     (
         'How the index is saved on disk (see `serialization.StorageFormat`).'
-        ' With --index_type=hipporag, only its embedding indexes are saved in'
+        ' With --index_type=graphrag, only its embedding indexes are saved in'
         ' this format.'
     ),
 )
@@ -316,13 +316,19 @@ def _spec_from_flags() -> index_build_interface.IndexSpec:
   """Returns the spec of the index set by the index, embedding and chunking flags."""
   embedder = _embedder_from_flags()
   chunker = _chunker_from_flags()
-  if _INDEX_TYPE.value == 'hipporag':
+  if _INDEX_TYPE.value == 'graphrag':
     return hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
         embed_backend_config=embedder, chunker_config=chunker
     )
-  return embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-      embed_backend_config=embedder, chunker_config=chunker
-  )
+  elif _INDEX_TYPE.value == 'embedding':
+    return embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
+        embed_backend_config=embedder, chunker_config=chunker
+    )
+  else:
+    raise app.UsageError(
+        f'Unknown index type: {_INDEX_TYPE.value}. Must be one of'
+        ' "embedding", "graphrag".'
+    )
 
 
 def main(argv: Sequence[str]) -> None:

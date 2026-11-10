@@ -24,45 +24,58 @@ from etils import epath
 from onetwo.core import executing as ot_executing
 from onetwo.evaluation import datasets
 from onetwo.evaluation.datasets import multimodal_loader
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import config_serialization
-from onetwo.stdlib.retrieval import embedding_index_specs
+from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import routing_chunking
 from onetwo.stdlib.retrieval import serialization
-from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
+from onetwo.stdlib.retrieval.graphrag import indexing as graphrag_indexing
 
 
 class IndexType(str, enum.Enum):
   """Ready-made indexes, with default settings.
 
-  EMBEDDING: An embedding-based index of the documents, unchunked, with the
-    default embedding model.
-  HIPPORAG: A HippoRAG knowledge graph index, with the default embedding and
-    generation models.
+  Both chunk the documents by content type (with the defaults of
+  `routing_chunking.RoutingChunker`).
+
+  EMBEDDING: An embedding-based index of the chunks.
+  GRAPHRAG: A graph-based index of the chunks, built as a modified HippoRAG
+    implementation.
   """
 
   EMBEDDING = 'embedding'
-  HIPPORAG = 'hipporag'
+  GRAPHRAG = 'graphrag'
 
 
-# TODO: Will be updated once the we move away from specs.
-def _preset_spec(index_type: IndexType) -> index_build_interface.IndexSpec:
-  """Returns the spec of the ready-made index `index_type`."""
-  embed_backend_config = rag_defaults.default_embed_backend_config()
-  chunker_config = chunker_registry.ChunkerConfig(chunker_name='none')
-  if index_type == IndexType.HIPPORAG:
-    return hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=embed_backend_config,
-        chunker_config=chunker_config,
-    )
-  return embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec(
-      embed_backend_config=embed_backend_config,
-      chunker_config=chunker_config,
+def _preset_index(index_type: IndexType) -> indexing.DocumentIndex:
+  """Returns a new, empty ready-made index of type `index_type`."""
+  rewriter = corpus_rewriting.ChunkingCorpusRewriter(
+      chunker=routing_chunking.RoutingChunker()
   )
+  embed_backend_config = rag_defaults.default_embed_backend_config()
+  if index_type == IndexType.GRAPHRAG:
+    return indexing.RewritingDocumentIndex(
+        rewriter=rewriter,
+        inner_index=graphrag_indexing.HippoRAGDocumentIndex(
+            embed_backend_config=embed_backend_config,
+            generate_backend_config=(
+                rag_defaults.default_index_generate_backend_config()
+            ),
+        ),
+    )
+  elif index_type == IndexType.EMBEDDING:
+    return indexing.RewritingEmbeddingBasedDocumentIndex(
+        rewriter=rewriter,
+        inner_index=indexing.EmbeddingBasedDocumentIndex(
+            embed_backend_config=embed_backend_config
+        ),
+    )
+  else:
+    raise ValueError(f'Unknown index type: {index_type}')
 
 
 def _corpus_name(corpus: str | datasets.DatasetLoader) -> str:
@@ -119,8 +132,9 @@ def build_index(
   object instead of a ready-made `IndexType`, e.g.
   `indexing.RewritingEmbeddingBasedDocumentIndex(rewriter=...,
   inner_index=...)`.
-  Its config is saved as `index_config.json`, so it can be loaded from its
-  directory alone (e.g. by `rag.evaluate(index_directory=...)`). The classes of
+  The config of the index (ready-made or not) is saved as `index_config.json`,
+  so it can be loaded from its directory alone (e.g. by
+  `rag.evaluate(index_directory=...)`). The classes of
   a custom index and its components must be registered with
   `@registry.register(...)`, and the module that registers them must be
   imported before the index is loaded.
@@ -160,13 +174,7 @@ def build_index(
   """
   rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
   if isinstance(index, str):
-    return build_index_from_spec(
-        spec=_preset_spec(IndexType(index)),
-        corpus=corpus,
-        output=output,
-        runtime_kwargs=rt_kwargs,
-        storage_format=storage_format,
-    )
+    index = _preset_index(IndexType(index))
 
   # Fail fast, before loading the corpus.
   config = config_serialization.get_config(index)
@@ -224,8 +232,7 @@ def build_index_from_spec(
 ) -> str:
   """Builds and saves the index described by `spec` of the specified corpus.
 
-  Used for the ready-made indexes of `build_index` and by the `build_index`
-  command-line tool. The spec is used as-is.
+  Used by the `build_index` command-line tool. The spec is used as-is.
 
   Args:
     spec: Spec of the index to build.

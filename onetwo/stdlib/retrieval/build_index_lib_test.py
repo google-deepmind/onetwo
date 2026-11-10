@@ -17,7 +17,6 @@ import dataclasses
 import json
 import os
 import re
-import types
 from unittest import mock
 import wave
 
@@ -46,6 +45,7 @@ from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import  # Registers 'routing'.
 from onetwo.stdlib.retrieval import serialization
 from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs
+from onetwo.stdlib.retrieval.graphrag import indexing as graphrag_indexing
 import pypdf
 
 KeywordDocumentIndexSpec = keyword_index_for_test.KeywordDocumentIndexSpec
@@ -110,6 +110,16 @@ def _custom_index(
           )
       ),
   )
+
+
+@dataclasses.dataclass
+class _NoEntitiesExtractor:
+  """Entity and triples extractor that finds none."""
+
+  @ot_executing.make_executable(copy_self=False)
+  async def __call__(self, doc):
+    del doc
+    return [], []
 
 
 class _CustomLoader(datasets_lib.DatasetLoader):
@@ -475,66 +485,6 @@ class BuildIndexLibTest(absltest.TestCase):
         )
     )
 
-  def test_hipporag_preset_uses_spec_defaults(self):
-    build_mock = self._mock_index_building_build_index()
-
-    build_index_lib.build_index(
-        datasets.get_dataset_loader(_DATASET_NAME),
-        build_index_lib.IndexType.HIPPORAG,
-        output=self.output_dir,
-    )
-
-    spec = build_mock.call_args.kwargs['spec']
-    self.assertIsInstance(
-        spec, hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec
-    )
-    self.assertEqual(
-        spec.generate_backend_config,
-        rag_defaults.default_index_generate_backend_config(),
-    )
-    default_spec = (
-        hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec()
-    )
-    self.assertEqual(
-        spec.similarity_threshold, default_spec.similarity_threshold
-    )
-    self.assertEqual(spec.ignore_triples, default_spec.ignore_triples)
-    self.assertEqual(
-        spec.ignore_similarity_edges, default_spec.ignore_similarity_edges
-    )
-
-  def test_presets_use_default_embedder(self):
-    build_mock = self._mock_index_building_build_index()
-
-    for index_type in build_index_lib.IndexType:
-      with self.subTest(index_type):
-        build_index_lib.build_index(
-            datasets.get_dataset_loader(_DATASET_NAME),
-            index_type,
-            output=self.output_dir,
-        )
-
-        self.assertEqual(
-            build_mock.call_args.kwargs['spec'].embed_backend_config,
-            rag_defaults.default_embed_backend_config(),
-        )
-
-  def test_presets_do_not_chunk(self):
-    build_mock = self._mock_index_building_build_index()
-
-    for index_type in build_index_lib.IndexType:
-      with self.subTest(index_type):
-        build_index_lib.build_index(
-            datasets.get_dataset_loader(_DATASET_NAME),
-            index_type,
-            output=self.output_dir,
-        )
-
-        self.assertEqual(
-            build_mock.call_args.kwargs['spec'].chunker_config,
-            chunker_registry.ChunkerConfig(chunker_name='none'),
-        )
-
   def test_build_from_spec_uses_hipporag_spec_settings(self):
     # Non-default HippoRAG settings are set on the spec, which is passed to
     # `build_index_from_spec`.
@@ -577,56 +527,6 @@ class BuildIndexLibTest(absltest.TestCase):
             backend_class_name='FakeGenerateBackend',
             model_name='fake-generate-model',
         ),
-    )
-
-  def test_runtime_kwargs_defaults_to_request_defaults(self):
-    build_mock = self._mock_index_building_build_index()
-
-    build_index_lib.build_index(
-        corpus=datasets.get_dataset_loader(_DATASET_NAME),
-        output=self.output_dir,
-    )
-
-    self.assertEqual(
-        build_mock.call_args.kwargs['runtime_kwargs'],
-        {
-            'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
-            'http_options': {'timeout': rag_defaults.DEFAULT_HTTP_TIMEOUT_MS},
-        },
-    )
-
-  def test_mapping_runtime_kwargs_get_request_defaults(self):
-    build_mock = self._mock_index_building_build_index()
-    runtime_kwargs = types.MappingProxyType({'api_key': 'key'})
-
-    build_index_lib.build_index(
-        corpus=datasets.get_dataset_loader(_DATASET_NAME),
-        output=self.output_dir,
-        runtime_kwargs=runtime_kwargs,
-    )
-
-    self.assertEqual(
-        build_mock.call_args.kwargs['runtime_kwargs'],
-        {
-            'api_key': 'key',
-            'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
-            'http_options': {'timeout': rag_defaults.DEFAULT_HTTP_TIMEOUT_MS},
-        },
-    )
-    self.assertEqual(runtime_kwargs, {'api_key': 'key'})
-
-  def test_runtime_kwargs_override_request_defaults(self):
-    build_mock = self._mock_index_building_build_index()
-
-    build_index_lib.build_index(
-        corpus=datasets.get_dataset_loader(_DATASET_NAME),
-        output=self.output_dir,
-        runtime_kwargs={'max_retries': 2, 'http_options': {'timeout': 10}},
-    )
-
-    self.assertEqual(
-        build_mock.call_args.kwargs['runtime_kwargs'],
-        {'max_retries': 2, 'http_options': {'timeout': 10}},
     )
 
   def test_with_request_defaults(self):
@@ -690,50 +590,103 @@ class BuildIndexLibTest(absltest.TestCase):
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
     self.assertEqual(http_options, {'base_url': 'url'})
 
-  def test_storage_format_reaches_index_building(self):
-    build_mock = self._mock_index_building_build_index()
+  def _patch_preset_backends(self) -> None:
+    """Makes the ready-made indexes use fake embedding and extraction."""
+    self.enter_context(
+        mock.patch.object(
+            rag_defaults,
+            'default_embed_backend_config',
+            return_value=_FAKE_EMBEDDER,
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            graphrag_indexing.HippoRAGDocumentIndex,
+            '_make_extractor',
+            return_value=_NoEntitiesExtractor(),
+        )
+    )
+    # The default text chunker of `RoutingChunker` tokenizes with the default
+    # tokenizer: replace it with one that tokenizes each character as a token.
+    self.enter_context(
+        mock.patch.dict(
+            backend_registry.BACKEND_REGISTRY,
+            {
+                rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME: (
+                    lambda **_: backends_test_utils.LLMForTest()
+                )
+            },
+        )
+    )
+
+  def test_presets_are_saved_with_index_config(self):
+    self._patch_preset_backends()
+    for index_type, index_class in (
+        (
+            build_index_lib.IndexType.EMBEDDING,
+            'RewritingEmbeddingBasedDocumentIndex',
+        ),
+        (build_index_lib.IndexType.GRAPHRAG, 'RewritingDocumentIndex'),
+    ):
+      with self.subTest(index_type):
+        out_dir = build_index_lib.build_index(
+            datasets.get_dataset_loader(_DATASET_NAME),
+            index_type,
+            output=self.output_dir,
+        )
+
+        self.assertRegex(
+            os.path.basename(out_dir), f'^{index_class}__hash_[0-9a-f]{{8}}$'
+        )
+        files = os.listdir(out_dir)
+        self.assertIn(config_serialization.INDEX_CONFIG_FILENAME, files)
+        self.assertNotIn(index_building.INDEX_SPEC_FILENAME, files)
+        self.assertEqual(index_building.load_index(out_dir).num_docs, 2)
+
+  def test_preset_gets_default_runtime_kwargs(self):
+    self._patch_preset_backends()
+    from_config = self.enter_context(
+        mock.patch.object(
+            config_serialization,
+            'from_config',
+            wraps=config_serialization.from_config,
+        )
+    )
+
+    build_index_lib.build_index(
+        datasets.get_dataset_loader(_DATASET_NAME),
+        output=self.output_dir,
+        runtime_kwargs={'api_key': 'key'},
+    )
+
+    self.assertEqual(
+        from_config.call_args.args[1],
+        {
+            'api_key': 'key',
+            'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
+            'http_options': {'timeout': rag_defaults.DEFAULT_HTTP_TIMEOUT_MS},
+        },
+    )
+
+  def test_preset_storage_format_reaches_save(self):
+    self._patch_preset_backends()
+    save = self.enter_context(
+        mock.patch.object(
+            indexing.RewritingEmbeddingBasedDocumentIndex, 'save', autospec=True
+        )
+    )
 
     for storage_format in (
         serialization.StorageFormat.JSONL_NPY,
     ):
       with self.subTest(storage_format.name):
-        build_index_lib.build_index(
-            corpus=datasets.get_dataset_loader(_DATASET_NAME),
+        out_dir = build_index_lib.build_index(
+            datasets.get_dataset_loader(_DATASET_NAME),
             output=self.output_dir,
             storage_format=storage_format,
         )
 
-        self.assertEqual(
-            build_mock.call_args.kwargs['storage_format'], storage_format
-        )
-
-  def test_hipporag_accepts_default_storage_format(self):
-    build_mock = self._mock_index_building_build_index()
-
-    build_index_lib.build_index(
-        datasets.get_dataset_loader(_DATASET_NAME),
-        build_index_lib.IndexType.HIPPORAG,
-        output=self.output_dir,
-        storage_format=serialization.StorageFormat.JSONL_NPY,
-    )
-
-    self.assertIsInstance(
-        build_mock.call_args.kwargs['spec'],
-        hipporag_index_specs.SimpleRewritingHippoRAGDocumentIndexSpec,
-    )
-
-  def test_default_storage_format(self):
-    build_mock = self._mock_index_building_build_index()
-
-    build_index_lib.build_index(
-        corpus=datasets.get_dataset_loader(_DATASET_NAME),
-        output=self.output_dir,
-    )
-
-    self.assertEqual(
-        build_mock.call_args.kwargs['storage_format'],
-        serialization.StorageFormat.JSONL_NPY,
-    )
+        save.assert_called_with(mock.ANY, out_dir, storage_format)
 
   def test_storage_formats_are_registered_serializers(self):
     # The values are the keys of `SERIALIZER_REGISTRY` and the
