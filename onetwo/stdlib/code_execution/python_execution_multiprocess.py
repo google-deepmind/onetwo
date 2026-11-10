@@ -25,6 +25,7 @@ import logging
 import multiprocessing
 from multiprocessing import connection
 import queue
+import secrets
 import threading
 from typing import Any, Callable, Final, Mapping, TypeAlias
 
@@ -47,9 +48,13 @@ EX_ARGS_KEY: str = python_execution_utils.EX_ARGS_KEY
 EX_CLASS_KEY: str = python_execution_utils.EX_CLASS_KEY
 EX_HOOK_NAME_KEY: str = python_execution_utils.EX_HOOK_NAME_KEY
 
-# Authentication for the connection between the sandbox and the listener in the
-# main thread.
-_AUTHKEY: Final[bytes] = b'pwd'
+# Number of random bytes used for the per-sandbox authentication key of the
+# connection between the sandbox and the listener in the main process. The key
+# is generated fresh for each sandbox instance (see `start_unsafe`) and passed
+# to the sandbox process via its spawn args. It must never be a constant, as a
+# publicly known key would let any local process pass the HMAC handshake and
+# send arbitrary (pickled) data to the main process.
+_AUTHKEY_NUM_BYTES: Final[int] = 32
 
 current_timing = python_execution_utils.current_timing
 
@@ -331,6 +336,7 @@ def _sandbox_process_target(
     requests_queue: multiprocessing.JoinableQueue,
     results_queue: multiprocessing.JoinableQueue,
     listener_port: int | None,
+    listener_authkey: bytes | None,
     hook_names: list[str],
     timeout_seconds: float,
     inner_sandbox_factory: python_execution.PythonSandboxFactory,
@@ -367,6 +373,8 @@ def _sandbox_process_target(
     listener_port: The port number on 'localhost' where the main process is
       listening for hook connections. If None or if hook_names is empty, hook
       support is disabled.
+    listener_authkey: The secret key used to authenticate the connection to the
+      listener in the main process. Required if hook support is enabled.
     hook_names: A list of function names that the sandboxed code is allowed to
       call as hooks. These functions are executed in the main process.
     timeout_seconds: The maximum time in seconds allowed for a single code
@@ -376,9 +384,11 @@ def _sandbox_process_target(
   """
   conn = None
   if listener_port and hook_names:
+    if not listener_authkey:
+      raise ValueError('Missing authkey for the connection to the main code.')
     try:
       address = ('localhost', listener_port)
-      conn = connection.Client(address, authkey=_AUTHKEY)
+      conn = connection.Client(address, authkey=listener_authkey)
 
     except Exception as e:
       raise ValueError('Cannot connect to the main code, aborting') from e
@@ -588,9 +598,15 @@ class PythonSandboxMultiProcessWrapper(BaseMultiProcessSandbox):
     # We start a connection to which the sandbox can send requests to run
     # tools.
     listener_thread = None
+    listener_authkey = None
     if self.hooks:
+      # Fresh random secret per sandbox instance, so that only our own sandbox
+      # process can pass the authentication handshake.
+      listener_authkey = secrets.token_bytes(_AUTHKEY_NUM_BYTES)
       address = ('localhost', 0)
-      listener = connection.Listener(address=address, authkey=_AUTHKEY)
+      listener = connection.Listener(
+          address=address, authkey=listener_authkey
+      )
       self._listener = listener
       self._port = int(self._listener.address[1])
       logging.info('Sandbox listener setup on port %s.', str(self._port))
@@ -609,6 +625,7 @@ class PythonSandboxMultiProcessWrapper(BaseMultiProcessSandbox):
             self._requests_queue,
             self._results_queue,
             self._port,
+            listener_authkey,
             list(self.hooks.keys()),
             self.timeout.total_seconds(),
             self.inner_sandbox_factory,
