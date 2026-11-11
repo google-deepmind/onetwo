@@ -13,17 +13,21 @@
 # limitations under the License.
 
 import os
+import re
 
 from absl.testing import absltest
 from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import batching
+from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import config_serialization
+from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import routing_chunking
 
 Document = retrieval_data_structures.Document
 
@@ -102,6 +106,45 @@ class IndexBuildingTest(absltest.TestCase):
     assert isinstance(loaded, indexing.EmbeddingBasedDocumentIndex)
     self.assertEqual(loaded.runtime_kwargs, {'k': 'v'})
     self.assertEqual(loaded.num_docs, 2)
+
+  def test_index_dir_name(self):
+    def chunking_index(chunker):
+      return indexing.RewritingEmbeddingBasedDocumentIndex(
+          rewriter=corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
+          inner_index=indexing.EmbeddingBasedDocumentIndex(
+              embed_backend_config=backend_registry.EmbedBackendConfig(
+                  backend_class_name='FakeEmbedderBackend',
+                  model_name='fake-model',
+              )
+          ),
+      )
+
+    for index, expected_prefix in (
+        (
+            chunking_index(chunking.ChunkByMaxTokens(max_tokens_per_chunk=512)),
+            (
+                'RewritingEmbeddingBasedDocumentIndex_chunker_ChunkByMaxTokens-'
+                'max_tokens_per_chunk=512-overlap_window=0-strip_whitespace=True_'
+                'fake-model'
+            ),
+        ),
+        (
+            chunking_index(routing_chunking.RoutingChunker()),
+            (
+                'RewritingEmbeddingBasedDocumentIndex_chunker_RoutingChunker_'
+                'fake-model'
+            ),
+        ),
+        (
+            self._embedding_index(),
+            'EmbeddingBasedDocumentIndex_chunker_none_FakeEmbedderBackend',
+        ),
+    ):
+      with self.subTest(expected_prefix):
+        self.assertRegex(
+            index_building.index_dir_name(index),
+            f'^{re.escape(expected_prefix)}__hash_[0-9a-f]{{8}}$',
+        )
 
   def test_read_index_spec_returns_none_without_spec_file(self):
     self.assertIsNone(

@@ -433,7 +433,9 @@ class BuildIndexLibTest(absltest.TestCase):
         )
 
         self.assertRegex(
-            os.path.basename(out_dir), f'^{index_class}__hash_[0-9a-f]{{8}}$'
+            os.path.basename(out_dir),
+            f'^{index_class}_chunker_RoutingChunker_fake-model'
+            '__hash_[0-9a-f]{8}$',
         )
         files = os.listdir(out_dir)
         self.assertIn(config_serialization.INDEX_CONFIG_FILENAME, files)

@@ -16,8 +16,6 @@
 
 from collections.abc import Mapping
 import enum
-import hashlib
-import json
 from typing import Any
 
 from etils import epath
@@ -152,7 +150,8 @@ def build_index(
       `datasets.get_dataset_loader(name, max_number_of_documents=N)`.
     index: The index to build: a ready-made `IndexType`, or an (empty)
       `DocumentIndex` object.
-    output: Base directory (pattern) where the built index will be saved.
+    output: Base directory (pattern) where the built index will be saved, in the
+      subdirectory `<corpus name>/<index_building.index_dir_name(index)>`.
     storage_format: How the index is saved on disk (see
       `serialization.StorageFormat`).
     runtime_kwargs: Arguments for backends (e.g. API key), not saved with the
@@ -184,13 +183,10 @@ def build_index(
   index = config_serialization.from_config(config, rt_kwargs)
 
   docs = _load_documents(corpus)
-  config_hash = hashlib.sha256(
-      json.dumps(config, sort_keys=True).encode()
-  ).hexdigest()[:8]
   out_dir = index_building.resolve_index_output_directory(
       output_directory_pattern=output,
       dataset_name=_corpus_name(corpus),
-      subdirectory=f'{config["class"]}__hash_{config_hash}',
+      subdirectory=index_building.index_dir_name(index),
   )
   print(f'Will save the index to output directory: {out_dir}')
   print('Building index...')

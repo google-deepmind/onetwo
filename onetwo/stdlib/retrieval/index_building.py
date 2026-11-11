@@ -15,6 +15,7 @@
 """Index building utilities."""
 
 import getpass
+import hashlib
 import json
 from typing import Any, Callable, Iterable, Mapping
 
@@ -228,3 +229,55 @@ def resolve_index_output_directory(
   """
   path = output_directory_pattern
   return path
+
+
+def _find(config: Any, key: str) -> Any:
+  """Returns the first value of `key` in `config`, depth-first, else None."""
+  if isinstance(config, Mapping):
+    if key in config:
+      return config[key]
+    values = list(config.values())
+  elif isinstance(config, list):
+    values = config
+  else:
+    return None
+  for value in values:
+    if (found := _find(value, key)) is not None:
+      return found
+  return None
+
+
+def index_dir_name(index: indexing.DocumentIndex) -> str:
+  """Returns the name of the directory where `index` is saved when built.
+
+  The name is made of the index class, its (first) chunker with its scalar
+  (str, int, float, bool) settings (`none` if none), its (first) embedding model
+  if any, and a hash of its config, so that each config gets its own directory,
+  e.g.
+  `EmbeddingBasedDocumentIndex_chunker_none_gemini-embedding-2__hash_1a2b3c4d`.
+
+  Args:
+    index: The index, whose classes must be registered (see `registry`).
+  """
+  config = config_serialization.get_config(index)
+  name = config["class"]
+  chunker = _find(config, "chunker")
+  if chunker is None:
+    name += "_chunker_none"
+  else:
+    settings = [
+        f"{k}={v}"
+        for k, v in sorted(chunker["config"].items())
+        if isinstance(v, (str, int, float, bool))
+    ]
+    name += "_chunker_" + "-".join([chunker["class"], *settings])
+  if (embedder := _find(config, "embed_backend_config")) is not None:
+    embedder_config = embedder["config"]
+    name += "_" + (
+        embedder_config["model_name"] or embedder_config["backend_class_name"]
+    )
+  config_hash = hashlib.sha256(
+      json.dumps(config, sort_keys=True).encode()
+  ).hexdigest()[:8]
+  # Model names may contain '/' (e.g. "models/...").
+  return f"{name}__hash_{config_hash}".replace("/", "-")
