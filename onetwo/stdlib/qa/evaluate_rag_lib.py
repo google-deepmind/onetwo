@@ -29,52 +29,54 @@ from onetwo.stdlib.qa import qa_spec
 from onetwo.stdlib.retrieval import rag_defaults
 
 
-# TODO: Move this function to a shared library and add tests.
-def get_rag_cache_filename(
-    output_directory: str | epath.Path,
+def get_results_directory(
+    *,
+    output_directory: str | epath.Path | None,
+    index_directory: str | epath.Path,
     dataset_name: str,
     qa_strategy_name: str,
     generate_model_name: str,
-    index_directory: str | epath.Path = '',
-    max_results: int | str = 20,
-) -> str:
-  """Generates a cache filename following the hierarchical template.
+    max_results: int | str,
+) -> epath.Path:
+  """Returns the directory where the results of an evaluation are saved.
 
-  Template:
-    {output_directory}/cache/{dataset}/{strategy}/{model_name}/{index_name}__max_results_{max_results}.json
+  Results of evaluations with different settings go to different directories:
+  - `<output_directory>/<dataset>/<strategy>/<model>__max_results_<N>/` if
+    `output_directory` is set;
+  - else `<index_directory>/eval_results/<strategy>/<model>__max_results_<N>/`,
+    next to the evaluated index (whose directory already names the dataset).
 
   Args:
-    output_directory: Base directory where results/caches are saved.
+    output_directory: Base directory of the results, or None to save them in the
+      index directory.
+    index_directory: Directory of the evaluated index.
     dataset_name: Name of the dataset.
     qa_strategy_name: Name of the QA strategy.
     generate_model_name: Name of the generation model.
-    index_directory: Path to pre-built index directory if used.
-    max_results: Max results parameter from query_time_kwargs.
+    max_results: Number of retrieved documents (`max_results` query-time arg).
 
-  Returns:
-    Full path to the cache JSON file as a string.
+  Raises:
+    ValueError: If neither `output_directory` nor `index_directory` is set.
   """
-  if index_directory:
-    index_name = epath.Path(index_directory).name
-    filename = f'{index_name}__max_results_{max_results}.json'
-  else:
-    filename = f'max_results_{max_results}.json'
-
-  cache_path = (
-      epath.Path(output_directory)
-      / 'cache'
-      / dataset_name
-      / qa_strategy_name
-      / generate_model_name
-      / filename
+  run_name = f'{generate_model_name}__max_results_{max_results}'
+  if output_directory:
+    return (
+        epath.Path(output_directory)
+        / dataset_name
+        / qa_strategy_name
+        / run_name
+    )
+  if not index_directory:
+    raise ValueError('Set `output_directory` or `index_directory`.')
+  return (
+      epath.Path(index_directory) / 'eval_results' / qa_strategy_name / run_name
   )
-  return str(cache_path)
 
 
 def evaluate_rag(
     dataset_name: str,
-    output_directory: str,
-    runtime_kwargs: Mapping[str, Any] | str,
+    output_directory: str | None = None,
+    runtime_kwargs: Mapping[str, Any] | str | None = None,
     index_directory: str = '',
     generate_model_backend_class_name: str = (
         rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
@@ -98,7 +100,8 @@ def evaluate_rag(
 
   Args:
     dataset_name: Name of the dataset to load from the registry.
-    output_directory: Directory where evaluation results will be saved.
+    output_directory: Base directory of the results (HTML report and cache), or
+      None to save them in `index_directory` (see `get_results_directory`).
     runtime_kwargs: Runtime arguments dict or JSON string (e.g. API key).
     index_directory: Directory containing the pre-built index.
     generate_model_backend_class_name: Generation backend class name.
@@ -120,7 +123,7 @@ def evaluate_rag(
     http_timeout: HTTP timeout in milliseconds for backend requests.
     cache_results: Whether to enable caching for LLM generation.
     cache_filename: Explicit cache filename. If not provided and cache_results
-      is True, it will be auto-generated.
+      is True, `cache.json` in the results directory.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -150,18 +153,19 @@ def evaluate_rag(
     if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
       rt_kwargs['http_options']['timeout'] = http_timeout
 
+  results_directory = get_results_directory(
+      output_directory=output_directory,
+      index_directory=index_directory,
+      dataset_name=dataset_name,
+      qa_strategy_name=qa_strategy_name,
+      generate_model_name=generate_model_name,
+      max_results=q_time_kwargs.get('max_results', 20),
+  )
+
   cache = None
   if cache_results or cache_filename:
     if not cache_filename:
-      max_results = q_time_kwargs.get('max_results', 20)
-      cache_filename = get_rag_cache_filename(
-          output_directory=output_directory,
-          dataset_name=dataset_name,
-          qa_strategy_name=qa_strategy_name,
-          generate_model_name=generate_model_name,
-          index_directory=index_directory,
-          max_results=max_results,
-      )
+      cache_filename = str(results_directory / 'cache.json')
     print(f'Using cache file: {cache_filename}')
     cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
     if epath.Path(cache_filename).exists():
@@ -227,7 +231,7 @@ def evaluate_rag(
   # 5. Save Results as HTML report
   html_report_path = qa_evaluation.save_html_report(
       summary=summary,
-      output_dir_path=output_directory,
+      output_dir_path=results_directory,
   )
   print(f'HTML report saved to {html_report_path}')
   return summary

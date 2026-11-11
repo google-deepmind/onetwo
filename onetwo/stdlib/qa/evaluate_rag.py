@@ -38,9 +38,14 @@ _INDEX_DIRECTORY = flags.DEFINE_string(
 
 _OUTPUT_DIRECTORY = flags.DEFINE_string(
     'output_directory',
-    None,
-    'Directory where the evaluation results will be saved.',
-    required=True,
+    '',
+    (
+        'Base directory of the evaluation results, saved under'
+        ' <output_directory>/<dataset>/<strategy>/<model>__max_results_<N>/. If'
+        ' empty, they are saved next to the index, under'
+        ' <index_directory>/eval_results/<strategy>/<model>__max_results_<N>/.'
+    ),
+    allow_override=True,
 )
 
 _GENERATE_MODEL_BACKEND_CLASS_NAME = flags.DEFINE_string(
@@ -125,7 +130,7 @@ def main(argv: Sequence[str]) -> None:
   evaluate_rag_lib.evaluate_rag(
       dataset_name=_DATASET_NAME.value,
       index_directory=_INDEX_DIRECTORY.value or '',
-      output_directory=_OUTPUT_DIRECTORY.value,
+      output_directory=_OUTPUT_DIRECTORY.value or None,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,
       ai_rater_generate_model_name=_AI_RATER_GENERATE_MODEL_NAME.value,
