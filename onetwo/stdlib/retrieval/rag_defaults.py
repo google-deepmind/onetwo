@@ -14,13 +14,13 @@
 
 """Default models and settings used by the OneTwo RAG API.
 
-All default backends and models of `rag.build_index`, `rag.evaluate`, their
-command-line tools and the built-in index specs, as well as the default backend
-request settings of `rag.build_index`, are defined here, so that they can be
-found (and updated) in one place.
+All default backends and models of `rag.build_index`, `rag.evaluate` and their
+command-line tools, as well as the default backend request settings of
+`rag.build_index`, are defined here, so that they can be found (and updated) in
+one place.
 
-Defaults specific to one index type (e.g. chunk size or searcher) are defined
-on its spec class instead (see `index_build_interface`).
+Defaults specific to one index or chunker (e.g. chunk size or searcher) are the
+defaults of its class.
 """
 
 from onetwo.backends import backend_registry

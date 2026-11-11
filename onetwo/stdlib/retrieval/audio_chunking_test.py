@@ -19,7 +19,6 @@ from absl.testing import parameterized
 from onetwo import ot
 from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import audio_chunking
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 import pydub
 from pydub import generators
@@ -71,14 +70,6 @@ def _get_duration_ms(chunk: content_lib.Chunk, audio_format: str) -> int:
 
 
 class ChunkByAudioSecondsTest(parameterized.TestCase):
-
-  def test_registered_in_chunker_registry(self):
-    config = chunker_registry.ChunkerConfig(
-        chunker_name='audio_seconds', kwargs={'seconds_per_chunk': 2.5}
-    )
-    chunker = chunker_registry.get_chunker(config)
-    self.assertIsInstance(chunker, audio_chunking.ChunkByAudioSeconds)
-    self.assertEqual(chunker.seconds_per_chunk, 2.5)
 
   @parameterized.named_parameters(
       ('1s_audio_1s_per_chunk', 1000, 1.0, [1000]),

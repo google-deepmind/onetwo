@@ -14,6 +14,7 @@
 
 import importlib
 import io
+import json
 from unittest import mock
 
 from absl.testing import absltest
@@ -25,8 +26,8 @@ from onetwo.backends import sentencepiece_tokenizer
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import audio_chunking
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
+from onetwo.stdlib.retrieval import config_serialization
 from onetwo.stdlib.retrieval import pdf_chunking
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -158,18 +159,6 @@ class RoutingChunkerTest(parameterized.TestCase):
             '_load_model',
             return_value=mock.MagicMock(),
         )
-    )
-
-  def test_registered_in_chunker_registry(self):
-    config = chunker_registry.ChunkerConfig(
-        chunker_name='routing', kwargs={'pdf': {'pages_per_chunk': 2}}
-    )
-
-    chunker = chunker_registry.get_chunker(config)
-
-    assert isinstance(chunker, routing_chunking.RoutingChunker)
-    self.assertEqual(
-        chunker.pdf, pdf_chunking.ChunkByPdfPages(pages_per_chunk=2)
     )
 
   def test_defaults(self):
@@ -348,27 +337,17 @@ class RoutingChunkerTest(parameterized.TestCase):
 
     self.assertLen(chunks, 2)
 
-  def test_json_round_trip(self):
-    config = chunker_registry.ChunkerConfig(
-        chunker_name='routing',
-        kwargs={
-            'pdf': pdf_chunking.ChunkByPdfPages(pages_per_chunk=2),
-            'audio': audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=5.0),
-        },
+  def test_config_round_trip(self):
+    chunker = routing_chunking.RoutingChunker(
+        pdf=pdf_chunking.ChunkByPdfPages(pages_per_chunk=2),
+        audio=audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=5.0),
     )
 
-    reloaded_config = chunker_registry.ChunkerConfig.from_json(config.to_json())
-    reloaded_chunker = chunker_registry.get_chunker(reloaded_config)
+    reloaded_chunker = config_serialization.from_config(
+        json.loads(json.dumps(config_serialization.get_config(chunker)))
+    )
 
-    self.assertEqual(reloaded_chunker, chunker_registry.get_chunker(config))
-    assert isinstance(reloaded_chunker, routing_chunking.RoutingChunker)
-    self.assertEqual(
-        reloaded_chunker.pdf, pdf_chunking.ChunkByPdfPages(pages_per_chunk=2)
-    )
-    self.assertEqual(
-        reloaded_chunker.audio,
-        audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=5.0),
-    )
+    self.assertEqual(reloaded_chunker, chunker)
 
 
 if __name__ == '__main__':

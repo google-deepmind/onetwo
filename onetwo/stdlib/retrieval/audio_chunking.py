@@ -17,9 +17,6 @@
 These chunkers operate on documents whose content is a single audio file,
 represented as a `content_lib.ChunkList` containing one `audio/*` chunk. Each
 output chunk is itself a (shorter) audio file.
-
-Importing this module registers `ChunkByAudioSeconds` in `chunker_registry`
-under the name 'audio_seconds'.
 """
 
 from collections.abc import Sequence
@@ -27,7 +24,6 @@ import dataclasses
 import io
 from typing import ClassVar
 
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import registry
 
@@ -113,6 +109,3 @@ class ChunkByAudioSeconds(chunking.SingleMediaChunker):
       )
       pieces.append((buffer.getvalue(), content_type))
     return pieces
-
-
-chunker_registry.register_chunker('audio_seconds', ChunkByAudioSeconds)

@@ -85,9 +85,9 @@ def unwrap_hipporag_index(
 ) -> indexing.HippoRAGDocumentIndex:
   """Returns the HippoRAG index that `index` is or wraps.
 
-  HippoRAG indexes built from a spec (e.g. by `build_index` with
-  `SimpleRewritingHippoRAGDocumentIndexSpec`) are wrapped in a
-  `RewritingDocumentIndex`, which chunks and formats the documents. This
+  HippoRAG indexes may be wrapped in a `RewritingDocumentIndex`, which chunks
+  and formats the documents (e.g. by the `build_index` command-line tool with a
+  chunking strategy). This
   unwraps `index` through any `RewritingDocumentIndex`es and checks that the
   innermost index is a `HippoRAGDocumentIndex`, which holds the (rewritten)
   documents that the server serves.

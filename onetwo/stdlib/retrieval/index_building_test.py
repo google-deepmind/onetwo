@@ -25,7 +25,6 @@ from onetwo.stdlib.retrieval import config_serialization
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
-from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import routing_chunking
 
@@ -145,36 +144,6 @@ class IndexBuildingTest(absltest.TestCase):
             index_building.index_dir_name(index),
             f'^{re.escape(expected_prefix)}__hash_[0-9a-f]{{8}}$',
         )
-
-  def test_read_index_spec_returns_none_without_spec_file(self):
-    self.assertIsNone(
-        index_building.read_index_spec(self.create_tempdir().full_path)
-    )
-
-  def test_read_index_spec_unregistered_type_raises(self):
-    out_dir = self.create_tempdir().full_path
-    spec_path = os.path.join(out_dir, index_building.INDEX_SPEC_FILENAME)
-    with open(spec_path, 'w') as f:
-      f.write('{"spec_type": "not_registered", "spec": {}}')
-
-    with self.assertRaisesRegex(KeyError, 'not_registered'):
-      index_building.read_index_spec(out_dir)
-
-  def test_load_index_unloadable_index_raises(self):
-    self.enter_context(
-        keyword_index_for_test.registered_unsaveable_index_spec()
-    )
-    out_dir = self.create_tempdir().full_path
-    spec_path = os.path.join(out_dir, index_building.INDEX_SPEC_FILENAME)
-    with open(spec_path, 'w') as f:
-      f.write('{"spec_type": "UnsaveableDocumentIndexSpec", "spec": {}}')
-
-    with self.assertRaisesRegex(
-        TypeError,
-        'UnsaveableDocumentIndex \\(built for UnsaveableDocumentIndexSpec\\)'
-        ' does not implement load',
-    ):
-      index_building.load_index(out_dir)
 
 
 if __name__ == '__main__':

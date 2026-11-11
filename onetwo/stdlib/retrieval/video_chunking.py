@@ -17,9 +17,6 @@
 These chunkers operate on documents whose content is a single video file,
 represented as a `content_lib.ChunkList` containing one `video/*` chunk. Each
 output chunk is itself a (shorter) video file.
-
-Importing this module registers `ChunkByVideoSeconds` in `chunker_registry`
-under the name 'video_seconds'.
 """
 
 from collections.abc import Sequence
@@ -29,7 +26,6 @@ import os
 import tempfile
 from typing import ClassVar
 
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import registry
 
@@ -130,6 +126,3 @@ class ChunkByVideoSeconds(chunking.SingleMediaChunker):
         with open(output_path, 'rb') as f:
           pieces.append((f.read(), content_type))
     return pieces
-
-
-chunker_registry.register_chunker('video_seconds', ChunkByVideoSeconds)

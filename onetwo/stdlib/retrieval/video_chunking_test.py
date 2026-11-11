@@ -20,7 +20,6 @@ from absl.testing import parameterized
 import ffmpeg
 from onetwo import ot
 from onetwo.core import content as content_lib
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import video_chunking
 
@@ -83,14 +82,6 @@ def _get_video_chunk(
 
 
 class ChunkByVideoSecondsTest(parameterized.TestCase):
-
-  def test_registered_in_chunker_registry(self):
-    config = chunker_registry.ChunkerConfig(
-        chunker_name='video_seconds', kwargs={'seconds_per_chunk': 10.0}
-    )
-    chunker = chunker_registry.get_chunker(config)
-    self.assertIsInstance(chunker, video_chunking.ChunkByVideoSeconds)
-    self.assertEqual(chunker.seconds_per_chunk, 10.0)
 
   @parameterized.named_parameters(
       ('1s_video_1s_per_chunk', 1.0, 1.0, [1.0]),

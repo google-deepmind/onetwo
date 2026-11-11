@@ -17,9 +17,6 @@
 These chunkers operate on documents whose content is a single PDF, represented
 as a `content_lib.ChunkList` containing one `application/pdf` chunk. Each output
 chunk is itself a (smaller) PDF.
-
-Importing this module registers `ChunkByPdfPages` in `chunker_registry` under
-the name 'pdf_pages'.
 """
 
 from collections.abc import Sequence
@@ -27,7 +24,6 @@ import dataclasses
 import io
 from typing import ClassVar
 
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import registry
 
@@ -91,6 +87,3 @@ class ChunkByPdfPages(chunking.SingleMediaChunker):
       writer.write(buffer)
       pieces.append((buffer.getvalue(), content_type))
     return pieces
-
-
-chunker_registry.register_chunker('pdf_pages', ChunkByPdfPages)

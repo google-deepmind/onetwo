@@ -19,9 +19,6 @@ files loaded with `MultimodalDatasetLoader`) with a different strategy per
 media type: tokens for text, pages for PDFs and seconds for audio and video,
 while images and mixed content are left as-is.
 
-Importing this module registers `RoutingChunker` in `chunker_registry` under the
-name 'routing'.
-
 The PDF, audio and video chunkers have heavy dependencies (e.g. `pypdf`, `pydub`
 and `ffmpeg`), so this module does not depend on them: they are only imported
 when needed, i.e. when a PDF, audio or video document is chunked with the
@@ -41,7 +38,6 @@ from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import tracing
 from onetwo.core import utils
-from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import registry
@@ -342,6 +338,3 @@ class RoutingChunker(chunking.Chunker):
         `get_content_and_media_type`).
     """
     return await self.get_chunker(document)(document)
-
-
-chunker_registry.register_chunker('routing', RoutingChunker)

@@ -22,34 +22,17 @@ from typing import Any, Callable, Iterable, Mapping
 from etils import epath
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import config_serialization
-
-from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
-from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
 from onetwo.stdlib.retrieval import retrieval_data_structures
+# Imported so that the classes of the built-in indexes and chunkers are
+# registered (see `registry`) for every user of `load_index`.
+from onetwo.stdlib.retrieval import routing_chunking  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import serialization
-
-from onetwo.stdlib.retrieval.graphrag import hipporag_index_specs  # pylint: disable=unused-import
-
-# `embedding_index_specs` (and `hipporag_index_specs`) are imported above so
-# that the built-in specs are registered in `index_spec_registry` for every user
-# of this module.
-
-IndexSpec = index_build_interface.IndexSpec
-SearcherConfig = index_build_interface.SearcherConfig
-EmbeddingBasedDocumentIndexSpec = (
-    embedding_index_specs.EmbeddingBasedDocumentIndexSpec
-)
-SimpleRewritingEmbeddingBasedDocumentIndexSpec = (
-    embedding_index_specs.SimpleRewritingEmbeddingBasedDocumentIndexSpec
-)
+from onetwo.stdlib.retrieval.graphrag import indexing as graphrag_indexing  # pylint: disable=unused-import
 
 IndexRunner = index_build_interface.IndexRunner
-
-# Name of the file, written next to a saved index, that describes its spec.
-INDEX_SPEC_FILENAME = "index_spec.json"
 
 _RUNNER_REGISTRY: dict[
     str, Callable[[], index_build_interface.IndexRunner[Any, Any]]
@@ -119,44 +102,6 @@ async def build_index(
   return result
 
 
-def save_index_spec(
-    spec: index_build_interface.IndexSpec, index_directory: str
-) -> None:
-  """Writes `spec` to `index_directory/index_spec.json`.
-
-  Args:
-    spec: A spec whose exact type is registered in `index_spec_registry`.
-    index_directory: Directory of the saved index.
-  """
-  path = epath.Path(index_directory)
-  path.mkdir(parents=True, exist_ok=True)
-  (path / INDEX_SPEC_FILENAME).write_text(
-      json.dumps(index_spec_registry.spec_to_dict(spec), indent=2)
-  )
-
-
-def read_index_spec(
-    index_directory: str,
-) -> index_build_interface.IndexSpec | None:
-  """Reads the spec saved by `save_index_spec`.
-
-  Args:
-    index_directory: Directory of the saved index.
-
-  Returns:
-    The saved spec, or None if `index_directory` has no `index_spec.json`
-    (e.g. indexes built before specs were saved).
-
-  Raises:
-    KeyError: If the saved spec type is not registered (e.g. the module that
-      registers a custom spec has not been imported).
-  """
-  spec_path = epath.Path(index_directory) / INDEX_SPEC_FILENAME
-  if not spec_path.exists():
-    return None
-  return index_spec_registry.spec_from_dict(json.loads(spec_path.read_text()))
-
-
 def load_index(
     index_directory: str,
     runtime_kwargs: Mapping[str, Any] | None = None,
@@ -164,9 +109,8 @@ def load_index(
   """Loads a saved index, whatever its type.
 
   The index is built from the `index_config.json` written next to it if any
-  (see `config_serialization`), else from its `index_spec.json`. Directories
-  without either file (built before specs were saved) are loaded as an
-  `EmbeddingBasedDocumentIndex`.
+  (see `config_serialization`). Directories without it (e.g. embedding indexes
+  built by other tools) are loaded as an `EmbeddingBasedDocumentIndex`.
 
   Args:
     index_directory: Directory of the saved index.
@@ -177,30 +121,25 @@ def load_index(
     The loaded index.
 
   Raises:
-    KeyError: If the saved spec type or a class in the saved config is not
-      registered (e.g. the module that registers it has not been imported).
+    KeyError: If a class in the saved config is not registered (e.g. the module
+    that registers it has not been imported).
     ValueError: If the saved config has an unsupported `format_version`.
     TypeError: If the saved config does not describe a `DocumentIndex`, or the
       index does not implement `load`.
   """
   runtime_kwargs = dict(runtime_kwargs or {})
-  spec = None
   if (
       epath.Path(index_directory) / config_serialization.INDEX_CONFIG_FILENAME
   ).exists():
     index = config_serialization.make_index_from_config_file(
         index_directory, runtime_kwargs
     )
-  elif (spec := read_index_spec(index_directory)) is None:
-    index = indexing.EmbeddingBasedDocumentIndex(runtime_kwargs=runtime_kwargs)
   else:
-    index = index_spec_registry.make_index(spec, runtime_kwargs)
+    index = indexing.EmbeddingBasedDocumentIndex(runtime_kwargs=runtime_kwargs)
   if not indexing.supports_save(index):
     raise TypeError(
-        f"{type(index).__name__}"
-        + (f" (built for {type(spec).__name__})" if spec else "")
-        + f" does not implement load(base_path), so {index_directory!r}"
-        " cannot be loaded."
+        f"{type(index).__name__} does not implement load(base_path), so"
+        f" {index_directory!r} cannot be loaded."
     )
   executing.run(index.load(index_directory))
   return index
@@ -222,7 +161,7 @@ def resolve_index_output_directory(
     output_directory_pattern: Pattern for the output directory (may contain
       {username}).
     dataset_name: Name of the dataset.
-    subdirectory: Name of the subdirectory of the index, e.g. `str(spec)`.
+    subdirectory: Name of the subdirectory of the index.
 
   Returns:
     The resolved path as a string.

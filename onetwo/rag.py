@@ -16,11 +16,9 @@
 
 from onetwo.stdlib.qa import evaluate_rag_lib as _evaluate_rag_module
 from onetwo.stdlib.retrieval import build_index_lib as _build_index_module
-from onetwo.stdlib.retrieval import index_spec_registry as _index_spec_registry
 from onetwo.stdlib.retrieval import serialization as _serialization
 
 build_index = _build_index_module.build_index
 IndexType = _build_index_module.IndexType
 evaluate = _evaluate_rag_module.evaluate_rag
-register_index_spec = _index_spec_registry.register_index_spec
 StorageFormat = _serialization.StorageFormat
