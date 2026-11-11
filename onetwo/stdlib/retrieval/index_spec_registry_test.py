@@ -18,12 +18,10 @@ from unittest import mock
 
 from absl.testing import absltest
 import dataclasses_json
-from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import embedding_index_specs
 from onetwo.stdlib.retrieval import index_build_interface
-from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import keyword_index_for_test
 from onetwo.stdlib.retrieval import retrieval_data_structures
@@ -183,44 +181,6 @@ class IndexSpecRegistryTest(absltest.TestCase):
     index_spec_registry.make_index(spec, {'api_key': 'key'})
 
     mock_make_index.assert_called_once_with(spec, {'api_key': 'key'})
-
-  def test_custom_spec_builds_via_index_building_without_runner_changes(self):
-    self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
-    docs = [
-        Document(doc_id='d1', content='The capital of France is Paris.'),
-        Document(doc_id='d2', content='Madrid is the capital of Spain.'),
-    ]
-
-    index = ot.run(
-        index_building.build_index(spec=KeywordDocumentIndexSpec(), docs=docs)
-    )
-
-    self.assertIsInstance(index, keyword_index_for_test.KeywordDocumentIndex)
-    self.assertEqual(index.num_docs, 2)
-    results = ot.run(index.retrieve('What is in Spain?', max_results=1))
-    self.assertEqual([doc.doc_id for doc in results], ['d2'])
-
-  def test_custom_spec_builds_saves_and_loads(self):
-    self.enter_context(keyword_index_for_test.registered_keyword_index_spec())
-    out_dir = self.create_tempdir().full_path
-    docs = [
-        Document(doc_id='d1', content='The capital of France is Paris.'),
-        Document(doc_id='d2', content='Madrid is the capital of Spain.'),
-    ]
-
-    ot.run(
-        index_building.build_index(
-            spec=KeywordDocumentIndexSpec(lowercase=False),
-            docs=docs,
-            output_dir=out_dir,
-        )
-    )
-    index = index_building.load_index(out_dir)
-
-    self.assertIsInstance(index, keyword_index_for_test.KeywordDocumentIndex)
-    self.assertFalse(getattr(index, 'lowercase'))
-    results = ot.run(index.retrieve('What is in Spain?', max_results=1))
-    self.assertEqual([doc.doc_id for doc in results], ['d2'])
 
   def test_spec_dict_round_trip(self):
     self.enter_context(keyword_index_for_test.registered_keyword_index_spec())

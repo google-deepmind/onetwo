@@ -18,7 +18,6 @@ import getpass
 import json
 from typing import Any, Callable, Iterable, Mapping
 
-from absl import logging
 from etils import epath
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import config_serialization
@@ -66,7 +65,7 @@ def register_runner(
 
 @executing.make_executable
 async def build_index(
-    spec: index_build_interface.IndexSpec,
+    index: indexing.DocumentIndex,
     docs: Iterable[retrieval_data_structures.Document] | str,
     output_dir: str | None = None,
     runner: str = "local",
@@ -76,10 +75,15 @@ async def build_index(
     ),
     **kwargs,
 ) -> Any:
-  """Builds an index using the specified runner.
+  """Builds `index` using the specified runner.
+
+  If `output_dir` is set, the index is saved there with its config
+  (`index_config.json`, see `config_serialization`), so it can be loaded with
+  `load_index`.
 
   Args:
-    spec: Index specification.
+    index: The (empty) index to build. The classes of the index and its
+      components must be registered (see `registry`) to save it.
     docs: Documents to index.
     output_dir: Optional directory to save the built index.
     runner: The runner to use (e.g., "local").
@@ -97,9 +101,12 @@ async def build_index(
         f"{list(_RUNNER_REGISTRY.keys())}"
     )
 
+  if output_dir:
+    # Fail fast, before building, if the index cannot be saved.
+    config_serialization.get_config(index)
   runner_impl = _RUNNER_REGISTRY[runner]()
   result = await runner_impl.build_index(
-      spec=spec,
+      index=index,
       docs=docs,
       output_dir=output_dir,
       runtime_kwargs=runtime_kwargs,
@@ -107,16 +114,7 @@ async def build_index(
       **kwargs,
   )
   if output_dir:
-    if index_spec_registry.is_registered(spec):
-      save_index_spec(spec, output_dir)
-    else:
-      logging.warning(
-          "Not writing %s to %s: %s is not registered in index_spec_registry,"
-          " so the index cannot be loaded from its directory alone.",
-          INDEX_SPEC_FILENAME,
-          output_dir,
-          type(spec).__name__,
-      )
+    config_serialization.save_index_config(index, output_dir)
   return result
 
 

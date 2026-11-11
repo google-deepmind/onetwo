@@ -18,36 +18,27 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from onetwo.core import executing
-from onetwo.stdlib.retrieval import embedding_index_specs  # pylint: disable=unused-import
+from onetwo.stdlib.retrieval import config_serialization
 from onetwo.stdlib.retrieval import index_build_interface
-from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval import serialization as ot_serialization
 
 from onetwo.stdlib.retrieval import serialization
 
-# `embedding_index_specs` is imported above only so that the built-in specs are
-# registered in `index_spec_registry` whenever this runner is available.
-
 
 class LocalIndexRunner(
     index_build_interface.IndexRunner[
-        index_build_interface.IndexSpec,
+        indexing.DocumentIndex,
         Iterable[retrieval_data_structures.Document] | str,
     ]
 ):
-  """In-memory index runner.
-
-  Supports every spec registered in `index_spec_registry`, including custom
-  specs registered by user code. (The Beam runner only supports the built-in
-  embedding specs.)
-  """
+  """In-memory index runner."""
 
   @executing.make_executable(copy_self=False)
   async def build_index(
       self,
-      spec: index_build_interface.IndexSpec,
+      index: indexing.DocumentIndex,
       docs: Iterable[retrieval_data_structures.Document] | str,
       output_dir: str | None = None,
       runtime_kwargs: Mapping[str, Any] | None = None,
@@ -56,21 +47,28 @@ class LocalIndexRunner(
           ot_serialization.StorageFormat.JSONL_NPY
       ),
       **kwargs,
-  ) -> indexing.Index:
-    """Builds a DocumentIndex in memory and optionally saves it."""
+  ) -> indexing.DocumentIndex:
+    """Builds `index` in memory, optionally saves it, and returns it.
+
+    Overridden from base class (IndexRunner). With `runtime_kwargs`, a copy of
+    `index` built from its config with them is built instead (`index` is not
+    modified).
+    """
     if isinstance(docs, str):
       docs = serialization.load_documents(
           docs, doc_class=retrieval_data_structures.Document
       )
-
-    index = index_spec_registry.make_index(spec, runtime_kwargs)
     # Check before building, so that an index that can't be saved fails fast
     # instead of after a possibly expensive build.
     if output_dir and not indexing.supports_save(index):
       raise TypeError(
-          f'{type(index).__name__} (built for {type(spec).__name__}) does'
-          ' not implement save(base_path) and load(base_path), so it cannot be'
-          f' written to output_dir={output_dir!r}.'
+          f'{type(index).__name__} does not implement save(base_path) and'
+          ' load(base_path), so it cannot be written to'
+          f' output_dir={output_dir!r}.'
+      )
+    if runtime_kwargs is not None:
+      index = config_serialization.from_config(
+          config_serialization.get_config(index), runtime_kwargs
       )
     await index.add_docs(docs)
 

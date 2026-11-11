@@ -67,20 +67,21 @@ class IndexSpec(dataclasses_json.DataClassJsonMixin, abc.ABC):
     return f"{type(self).__name__}__hash_{self.get_stable_hash()}"
 
 
-SpecT = TypeVar("SpecT", bound=IndexSpec)
+IndexT = TypeVar("IndexT", bound=indexing.DocumentIndex)
 DocsT = TypeVar("DocsT")
 
 
-class IndexRunner(abc.ABC, Generic[SpecT, DocsT]):
+class IndexRunner(abc.ABC, Generic[IndexT, DocsT]):
   """Base class for index building runners."""
 
   @executing.make_executable(copy_self=False)
   @abc.abstractmethod
   async def build_index(
       self,
-      spec: SpecT,
+      index: IndexT,
       docs: DocsT,
       output_dir: str | None = None,
+      runtime_kwargs: Mapping[str, Any] | None = None,
       *,
       storage_format: serialization.StorageFormat = (
           serialization.StorageFormat.JSONL_NPY
@@ -90,9 +91,11 @@ class IndexRunner(abc.ABC, Generic[SpecT, DocsT]):
     """Builds the index.
 
     Args:
-      spec: Index specification.
+      index: The (empty) index to build.
       docs: Documents to index (e.g., Iterable[Document] or path).
       output_dir: Optional directory to save the built index.
+      runtime_kwargs: Environment-specific settings and credentials for the
+        index's backends (e.g. API key). Not saved with the index.
       storage_format: How the index is saved to `output_dir`.
       **kwargs: Runner-specific arguments.
 

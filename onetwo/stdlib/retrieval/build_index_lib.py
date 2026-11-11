@@ -26,7 +26,6 @@ from onetwo.evaluation import datasets
 from onetwo.evaluation.datasets import multimodal_loader
 from onetwo.stdlib.retrieval import config_serialization
 from onetwo.stdlib.retrieval import corpus_rewriting
-from onetwo.stdlib.retrieval import index_build_interface
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
@@ -219,62 +218,3 @@ def _load_documents(
     docs = list(ot_executing.run(corpus.load_documents()))
   print(f'Loaded {len(docs)} documents.')
   return docs
-
-
-def build_index_from_spec(
-    spec: index_build_interface.IndexSpec,
-    corpus: str | datasets.DatasetLoader,
-    output: str,
-    runtime_kwargs: Mapping[str, Any] | None = None,
-    storage_format: serialization.StorageFormat = (
-        serialization.StorageFormat.JSONL_NPY
-    ),
-) -> str:
-  """Builds and saves the index described by `spec` of the specified corpus.
-
-  Used by the `build_index` command-line tool. The spec is used as-is.
-
-  Args:
-    spec: Spec of the index to build.
-    corpus: What to index: either a path to a folder of files of any type (text,
-      PDF, image, audio, video), loaded with `MultimodalDatasetLoader`, or a
-      `datasets.DatasetLoader` whose `load_documents` is used, e.g.
-      `datasets.get_dataset_loader(name)` for a registered dataset, or a custom
-      loader. The output directory path includes the name of the corpus: the
-      basename of the folder for a path; for a loader, its `dataset_name` (set
-      by `datasets.get_dataset_loader` to the registered name, or by a custom
-      loader) if any, else its class name. To index only the first documents,
-      pass a loader with a limit, e.g.
-      `datasets.MultimodalDatasetLoader(path=..., max_number_of_documents=N)` or
-      `datasets.get_dataset_loader(name, max_number_of_documents=N)`.
-    output: Base directory (pattern) where the built index will be saved.
-    runtime_kwargs: Arguments for the index's backends (e.g. API key). Passed to
-      `spec.make_index`; not saved with the index.
-    storage_format: How the index is saved on disk (see
-      `serialization.StorageFormat`).
-
-  Returns:
-    The output directory path where the index was saved.
-  """
-  docs = _load_documents(corpus)
-  out_dir = index_building.resolve_index_output_directory(
-      output_directory_pattern=output,
-      dataset_name=_corpus_name(corpus),
-      subdirectory=str(spec),
-  )
-  print(f'Will save the index to output directory: {out_dir}')
-
-  # Build index
-  print('Building index...')
-  _ = ot_executing.run(
-      index_building.build_index(
-          spec=spec,
-          docs=docs,
-          output_dir=out_dir,
-          runner='local',
-          runtime_kwargs=runtime_kwargs,
-          storage_format=storage_format,
-      )
-  )
-  print(f'Index built and saved to {out_dir}.')
-  return out_dir

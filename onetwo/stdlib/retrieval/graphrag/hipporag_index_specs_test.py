@@ -23,7 +23,6 @@ from onetwo.core import batching
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import chunker_registry
 from onetwo.stdlib.retrieval import document_formatting
-from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import index_spec_registry
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import local_index_runner
@@ -147,7 +146,9 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
     ]
 
     runner = local_index_runner.LocalIndexRunner()
-    index = executing.run(runner.build_index(spec=spec, docs=docs))
+    index = executing.run(
+        runner.build_index(index=spec.make_index({}), docs=docs)
+    )
 
     self.assertIsInstance(index, indexing.RewritingDocumentIndex)
     inner_index = index.inner_index
@@ -156,41 +157,6 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
       self.assertIsInstance(
           inner_index._entity_index.searcher, searchers.BruteForceSearcher
       )
-    self.assertEqual(index.num_docs, 2)
-
-  def test_build_index_raises_for_bare_hipporag_spec(self):
-    runner = local_index_runner.LocalIndexRunner()
-    spec = HippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-    )
-    with self.assertRaisesRegex(KeyError, 'HippoRAGDocumentIndexSpec'):
-      executing.run(runner.build_index(spec=spec, docs=[]))
-
-  def test_hipporag_index_round_trips_through_load_index(self):
-    spec = SimpleRewritingHippoRAGDocumentIndexSpec(
-        embed_backend_config=self.embed_backend_config,
-        generate_backend_config=self.generate_backend_config,
-        chunker_config=chunker_registry.ChunkerConfig(
-            chunker_name='words',
-            kwargs={'max_words_per_chunk': 100},
-        ),
-    )
-    docs = [
-        Document(doc_id='doc1', content='This is document one.'),
-        Document(doc_id='doc2', content='This is document two.'),
-    ]
-    out_dir = self.create_tempdir().full_path
-    executing.run(
-        index_building.build_index(spec=spec, docs=docs, output_dir=out_dir)
-    )
-
-    index = index_building.load_index(out_dir)
-
-    self.assertIsInstance(index, indexing.RewritingDocumentIndex)
-    self.assertIsInstance(
-        index.inner_index, graphrag_indexing.HippoRAGDocumentIndex
-    )
     self.assertEqual(index.num_docs, 2)
 
   def test_make_index_builds_default_extractor_from_settings(self):
@@ -246,7 +212,9 @@ class HippoRAGIndexSpecsTest(parameterized.TestCase):
     docs = [Document(doc_id='doc1', title='Title 1', content='Content 1')]
 
     runner = local_index_runner.LocalIndexRunner()
-    index = executing.run(runner.build_index(spec=spec, docs=docs))
+    index = executing.run(
+        runner.build_index(index=spec.make_index({}), docs=docs)
+    )
 
     inner_index = getattr(index, 'inner_index')
     self.assertIsInstance(inner_index, graphrag_indexing.HippoRAGDocumentIndex)
