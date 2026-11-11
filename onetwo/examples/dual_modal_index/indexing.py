@@ -21,12 +21,13 @@ import dataclasses
 from etils import epath
 from onetwo.builtins import llm
 from onetwo.core import executing
-from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import registry
 from onetwo.stdlib.retrieval import retrieval_data_structures
+from onetwo.stdlib.retrieval import routing_chunking
 from onetwo.stdlib.retrieval import serialization
 
 Document = retrieval_data_structures.Document
@@ -99,11 +100,14 @@ class DualModalDocumentIndex(indexing.DocumentIndex):
                           ),
                           FilterEmptyDocuments(),
                           corpus_rewriting.ChunkingCorpusRewriter(
-                              chunker=chunking.ChunkByMaxTokens(
-                                  max_tokens_per_chunk=256
-                              )
+                              chunker=routing_chunking.RoutingChunker()
                           ),
                       ]
+                  ),
+                  inner_index=indexing.EmbeddingBasedDocumentIndex(
+                      embed_backend_config=(
+                          rag_defaults.default_embed_backend_config()
+                      )
                   ),
                   preserve_original_docs=True,
               )
@@ -123,7 +127,12 @@ class DualModalDocumentIndex(indexing.DocumentIndex):
                       ]
                   ),
                   inner_index=indexing.EmbeddingBasedDocumentIndex(
-                      document_task_type=None
+                      # TODO: Find a better way to remove
+                      # task-type prefixes from image queries.
+                      document_task_type=None,
+                      embed_backend_config=(
+                          rag_defaults.default_embed_backend_config()
+                      ),
                   ),
               )
           )

@@ -21,6 +21,7 @@ from absl.testing import absltest
 from etils import epath
 import numpy as np
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.core import content as content_lib
 from onetwo.examples.dual_modal_index import indexing
@@ -70,6 +71,13 @@ class DualModalDocumentIndexTest(absltest.TestCase):
     )
     backend = backends_test_utils.LLMForTest()
     backend.register(register_tokenize=True)
+    # The default sub-indexes create real tokenizer and embedder backends from
+    # their configs: stub them out, so that the fakes registered above are used.
+    self.enter_context(
+        mock.patch.object(
+            backend_registry, 'get_backend', return_value=mock.MagicMock()
+        )
+    )
 
   def tearDown(self):
     shutil.rmtree(self.temp_dir)
@@ -136,7 +144,7 @@ class DualModalDocumentIndexTest(absltest.TestCase):
                 content_lib.Chunk(
                     content=b'alice_img', content_type='image/png'
                 ),
-                content_lib.Chunk('Alice ' * 60),
+                content_lib.Chunk('Alice ' * 100),
             ]),
         ),
         Document(
