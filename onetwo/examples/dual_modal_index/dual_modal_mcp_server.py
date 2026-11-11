@@ -35,6 +35,11 @@ from mcp import types as mcp_types
 from mcp.server.fastmcp import server
 from onetwo.agents import agent as agent_lib
 from onetwo.core import content as content_lib
+
+# Registers the classes used by the default sub-indexes of
+# DualModalDocumentIndex (e.g. FilterEmptyDocuments), so that load_index can
+# load them from their saved configs.
+from onetwo.examples.dual_modal_index import indexing  # pylint: disable=unused-import
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing as ot_indexing
 
