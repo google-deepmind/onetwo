@@ -28,6 +28,7 @@ from onetwo import ot
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.examples.dual_modal_index import dual_modal_mcp_server
+from onetwo.examples.dual_modal_index import indexing as dual_modal_indexing
 from onetwo.stdlib.retrieval import chunking
 from onetwo.stdlib.retrieval import config_serialization
 from onetwo.stdlib.retrieval import corpus_rewriting
@@ -118,8 +119,7 @@ class DualModalMcpServerTest(parameterized.TestCase):
         ),
     ]
 
-    self._text_index_dir = self.create_tempdir('text_index').full_path
-    self._image_index_dir = self.create_tempdir('image_index').full_path
+    self._index_dir = self.create_tempdir('dual_modal_index').full_path
 
     text_index = indexing.RewritingEmbeddingBasedDocumentIndex(
         rewriter=corpus_rewriting.ChunkingCorpusRewriter(
@@ -136,18 +136,15 @@ class DualModalMcpServerTest(parameterized.TestCase):
         inner_index=indexing.EmbeddingBasedDocumentIndex(
             document_task_type=None
         ),
-        preserve_original_docs=True,
     )
-    for index, index_dir in (
-        (text_index, self._text_index_dir),
-        (image_index, self._image_index_dir),
-    ):
-      ot.run(index.add_docs(self._docs))
-      index.save(index_dir)
-      config_serialization.save_index_config(index, index_dir)
+    dual_index = dual_modal_indexing.DualModalDocumentIndex(
+        text_index=text_index, image_index=image_index
+    )
+    ot.run(dual_index.add_docs(self._docs))
+    dual_index.save(self._index_dir)
+    config_serialization.save_index_config(dual_index, self._index_dir)
     self._mcp = dual_modal_mcp_server.create_dual_modal_server(
-        text_index_path=self._text_index_dir,
-        image_index_path=self._image_index_dir,
+        index_path=self._index_dir,
         max_results=2,
         snippet_max_chars=-1,
         transport='stdio',
@@ -201,7 +198,7 @@ class DualModalMcpServerTest(parameterized.TestCase):
 
     with self.subTest('truncates_to_snippet_max_chars'):
       truncated_mcp = dual_modal_mcp_server.create_dual_modal_server(
-          text_index_path=self._text_index_dir,
+          index_path=self._index_dir,
           max_results=1,
           snippet_max_chars=10,
           transport='stdio',
@@ -288,20 +285,16 @@ class DualModalMcpServerTest(parameterized.TestCase):
     with self.assertLogs(level='WARNING') as log_output:
       missing = _call_tool(self._mcp, 'get_document', {'docid': 'unknown_doc'})
     self.assertEqual(missing.content[0].text, 'null')
-    self.assertLen(log_output.output, 2)
+    self.assertLen(log_output.output, 1)
     self.assertIn(
-        "Original document 'unknown_doc' not found in text index.",
+        "Original document 'unknown_doc' not found.",
         log_output.output[0],
-    )
-    self.assertIn(
-        "Original document 'unknown_doc' not found in image index.",
-        log_output.output[1],
     )
 
   def test_create_dual_modal_server_validates_inputs(self):
     self.assertEqual(self._mcp.settings.port, 8000)
     http_mcp = dual_modal_mcp_server.create_dual_modal_server(
-        text_index_path=self._text_index_dir,
+        index_path=self._index_dir,
         host='0.0.0.0',
         port=9123,
         transport='streamable-http',
@@ -309,19 +302,31 @@ class DualModalMcpServerTest(parameterized.TestCase):
     self.assertEqual(http_mcp.settings.host, '0.0.0.0')
     self.assertEqual(http_mcp.settings.port, 9123)
 
-    with self.assertRaisesRegex(ValueError, 'At least one of'):
-      dual_modal_mcp_server.create_dual_modal_server()
-
     no_orig_dir = self.create_tempdir('no_orig').full_path
-    index_without_orig = indexing.RewritingEmbeddingBasedDocumentIndex(
-        preserve_original_docs=False
+    index_without_orig = dual_modal_indexing.DualModalDocumentIndex(
+        text_index=indexing.RewritingEmbeddingBasedDocumentIndex(
+            preserve_original_docs=False
+        ),
+        image_index=indexing.RewritingEmbeddingBasedDocumentIndex(),
     )
     ot.run(index_without_orig.add_docs(self._docs))
     index_without_orig.save(no_orig_dir)
     config_serialization.save_index_config(index_without_orig, no_orig_dir)
     with self.assertRaisesRegex(ValueError, 'preserve_original_docs=True'):
       dual_modal_mcp_server.create_dual_modal_server(
-          text_index_path=no_orig_dir, include_get_document=True
+          index_path=no_orig_dir, include_get_document=True
+      )
+
+    plain_dir = self.create_tempdir('plain').full_path
+    plain_index = indexing.RewritingEmbeddingBasedDocumentIndex()
+    ot.run(plain_index.add_docs(self._docs))
+    plain_index.save(plain_dir)
+    config_serialization.save_index_config(plain_index, plain_dir)
+    with self.assertRaisesRegex(
+        TypeError, 'not a saved DualModalDocumentIndex'
+    ):
+      dual_modal_mcp_server.create_dual_modal_server(
+          index_path=plain_dir, transport='stdio'
       )
 
   def test_content_to_blocks_rejects_non_bytes_image_chunk(self):

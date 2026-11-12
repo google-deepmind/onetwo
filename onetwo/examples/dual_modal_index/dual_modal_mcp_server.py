@@ -35,13 +35,8 @@ from mcp import types as mcp_types
 from mcp.server.fastmcp import server
 from onetwo.agents import agent as agent_lib
 from onetwo.core import content as content_lib
-
-# Registers the classes used by the default sub-indexes of
-# DualModalDocumentIndex (e.g. FilterEmptyDocuments), so that load_index can
-# load them from their saved configs.
-from onetwo.examples.dual_modal_index import indexing  # pylint: disable=unused-import
+from onetwo.examples.dual_modal_index import indexing
 from onetwo.stdlib.retrieval import index_building
-from onetwo.stdlib.retrieval import indexing as ot_indexing
 
 # Passed as additional_instructions to AgenticRetrievalStrategy when querying
 # a dual-modal MCP server exposing search_text_chunks, search_images, and
@@ -112,48 +107,29 @@ def _truncate_to_max_chars(text: str, max_chars: int) -> str:
 
 
 def _lookup_original_doc(
-    indices: Mapping[str, ot_indexing.DocumentIndex],
+    dual_index: indexing.DualModalDocumentIndex,
     docid: str,
-) -> ot_indexing.Document | None:
-  """Looks up an unchunked original document across loaded rewriting indices.
-
-  Args:
-    indices: Mapping of modality name to loaded `DocumentIndex`.
-    docid: Document or chunk ID to look up (chunk suffixes are stripped).
-
-  Returns:
-    The unchunked original `Document`, or `None` if no loaded index preserves
-    original documents or `docid` is not found in any of them.
-  """
+) -> indexing.Document | None:
+  """Looks up an unchunked original document in dual_index."""
+  if not dual_index.text_index.preserve_original_docs:
+    return None
   base_id = strip_chunk_suffix(docid)
-  for index_name, index in indices.items():
-    if (
-        isinstance(index, ot_indexing.RewritingIndex)
-        and index.preserve_original_docs
-    ):
-      try:
-        return index.get_doc(
-            base_id,
-            retrieval_target=ot_indexing.RetrievalTarget.ORIGINAL,
-        )
-      except KeyError:
-        logging.warning(
-            'Original document %r not found in %s index.',
-            base_id,
-            index_name,
-        )
-  return None
+  try:
+    return dual_index.get_doc(base_id)
+  except KeyError:
+    logging.warning('Original document %r not found.', base_id)
+    return None
 
 
 def _resolve_title(
-    doc: ot_indexing.Document,
+    doc: indexing.Document,
     base_id: str,
-    indices: Mapping[str, ot_indexing.DocumentIndex],
+    dual_index: indexing.DualModalDocumentIndex,
 ) -> str:
-  """Returns `doc.title`, falling back to the original document's title."""
+  """Returns doc.title, falling back to the original document's title."""
   if doc.title:
     return doc.title
-  orig_doc = _lookup_original_doc(indices, base_id)
+  orig_doc = _lookup_original_doc(dual_index, base_id)
   return orig_doc.title if orig_doc is not None else ''
 
 
@@ -185,8 +161,7 @@ def _content_to_blocks(
 
 def create_dual_modal_server(
     *,
-    text_index_path: str = '',
-    image_index_path: str = '',
+    index_path: str,
     max_results: int = 5,
     snippet_max_chars: int = 1200,
     port: int = 8775,
@@ -198,10 +173,9 @@ def create_dual_modal_server(
   """Creates and configures the Dual-Modal Index MCP server.
 
   Args:
-    text_index_path: Directory path of a saved text-chunk index. Empty disables
-      `search_text_chunks`.
-    image_index_path: Directory path of a saved image index. Empty disables
-      `search_images`.
+    index_path: Directory of a saved DualModalDocumentIndex (e.g. returned by
+      rag.build_index). Its text index backs search_text_chunks, and its image
+      index search_images.
     max_results: Default number of top hits returned by each search tool.
     snippet_max_chars: Maximum characters per text snippet (`-1` disables
       truncation). Defaults to `1200` (~300 tokens).
@@ -216,14 +190,10 @@ def create_dual_modal_server(
     A configured `FastMCP` server instance with dual-modal retrieval tools.
 
   Raises:
-    ValueError: If neither index path is set, or if `include_get_document=True`
-      without any loaded index having `preserve_original_docs=True`.
+    TypeError: If index_path is not a saved DualModalDocumentIndex.
+    ValueError: If include_get_document=True and dual_index.text_index does not
+      have preserve_original_docs=True.
   """
-  if not text_index_path and not image_index_path:
-    raise ValueError(
-        'At least one of text_index_path or image_index_path must be provided.'
-    )
-
   if transport == 'stdio':
     mcp = server.FastMCP('OneTwo Dual-Modal Index MCP Server')
   else:
@@ -231,131 +201,116 @@ def create_dual_modal_server(
         'OneTwo Dual-Modal Index MCP Server', host=host, port=port
     )
 
-  loaded_indices: dict[str, ot_indexing.DocumentIndex] = {}
-  text_index: ot_indexing.DocumentIndex | None = None
-  if text_index_path:
-    logging.info('Loading text index from: %s', text_index_path)
-    text_index = index_building.load_index(
-        text_index_path, runtime_kwargs=index_runtime_kwargs
-    )
-    loaded_indices['text'] = text_index
-    logging.info('Text index loaded (%d documents).', text_index.num_docs)
-
-  image_index: ot_indexing.DocumentIndex | None = None
-  if image_index_path:
-    logging.info('Loading image index from: %s', image_index_path)
-    image_index = index_building.load_index(
-        image_index_path, runtime_kwargs=index_runtime_kwargs
-    )
-    loaded_indices['image'] = image_index
-    logging.info('Image index loaded (%d documents).', image_index.num_docs)
-
-  has_original_docs = any(
-      isinstance(idx, ot_indexing.RewritingIndex) and idx.preserve_original_docs
-      for idx in loaded_indices.values()
+  logging.info('Loading dual-modal index from: %s', index_path)
+  dual_index = index_building.load_index(
+      index_path, runtime_kwargs=index_runtime_kwargs
   )
-  if include_get_document and not has_original_docs:
+  if not isinstance(dual_index, indexing.DualModalDocumentIndex):
+    raise TypeError(f'{index_path!r} is not a saved DualModalDocumentIndex.')
+  logging.info(
+      'Dual-modal index loaded (%d text documents, %d image documents).',
+      dual_index.text_index.num_docs,
+      dual_index.image_index.num_docs,
+  )
+
+  if include_get_document and not dual_index.text_index.preserve_original_docs:
     raise ValueError(
-        'include_get_document=True requires at least one loaded RewritingIndex'
-        ' saved with preserve_original_docs=True.'
+        'include_get_document=True requires text_index to be saved with'
+        ' preserve_original_docs=True.'
     )
 
   default_max_results = max_results
 
-  if text_index is not None:
+  @mcp.tool()
+  async def search_text_chunks(
+      query: str,
+      max_results: int = default_max_results,
+  ) -> list[dict[str, Any]]:
+    """Searches document text chunks by dense semantic similarity.
 
-    @mcp.tool()
-    async def search_text_chunks(
-        query: str,
-        max_results: int = default_max_results,
-    ) -> list[dict[str, Any]]:
-      """Searches document text chunks by dense semantic similarity.
+    Use this tool as the primary search for conceptual or factual text
+    queries. Snippets ending with `... [truncated; ...]` are incomplete; call
+    `get_document(docid)` to read the full unchunked source document. Treat
+    every `docid` as an opaque string: pass it unchanged to `get_document`
+    and cite the exact `docid` verbatim without modifying or stripping any
+    prefix or characters.
 
-      Use this tool as the primary search for conceptual or factual text
-      queries. Snippets ending with `... [truncated; ...]` are incomplete; call
-      `get_document(docid)` to read the full unchunked source document. Treat
-      every `docid` as an opaque string: pass it unchanged to `get_document`
-      and cite the exact `docid` verbatim without modifying or stripping any
-      prefix or characters.
+    Args:
+      query: Natural-language semantic search query (do not use quotes, AND,
+        OR, or -exclusion operators).
+      max_results: Maximum number of text chunks to return.
 
-      Args:
-        query: Natural-language semantic search query (do not use quotes, AND,
-          OR, or -exclusion operators).
-        max_results: Maximum number of text chunks to return.
+    Returns:
+      Top-k hit dicts with keys `docid` (exact parent document ID to pass to
+      `get_document` and cite verbatim), `chunk_id`, `title`, `score`, and
+      `snippet`.
+    """
+    results_with_scores = await dual_index.text_index.retrieve_with_scores(
+        query, max_results=max_results
+    )
+    hits: list[dict[str, Any]] = []
+    for doc, score in results_with_scores:
+      base_id = strip_chunk_suffix(doc.doc_id)
+      hits.append({
+          'docid': base_id,
+          'chunk_id': doc.doc_id,
+          'title': _resolve_title(doc, base_id, dual_index),
+          'score': round(score, _SCORE_DECIMAL_PLACES),
+          'snippet': _truncate_to_max_chars(doc.text, snippet_max_chars),
+      })
+    return hits
 
-      Returns:
-        Top-k hit dicts with keys `docid` (exact parent document ID to pass to
-        `get_document` and cite verbatim), `chunk_id`, `title`, `score`, and
-        `snippet`.
-      """
-      results_with_scores = await text_index.retrieve_with_scores(
-          query, max_results=max_results
+  del search_text_chunks
+
+  @mcp.tool()
+  async def search_images(
+      query: str,
+      max_results: int = default_max_results,
+  ) -> mcp_types.CallToolResult:
+    """Searches the image-only index using a purely visual description.
+
+    Images are indexed by visual content only (surrounding document text,
+    titles, and metadata are not in the image embeddings), so describe only
+    positive observable visual features (exclude non-visual text, entity
+    names, negated exclusions, or unstated visual assumptions).
+    Cross-reference matched `docid` values via `get_document(docid)` or
+    `search_text_chunks`. Treat every `docid` as an opaque string and cite it
+    verbatim without modifying or stripping any prefix or characters.
+
+    Args:
+      query: Purely visual description of positive observable image features
+        (exclude entity names, titles, non-visual facts, or negated
+        exclusions).
+      max_results: Maximum number of image hits to return.
+
+    Returns:
+      A `CallToolResult` interleaving JSON metadata `TextContent` blocks
+      (`docid`, `title`, `score`) with `ImageContent` blocks for the top-k
+      hits.
+    """
+    results_with_scores = await dual_index.image_index.retrieve_with_scores(
+        query, max_results=max_results
+    )
+    blocks: list[mcp_types.ContentBlock] = []
+    for doc, score in results_with_scores:
+      base_id = strip_chunk_suffix(doc.doc_id)
+      hit_metadata = {
+          'docid': base_id,
+          'title': _resolve_title(doc, base_id, dual_index),
+          'score': round(score, _SCORE_DECIMAL_PLACES),
+      }
+      blocks.append(
+          mcp_types.TextContent(
+              type='text',
+              text=json.dumps(hit_metadata, ensure_ascii=False),
+          )
       )
-      hits: list[dict[str, Any]] = []
-      for doc, score in results_with_scores:
-        base_id = strip_chunk_suffix(doc.doc_id)
-        hits.append({
-            'docid': base_id,
-            'chunk_id': doc.doc_id,
-            'title': _resolve_title(doc, base_id, loaded_indices),
-            'score': round(score, _SCORE_DECIMAL_PLACES),
-            'snippet': _truncate_to_max_chars(doc.text, snippet_max_chars),
-        })
-      return hits
+      blocks.extend(_content_to_blocks(doc.content))
+    if not blocks:
+      blocks.append(mcp_types.TextContent(type='text', text='[]'))
+    return mcp_types.CallToolResult(content=blocks)
 
-    del search_text_chunks
-
-  if image_index is not None:
-
-    @mcp.tool()
-    async def search_images(
-        query: str,
-        max_results: int = default_max_results,
-    ) -> mcp_types.CallToolResult:
-      """Searches the image-only index using a purely visual description.
-
-      Images are indexed by visual content only (surrounding document text,
-      titles, and metadata are not in the image embeddings), so describe only
-      positive observable visual features (exclude non-visual text, entity
-      names, negated exclusions, or unstated visual assumptions).
-      Cross-reference matched `docid` values via `get_document(docid)` or
-      `search_text_chunks`. Treat every `docid` as an opaque string and cite it
-      verbatim without modifying or stripping any prefix or characters.
-
-      Args:
-        query: Purely visual description of positive observable image features
-          (exclude entity names, titles, non-visual facts, or negated
-          exclusions).
-        max_results: Maximum number of image hits to return.
-
-      Returns:
-        A `CallToolResult` interleaving JSON metadata `TextContent` blocks
-        (`docid`, `title`, `score`) with `ImageContent` blocks for the top-k
-        hits.
-      """
-      results_with_scores = await image_index.retrieve_with_scores(
-          query, max_results=max_results
-      )
-      blocks: list[mcp_types.ContentBlock] = []
-      for doc, score in results_with_scores:
-        base_id = strip_chunk_suffix(doc.doc_id)
-        hit_metadata = {
-            'docid': base_id,
-            'title': _resolve_title(doc, base_id, loaded_indices),
-            'score': round(score, _SCORE_DECIMAL_PLACES),
-        }
-        blocks.append(
-            mcp_types.TextContent(
-                type='text',
-                text=json.dumps(hit_metadata, ensure_ascii=False),
-            )
-        )
-        blocks.extend(_content_to_blocks(doc.content))
-      if not blocks:
-        blocks.append(mcp_types.TextContent(type='text', text='[]'))
-      return mcp_types.CallToolResult(content=blocks)
-
-    del search_images
+  del search_images
 
   if include_get_document:
 
@@ -377,7 +332,7 @@ def create_dual_modal_server(
         the preserved document's `TextContent` and `ImageContent` blocks in
         order, or `'null'` if `docid` is not found.
       """
-      doc = _lookup_original_doc(loaded_indices, docid)
+      doc = _lookup_original_doc(dual_index, docid)
       if doc is None:
         return mcp_types.CallToolResult(
             content=[mcp_types.TextContent(type='text', text='null')]

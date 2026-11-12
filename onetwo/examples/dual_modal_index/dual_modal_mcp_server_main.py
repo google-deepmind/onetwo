@@ -14,14 +14,12 @@
 
 r"""Thin CLI launcher for the OneTwo Dual-Modal Index MCP Server.
 
-Starts an MCP server exposing `search_text_chunks`, `search_images`, and
-`get_document` over pre-built OneTwo text and image indices saved with
-`preserve_original_docs=True`.
+Starts an MCP server exposing search_text_chunks, search_images, and
+get_document over a saved DualModalDocumentIndex.
 
 Example usage:
   python -m onetwo.examples.dual_modal_index.dual_modal_mcp_server_main \
-      --text_index_path=/path/to/text_index \
-      --image_index_path=/path/to/image_index \
+      --index_path=/path/to/dual_modal_index \
       --transport=streamable-http \
       --port=8775
 """
@@ -34,16 +32,11 @@ from absl import app
 from absl import flags
 from onetwo.examples.dual_modal_index import dual_modal_mcp_server
 
-_TEXT_INDEX_PATH = flags.DEFINE_string(
-    'text_index_path',
-    '',
-    'Path to the pre-built text embedding index.',
-)
-
-_IMAGE_INDEX_PATH = flags.DEFINE_string(
-    'image_index_path',
-    '',
-    'Path to the pre-built image embedding index.',
+_INDEX_PATH = flags.DEFINE_string(
+    'index_path',
+    None,
+    'Directory of a saved DualModalDocumentIndex.',
+    required=True,
 )
 
 _MAX_RESULTS = flags.DEFINE_integer(
@@ -95,18 +88,13 @@ _RUNTIME_KWARGS = flags.DEFINE_string(
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError(f'Unexpected command line arguments: {argv[1:]}')
-  if not _TEXT_INDEX_PATH.value and not _IMAGE_INDEX_PATH.value:
-    raise app.UsageError(
-        'At least one of --text_index_path or --image_index_path must be set.'
-    )
 
   runtime_kwargs = (
       json.loads(_RUNTIME_KWARGS.value) if _RUNTIME_KWARGS.value else None
   )
 
   mcp = dual_modal_mcp_server.create_dual_modal_server(
-      text_index_path=_TEXT_INDEX_PATH.value,
-      image_index_path=_IMAGE_INDEX_PATH.value,
+      index_path=_INDEX_PATH.value,
       max_results=_MAX_RESULTS.value,
       snippet_max_chars=_SNIPPET_MAX_CHARS.value,
       include_get_document=_INCLUDE_GET_DOCUMENT.value,
