@@ -190,8 +190,11 @@ def create_sandbox_hook_callable(
 
   def hook_wrapper(*args, **kwargs):
     message = {'hook': hook_name, 'args': args, 'kwargs': kwargs}
-    conn.send(json.dumps(message))
-    result_str = conn.recv()
+    # We exchange raw UTF-8 encoded JSON strings rather than using `send` and
+    # `recv`, which would (un)pickle the data. The main process only accepts
+    # raw bytes, so that code in the sandbox cannot send it pickled objects.
+    conn.send_bytes(json.dumps(message).encode('utf-8'))
+    result_str = conn.recv_bytes().decode('utf-8')
     result = json.loads(result_str)
 
     ex = result.get(EXCEPTION_KEY)

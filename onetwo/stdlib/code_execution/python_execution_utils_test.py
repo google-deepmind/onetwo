@@ -139,7 +139,9 @@ class PythonExecutionUtilsTest(parameterized.TestCase):
     hook_name = 'test_hook'
 
     # Simulate a successful response from the main process
-    mock_conn.recv.return_value = json.dumps({'data': 'hook result'})
+    mock_conn.recv_bytes.return_value = json.dumps(
+        {'data': 'hook result'}
+    ).encode()
 
     hook_callable = python_execution_utils.create_sandbox_hook_callable(
         hook_name, mock_conn
@@ -152,8 +154,10 @@ class PythonExecutionUtilsTest(parameterized.TestCase):
         'args': [1, 'a'],
         'kwargs': {'key': 'value'},
     }
-    mock_conn.send.assert_called_once()
-    sent_arg = mock_conn.send.call_args[0][0]
+    mock_conn.send_bytes.assert_called_once()
+    mock_conn.send.assert_not_called()
+    mock_conn.recv.assert_not_called()
+    sent_arg = mock_conn.send_bytes.call_args[0][0].decode()
     self.assertEqual(json.loads(sent_arg), expected_message)
 
   @parameterized.named_parameters(
@@ -182,7 +186,7 @@ class PythonExecutionUtilsTest(parameterized.TestCase):
             python_execution_utils.EX_HOOK_NAME_KEY: hook_name,
         }
     }
-    mock_conn.recv.return_value = json.dumps(exception_details)
+    mock_conn.recv_bytes.return_value = json.dumps(exception_details).encode()
 
     hook_callable = python_execution_utils.create_sandbox_hook_callable(
         hook_name, mock_conn
@@ -199,8 +203,10 @@ class PythonExecutionUtilsTest(parameterized.TestCase):
         'args': ['test_arg'],
         'kwargs': {},
     }
-    mock_conn.send.assert_called_once()
-    sent_arg = mock_conn.send.call_args[0][0]
+    mock_conn.send_bytes.assert_called_once()
+    mock_conn.send.assert_not_called()
+    mock_conn.recv.assert_not_called()
+    sent_arg = mock_conn.send_bytes.call_args[0][0].decode()
     self.assertEqual(json.loads(sent_arg), expected_message)
 
   @parameterized.named_parameters(

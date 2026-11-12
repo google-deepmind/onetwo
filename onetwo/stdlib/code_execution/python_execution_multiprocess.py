@@ -158,7 +158,7 @@ async def handle_hook_message(
       reply[EX_ARGS_KEY] = (str(e.args),)
 
   try:
-    sandbox_connection.send(json.dumps(reply))
+    sandbox_connection.send_bytes(json.dumps(reply).encode('utf-8'))
   except BrokenPipeError:
     logging.info('Sandbox connection closed while sending result.')
     return _SandboxResult(
@@ -250,9 +250,13 @@ class BaseMultiProcessSandbox(python_execution.PythonSandbox, abc.ABC):
     interface.
 
     The following methods are expected to be available:
-    - `send(obj)`: To send JSON-serializable objects.
-    - `recv()`: To receive objects.
+    - `send_bytes(buf)`: To send UTF-8 encoded JSON strings.
+    - `recv_bytes()`: To receive UTF-8 encoded JSON strings.
     - `poll([timeout])`: To check for available data.
+
+    Note that `send()` and `recv()` must NOT be used on this connection, as
+    `recv()` unpickles the received data, which would allow code running in the
+    sandbox to execute arbitrary code in the main process.
 
     Returns:
       A `multiprocessing.connection.Connection` object or None if hooks are
@@ -315,7 +319,11 @@ class BaseMultiProcessSandbox(python_execution.PythonSandbox, abc.ABC):
         if self.hooks and sandbox_connection:
           if sandbox_connection.poll():
             try:
-              message = sandbox_connection.recv()
+              # We deliberately use `recv_bytes` rather than `recv`, as the
+              # latter unpickles the received data, which would allow code
+              # running in the sandbox to execute arbitrary code in the main
+              # process. Hook messages are always JSON strings.
+              message = sandbox_connection.recv_bytes().decode('utf-8')
             except EOFError:
               logging.info('Sandbox connection closed while receiving.')
               return _SandboxResult(
@@ -323,6 +331,17 @@ class BaseMultiProcessSandbox(python_execution.PythonSandbox, abc.ABC):
                   sandbox_status=_SandboxStatus.INVALID,
                   execution_status=_ExecutionStatus.SANDBOX_ERROR,
                   status_message='Code execution dropped (EOFError).',
+                  timing=current_timing(start=start_time, base=base_time),
+              )
+            except UnicodeDecodeError:
+              logging.warning('Received a malformed hook message from sandbox.')
+              return _SandboxResult(
+                  stdout='',
+                  sandbox_status=_SandboxStatus.INVALID,
+                  execution_status=_ExecutionStatus.SANDBOX_ERROR,
+                  status_message=(
+                      'Received a malformed hook message from the sandbox.'
+                  ),
                   timing=current_timing(start=start_time, base=base_time),
               )
             error_result = await handle_hook_message(

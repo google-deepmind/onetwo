@@ -16,6 +16,7 @@ import asyncio
 import datetime
 import json
 from multiprocessing import connection
+import pickle
 import queue
 from typing import Any
 from unittest import mock
@@ -51,8 +52,8 @@ class HandleHookMessageTest(parameterized.TestCase):
         )
     )
     self.assertIsNone(result)
-    self.mock_connection.send.assert_called_once()
-    sent_arg = self.mock_connection.send.call_args[0][0]
+    self.mock_connection.send_bytes.assert_called_once()
+    sent_arg = self.mock_connection.send_bytes.call_args[0][0]
     self.assertEqual(json.loads(sent_arg), {'data': 4})
 
   def test_successful_async_hook(self):
@@ -70,8 +71,8 @@ class HandleHookMessageTest(parameterized.TestCase):
         )
     )
     self.assertIsNone(result)
-    self.mock_connection.send.assert_called_once()
-    sent_arg = self.mock_connection.send.call_args[0][0]
+    self.mock_connection.send_bytes.assert_called_once()
+    sent_arg = self.mock_connection.send_bytes.call_args[0][0]
     self.assertEqual(json.loads(sent_arg), {'data': 'Hello World'})
 
   def test_hook_not_found(self):
@@ -84,8 +85,8 @@ class HandleHookMessageTest(parameterized.TestCase):
         )
     )
     self.assertIsNone(result)
-    self.mock_connection.send.assert_called_once()
-    sent_arg = self.mock_connection.send.call_args[0][0]
+    self.mock_connection.send_bytes.assert_called_once()
+    sent_arg = self.mock_connection.send_bytes.call_args[0][0]
     self.assertEqual(
         json.loads(sent_arg),
         {
@@ -111,8 +112,8 @@ class HandleHookMessageTest(parameterized.TestCase):
         )
     )
     self.assertIsNone(result)
-    self.mock_connection.send.assert_called_once()
-    sent_arg = self.mock_connection.send.call_args[0][0]
+    self.mock_connection.send_bytes.assert_called_once()
+    sent_arg = self.mock_connection.send_bytes.call_args[0][0]
     self.assertEqual(
         json.loads(sent_arg),
         {
@@ -128,7 +129,7 @@ class HandleHookMessageTest(parameterized.TestCase):
     """Tests handling a BrokenPipeError when sending reply to the sandbox."""
     hooks = {'my_hook': lambda: 'ok'}
     message = json.dumps({'hook': 'my_hook', 'args': [], 'kwargs': {}})
-    self.mock_connection.send.side_effect = BrokenPipeError()
+    self.mock_connection.send_bytes.side_effect = BrokenPipeError()
 
     result = asyncio.run(
         python_execution_multiprocess.handle_hook_message(
@@ -250,7 +251,7 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
 
     # Configure mock_connection.poll to return True only on the first call
     sandbox.mock_connection.poll.side_effect = [True, False, False]
-    sandbox.mock_connection.recv.return_value = hook_message
+    sandbox.mock_connection.recv_bytes.return_value = hook_message.encode()
 
     sleep_call_count = 0
     result_added = False
@@ -276,8 +277,8 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
 
         wrapped_handle.assert_awaited_once()
         self.assertTrue(hook_called)
-        sandbox.mock_connection.send.assert_called_once()
-        sent_arg = sandbox.mock_connection.send.call_args[0][0]
+        sandbox.mock_connection.send_bytes.assert_called_once()
+        sent_arg = sandbox.mock_connection.send_bytes.call_args[0][0]
         self.assertEqual(json.loads(sent_arg), {'data': 'hook_ok'})
 
         self.assertEqual(result.stdout, '{"stdout": "Final Result"}')
@@ -295,15 +296,36 @@ class BaseMultiProcessSandboxTest(parameterized.TestCase):
         return_value=error_result,
     ) as mock_handle:
       sandbox.mock_connection.poll.return_value = True
-      sandbox.mock_connection.recv.return_value = json.dumps(
+      sandbox.mock_connection.recv_bytes.return_value = json.dumps(
           {'hook': 'my_hook', 'args': [], 'kwargs': {}}
-      )
+      ).encode()
 
       with mock.patch.object(asyncio, 'sleep', autospec=True):
         result = executing.run(sandbox.run('call_hook()'))
 
         mock_handle.assert_awaited_once()
         self.assertEqual(result, error_result)
+
+  def test_run_does_not_unpickle_hook_messages(self):
+    """Tests that pickled objects sent by the sandbox are never unpickled."""
+    sandbox = MockMultiProcessSandbox(hooks={'my_hook': lambda: 1})
+    sandbox.mock_connection.poll.return_value = True
+    # Pickle data (protocol >= 2) starts with b'\x80', which is not valid
+    # UTF-8.
+    sandbox.mock_connection.recv_bytes.return_value = pickle.dumps(
+        {'hook': 'my_hook', 'args': [], 'kwargs': {}}
+    )
+
+    with mock.patch.object(asyncio, 'sleep', autospec=True):
+      result = executing.run(sandbox.run('call_hook()'))
+
+    sandbox.mock_connection.recv.assert_not_called()
+    sandbox.mock_connection.send_bytes.assert_not_called()
+    self.assertEqual(result.execution_status, _ExecutionStatus.SANDBOX_ERROR)
+    self.assertEqual(
+        result.status_message,
+        'Received a malformed hook message from the sandbox.',
+    )
 
 
 if __name__ == '__main__':
