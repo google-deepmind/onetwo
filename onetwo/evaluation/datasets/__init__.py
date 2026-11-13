@@ -49,3 +49,4 @@ from onetwo.evaluation.datasets.hotpotqa import HotpotQADatasetLoader
 from onetwo.evaluation.datasets.multihoprag import MultiHopRAGDatasetLoader
 from onetwo.evaluation.datasets.narrativeqa import NarrativeQADatasetLoader
 from onetwo.evaluation.datasets.nfcorpus import NFCorpusDatasetLoader
+from onetwo.evaluation.datasets.spanish_gov_multimodal_qa import SpanishGovernmentMultimodalQADatasetLoader
