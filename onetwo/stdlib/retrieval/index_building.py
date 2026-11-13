@@ -166,8 +166,10 @@ def resolve_index_output_directory(
   Returns:
     The resolved path as a string.
   """
-  path = output_directory_pattern
-  return path
+  base_path = epath.Path(
+      output_directory_pattern.format(username=getpass.getuser())
+  )
+  return str(base_path.expanduser() / dataset_name / subdirectory)
 
 
 def _find(config: Any, key: str) -> Any:

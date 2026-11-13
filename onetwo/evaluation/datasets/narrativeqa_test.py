@@ -263,9 +263,8 @@ class NarrativeQADatasetLoaderTest(parameterized.TestCase):
     loader = narrativeqa.NarrativeQADatasetLoader(split='test')
     _ = ot.run(loader.load_examples())
 
-    mock_tfds.load.assert_called_with(
-        'huggingface:narrativeqa:1.0.0', split='test'
-    )
+    expected_tfds_name = 'huggingface:deepmind__narrativeqa'
+    mock_tfds.load.assert_called_with(expected_tfds_name, split='test')
 
   def test_dataclass_defaults(self):
     loader = narrativeqa.NarrativeQADatasetLoader()

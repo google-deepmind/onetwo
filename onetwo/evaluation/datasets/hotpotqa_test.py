@@ -331,9 +331,8 @@ class HotpotQADatasetLoaderTest(parameterized.TestCase):
     loader = hotpotqa.HotpotQADatasetLoader(name='distractor', split='test')
     _ = ot.run(loader.load_examples())
 
-    mock_tfds.load.assert_called_with(
-        'huggingface:hotpot_qa/distractor', split='test'
-    )
+    expected_tfds_name = 'huggingface:hotpotqa__hotpot_qa/distractor'
+    mock_tfds.load.assert_called_with(expected_tfds_name, split='test')
 
   def test_dataclass_defaults(self):
     loader = hotpotqa.HotpotQADatasetLoader()
