@@ -46,6 +46,11 @@ from onetwo.stdlib.retrieval import registry
 
 DocT = TypeVar('DocT')
 
+# Number of documents chunked concurrently by `ChunkingCorpusRewriter`. Bounding
+# it (instead of starting all documents at once) does not slow chunking down,
+# but lets documents finish, and the progress bar advance, from the start.
+_CHUNKING_PARALLELISM = 64
+
 
 class CorpusRewriter(Protocol[DocT]):
   """Generic interface for a strategy that rewrites a corpus.
@@ -116,9 +121,14 @@ class ChunkingCorpusRewriter(CorpusRewriter[DocT]):
       corpus: Iterable[DocT],
   ) -> Iterable[DocT]:
     """Overridden from base class (CorpusRewriter)."""
+    chunk_executables = [self.chunker(document) for document in corpus]
     chunked_corpus = []
-    for chunks in await executing.parallel(
-        *[self.chunker(document) for document in corpus]
+    for chunks in await executing.par_iter(
+        chunk_executables,
+        chunk_size=_CHUNKING_PARALLELISM,
+        show_progress=True,
+        progress_desc='Chunking docs',
+        total=len(chunk_executables),
     ):
       chunked_corpus.extend(chunks)
     return chunked_corpus
