@@ -53,7 +53,6 @@ import dataclasses_json
 import numpy as np
 from onetwo.core import batching
 from onetwo.core import executing
-from onetwo.core import utils
 from onetwo.stdlib.retrieval import registry
 
 
@@ -158,16 +157,17 @@ class BruteForceSearcher(Searcher):
       to unit length during the `build` and `search_batched` phases. This
       ensures the resulting scores represent cosine similarity (range [-1, 1]).
       Note: Input arrays are not modified in-place; a normalized copy is stored.
-    threadpool_size: The number of threads to use for parallelizing the
-      search/retrieval.
+    threadpool_size: Deprecated and ignored. Only accepted so that index configs
+      saved with it (before OneTwo v0.7.0) still load.
   """
 
   normalize_embeds: bool = False
+  # TODO: Remove in OneTwo v0.7.0.
+  threadpool_size: dataclasses.InitVar[int | None] = None
   # Document embeddings stored by `build`.
   _doc_embeds: np.ndarray | None = dataclasses.field(
       default=None, init=False, repr=False
   )
-  threadpool_size: int = 1
 
   @executing.make_executable(copy_self=False)
   async def build(self, doc_embeds: np.ndarray) -> None:
@@ -192,9 +192,7 @@ class BruteForceSearcher(Searcher):
         query_embeds, final_num_neighbors=final_num_neighbors, **kwargs
     )
 
-  @batching.to_thread_pool_method(
-      num_workers=utils.FromInstance('threadpool_size')
-  )
+  @batching.to_thread_pool_method(num_workers=1)
   def _search_batched(
       self,
       query_embeds: np.ndarray,
