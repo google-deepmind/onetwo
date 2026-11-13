@@ -2,7 +2,7 @@
 name = "onetwo"
 description = "LLM Orchestration Library by Google DeepMind."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = {file = "LICENSE"}
 authors = [{name = "OneTwo Authors", email="no-reply@google.com"}]
 classifiers = [
@@ -48,6 +48,8 @@ dependencies = [
     "pillow",
     "pydantic>=2.0",
     "pydub",  # For `stdlib/retrieval/audio_chunking.py` (needs ffmpeg).
+    # `pydub` imports `audioop`, which was removed from the stdlib in 3.13.
+    "audioop-lts",
     "pypdf",  # For `stdlib/retrieval/pdf_chunking.py`.
     "pytest",
     "portpicker",  # For `backends/onetwo_api_test_script.sh`.
