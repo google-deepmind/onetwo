@@ -47,7 +47,9 @@ from mcp import types as mcp_types
 
 # The MCP SDK's own defaults: 30 seconds for most operations, and 5 minutes for
 # reading, since results can arrive on a stream that stays open a long time.
-_TIMEOUT = httpx.Timeout(30.0, read=300.0)
+# Connecting gets 3 minutes, so that a client process stalling (e.g. in garbage
+# collection) does not fail connections to a local server.
+_TIMEOUT = httpx.Timeout(30.0, connect=180.0, read=300.0)
 
 # The statuses that say one call failed rather than the session: arguments the
 # server rejects, rate limiting, and any failure on the server's side.
