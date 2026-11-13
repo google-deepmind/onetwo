@@ -35,7 +35,6 @@ dependencies = [
     # Note: there is a PYPI `gemma` library, which is not what we want.
     "gemma@git+https://github.com/google-deepmind/gemma.git",
     "google-cloud-aiplatform",
-    "google-generativeai",
     "html5lib",
     "immutabledict",
     "importlib-resources",
@@ -68,6 +67,16 @@ homepage = "https://github.com/google-deepmind/onetwo"
 repository = "https://github.com/google-deepmind/onetwo"
 
 [project.optional-dependencies]
+# Installed through `pip install '.[gemini_legacy]'`, only needed by the
+# deprecated `backends/gemini_api.py` (prefer `backends/google_genai_api.py`).
+# Not a default dependency: it caps protobuf below 6, which breaks
+# `tensorflow-datasets` with tensorflow-metadata>=1.21 (built for protobuf>=6.31
+# without declaring it), hence the tensorflow-metadata cap here.
+gemini_legacy = [
+    "google-generativeai",
+    "tensorflow-metadata<1.21",
+]
+
 # Installed through `pip install '.[dev]'`.
 dev = [
     "pytest-xdist",
