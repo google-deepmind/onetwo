@@ -15,7 +15,6 @@
 """Library to evaluate a RAG strategy on a QA dataset."""
 
 from collections.abc import Mapping, Sequence
-import json
 from typing import Any
 
 from etils import epath
@@ -76,7 +75,7 @@ def get_results_directory(
 def evaluate_rag(
     dataset_name: str,
     output_directory: str | None = None,
-    runtime_kwargs: Mapping[str, Any] | str | None = None,
+    runtime_kwargs: Mapping[str, Any] | None = None,
     index_directory: str = '',
     generate_model_backend_class_name: str = (
         rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
@@ -86,8 +85,8 @@ def evaluate_rag(
         rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME
     ),
     qa_strategy_name: str = 'rag',
-    query_time_kwargs: Mapping[str, Any] | str = '{"max_results": 20}',
-    mcp_kwargs: Mapping[str, Any] | str = '{}',
+    query_time_kwargs: Mapping[str, Any] | None = None,
+    mcp_kwargs: Mapping[str, Any] | None = None,
     max_examples: int | None = 5,
     additional_k_values: Sequence[int] = (5, 10, 20),
     metric_functions: Mapping[str, Any] | None = None,
@@ -101,13 +100,14 @@ def evaluate_rag(
     dataset_name: Name of the dataset to load from the registry.
     output_directory: Base directory of the results (HTML report and cache), or
       None to save them in `index_directory` (see `get_results_directory`).
-    runtime_kwargs: Runtime arguments dict or JSON string (e.g. API key).
+    runtime_kwargs: Runtime arguments for the backends (e.g. API key).
     index_directory: Directory containing the pre-built index.
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name.
     ai_rater_generate_model_name: Generation model name used by the AI rater.
     qa_strategy_name: QA strategy name.
-    query_time_kwargs: Query-time arguments dict or JSON string.
+    query_time_kwargs: Query-time arguments for the strategy. If None, defaults
+      to `{'max_results': 20}`.
     mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
       `mcp_server_urls`, a comma-separated list of MCP server URLs.
     max_examples: Max examples to evaluate.
@@ -126,20 +126,13 @@ def evaluate_rag(
   Returns:
     EvaluationSummary object containing metrics and detailed results.
   """
-  if isinstance(query_time_kwargs, str):
-    q_time_kwargs = json.loads(query_time_kwargs)
-  else:
-    q_time_kwargs = dict(query_time_kwargs)
-
-  if isinstance(mcp_kwargs, str):
-    mcp_kwargs = json.loads(mcp_kwargs)
-  else:
-    mcp_kwargs = dict(mcp_kwargs)
-
-  if isinstance(runtime_kwargs, str):
-    rt_kwargs = json.loads(runtime_kwargs)
-  else:
-    rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  q_time_kwargs = (
+      dict(query_time_kwargs)
+      if query_time_kwargs is not None
+      else {'max_results': 20}
+  )
+  mcp_kwargs = dict(mcp_kwargs) if mcp_kwargs else {}
+  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
 
   if 'max_retries' not in rt_kwargs and max_retries is not None:
     rt_kwargs['max_retries'] = max_retries
