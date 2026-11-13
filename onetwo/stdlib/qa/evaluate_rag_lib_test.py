@@ -12,9 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
 from etils import epath
+from onetwo.core import results
+from onetwo.evaluation import datasets
 from onetwo.stdlib.qa import evaluate_rag_lib
+from onetwo.stdlib.qa import qa_evaluation
 
 
 class GetResultsDirectoryTest(absltest.TestCase):
@@ -58,6 +63,37 @@ class GetResultsDirectoryTest(absltest.TestCase):
           generate_model_name='gemini',
           max_results=20,
       )
+
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  @mock.patch.object(
+      datasets, 'load_examples', return_value=[{'question': 'q'}]
+  )
+  def test_evaluate_rag_cache(self, _, mock_eval_qa):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    out_dir = self.create_tempdir().full_path
+    cache_file = epath.Path(out_dir) / 'ds/rag/m__max_results_20/cache.json'
+
+    evaluate_rag_lib.evaluate_rag(
+        dataset_name='ds',
+        output_directory=out_dir,
+        generate_model_name='m',
+        metric_functions={},
+        cache=False,
+    )
+    self.assertFalse(cache_file.exists())
+    self.assertNotIn('cache', mock_eval_qa.call_args.kwargs['runtime_kwargs'])
+
+    # First run with cache=True creates cache.json; second run loads it.
+    for _ in range(2):
+      evaluate_rag_lib.evaluate_rag(
+          dataset_name='ds',
+          output_directory=out_dir,
+          generate_model_name='m',
+          metric_functions={},
+          cache=True,
+      )
+      self.assertTrue(cache_file.exists())
+      self.assertIn('cache', mock_eval_qa.call_args.kwargs['runtime_kwargs'])
 
 
 if __name__ == '__main__':

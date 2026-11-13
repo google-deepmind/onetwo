@@ -141,7 +141,7 @@ def main(argv: Sequence[str]) -> None:
       max_examples=_MAX_EXAMPLES.value,
       max_retries=_MAX_RETRIES.value,
       http_timeout=_HTTP_TIMEOUT.value,
-      cache_results=_CACHE_RESULTS.value,
+      cache=_CACHE_RESULTS.value,
   )
 
 

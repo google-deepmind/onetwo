@@ -93,8 +93,7 @@ def evaluate_rag(
     metric_functions: Mapping[str, Any] | None = None,
     max_retries: int | None = 5,
     http_timeout: int | None = 300000,
-    cache_results: bool = False,
-    cache_filename: str | None = None,
+    cache: bool = False,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -121,9 +120,8 @@ def evaluate_rag(
       `rag_metrics.get_default_rag_metrics()`.
     max_retries: Maximum number of retries for backend requests.
     http_timeout: HTTP timeout in milliseconds for backend requests.
-    cache_results: Whether to enable caching for LLM generation.
-    cache_filename: Explicit cache filename. If not provided and cache_results
-      is True, `cache.json` in the results directory.
+    cache: Whether to cache LLM calls in `<results directory>/cache.json` and
+      reuse the cache on reruns.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -162,20 +160,19 @@ def evaluate_rag(
       max_results=q_time_kwargs.get('max_results', 20),
   )
 
-  cache = None
-  if cache_results or cache_filename:
-    if not cache_filename:
-      cache_filename = str(results_directory / 'cache.json')
+  fn_cache = None
+  cache_filename = str(results_directory / 'cache.json')
+  if cache:
     print(f'Using cache file: {cache_filename}')
-    cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
+    fn_cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
     if epath.Path(cache_filename).exists():
       print(f'Loading existing cache from {cache_filename}...')
-      cache.load(overwrite=True)
+      fn_cache.load(overwrite=True)
     else:
       print('No existing cache found. A new cache will be created.')
 
-  if cache is not None:
-    rt_kwargs['cache'] = cache
+  if fn_cache is not None:
+    rt_kwargs['cache'] = fn_cache
 
   gen_backend_config = backend_registry.GenerateBackendConfig(
       backend_class_name=generate_model_backend_class_name,
@@ -221,9 +218,9 @@ def evaluate_rag(
       enable_tracing=True,
   )
 
-  if cache is not None:
+  if fn_cache is not None:
     print(f'Saving cache to {cache_filename}...')
-    cache.save(overwrite=True)
+    fn_cache.save(overwrite=True)
     print(f'Cache saved successfully to {cache_filename}.')
 
   print(f'Evaluation Metrics: {summary.metrics}')
