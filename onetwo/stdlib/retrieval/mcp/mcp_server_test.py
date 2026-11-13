@@ -16,7 +16,7 @@
 
 import asyncio
 import base64
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 import dataclasses
 import json
 from typing import Any
@@ -25,10 +25,12 @@ from unittest import mock
 from absl.testing import absltest
 from mcp import types as mcp_types
 from mcp.shared import memory
+from onetwo.backends import backend_registry
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import indexing
+from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
 from onetwo.stdlib.retrieval.mcp import mcp_server
 
@@ -162,9 +164,8 @@ def _text_of(block: mcp_types.ContentBlock) -> str:
 
 def _create_test_server(
     *,
-    include_get_document: bool = False,
     docs: Sequence[Document] = _FAKE_DOCS,
-    snippet_max_tokens: int = 512,
+    snippet_max_tokens: int | None = 512,
 ) -> tuple['mcp_server.server.FastMCP', list[Any]]:
   """Creates a ``FastMCP`` server backed by fake data.
 
@@ -175,10 +176,9 @@ def _create_test_server(
   as a list of started patchers that the caller must stop after the tests.
 
   Args:
-    include_get_document: If True, also register the ``get_document`` tool.
     docs: The documents of the fake index.
     snippet_max_tokens: Maximum tokens (characters, with the fake tokenizer) per
-      snippet.
+      snippet, or None for no truncation.
 
   Returns:
     A ``(server, patchers)`` tuple.  Call ``p.stop()`` on each patcher when
@@ -197,49 +197,37 @@ def _create_test_server(
           return_value=_make_fake_index(docs),
       )
   )
-  _start(
-      mock.patch.object(
-          mcp_server.sentencepiece_tokenizer.SentencePieceTokenizer,
-          '__init__',
-          return_value=None,
-      )
+  mock_get_backend = _start(
+      mock.patch.object(mcp_server.backend_registry, 'get_backend')
   )
-  _start(
-      mock.patch.object(
-          mcp_server.sentencepiece_tokenizer.SentencePieceTokenizer,
-          'register',
-          side_effect=_register_fake_tokenizer,
-      )
-  )
+  mock_get_backend.return_value.register.side_effect = _register_fake_tokenizer
 
   mcp = mcp_server.create_server(
       index_path='/fake/index/path',
-      max_results=3,
-      snippet_max_tokens=snippet_max_tokens,
       port=0,
       transport='streamable-http',
-      include_get_document=include_get_document,
-      tokenizer_model_name='GEMINI3_G145',
+      extra_mcp_config={
+          'max_results': 3,
+          'snippet_max_tokens': snippet_max_tokens,
+      },
   )
   return mcp, patchers
 
 
-class DefaultSetupSearchOnlyTest(absltest.TestCase):
-  """Tests the default configuration: only the ``search`` tool is exposed."""
+class SearchTest(absltest.TestCase):
+  """Tests the tools list and the ``search`` tool."""
 
   def setUp(self):
     super().setUp()
-    self.mcp_server, self._patchers = _create_test_server(
-        include_get_document=False,
-    )
+    self.mcp_server, self._patchers = _create_test_server()
 
   def tearDown(self):
     for patcher in self._patchers:
       patcher.stop()
     super().tearDown()
 
-  def test_tools_list_contains_only_search(self):
-    """Verifies that ``tools/list`` returns exactly one tool: ``search``."""
+  def test_tools_list_contains_search_and_get_document(self):
+    """Verifies that ``tools/list`` returns ``search`` and ``get_document``."""
 
     async def run():
       async with memory.create_connected_server_and_client_session(
@@ -250,8 +238,8 @@ class DefaultSetupSearchOnlyTest(absltest.TestCase):
 
     result = asyncio.run(run())
 
-    tool_names = [tool.name for tool in result.tools]
-    self.assertEqual(tool_names, ['search'])
+    tool_names = sorted(tool.name for tool in result.tools)
+    self.assertEqual(tool_names, ['get_document', 'search'])
 
   def test_search_tool_schema(self):
     """Verifies that the ``search`` tool has the expected input schema."""
@@ -265,8 +253,7 @@ class DefaultSetupSearchOnlyTest(absltest.TestCase):
 
     result = asyncio.run(run())
 
-    search_tool = result.tools[0]
-    self.assertEqual(search_tool.name, 'search')
+    search_tool = next(t for t in result.tools if t.name == 'search')
     self.assertIn('query', search_tool.inputSchema.get('properties', {}))
     self.assertIn('query', search_tool.inputSchema.get('required', []))
 
@@ -402,34 +389,17 @@ class MultimodalSnippetTruncationTest(absltest.TestCase):
     )
 
 
-class WithGetDocumentTest(absltest.TestCase):
-  """Tests the non-default setup with ``--include_get_document=True``."""
+class GetDocumentTest(absltest.TestCase):
+  """Tests the ``get_document`` tool."""
 
   def setUp(self):
     super().setUp()
-    self.mcp_server, self._patchers = _create_test_server(
-        include_get_document=True,
-    )
+    self.mcp_server, self._patchers = _create_test_server()
 
   def tearDown(self):
     for patcher in self._patchers:
       patcher.stop()
     super().tearDown()
-
-  def test_tools_list_contains_search_and_get_document(self):
-    """Verifies that both ``search`` and ``get_document`` tools are listed."""
-
-    async def run():
-      async with memory.create_connected_server_and_client_session(
-          self.mcp_server
-      ) as client:
-        result = await client.list_tools()
-        return result
-
-    result = asyncio.run(run())
-
-    tool_names = sorted(tool.name for tool in result.tools)
-    self.assertEqual(tool_names, ['get_document', 'search'])
 
   def test_get_document_schema(self):
     """Verifies the ``get_document`` tool has the expected input schema."""
@@ -446,24 +416,6 @@ class WithGetDocumentTest(absltest.TestCase):
     get_doc_tool = next(t for t in result.tools if t.name == 'get_document')
     self.assertIn('docid', get_doc_tool.inputSchema.get('properties', {}))
     self.assertIn('docid', get_doc_tool.inputSchema.get('required', []))
-
-  def test_search_still_works(self):
-    """``search`` should behave identically regardless of ``get_document``."""
-
-    async def run():
-      async with memory.create_connected_server_and_client_session(
-          self.mcp_server
-      ) as client:
-        result = await client.call_tool(
-            'search', {'query': 'League of Legends'}
-        )
-        return result
-
-    result = asyncio.run(run())
-
-    self.assertFalse(result.isError)
-    self.assertLen(result.content, 6)
-    self.assertEqual(json.loads(_text_of(result.content[0]))['docid'], '1001')
 
   def test_get_document_returns_full_document(self):
     """Verifies ``get_document`` returns all expected fields for a valid ID."""
@@ -520,7 +472,7 @@ class MultimodalIndexTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     self.mcp_server, self._patchers = _create_test_server(
-        include_get_document=True, docs=_FAKE_MULTIMODAL_DOCS
+        docs=_FAKE_MULTIMODAL_DOCS
     )
 
   def tearDown(self):
@@ -653,10 +605,9 @@ class LoadIndexTest(absltest.TestCase):
     ) as mock_load_index:
       mcp_server.create_server(
           index_path='/fake/index/path',
-          max_results=3,
-          snippet_max_tokens=-1,
           port=0,
           transport='streamable-http',
+          extra_mcp_config={'max_results': 3, 'snippet_max_tokens': None},
           **kwargs,
       )
     mock_load_index.assert_called_once()
@@ -678,6 +629,72 @@ class LoadIndexTest(absltest.TestCase):
     self.assertEqual(
         call, mock.call('/fake/index/path', runtime_kwargs=None)
     )
+
+
+class ExtraMcpConfigTest(absltest.TestCase):
+  """Tests the parsing of `extra_mcp_config` and the tokenizer it sets up."""
+
+  def _create_server(
+      self, extra_mcp_config: Mapping[str, Any] | None
+  ) -> tuple['mcp_server.server.FastMCP', mock.MagicMock]:
+    """Returns a server with `extra_mcp_config` and the mocked `get_backend`."""
+    self.enter_context(
+        mock.patch.object(
+            mcp_server.index_building,
+            'load_index',
+            autospec=True,
+            return_value=_make_fake_index(_FAKE_DOCS),
+        )
+    )
+    mock_get_backend = self.enter_context(
+        mock.patch.object(mcp_server.backend_registry, 'get_backend')
+    )
+    mcp = mcp_server.create_server(
+        index_path='/fake/index/path',
+        port=0,
+        transport='streamable-http',
+        extra_mcp_config=extra_mcp_config,
+    )
+    return mcp, mock_get_backend
+
+  def test_defaults(self):
+    mcp, mock_get_backend = self._create_server(None)
+
+    with self.subTest('registers_the_default_tokenizer'):
+      mock_get_backend.assert_called_once_with(
+          rag_defaults.default_tokenize_backend_config()
+      )
+      mock_get_backend.return_value.register.assert_called_once()
+    with self.subTest('search_returns_top_5'):
+      search_tool = next(
+          t for t in asyncio.run(mcp.list_tools()) if t.name == 'search'
+      )
+      self.assertIn('top-5', search_tool.description or '')
+
+  def test_no_truncation_registers_no_tokenizer(self):
+    _, mock_get_backend = self._create_server({'snippet_max_tokens': None})
+
+    mock_get_backend.assert_not_called()
+
+  def test_tokenize_backend_config_as_dict(self):
+    _, mock_get_backend = self._create_server({
+        'tokenize_backend_config': {
+            'backend_class_name': 'SentencePieceTokenizer',
+            'model_name': 'GEMMA',
+        }
+    })
+
+    mock_get_backend.assert_called_once_with(
+        backend_registry.TokenizeBackendConfig(
+            backend_class_name='SentencePieceTokenizer', model_name='GEMMA'
+        )
+    )
+
+  def test_unknown_key_raises(self):
+    with self.assertRaisesRegex(
+        ValueError, "Unknown extra_mcp_config keys.*'k'"
+    ):
+      self._create_server({'k': 3})
 
 
 if __name__ == '__main__':

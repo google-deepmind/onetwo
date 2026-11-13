@@ -21,15 +21,17 @@ retrieval over an existing index.
 This module provides the reusable ``create_server`` function that can be called
 from any launch script.  Environment-specific settings (e.g. the embedding
 backend's credentials or cache) are passed via the ``runtime_kwargs``
-parameter.
+parameter. Advanced settings of the tools (e.g. the number of search hits) are
+passed via ``extra_mcp_config``, which is experimental and not part of the
+stable API.
 
 Typical workflow:
   1. Build an embedding index offline (e.g., via
      ``onetwo.stdlib.retrieval.build_index``).
   2. Start a launch script that calls ``create_server`` with the right kwargs.
   3. Agents call the ``search`` tool to retrieve relevant documents.
-  4. Optionally, agents call the ``get_document`` tool to retrieve a full
-     document by its docid (when ``include_get_document`` is set).
+  4. Agents call the ``get_document`` tool to retrieve a full document by its
+     docid.
 
 The tools return unstructured MCP tool results, see
 https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-result:
@@ -68,14 +70,17 @@ See ``mcp_server_main.py`` in this directory for a minimal launch script
 example.
 """
 
+from collections.abc import Mapping
+import dataclasses
 from typing import Any
 
 from absl import logging
 from mcp import types as mcp_types
 from mcp.server.fastmcp import server
-from onetwo.backends import sentencepiece_tokenizer
+from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.tool_use import mcp_tools_utils
 
 
@@ -88,50 +93,107 @@ def _build_search_description(max_results: int) -> str:
   )
 
 
-# TODO: Revisit this API to reduce the number of arguments
-# (e.g. grouping `snippet_max_tokens` and `tokenizer_model_name`).
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _ExtraMcpConfig:
+  """The parsed `extra_mcp_config` of `create_server` (see there).
+
+  Private on purpose: the extra settings are experimental, so they are not
+  exposed as a public type. Callers pass a plain mapping, which is validated
+  and parsed with `from_mapping`.
+
+  Attributes:
+    max_results: Number of hits returned by the `search` tool.
+    snippet_max_tokens: Maximum number of tokens of each text chunk of a hit,
+      or None to return the full text.
+    tokenize_backend_config: Tokenizer used to truncate the text of hits.
+  """
+
+  max_results: int = 5
+  snippet_max_tokens: int | None = 512
+  tokenize_backend_config: backend_registry.TokenizeBackendConfig = (
+      dataclasses.field(
+          default_factory=rag_defaults.default_tokenize_backend_config
+      )
+  )
+
+  @classmethod
+  def from_mapping(
+      cls, extra_mcp_config: Mapping[str, Any] | None
+  ) -> '_ExtraMcpConfig':
+    """Returns the config with the settings of `extra_mcp_config`.
+
+    Args:
+      extra_mcp_config: The `extra_mcp_config` of `create_server`, or None for
+        the defaults.
+
+    Raises:
+      ValueError: If `extra_mcp_config` has an unsupported key.
+    """
+    settings = dict(extra_mcp_config or {})
+    supported = {field.name for field in dataclasses.fields(cls)}
+    unknown = settings.keys() - supported
+    if unknown:
+      raise ValueError(
+          f'Unknown extra_mcp_config keys: {sorted(unknown)}. Supported keys:'
+          f' {sorted(supported)}.'
+      )
+    tokenize_backend_config = settings.get('tokenize_backend_config')
+    if tokenize_backend_config is None:
+      settings.pop('tokenize_backend_config', None)
+    elif isinstance(tokenize_backend_config, Mapping):
+      settings['tokenize_backend_config'] = (
+          backend_registry.TokenizeBackendConfig.from_dict(
+              dict(tokenize_backend_config)
+          )
+      )
+    return cls(**settings)
+
+
 def create_server(
     *,
     index_path: str,
-    max_results: int,
-    snippet_max_tokens: int,
     port: int,
     transport: str,
     host: str = 'localhost',
-    include_get_document: bool = False,
     runtime_kwargs: dict[str, Any] | None = None,
-    tokenizer_model_name: str | None = None,
+    extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> server.FastMCP:
   """Creates and configures the OneTwo Index MCP server.
 
+  The server has a `search` tool and a `get_document` tool.
+
   Args:
     index_path: Path to the pre-built index.
-    max_results: Default number of top results to return.
-    snippet_max_tokens: Maximum tokens per snippet (-1 = no truncation). Text
-      only, per text chunk for multimodal documents. Media is never truncated.
     port: Port for SSE/streamable-http transports.
     transport: Transport type (stdio, sse, streamable-http).
     host: Host/interface to bind the server on (default: localhost).
-    include_get_document: If True, register a get_document tool.
     runtime_kwargs: Optional runtime kwargs of the loaded index (e.g. the
       embedding backend's credentials or cache), see
       ``index_building.load_index``.  When ``None``, an empty dict is used.
-    tokenizer_model_name: Name of the SentencePiece tokenizer model to use for
-      snippet truncation.  Must be a key in
-      ``sentencepiece_tokenizer.TOKENIZER_PATHS`` or a direct file path.
-      Required when ``snippet_max_tokens >= 0``.
+    extra_mcp_config: Extra, advanced settings of the MCP tools, or None to use
+      the defaults. Unlike the other arguments, these settings
+      are NOT part of the stable API. They are still evolving, so keys may be
+      added, renamed or removed, and their meanings and defaults may change, in
+      any release and without notice. Most users should not need to set them.
+      Every key is optional (missing keys use their defaults), and unknown keys
+      raise a ``ValueError`` (rather than being ignored) so that typos and
+      removed keys fail loudly. Currently supported keys:
+      - ``'max_results'`` (``int``, default 5): number of hits returned by
+        ``search``.
+      - ``'snippet_max_tokens'`` (``int | None``, default 512): maximum number
+        of tokens of each text chunk of a ``search`` hit, or None to return the
+        full text. Media is never truncated, nor are ``get_document`` results.
+      - ``'tokenize_backend_config'`` (``TokenizeBackendConfig``, its dict, or
+        None): tokenizer used to truncate snippets. None (default) uses
+        ``rag_defaults.default_tokenize_backend_config()``.
 
   Returns:
     A configured FastMCP server instance.
 
   Raises:
-    ValueError: If ``snippet_max_tokens >= 0`` but ``tokenizer_model_name``
-      is not provided.
+    ValueError: If ``extra_mcp_config`` has an unsupported key.
   """
-  if snippet_max_tokens >= 0 and tokenizer_model_name is None:
-    raise ValueError(
-        'tokenizer_model_name must be provided when snippet_max_tokens >= 0.'
-    )
+  config = _ExtraMcpConfig.from_mapping(extra_mcp_config)
 
   if transport == 'stdio':
     mcp = server.FastMCP('OneTwo Index MCP Server')
@@ -150,16 +212,17 @@ def create_server(
   # Register a tokenizer for snippet truncation only when needed. This
   # configures the global `llm.tokenize` and `llm.detokenize` builtins, which
   # `mcp_tools_utils.content_blocks` uses.
-  if snippet_max_tokens >= 0:
-    assert tokenizer_model_name is not None  # Validated above.
-    sentencepiece_tokenizer.SentencePieceTokenizer(
-        model_name=tokenizer_model_name
-    ).register()
+  if config.snippet_max_tokens is not None:
+    backend_registry.get_backend(config.tokenize_backend_config).register()
+  # `content_blocks` does not truncate with `max_tokens=-1`.
+  snippet_max_tokens = (
+      -1 if config.snippet_max_tokens is None else config.snippet_max_tokens
+  )
 
   async def _search_content(query: str) -> list[mcp_types.ContentBlock]:
     """Returns the content of the `search` results for `query`."""
     results_with_scores = await document_index.retrieve_with_scores(
-        query, max_results=max_results
+        query, max_results=config.max_results
     )
     content: list[mcp_types.ContentBlock] = []
     for doc, score in results_with_scores:
@@ -183,7 +246,7 @@ def create_server(
 
   @mcp.tool(
       name='search',
-      description=_build_search_description(max_results),
+      description=_build_search_description(config.max_results),
       structured_output=False,
   )
   def search(query: str) -> mcp_types.CallToolResult:
@@ -211,48 +274,46 @@ def create_server(
 
   del search  # Registered via decorator; suppress unused variable warning.
 
-  if include_get_document:
+  @mcp.tool(
+      name='get_document',
+      description='Retrieve a full document by its docid.',
+      structured_output=False,
+  )
+  def get_document(docid: str) -> mcp_types.CallToolResult | None:
+    """Retrieve a full document by its ID from the search index.
 
-    @mcp.tool(
-        name='get_document',
-        description='Retrieve a full document by its docid.',
-        structured_output=False,
+    Args:
+      docid: Document ID to retrieve.
+
+    Returns:
+      A JSON text block with the document's docid, title, url and metadata,
+      followed by its untruncated content blocks (see
+      `mcp_tools_utils.content_blocks`), or None if not found.
+    """
+    try:
+      doc = document_index.get_doc(docid)
+    except KeyError:
+      # TODO: return `isError=True` with an "Unknown docid"
+      # message, as for `search` failures, so that the model is told what
+      # went wrong rather than getting an empty result.
+      return None
+    header = mcp_tools_utils.json_block({
+        'docid': doc.doc_id,
+        'title': doc.title,
+        'url': doc.url,
+        'metadata': doc.metadata,
+    })
+    return mcp_types.CallToolResult(
+        content=[
+            header,
+            *executing.run(
+                mcp_tools_utils.content_blocks(
+                    doc.content, max_tokens=-1, resource_id=str(doc.doc_id)
+                )
+            ),
+        ]
     )
-    def get_document(docid: str) -> mcp_types.CallToolResult | None:
-      """Retrieve a full document by its ID from the search index.
 
-      Args:
-        docid: Document ID to retrieve.
-
-      Returns:
-        A JSON text block with the document's docid, title, url and metadata,
-        followed by its untruncated content blocks (see
-        `mcp_tools_utils.content_blocks`), or None if not found.
-      """
-      try:
-        doc = document_index.get_doc(docid)
-      except KeyError:
-        # TODO: return `isError=True` with an "Unknown docid"
-        # message, as for `search` failures, so that the model is told what
-        # went wrong rather than getting an empty result.
-        return None
-      header = mcp_tools_utils.json_block({
-          'docid': doc.doc_id,
-          'title': doc.title,
-          'url': doc.url,
-          'metadata': doc.metadata,
-      })
-      return mcp_types.CallToolResult(
-          content=[
-              header,
-              *executing.run(
-                  mcp_tools_utils.content_blocks(
-                      doc.content, max_tokens=-1, resource_id=str(doc.doc_id)
-                  )
-              ),
-          ]
-      )
-
-    del get_document  # Registered via decorator.
+  del get_document  # Registered via decorator.
 
   return mcp
