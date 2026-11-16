@@ -38,9 +38,18 @@ DEFAULT_TOKENIZE_MODEL_NAME = (
     'https://huggingface.co/t5-small/resolve/main/spiece.model'
 )
 
-# Generation model used while building indexes (e.g. HippoRAG extraction).
+# Generation model used while building indexes (e.g. HippoRAG extraction), with
+# low thinking to keep the many extraction calls fast and cheap (LOW is the
+# lowest level supported by gemini-4-hydrogen, which rejects MINIMAL).
 DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
-DEFAULT_INDEX_GENERATE_MODEL_NAME = 'gemini-3-flash-preview'
+DEFAULT_INDEX_GENERATE_MODEL_NAME = 'gemini-4-hydrogen'
+# Constructor kwargs of the `GoogleGenAIAPI` index generation backend. HippoRAG
+# extracts entities and triples with `llm.generate_object`.
+DEFAULT_INDEX_GENERATE_BACKEND_KWARGS = {
+    'generate_object_kwargs': {
+        'thinking_config': {'thinking_level': 'LOW'}
+    },
+}
 
 # Generation models used by `rag.evaluate`: to answer questions, and by the AI
 # rater to grade the answers.
@@ -83,4 +92,5 @@ def default_index_generate_backend_config() -> (
   return backend_registry.GenerateBackendConfig(
       backend_class_name=DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME,
       model_name=DEFAULT_INDEX_GENERATE_MODEL_NAME,
+      kwargs=DEFAULT_INDEX_GENERATE_BACKEND_KWARGS,
   )

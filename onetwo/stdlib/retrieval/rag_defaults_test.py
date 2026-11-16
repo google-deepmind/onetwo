@@ -39,6 +39,12 @@ class RagDefaultsTest(absltest.TestCase):
     self.assertEqual(
         config.model_name, rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME
     )
+    low_thinking = {
+        'generate_object_kwargs': {
+            'thinking_config': {'thinking_level': 'LOW'}
+        }
+    }
+    self.assertEqual(config.kwargs, low_thinking)
     self.assertIsNot(
         config, rag_defaults.default_index_generate_backend_config()
     )
