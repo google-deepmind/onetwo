@@ -22,10 +22,12 @@ Example usage:
       --index_path=/path/to/hipporag/index \
       --transport=streamable-http
 
-Clients then connect to http://localhost:8776/mcp.
+Clients then connect to http://localhost:8775/mcp.
 """
 
 from collections.abc import Sequence
+import json
+from typing import cast, Literal
 
 from absl import app
 from absl import flags
@@ -38,7 +40,7 @@ _INDEX_PATH = flags.DEFINE_string(
     required=True,
 )
 
-_PORT = flags.DEFINE_integer('port', 8776, 'Port to listen on.')
+_PORT = flags.DEFINE_integer('port', 8775, 'Port to listen on.')
 
 _SNIPPET_MAX_TOKENS = flags.DEFINE_integer(
     'snippet_max_tokens',
@@ -79,14 +81,27 @@ _RUNTIME_KWARGS = flags.DEFINE_string(
 
 def main(argv: Sequence[str]) -> None:
   del argv
-  mcp_server.run_server(
-      index_path=_INDEX_PATH.value,
-      port=_PORT.value,
-      transport=_TRANSPORT.value,
+  mcp_server.start_mcp(
+      _INDEX_PATH.value,
+      transport=cast(Literal['stdio', 'streamable-http'], _TRANSPORT.value),
       host=_HOST.value,
-      snippet_max_tokens=_SNIPPET_MAX_TOKENS.value,
-      index_runtime_kwargs=_RUNTIME_KWARGS.value,
-      tokenize_backend_config=_TOKENIZE_BACKEND_CONFIG.value,
+      port=_PORT.value,
+      runtime_kwargs=(
+          json.loads(_RUNTIME_KWARGS.value) if _RUNTIME_KWARGS.value else None
+      ),
+      extra_mcp_config={
+          # A negative --snippet_max_tokens disables truncation.
+          'snippet_max_tokens': (
+              _SNIPPET_MAX_TOKENS.value
+              if _SNIPPET_MAX_TOKENS.value >= 0
+              else None
+          ),
+          'tokenize_backend_config': (
+              json.loads(_TOKENIZE_BACKEND_CONFIG.value)
+              if _TOKENIZE_BACKEND_CONFIG.value
+              else None
+          ),
+      },
   )
 
 

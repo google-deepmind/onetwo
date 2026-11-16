@@ -26,6 +26,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from mcp import types as mcp_types
 from mcp.shared import memory
+from onetwo.backends import backend_registry
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_building
@@ -101,7 +102,7 @@ def _call_tool(
     name: str,
     arguments: dict[str, Any],
     *,
-    snippet_max_tokens: int = -1,
+    snippet_max_tokens: int | None = None,
 ) -> mcp_types.CallToolResult:
   """Returns the result of calling a tool of a server over `docs`.
 
@@ -109,8 +110,9 @@ def _call_tool(
     docs: The documents of the fake HippoRAG index served.
     name: Name of the tool.
     arguments: Arguments of the tool.
-    snippet_max_tokens: `snippet_max_tokens` of the server. Without a
-      tokenizer, snippets are truncated to this number of words.
+    snippet_max_tokens: `snippet_max_tokens` of the server, or None for no
+      truncation. Without a tokenizer, snippets are truncated to this number of
+      words.
   """
   # A fake HippoRAG index of `docs`, without an entity index.
   index = types.SimpleNamespace(
@@ -119,12 +121,14 @@ def _call_tool(
       entity_index=None,
       passage_index=_FakePassageIndex(docs),
   )
-  server = mcp_server.create_server_for_index(
-      cast(indexing.HippoRAGDocumentIndex, index),
-      transport='streamable-http',
-      port=0,
-      snippet_max_tokens=snippet_max_tokens,
-  )
+  # The fake index is not a `HippoRAGDocumentIndex`, so it is served as is.
+  with mock.patch.object(
+      mcp_server, 'unwrap_hipporag_index', side_effect=lambda index: index
+  ):
+    server = mcp_server.create_server(
+        cast(indexing.HippoRAGDocumentIndex, index),
+        extra_mcp_config={'snippet_max_tokens': snippet_max_tokens},
+    )
 
   async def run() -> mcp_types.CallToolResult:
     async with memory.create_connected_server_and_client_session(
@@ -331,12 +335,12 @@ class UnwrapHippoRAGIndexTest(parameterized.TestCase):
       mcp_server.unwrap_hipporag_index(index)
 
 
-class LoadIndexTest(absltest.TestCase):
+class CreateServerTest(absltest.TestCase):
+  """Tests the index and settings that `create_server` takes."""
 
-  def test_loads_and_unwraps_index(self):
-    hipporag_index = indexing.HippoRAGDocumentIndex()
+  def test_loads_and_unwraps_saved_index(self):
     rewriting_index = indexing_lib.RewritingDocumentIndex(
-        inner_index=hipporag_index
+        inner_index=indexing.HippoRAGDocumentIndex()
     )
 
     with mock.patch.object(
@@ -345,12 +349,101 @@ class LoadIndexTest(absltest.TestCase):
         autospec=True,
         return_value=rewriting_index,
     ) as mock_load_index:
-      index = mcp_server.load_index('/path/to/index', '{"api_key": "key"}')
+      mcp_server.create_server(
+          '/path/to/index', runtime_kwargs={'api_key': 'key'}
+      )
 
-    self.assertIs(index, hipporag_index)
     mock_load_index.assert_called_once_with(
         '/path/to/index', {'api_key': 'key'}
     )
+
+  def test_serves_wrapped_index_object(self):
+    rewriting_index = indexing_lib.RewritingDocumentIndex(
+        inner_index=indexing.HippoRAGDocumentIndex()
+    )
+
+    with mock.patch.object(index_building, 'load_index') as mock_load_index:
+      mcp_server.create_server(rewriting_index)
+
+    mock_load_index.assert_not_called()
+
+  def test_non_hipporag_index_object_raises(self):
+    with self.assertRaisesRegex(TypeError, 'but got a NaiveIndex.'):
+      mcp_server.create_server(indexing_lib.NaiveIndex())
+
+  def test_runtime_kwargs_with_index_object_raise(self):
+    with self.assertRaisesRegex(ValueError, 'runtime_kwargs'):
+      mcp_server.create_server(
+          indexing.HippoRAGDocumentIndex(), runtime_kwargs={'api_key': 'key'}
+      )
+
+  def test_unknown_extra_mcp_config_key_raises(self):
+    with self.assertRaisesRegex(
+        ValueError, "Unknown extra_mcp_config keys.*'k'"
+    ):
+      mcp_server.create_server(
+          indexing.HippoRAGDocumentIndex(), extra_mcp_config={'k': 3}
+      )
+
+  def test_registers_tokenizer_from_dict(self):
+    with mock.patch.object(
+        mcp_server.backend_registry, 'get_backend'
+    ) as mock_get_backend:
+      mcp_server.create_server(
+          indexing.HippoRAGDocumentIndex(),
+          extra_mcp_config={
+              'tokenize_backend_config': {
+                  'backend_class_name': 'SentencePieceTokenizer',
+                  'model_name': 'GEMMA',
+              }
+          },
+      )
+
+    mock_get_backend.assert_called_once_with(
+        backend_registry.TokenizeBackendConfig(
+            backend_class_name='SentencePieceTokenizer', model_name='GEMMA'
+        )
+    )
+    mock_get_backend.return_value.register.assert_called_once()
+
+  def test_no_tokenizer_by_default(self):
+    with mock.patch.object(
+        mcp_server.backend_registry, 'get_backend'
+    ) as mock_get_backend:
+      mcp_server.create_server(indexing.HippoRAGDocumentIndex())
+
+    mock_get_backend.assert_not_called()
+
+
+class StartMcpTest(absltest.TestCase):
+  """Tests that `start_mcp` creates the server and runs it."""
+
+  def test_creates_and_runs_the_server(self):
+    mock_create_server = self.enter_context(
+        mock.patch.object(mcp_server, 'create_server', autospec=True)
+    )
+
+    mcp_server.start_mcp(
+        '/path/to/index',
+        transport='streamable-http',
+        host='::',
+        port=1234,
+        runtime_kwargs={'api_key': 'key'},
+        extra_mcp_config={'snippet_max_tokens': 64},
+    )
+
+    with self.subTest('creates_the_server'):
+      mock_create_server.assert_called_once_with(
+          '/path/to/index',
+          host='::',
+          port=1234,
+          runtime_kwargs={'api_key': 'key'},
+          extra_mcp_config={'snippet_max_tokens': 64},
+      )
+    with self.subTest('runs_it_with_the_transport'):
+      mock_create_server.return_value.run.assert_called_once_with(
+          transport='streamable-http'
+      )
 
 
 if __name__ == '__main__':

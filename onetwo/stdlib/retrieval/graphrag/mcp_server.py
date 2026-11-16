@@ -45,10 +45,16 @@ the document's content as MCP content blocks (see
 multimodal documents (e.g. the single PDF pages of a `pdf_pages` index) a block
 per chunk, so that e.g. PDF pages reach the model as PDFs rather than as text
 placeholders (`<application/pdf>`).
+
+Serve an index (a saved index directory or an index object) with `start_mcp`, or
+build the server with `create_server` to run it yourself or to test it. See
+``mcp_server_main.py`` in this directory for a launch script.
 """
 
+from collections.abc import Mapping
+import dataclasses
 import json
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from absl import logging
 from mcp import types as mcp_types
@@ -120,193 +126,171 @@ def unwrap_hipporag_index(
   return inner_index
 
 
-def load_index(
+def _load_index(
     index_path: str,
-    index_runtime_kwargs: dict[str, Any] | str | None = None,
+    runtime_kwargs: Mapping[str, Any] | None,
 ) -> indexing.HippoRAGDocumentIndex:
-  """Loads a saved HippoRAG index and prepares its sub-indexes for querying.
+  """Loads a saved HippoRAG index (see `create_server`).
 
   The index is loaded with `index_building.load_index`, and unwrapped with
   `unwrap_hipporag_index`.
 
   Args:
     index_path: Directory of the saved HippoRAG index.
-    index_runtime_kwargs: Runtime kwargs (as a dict or JSON-encoded string) for
-      the index and its embedding sub-indexes (e.g. API keys or backend-specific
-      settings).
+    runtime_kwargs: Runtime kwargs for the index and its embedding sub-indexes
+      (e.g. API keys or backend-specific settings).
 
   Returns:
-    The loaded index.
+    The loaded `HippoRAGDocumentIndex`, unwrapped.
 
   Raises:
     TypeError: If the saved index is not a `HippoRAGDocumentIndex`, possibly
       wrapped in `RewritingDocumentIndex`es.
   """
-  if isinstance(index_runtime_kwargs, str):
-    runtime_kwargs = (
-        json.loads(index_runtime_kwargs) if index_runtime_kwargs else {}
-    )
-  else:
-    runtime_kwargs = index_runtime_kwargs or {}
-
   logging.info('Loading GraphRAG index from: %s', index_path)
-  index = unwrap_hipporag_index(
-      index_building.load_index(index_path, runtime_kwargs)
+  return unwrap_hipporag_index(
+      index_building.load_index(index_path, dict(runtime_kwargs or {}))
   )
-  logging.info(
-      'Loaded graph with %d nodes, %d edges, %s entity index, and %s passage'
-      ' index.',
-      len(index.graph.nodes) if index.graph else 0,
-      len(index.graph.edges) if index.graph else 0,
-      'active' if index.entity_index is not None else 'no',
-      'active' if index.passage_index is not None else 'no',
-  )
-  return index
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _ExtraMcpConfig:
+  """The parsed `extra_mcp_config` of `create_server` (see there).
+
+  Private on purpose: the extra settings are experimental, so they are not
+  exposed as a public type. Callers pass a plain mapping, which is validated
+  and parsed with `from_mapping`.
+
+  Attributes:
+    snippet_max_tokens: Maximum length of each snippet, or None to return the
+      full text.
+    tokenize_backend_config: Tokenizer used to truncate snippets, or None to
+      truncate them by whitespace-separated words.
+  """
+
+  snippet_max_tokens: int | None = 512
+  tokenize_backend_config: backend_registry.TokenizeBackendConfig | None = None
+
+  @classmethod
+  def from_mapping(
+      cls, extra_mcp_config: Mapping[str, Any] | None
+  ) -> '_ExtraMcpConfig':
+    """Returns the config with the settings of `extra_mcp_config`.
+
+    Args:
+      extra_mcp_config: The `extra_mcp_config` of `create_server`, or None for
+        the defaults.
+
+    Raises:
+      ValueError: If `extra_mcp_config` has an unsupported key.
+    """
+    settings = dict(extra_mcp_config or {})
+    supported = {field.name for field in dataclasses.fields(cls)}
+    unknown = settings.keys() - supported
+    if unknown:
+      raise ValueError(
+          f'Unknown extra_mcp_config keys: {sorted(unknown)}. Supported keys:'
+          f' {sorted(supported)}.'
+      )
+    tokenize_backend_config = settings.get('tokenize_backend_config')
+    if isinstance(tokenize_backend_config, Mapping):
+      settings['tokenize_backend_config'] = (
+          backend_registry.TokenizeBackendConfig.from_dict(
+              dict(tokenize_backend_config)
+          )
+      )
+    return cls(**settings)
 
 
 def create_server(
+    index: str | indexing_lib.DocumentIndex,
     *,
-    index_path: str,
-    port: int = 8776,
-    transport: str = 'stdio',
     host: str = 'localhost',
-    snippet_max_tokens: int = 512,
-    index_runtime_kwargs: dict[str, Any] | str | None = None,
-    tokenize_backend_config: (
-        backend_registry.TokenizeBackendConfig | dict[str, Any] | str | None
-    ) = None,
+    port: int = 8775,
+    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> server.FastMCP:
-  """Loads a saved HippoRAG index and creates the GraphRAG MCP server for it.
+  """Creates the GraphRAG MCP server for a HippoRAG index.
+
+  To serve it, call its `run` method with a transport, or use `start_mcp`
+  instead.
 
   Args:
-    index_path: Directory of the saved HippoRAG index.
-    port: Port to listen on for streamable-http.
-    transport: Transport protocol ('stdio' or 'streamable-http').
-    host: Host/interface to bind to (default: localhost).
-    snippet_max_tokens: Maximum length of result snippets (-1 = no truncation).
-      Measured in tokenizer tokens if `tokenize_backend_config` is set, and in
-      whitespace-separated words otherwise.
-    index_runtime_kwargs: Runtime kwargs (as a dict or JSON-encoded string)
-      passed to the index loader (e.g. API keys or backend-specific settings).
-    tokenize_backend_config: Optional tokenizer backend config (as a
-      `TokenizeBackendConfig`, dict, or JSON-encoded string) used to truncate
-      snippets.
+    index: The index to serve: the directory of a saved index, or an index
+      object. Either must be a `HippoRAGDocumentIndex`, possibly wrapped in
+      `RewritingDocumentIndex`es (see `unwrap_hipporag_index`). Its `graph`,
+      `docs`, `entity_index` and `passage_index` are used as they are.
+    host: Host/interface to bind the server on. Only used with
+      ``transport='streamable-http'``.
+    port: Port to listen on. Only used with ``transport='streamable-http'``.
+    runtime_kwargs: Runtime kwargs (e.g. API keys or backend-specific settings)
+      with which to load the index when ``index`` is a directory, see
+      ``index_building.load_index``. Must be None for an index object, which
+      already has its own.
+    extra_mcp_config: Extra, advanced settings of the MCP tools, or None to use
+      the defaults. Unlike the other arguments, these settings are NOT part of
+      the stable API. They are still evolving, so keys may be added, renamed or
+      removed, and their meanings and defaults may change, in any release and
+      without notice. Most users should not need to set them. Every key is
+      optional (missing keys use their defaults), and unknown keys raise a
+      ``ValueError`` (rather than being ignored) so that typos and removed keys
+      fail loudly. Currently supported keys:
+      - ``'snippet_max_tokens'`` (``int | None``, default 512): maximum length
+        of each text block of a snippet, in tokenizer tokens if
+        ``'tokenize_backend_config'`` is set and in whitespace-separated words
+        otherwise, or None to return the full text. Media is never truncated,
+        nor are ``get_document`` results.
+      - ``'tokenize_backend_config'`` (``TokenizeBackendConfig``, its dict, or
+        None): tokenizer used to truncate snippets. None (default) truncates
+        them by words.
 
   Returns:
     A configured FastMCP server instance.
+
+  Raises:
+    ValueError: If ``extra_mcp_config`` has an unsupported key, or
+      ``runtime_kwargs`` is set for an index object.
+    TypeError: If the index is not a (possibly wrapped)
+      ``HippoRAGDocumentIndex``.
   """
-  return create_server_for_index(
-      load_index(index_path, index_runtime_kwargs),
-      port=port,
-      transport=transport,
-      host=host,
-      snippet_max_tokens=snippet_max_tokens,
-      tokenize_backend_config=tokenize_backend_config,
-  )
-
-
-def run_server(
-    *,
-    index_path: str,
-    port: int = 8776,
-    transport: str = 'stdio',
-    host: str = 'localhost',
-    snippet_max_tokens: int = 512,
-    index_runtime_kwargs: dict[str, Any] | str | None = None,
-    tokenize_backend_config: (
-        backend_registry.TokenizeBackendConfig | dict[str, Any] | str | None
-    ) = None,
-) -> None:
-  """Loads a saved HippoRAG index and runs the GraphRAG MCP server for it.
-
-  Args:
-    index_path: Directory of the saved HippoRAG index.
-    port: Port to listen on for streamable-http.
-    transport: Transport protocol ('stdio' or 'streamable-http').
-    host: Host/interface to bind to (default: localhost).
-    snippet_max_tokens: Maximum length of result snippets (-1 = no truncation).
-      Measured in tokenizer tokens if `tokenize_backend_config` is set, and in
-      whitespace-separated words otherwise.
-    index_runtime_kwargs: Runtime kwargs (as a dict or JSON-encoded string)
-      passed to the index loader (e.g. API keys or backend-specific settings).
-    tokenize_backend_config: Optional tokenizer backend config (as a
-      `TokenizeBackendConfig`, dict, or JSON-encoded string) used to truncate
-      snippets.
-  """
-  mcp = create_server(
-      index_path=index_path,
-      port=port,
-      transport=transport,
-      host=host,
-      snippet_max_tokens=snippet_max_tokens,
-      index_runtime_kwargs=index_runtime_kwargs,
-      tokenize_backend_config=tokenize_backend_config,
-  )
-  mcp.run(transport=cast(Literal['stdio', 'streamable-http'], transport))
-
-
-def create_server_for_index(
-    index: indexing.HippoRAGDocumentIndex,
-    *,
-    port: int = 8776,
-    transport: str = 'stdio',
-    host: str = 'localhost',
-    snippet_max_tokens: int = 512,
-    tokenize_backend_config: (
-        backend_registry.TokenizeBackendConfig | dict[str, Any] | str | None
-    ) = None,
-) -> server.FastMCP:
-  """Creates the GraphRAG MCP server for an already loaded HippoRAG index.
-
-  Args:
-    index: The HippoRAG index to serve. Its `graph`, `docs`, `entity_index` and
-      `passage_index` are used as they are.
-    port: Port to listen on for streamable-http.
-    transport: Transport protocol ('stdio' or 'streamable-http').
-    host: Host/interface to bind to (default: localhost).
-    snippet_max_tokens: Maximum length of result snippets (-1 = no truncation).
-      Measured in tokenizer tokens if `tokenize_backend_config` is set, and in
-      whitespace-separated words otherwise.
-    tokenize_backend_config: Optional tokenizer backend config (as a
-      `TokenizeBackendConfig`, dict, or JSON-encoded string) used to truncate
-      snippets.
-
-  Returns:
-    A configured FastMCP server instance.
-  """
-  if transport == 'stdio':
-    mcp = server.FastMCP('GraphRAG MCP Server')
+  config = _ExtraMcpConfig.from_mapping(extra_mcp_config)
+  if isinstance(index, str):
+    hipporag_index = _load_index(index, runtime_kwargs)
+  elif runtime_kwargs is not None:
+    raise ValueError(
+        'runtime_kwargs are only used to load an index from a directory, not'
+        f' with an index object ({type(index).__name__}).'
+    )
   else:
-    mcp = server.FastMCP('GraphRAG MCP Server', host=host, port=port)
+    hipporag_index = unwrap_hipporag_index(index)
+  logging.info(
+      'Loaded graph with %d nodes, %d edges, %s entity index, and %s passage'
+      ' index.',
+      len(hipporag_index.graph.nodes) if hipporag_index.graph else 0,
+      len(hipporag_index.graph.edges) if hipporag_index.graph else 0,
+      'active' if hipporag_index.entity_index is not None else 'no',
+      'active' if hipporag_index.passage_index is not None else 'no',
+  )
 
-  if isinstance(tokenize_backend_config, str):
-    if tokenize_backend_config:
-      tokenize_backend_config = (
-          backend_registry.TokenizeBackendConfig.from_json(
-              tokenize_backend_config
-          )
-      )
-    else:
-      tokenize_backend_config = None
-  elif isinstance(tokenize_backend_config, dict):
-    if tokenize_backend_config:
-      tokenize_backend_config = (
-          backend_registry.TokenizeBackendConfig.from_dict(
-              tokenize_backend_config
-          )
-      )
-    else:
-      tokenize_backend_config = None
+  # `host` and `port` are only used with the streamable-http transport.
+  mcp = server.FastMCP('GraphRAG MCP Server', host=host, port=port)
 
+  # `_truncate` does not truncate with `snippet_max_tokens=-1`.
+  snippet_max_tokens = (
+      -1 if config.snippet_max_tokens is None else config.snippet_max_tokens
+  )
   # Register a tokenizer backend for snippet truncation only when needed.
   tokenizer = None
-  if snippet_max_tokens >= 0 and tokenize_backend_config is not None:
-    tokenizer = backend_registry.get_backend(tokenize_backend_config)
+  if (
+      config.snippet_max_tokens is not None
+      and config.tokenize_backend_config is not None
+  ):
+    tokenizer = backend_registry.get_backend(config.tokenize_backend_config)
     tokenizer.register()
 
-  graph = index.graph
-  entity_index = index.entity_index
-  passage_index = index.passage_index
+  graph = hipporag_index.graph
+  entity_index = hipporag_index.entity_index
+  passage_index = hipporag_index.passage_index
 
   nx_graph: nx.DiGraph = graph.to_networkx() if graph else nx.DiGraph()
 
@@ -325,8 +309,8 @@ def create_server_for_index(
 
   # Pre-compute document lookup table by doc_id for O(1) passage retrieval.
   docs_by_id: dict[str, Document] = {}
-  if index.docs:
-    for doc in index.docs:
+  if hipporag_index.docs:
+    for doc in hipporag_index.docs:
       docs_by_id[str(doc.doc_id)] = doc
 
   async def _truncate(text: str) -> str:
@@ -755,3 +739,42 @@ def create_server_for_index(
     )
 
   return mcp
+
+
+def start_mcp(
+    index: str | indexing_lib.DocumentIndex,
+    *,
+    transport: Literal['stdio', 'streamable-http'] = 'stdio',
+    host: str = 'localhost',
+    port: int = 8775,
+    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_mcp_config: Mapping[str, Any] | None = None,
+) -> None:
+  """Serves the GraphRAG MCP server until it is stopped.
+
+  Builds the server with `create_server` (see there for the arguments other
+  than `transport`) and runs it. This blocks: e.g. to evaluate a strategy with
+  the server (`rag.evaluate` with `mcp_kwargs={'mcp_server_urls': ...}`), start
+  it in another process.
+
+  Args:
+    index: The index to serve: the directory of a saved HippoRAG index or an
+      index object, see `create_server`.
+    transport: MCP transport: 'stdio' (e.g. when an MCP client launches the
+      server as a subprocess) or 'streamable-http' (serves
+      http://<host>:<port>/mcp).
+    host: Host/interface to bind the server on. Only used with
+      ``transport='streamable-http'``.
+    port: Port to listen on. Only used with ``transport='streamable-http'``.
+    runtime_kwargs: See `create_server`.
+    extra_mcp_config: EXPERIMENTAL extra settings of the tools, see
+      `create_server`.
+  """
+  mcp = create_server(
+      index,
+      host=host,
+      port=port,
+      runtime_kwargs=runtime_kwargs,
+      extra_mcp_config=extra_mcp_config,
+  )
+  mcp.run(transport=transport)
