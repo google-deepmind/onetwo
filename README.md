@@ -137,7 +137,7 @@ until it has collected enough evidence to answer.
 summary = rag.evaluate(
     dataset_name='browsecomp_plus',
     index_directory=index_dir,
-    output_directory='/tmp/onetwo_rag_eval',
+    output='/tmp/onetwo_rag_eval',
     query_time_kwargs={'max_results': 20},
     runtime_kwargs={'api_key': google_api_key},
 )

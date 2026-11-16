@@ -27,7 +27,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
   def test_in_index_directory_by_default(self):
     self.assertEqual(
         evaluate_rag_lib.get_results_directory(
-            output_directory=None,
+            output=None,
             index_directory='/indexes/browsecomp_plus/my_index',
             dataset_name='browsecomp_plus',
             qa_strategy_name='rag',
@@ -43,7 +43,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
   def test_in_output_directory_if_set(self):
     self.assertEqual(
         evaluate_rag_lib.get_results_directory(
-            output_directory='/results',
+            output='/results',
             index_directory='/indexes/browsecomp_plus/my_index',
             dataset_name='browsecomp_plus',
             qa_strategy_name='rag',
@@ -54,9 +54,9 @@ class GetResultsDirectoryTest(absltest.TestCase):
     )
 
   def test_without_directories_raises(self):
-    with self.assertRaisesRegex(ValueError, 'output_directory'):
+    with self.assertRaisesRegex(ValueError, 'output'):
       evaluate_rag_lib.get_results_directory(
-          output_directory=None,
+          output=None,
           index_directory='',
           dataset_name='browsecomp_plus',
           qa_strategy_name='rag',
@@ -75,7 +75,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
 
     evaluate_rag_lib.evaluate_rag(
         dataset_name='ds',
-        output_directory=out_dir,
+        output=out_dir,
         generate_model_name='m',
         metric_functions={},
         cache=False,
@@ -90,7 +90,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     for _ in range(2):
       evaluate_rag_lib.evaluate_rag(
           dataset_name='ds',
-          output_directory=out_dir,
+          output=out_dir,
           generate_model_name='m',
           metric_functions={},
           cache=True,
@@ -134,7 +134,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     mock_eval_qa.return_value = results.EvaluationSummary()
     evaluate_rag_lib.evaluate_rag(
         dataset_name='ds',
-        output_directory=self.create_tempdir().full_path,
+        output=self.create_tempdir().full_path,
         qa_strategy_name='retrieval_only',
         query_time_kwargs={'max_results': 50},
     )

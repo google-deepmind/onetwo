@@ -30,7 +30,7 @@ from onetwo.stdlib.retrieval import rag_defaults
 
 def get_results_directory(
     *,
-    output_directory: str | epath.Path | None,
+    output: str | epath.Path | None,
     index_directory: str | epath.Path,
     dataset_name: str,
     qa_strategy_name: str,
@@ -40,14 +40,14 @@ def get_results_directory(
   """Returns the directory where the results of an evaluation are saved.
 
   Results of evaluations with different settings go to different directories:
-  - `<output_directory>/<dataset>/<strategy>/<model>__max_results_<N>/` if
-    `output_directory` is set;
+  - `<output>/<dataset>/<strategy>/<model>__max_results_<N>/` if `output` is
+    set;
   - else `<index_directory>/eval_results/<strategy>/<model>__max_results_<N>/`,
     next to the evaluated index (whose directory already names the dataset).
 
   Args:
-    output_directory: Base directory of the results, or None to save them in the
-      index directory.
+    output: Base directory of the results, or None to save them in the index
+      directory.
     index_directory: Directory of the evaluated index.
     dataset_name: Name of the dataset.
     qa_strategy_name: Name of the QA strategy.
@@ -55,18 +55,18 @@ def get_results_directory(
     max_results: Number of retrieved documents (`max_results` query-time arg).
 
   Raises:
-    ValueError: If neither `output_directory` nor `index_directory` is set.
+    ValueError: If neither `output` nor `index_directory` is set.
   """
   run_name = f'{generate_model_name}__max_results_{max_results}'
-  if output_directory:
+  if output:
     return (
-        epath.Path(output_directory)
+        epath.Path(output)
         / dataset_name
         / qa_strategy_name
         / run_name
     )
   if not index_directory:
-    raise ValueError('Set `output_directory` or `index_directory`.')
+    raise ValueError('Set `output` or `index_directory`.')
   return (
       epath.Path(index_directory) / 'eval_results' / qa_strategy_name / run_name
   )
@@ -108,7 +108,7 @@ def get_default_runtime_kwargs(
 
 def evaluate_rag(
     dataset_name: str,
-    output_directory: str | None = None,
+    output: str | None = None,
     runtime_kwargs: Mapping[str, Any] | None = None,
     index_directory: str = '',
     generate_model_backend_class_name: str = (
@@ -129,8 +129,8 @@ def evaluate_rag(
 
   Args:
     dataset_name: Name of the dataset to load from the registry.
-    output_directory: Base directory of the results (HTML report and cache), or
-      None to save them in `index_directory` (see `get_results_directory`).
+    output: Base directory of the results (HTML report and cache), or None to
+      save them in `index_directory` (see `get_results_directory`).
     runtime_kwargs: Runtime arguments for the backends (e.g. API key). Backend
       requests default to 5 retries (`'max_retries'`) and a 300000 ms timeout
       (`'http_options': {'timeout': ...}`); see `get_default_runtime_kwargs`.
@@ -161,7 +161,7 @@ def evaluate_rag(
   rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
 
   results_directory = get_results_directory(
-      output_directory=output_directory,
+      output=output,
       index_directory=index_directory,
       dataset_name=dataset_name,
       qa_strategy_name=qa_strategy_name,
