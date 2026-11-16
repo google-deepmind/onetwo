@@ -712,9 +712,20 @@ class HippoRAGDocumentIndex(
     extraction_executables = [
         entity_and_triples_extractor(doc) for doc in new_docs
     ]
+    # Bounded like the embedding calls of `indexing.EmbeddingBasedIndex`, so
+    # that documents finish, and the progress bar advances, from the start.
+    threadpool_size = self.runtime_kwargs.get(
+        "threadpool_size", indexing.DEFAULT_INDEXING_THREADPOOL_SIZE
+    )
     extraction_results: Sequence[
         tuple[Sequence[graph_lib.Entity], Sequence[graph_lib.Triple]]
-    ] = await executing.par_iter(extraction_executables)
+    ] = await executing.par_iter(
+        extraction_executables,
+        chunk_size=threadpool_size,
+        show_progress=True,
+        progress_desc="Extracting entities and triples",
+        total=len(extraction_executables),
+    )
 
     new_entity_ids: set[str] = set()
     for i, (entities, triples) in enumerate(extraction_results):
