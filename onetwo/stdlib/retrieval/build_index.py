@@ -98,26 +98,29 @@ _CHUNK_SIZE = flags.DEFINE_integer(
     None,
     (
         'Maximum tokens, words, PDF pages or seconds of audio or video per'
-        ' chunk (depending on --chunking_strategy). If None, no chunking is'
-        ' performed. Ignored with --chunking_strategy=routing.'
+        ' chunk (depending on --chunker_type). Required with --chunker_type'
+        ' tokens, words, pdf_pages, audio_seconds and video_seconds; ignored'
+        ' with routing and none.'
     ),
 )
 
-_CHUNKING_STRATEGY = flags.DEFINE_enum(
-    'chunking_strategy',
+_CHUNKER_TYPE = flags.DEFINE_enum(
+    'chunker_type',
     'routing',
     [
         'routing',
+        'none',
         'tokens',
         'words',
         'pdf_pages',
         'audio_seconds',
         'video_seconds',
     ],
-    'Chunking strategy to use: "routing" (default, as in the ready-made'
+    'Type of chunker to use: "routing" (default, as in the ready-made'
     ' indexes) chunks each document according to its content type (see'
-    ' `RoutingChunker` in onetwo/stdlib/retrieval/routing_chunking.py); any'
-    ' other value chunks all documents with a single chunker.',
+    ' `RoutingChunker` in onetwo/stdlib/retrieval/routing_chunking.py);'
+    ' "none" indexes whole documents (`chunking.NoChunking`); any other value'
+    ' chunks all documents into chunks of --chunk_size with a single chunker.',
 )
 
 _OVERLAP_WINDOW = flags.DEFINE_integer(
@@ -125,20 +128,20 @@ _OVERLAP_WINDOW = flags.DEFINE_integer(
     0,
     (
         'Number of tokens or words to overlap between chunks. Ignored unless'
-        ' --chunking_strategy is tokens or words.'
+        ' --chunker_type is tokens or words.'
     ),
 )
 
 _TOKENIZE_BACKEND_CLASS_NAME = flags.DEFINE_string(
     'tokenize_backend_class_name',
     rag_defaults.DEFAULT_TOKENIZE_BACKEND_CLASS_NAME,
-    'Name of the tokenizer backend class (when --chunking_strategy=tokens).',
+    'Name of the tokenizer backend class (when --chunker_type=tokens).',
 )
 
 _TOKENIZE_MODEL_NAME = flags.DEFINE_string(
     'tokenize_model_name',
     rag_defaults.DEFAULT_TOKENIZE_MODEL_NAME,
-    'Name of the tokenizer model (when --chunking_strategy=tokens).',
+    'Name of the tokenizer model (when --chunker_type=tokens).',
 )
 
 _RUNTIME_KWARGS = flags.DEFINE_string(
@@ -248,32 +251,41 @@ def _embedder_from_flags() -> backend_registry.EmbedBackendConfig:
   )
 
 
-def _chunker_from_flags() -> chunking.Chunker | None:
-  """Returns the chunker set by the chunking flags, or None for no chunking.
+def _chunker_from_flags() -> chunking.Chunker:
+  """Returns the chunker set by the chunking flags.
 
-  Flags that do not apply to the chunking strategy are ignored with a warning.
+  Flags that do not apply to the chunker type are ignored with a warning.
+
+  Raises:
+    app.UsageError: If --chunk_size is missing for a chunker type that needs it.
   """
-  chunking_strategy = _CHUNKING_STRATEGY.value
+  chunker_type = _CHUNKER_TYPE.value
   chunk_size = _CHUNK_SIZE.value
   overlap_window = _OVERLAP_WINDOW.value
-  if chunking_strategy == 'routing':
+  if chunker_type in ('routing', 'none'):
     # TODO: Add flags to configure the chunk size
     # of each content type (e.g. tokens for text, pages for PDFs, seconds for
     # audio and video) with 'routing', instead of only using the defaults of
     # `RoutingChunker`.
     if chunk_size is not None or overlap_window:
       logging.warning(
-          'Ignoring --chunk_size and --overlap_window, which require a'
-          ' --chunking_strategy other than "routing".'
+          'Ignoring --chunk_size and --overlap_window, which are not used with'
+          ' --chunker_type=%s.',
+          chunker_type,
       )
+    if chunker_type == 'none':
+      return chunking.NoChunking()
     return routing_chunking.RoutingChunker()
   if chunk_size is None:
-    return None
-  if chunking_strategy == 'words':
+    raise app.UsageError(
+        f'--chunker_type={chunker_type} requires --chunk_size. Use'
+        ' --chunker_type=none to index whole documents.'
+    )
+  if chunker_type == 'words':
     return chunking.ChunkByMaxWords(
         max_words_per_chunk=chunk_size, overlap_window=overlap_window
     )
-  if chunking_strategy == 'tokens':
+  if chunker_type == 'tokens':
     return chunking.ChunkByMaxTokens(
         max_tokens_per_chunk=chunk_size,
         overlap_window=overlap_window,
@@ -287,12 +299,12 @@ def _chunker_from_flags() -> chunking.Chunker | None:
   if overlap_window:
     logging.warning(
         'Ignoring --overlap_window, which is not supported with'
-        ' --chunking_strategy=%s.',
-        chunking_strategy,
+        ' --chunker_type=%s.',
+        chunker_type,
     )
-  if chunking_strategy == 'pdf_pages':
+  if chunker_type == 'pdf_pages':
     return pdf_chunking.ChunkByPdfPages(pages_per_chunk=chunk_size)
-  if chunking_strategy == 'audio_seconds':
+  if chunker_type == 'audio_seconds':
     return audio_chunking.ChunkByAudioSeconds(
         seconds_per_chunk=float(chunk_size)
     )
@@ -314,15 +326,11 @@ def _index_from_flags() -> indexing.DocumentIndex:
             rag_defaults.default_index_generate_backend_config()
         ),
     )
-    if chunker is None:
-      return index
     return indexing.RewritingDocumentIndex(
         rewriter=corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
         inner_index=index,
     )
   index = indexing.EmbeddingBasedDocumentIndex(embed_backend_config=embedder)
-  if chunker is None:
-    return index
   return indexing.RewritingEmbeddingBasedDocumentIndex(
       rewriter=corpus_rewriting.ChunkingCorpusRewriter(chunker=chunker),
       inner_index=index,
