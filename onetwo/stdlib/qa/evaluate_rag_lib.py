@@ -14,7 +14,7 @@
 
 """Library to evaluate a RAG strategy on a QA dataset."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 from etils import epath
@@ -122,7 +122,6 @@ def evaluate_rag(
     query_time_kwargs: Mapping[str, Any] | None = None,
     mcp_kwargs: Mapping[str, Any] | None = None,
     max_examples: int | None = 5,
-    additional_k_values: Sequence[int] = (5, 10, 20),
     metric_functions: Mapping[str, Any] | None = None,
     cache: bool = False,
 ) -> results.EvaluationSummary:
@@ -145,13 +144,8 @@ def evaluate_rag(
     mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
       `mcp_server_urls`, a comma-separated list of MCP server URLs.
     max_examples: Max examples to evaluate.
-    additional_k_values: Additional values of k (alongside `max_results` from
-      `query_time_kwargs`) at which to compute retrieval metrics when
-      `metric_functions` is not provided.
     metric_functions: Optional mapping of metric names to metric functions. When
-      provided, overrides the default metrics constructed from `max_results` and
-      `additional_k_values`. When None, defaults to
-      `rag_metrics.get_default_rag_metrics()`.
+      None, defaults to `rag_metrics.get_default_rag_metrics()`.
     cache: Whether to cache LLM calls in `<results directory>/cache.json` and
       reuse the cache on reruns.
 
@@ -216,7 +210,6 @@ def evaluate_rag(
   if metric_functions is None:
     metric_functions = rag_metrics.get_default_rag_metrics(
         max_results=q_time_kwargs.get('max_results', None),
-        additional_k_values=additional_k_values,
         retrieval_only=(qa_strategy_name == 'retrieval_only'),
         accuracy_critic_backend_config=ai_rater_backend_config,
         runtime_kwargs=rt_kwargs,

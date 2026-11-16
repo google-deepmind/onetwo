@@ -126,6 +126,31 @@ class GetResultsDirectoryTest(absltest.TestCase):
     )
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
 
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  @mock.patch.object(
+      datasets, 'load_examples', return_value=[{'question': 'q'}]
+  )
+  def test_evaluate_rag_default_metrics(self, _, mock_eval_qa):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    evaluate_rag_lib.evaluate_rag(
+        dataset_name='ds',
+        output_directory=self.create_tempdir().full_path,
+        qa_strategy_name='retrieval_only',
+        query_time_kwargs={'max_results': 50},
+    )
+    self.assertCountEqual(
+        mock_eval_qa.call_args.kwargs['metric_functions'].keys(),
+        [
+            'recall@5',
+            'recall@10',
+            'recall@20',
+            'recall@50',
+            'mrr@5',
+            'mrr@10',
+            'mrr@20',
+            'mrr@50',
+        ],
+    )
 
 if __name__ == '__main__':
   absltest.main()
