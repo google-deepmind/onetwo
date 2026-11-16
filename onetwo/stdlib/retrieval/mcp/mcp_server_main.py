@@ -103,7 +103,7 @@ def main(argv: Sequence[str]) -> None:
     runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
 
   mcp_server.start_mcp(
-      index_path=_INDEX_PATH.value,
+      _INDEX_PATH.value,
       transport=transport,
       host=_HOST.value,
       port=_PORT.value,

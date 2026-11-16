@@ -82,6 +82,7 @@ from mcp.server.fastmcp import server
 from onetwo.backends import backend_registry
 from onetwo.core import executing
 from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.tool_use import mcp_tools_utils
 
@@ -152,11 +153,11 @@ class _ExtraMcpConfig:
 
 
 def create_server(
+    index: str | indexing.DocumentIndex,
     *,
-    index_path: str,
     host: str = 'localhost',
     port: int = 8775,
-    runtime_kwargs: dict[str, Any] | None = None,
+    runtime_kwargs: Mapping[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> server.FastMCP:
   """Creates and configures the OneTwo Index MCP server.
@@ -165,13 +166,16 @@ def create_server(
   its `run` method with a transport, or use `start_mcp` instead.
 
   Args:
-    index_path: Path to the pre-built index.
+    index: The index to serve: the directory of a saved index (e.g. as returned
+      by ``rag.build_index``), loaded with ``index_building.load_index``, or an
+      index object (e.g. one that was just built or loaded).
     host: Host/interface to bind the server on. Only used with
       ``transport='streamable-http'``.
     port: Port to listen on. Only used with ``transport='streamable-http'``.
-    runtime_kwargs: Optional runtime kwargs of the loaded index (e.g. the
-      embedding backend's credentials or cache), see
-      ``index_building.load_index``.  When ``None``, an empty dict is used.
+    runtime_kwargs: Runtime kwargs (e.g. the embedding backend's credentials or
+      cache) with which to load the index when ``index`` is a directory, see
+      ``index_building.load_index``. Must be None for an index object, which
+      already has its own.
     extra_mcp_config: Extra, advanced settings of the MCP tools, or None to use
       the defaults. Unlike the other arguments, these settings
       are NOT part of the stable API. They are still evolving, so keys may be
@@ -193,21 +197,35 @@ def create_server(
     A configured FastMCP server instance.
 
   Raises:
-    ValueError: If ``extra_mcp_config`` has an unsupported key.
+    ValueError: If ``extra_mcp_config`` has an unsupported key, or
+      ``runtime_kwargs`` is set for an index object.
   """
   config = _ExtraMcpConfig.from_mapping(extra_mcp_config)
+  if not isinstance(index, str) and runtime_kwargs is not None:
+    raise ValueError(
+        'runtime_kwargs are only used to load an index from a directory, not'
+        f' with an index object ({type(index).__name__}).'
+    )
 
   # `host` and `port` are only used with the streamable-http transport.
   mcp = server.FastMCP('OneTwo Index MCP Server', host=host, port=port)
 
-  logging.info('Loading index from: %s', index_path)
-  document_index = index_building.load_index(
-      index_path, runtime_kwargs=runtime_kwargs
-  )
-  logging.info(
-      'Index loaded successfully. %d documents in the index.',
-      document_index.num_docs,
-  )
+  if isinstance(index, str):
+    logging.info('Loading index from: %s', index)
+    document_index = index_building.load_index(
+        index, runtime_kwargs=runtime_kwargs
+    )
+    logging.info(
+        'Index loaded successfully. %d documents in the index.',
+        document_index.num_docs,
+    )
+  else:
+    document_index = index
+    logging.info(
+        'Serving %s with %d documents.',
+        type(document_index).__name__,
+        document_index.num_docs,
+    )
 
   # Register a tokenizer for snippet truncation only when needed. This
   # configures the global `llm.tokenize` and `llm.detokenize` builtins, which
@@ -320,12 +338,12 @@ def create_server(
 
 
 def start_mcp(
+    index: str | indexing.DocumentIndex,
     *,
-    index_path: str,
     transport: Literal['stdio', 'streamable-http'] = 'stdio',
     host: str = 'localhost',
     port: int = 8775,
-    runtime_kwargs: dict[str, Any] | None = None,
+    runtime_kwargs: Mapping[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> None:
   """Serves the OneTwo Index MCP server until it is stopped.
@@ -336,7 +354,8 @@ def start_mcp(
   it in another process.
 
   Args:
-    index_path: Path to the pre-built index.
+    index: The index to serve: the directory of a saved index or an index
+      object, see `create_server`.
     transport: MCP transport: 'stdio' (e.g. when an MCP client launches the
       server as a subprocess) or 'streamable-http' (serves
       http://<host>:<port>/mcp).
@@ -348,7 +367,7 @@ def start_mcp(
       `create_server`.
   """
   mcp = create_server(
-      index_path=index_path,
+      index,
       host=host,
       port=port,
       runtime_kwargs=runtime_kwargs,

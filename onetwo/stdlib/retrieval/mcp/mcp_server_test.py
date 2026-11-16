@@ -203,7 +203,7 @@ def _create_test_server(
   mock_get_backend.return_value.register.side_effect = _register_fake_tokenizer
 
   mcp = mcp_server.create_server(
-      index_path='/fake/index/path',
+      '/fake/index/path',
       extra_mcp_config={
           'max_results': 3,
           'snippet_max_tokens': snippet_max_tokens,
@@ -602,7 +602,7 @@ class LoadIndexTest(absltest.TestCase):
         return_value=_make_fake_index(_FAKE_DOCS),
     ) as mock_load_index:
       mcp_server.create_server(
-          index_path='/fake/index/path',
+          '/fake/index/path',
           extra_mcp_config={'max_results': 3, 'snippet_max_tokens': None},
           **kwargs,
       )
@@ -627,6 +627,40 @@ class LoadIndexTest(absltest.TestCase):
     )
 
 
+class IndexObjectTest(absltest.TestCase):
+  """Tests serving an index object rather than a saved index."""
+
+  def test_serves_the_index_without_loading_it(self):
+    mock_load_index = self.enter_context(
+        mock.patch.object(mcp_server.index_building, 'load_index')
+    )
+    mcp = mcp_server.create_server(
+        _make_fake_index(_FAKE_DOCS),
+        extra_mcp_config={'snippet_max_tokens': None},
+    )
+
+    async def run():
+      async with memory.create_connected_server_and_client_session(
+          mcp
+      ) as client:
+        return await client.call_tool('get_document', {'docid': '1002'})
+
+    result = asyncio.run(run())
+
+    with self.subTest('does_not_load_an_index'):
+      mock_load_index.assert_not_called()
+    with self.subTest('serves_the_documents_of_the_index'):
+      self.assertEqual('1002', json.loads(_text_of(result.content[0]))['docid'])
+
+  def test_runtime_kwargs_with_an_index_object_raise(self):
+    with self.assertRaisesRegex(ValueError, 'runtime_kwargs'):
+      mcp_server.create_server(
+          _make_fake_index(_FAKE_DOCS),
+          runtime_kwargs={'api_key': 'fake_key'},
+          extra_mcp_config={'snippet_max_tokens': None},
+      )
+
+
 class ExtraMcpConfigTest(absltest.TestCase):
   """Tests the parsing of `extra_mcp_config` and the tokenizer it sets up."""
 
@@ -646,7 +680,7 @@ class ExtraMcpConfigTest(absltest.TestCase):
         mock.patch.object(mcp_server.backend_registry, 'get_backend')
     )
     mcp = mcp_server.create_server(
-        index_path='/fake/index/path',
+        '/fake/index/path',
         extra_mcp_config=extra_mcp_config,
     )
     return mcp, mock_get_backend
@@ -700,7 +734,7 @@ class StartMcpTest(absltest.TestCase):
     )
 
     mcp_server.start_mcp(
-        index_path='/fake/index/path',
+        '/fake/index/path',
         transport='streamable-http',
         host='::',
         port=1234,
@@ -710,7 +744,7 @@ class StartMcpTest(absltest.TestCase):
 
     with self.subTest('creates_the_server'):
       mock_create_server.assert_called_once_with(
-          index_path='/fake/index/path',
+          '/fake/index/path',
           host='::',
           port=1234,
           runtime_kwargs={'api_key': 'fake_key'},
@@ -726,7 +760,7 @@ class StartMcpTest(absltest.TestCase):
         mock.patch.object(mcp_server, 'create_server', autospec=True)
     )
 
-    mcp_server.start_mcp(index_path='/fake/index/path')
+    mcp_server.start_mcp('/fake/index/path')
 
     mock_create_server.return_value.run.assert_called_once_with(
         transport='stdio'
