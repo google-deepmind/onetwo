@@ -104,13 +104,19 @@ _MAX_EXAMPLES = flags.DEFINE_integer(
 _MAX_RETRIES = flags.DEFINE_integer(
     'max_retries',
     5,
-    'Maximum number of retries for backend requests.',
+    (
+        'Maximum number of retries for backend requests. Ignored if set in'
+        ' --runtime_kwargs.'
+    ),
 )
 
 _HTTP_TIMEOUT = flags.DEFINE_integer(
     'http_timeout',
     300000,
-    'HTTP timeout in milliseconds for backend requests (default: 5 mins).',
+    (
+        'HTTP timeout in milliseconds for backend requests (default: 5 mins).'
+        ' Ignored if set in --runtime_kwargs.'
+    ),
 )
 
 _CACHE_RESULTS = flags.DEFINE_bool(
@@ -125,8 +131,6 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
-
   evaluate_rag_lib.evaluate_rag(
       dataset_name=_DATASET_NAME.value,
       index_directory=_INDEX_DIRECTORY.value or '',
@@ -137,10 +141,12 @@ def main(argv: Sequence[str]) -> None:
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),
       mcp_kwargs=json.loads(_MCP_KWARGS.value),
-      runtime_kwargs=runtime_kwargs,
+      runtime_kwargs=evaluate_rag_lib.get_default_runtime_kwargs(
+          json.loads(_RUNTIME_KWARGS.value),
+          max_retries=_MAX_RETRIES.value,
+          http_timeout_ms=_HTTP_TIMEOUT.value,
+      ),
       max_examples=_MAX_EXAMPLES.value,
-      max_retries=_MAX_RETRIES.value,
-      http_timeout=_HTTP_TIMEOUT.value,
       cache=_CACHE_RESULTS.value,
   )
 

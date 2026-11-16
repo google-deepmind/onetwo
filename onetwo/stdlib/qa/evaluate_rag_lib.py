@@ -72,6 +72,40 @@ def get_results_directory(
   )
 
 
+def get_default_runtime_kwargs(
+    runtime_kwargs: Mapping[str, Any] | None,
+    *,
+    max_retries: int = 5,
+    http_timeout_ms: int = 300000,
+) -> dict[str, Any]:
+  """Returns `runtime_kwargs` with default backend request settings.
+
+  Settings already in `runtime_kwargs` are kept. The input is not modified.
+
+  Args:
+    runtime_kwargs: Arguments for backends (e.g. API key).
+    max_retries: Maximum number of retries of backend requests, set as
+      `'max_retries'` if absent.
+    http_timeout_ms: HTTP timeout of backend requests in milliseconds, set as
+      `'http_options': {'timeout': http_timeout_ms}` if `'http_options'` is
+      absent, or as its `'timeout'` if `'http_options'` is a dict without one.
+      If `'http_options'` is explicitly `None`, `'http_options'` is omitted.
+
+  Returns:
+    A new dict of runtime kwargs with the defaults applied.
+  """
+  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  rt_kwargs.setdefault('max_retries', max_retries)
+  http_options = rt_kwargs.get('http_options')
+  if 'http_options' not in rt_kwargs:
+    rt_kwargs['http_options'] = {'timeout': http_timeout_ms}
+  elif http_options is None:
+    del rt_kwargs['http_options']
+  elif isinstance(http_options, dict) and 'timeout' not in http_options:
+    rt_kwargs['http_options'] = {**http_options, 'timeout': http_timeout_ms}
+  return rt_kwargs
+
+
 def evaluate_rag(
     dataset_name: str,
     output_directory: str | None = None,
@@ -90,8 +124,6 @@ def evaluate_rag(
     max_examples: int | None = 5,
     additional_k_values: Sequence[int] = (5, 10, 20),
     metric_functions: Mapping[str, Any] | None = None,
-    max_retries: int | None = 5,
-    http_timeout: int | None = 300000,
     cache: bool = False,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
@@ -100,7 +132,9 @@ def evaluate_rag(
     dataset_name: Name of the dataset to load from the registry.
     output_directory: Base directory of the results (HTML report and cache), or
       None to save them in `index_directory` (see `get_results_directory`).
-    runtime_kwargs: Runtime arguments for the backends (e.g. API key).
+    runtime_kwargs: Runtime arguments for the backends (e.g. API key). Backend
+      requests default to 5 retries (`'max_retries'`) and a 300000 ms timeout
+      (`'http_options': {'timeout': ...}`); see `get_default_runtime_kwargs`.
     index_directory: Directory containing the pre-built index.
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name.
@@ -118,8 +152,6 @@ def evaluate_rag(
       provided, overrides the default metrics constructed from `max_results` and
       `additional_k_values`. When None, defaults to
       `rag_metrics.get_default_rag_metrics()`.
-    max_retries: Maximum number of retries for backend requests.
-    http_timeout: HTTP timeout in milliseconds for backend requests.
     cache: Whether to cache LLM calls in `<results directory>/cache.json` and
       reuse the cache on reruns.
 
@@ -132,17 +164,7 @@ def evaluate_rag(
       else {'max_results': 20}
   )
   mcp_kwargs = dict(mcp_kwargs) if mcp_kwargs else {}
-  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
-
-  if 'max_retries' not in rt_kwargs and max_retries is not None:
-    rt_kwargs['max_retries'] = max_retries
-  if 'http_options' not in rt_kwargs and http_timeout is not None:
-    rt_kwargs['http_options'] = {'timeout': http_timeout}
-  elif 'http_options' in rt_kwargs and isinstance(
-      rt_kwargs['http_options'], dict
-  ):
-    if 'timeout' not in rt_kwargs['http_options'] and http_timeout is not None:
-      rt_kwargs['http_options']['timeout'] = http_timeout
+  rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
 
   results_directory = get_results_directory(
       output_directory=output_directory,
