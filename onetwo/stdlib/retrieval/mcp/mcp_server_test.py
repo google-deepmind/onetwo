@@ -204,8 +204,6 @@ def _create_test_server(
 
   mcp = mcp_server.create_server(
       index_path='/fake/index/path',
-      port=0,
-      transport='streamable-http',
       extra_mcp_config={
           'max_results': 3,
           'snippet_max_tokens': snippet_max_tokens,
@@ -605,8 +603,6 @@ class LoadIndexTest(absltest.TestCase):
     ) as mock_load_index:
       mcp_server.create_server(
           index_path='/fake/index/path',
-          port=0,
-          transport='streamable-http',
           extra_mcp_config={'max_results': 3, 'snippet_max_tokens': None},
           **kwargs,
       )
@@ -651,8 +647,6 @@ class ExtraMcpConfigTest(absltest.TestCase):
     )
     mcp = mcp_server.create_server(
         index_path='/fake/index/path',
-        port=0,
-        transport='streamable-http',
         extra_mcp_config=extra_mcp_config,
     )
     return mcp, mock_get_backend
@@ -695,6 +689,48 @@ class ExtraMcpConfigTest(absltest.TestCase):
         ValueError, "Unknown extra_mcp_config keys.*'k'"
     ):
       self._create_server({'k': 3})
+
+
+class StartMcpTest(absltest.TestCase):
+  """Tests that `start_mcp` creates the server and runs it."""
+
+  def test_creates_and_runs_the_server(self):
+    mock_create_server = self.enter_context(
+        mock.patch.object(mcp_server, 'create_server', autospec=True)
+    )
+
+    mcp_server.start_mcp(
+        index_path='/fake/index/path',
+        transport='streamable-http',
+        host='::',
+        port=1234,
+        runtime_kwargs={'api_key': 'fake_key'},
+        extra_mcp_config={'max_results': 3},
+    )
+
+    with self.subTest('creates_the_server'):
+      mock_create_server.assert_called_once_with(
+          index_path='/fake/index/path',
+          host='::',
+          port=1234,
+          runtime_kwargs={'api_key': 'fake_key'},
+          extra_mcp_config={'max_results': 3},
+      )
+    with self.subTest('runs_it_with_the_transport'):
+      mock_create_server.return_value.run.assert_called_once_with(
+          transport='streamable-http'
+      )
+
+  def test_defaults_to_stdio(self):
+    mock_create_server = self.enter_context(
+        mock.patch.object(mcp_server, 'create_server', autospec=True)
+    )
+
+    mcp_server.start_mcp(index_path='/fake/index/path')
+
+    mock_create_server.return_value.run.assert_called_once_with(
+        transport='stdio'
+    )
 
 
 if __name__ == '__main__':

@@ -180,8 +180,8 @@ def create_server(
 
   Args:
     index_path: Directory of the saved HippoRAG index.
-    port: Port to listen on for SSE/streamable-http.
-    transport: Transport protocol ('stdio', 'sse', 'streamable-http').
+    port: Port to listen on for streamable-http.
+    transport: Transport protocol ('stdio' or 'streamable-http').
     host: Host/interface to bind to (default: localhost).
     snippet_max_tokens: Maximum length of result snippets (-1 = no truncation).
       Measured in tokenizer tokens if `tokenize_backend_config` is set, and in
@@ -221,8 +221,8 @@ def run_server(
 
   Args:
     index_path: Directory of the saved HippoRAG index.
-    port: Port to listen on for SSE/streamable-http.
-    transport: Transport protocol ('stdio', 'sse', 'streamable-http').
+    port: Port to listen on for streamable-http.
+    transport: Transport protocol ('stdio' or 'streamable-http').
     host: Host/interface to bind to (default: localhost).
     snippet_max_tokens: Maximum length of result snippets (-1 = no truncation).
       Measured in tokenizer tokens if `tokenize_backend_config` is set, and in
@@ -242,7 +242,7 @@ def run_server(
       index_runtime_kwargs=index_runtime_kwargs,
       tokenize_backend_config=tokenize_backend_config,
   )
-  mcp.run(transport=cast(Literal['stdio', 'sse', 'streamable-http'], transport))
+  mcp.run(transport=cast(Literal['stdio', 'streamable-http'], transport))
 
 
 def create_server_for_index(
@@ -261,8 +261,8 @@ def create_server_for_index(
   Args:
     index: The HippoRAG index to serve. Its `graph`, `docs`, `entity_index` and
       `passage_index` are used as they are.
-    port: Port to listen on for SSE/streamable-http.
-    transport: Transport protocol ('stdio', 'sse', 'streamable-http').
+    port: Port to listen on for streamable-http.
+    transport: Transport protocol ('stdio' or 'streamable-http').
     host: Host/interface to bind to (default: localhost).
     snippet_max_tokens: Maximum length of result snippets (-1 = no truncation).
       Measured in tokenizer tokens if `tokenize_backend_config` is set, and in

@@ -18,8 +18,9 @@ Exposes a pre-built OneTwo document index (e.g. an EmbeddingBasedDocumentIndex)
 as an MCP tool, allowing AI agents (e.g., Antigravity) to perform agentic
 retrieval over an existing index.
 
-This module provides the reusable ``create_server`` function that can be called
-from any launch script.  Environment-specific settings (e.g. the embedding
+This module provides ``start_mcp``, which serves an index until the server is
+stopped, and ``create_server``, which only builds the server (e.g. to run it
+yourself or to test it).  Environment-specific settings (e.g. the embedding
 backend's credentials or cache) are passed via the ``runtime_kwargs``
 parameter. Advanced settings of the tools (e.g. the number of search hits) are
 passed via ``extra_mcp_config``, which is experimental and not part of the
@@ -28,7 +29,8 @@ stable API.
 Typical workflow:
   1. Build an embedding index offline (e.g., via
      ``onetwo.stdlib.retrieval.build_index``).
-  2. Start a launch script that calls ``create_server`` with the right kwargs.
+  2. Serve it with ``start_mcp`` (e.g. ``rag.start_mcp``, or the
+     ``mcp_server_main`` launch script).
   3. Agents call the ``search`` tool to retrieve relevant documents.
   4. Agents call the ``get_document`` tool to retrieve a full document by its
      docid.
@@ -72,7 +74,7 @@ example.
 
 from collections.abc import Mapping
 import dataclasses
-from typing import Any
+from typing import Any, Literal
 
 from absl import logging
 from mcp import types as mcp_types
@@ -152,21 +154,21 @@ class _ExtraMcpConfig:
 def create_server(
     *,
     index_path: str,
-    port: int,
-    transport: str,
     host: str = 'localhost',
+    port: int = 8775,
     runtime_kwargs: dict[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> server.FastMCP:
   """Creates and configures the OneTwo Index MCP server.
 
-  The server has a `search` tool and a `get_document` tool.
+  The server has a `search` tool and a `get_document` tool. To serve it, call
+  its `run` method with a transport, or use `start_mcp` instead.
 
   Args:
     index_path: Path to the pre-built index.
-    port: Port for SSE/streamable-http transports.
-    transport: Transport type (stdio, sse, streamable-http).
-    host: Host/interface to bind the server on (default: localhost).
+    host: Host/interface to bind the server on. Only used with
+      ``transport='streamable-http'``.
+    port: Port to listen on. Only used with ``transport='streamable-http'``.
     runtime_kwargs: Optional runtime kwargs of the loaded index (e.g. the
       embedding backend's credentials or cache), see
       ``index_building.load_index``.  When ``None``, an empty dict is used.
@@ -195,10 +197,8 @@ def create_server(
   """
   config = _ExtraMcpConfig.from_mapping(extra_mcp_config)
 
-  if transport == 'stdio':
-    mcp = server.FastMCP('OneTwo Index MCP Server')
-  else:
-    mcp = server.FastMCP('OneTwo Index MCP Server', host=host, port=port)
+  # `host` and `port` are only used with the streamable-http transport.
+  mcp = server.FastMCP('OneTwo Index MCP Server', host=host, port=port)
 
   logging.info('Loading index from: %s', index_path)
   document_index = index_building.load_index(
@@ -317,3 +317,41 @@ def create_server(
   del get_document  # Registered via decorator.
 
   return mcp
+
+
+def start_mcp(
+    *,
+    index_path: str,
+    transport: Literal['stdio', 'streamable-http'] = 'stdio',
+    host: str = 'localhost',
+    port: int = 8775,
+    runtime_kwargs: dict[str, Any] | None = None,
+    extra_mcp_config: Mapping[str, Any] | None = None,
+) -> None:
+  """Serves the OneTwo Index MCP server until it is stopped.
+
+  Builds the server with `create_server` (see there for the arguments other
+  than `transport`) and runs it. This blocks: e.g. to evaluate a strategy with
+  the server (`rag.evaluate` with `mcp_kwargs={'mcp_server_urls': ...}`), start
+  it in another process.
+
+  Args:
+    index_path: Path to the pre-built index.
+    transport: MCP transport: 'stdio' (e.g. when an MCP client launches the
+      server as a subprocess) or 'streamable-http' (serves
+      http://<host>:<port>/mcp).
+    host: Host/interface to bind the server on. Only used with
+      ``transport='streamable-http'``.
+    port: Port to listen on. Only used with ``transport='streamable-http'``.
+    runtime_kwargs: See `create_server`.
+    extra_mcp_config: EXPERIMENTAL extra settings of the tools, see
+      `create_server`.
+  """
+  mcp = create_server(
+      index_path=index_path,
+      host=host,
+      port=port,
+      runtime_kwargs=runtime_kwargs,
+      extra_mcp_config=extra_mcp_config,
+  )
+  mcp.run(transport=transport)

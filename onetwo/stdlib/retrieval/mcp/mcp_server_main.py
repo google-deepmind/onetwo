@@ -67,13 +67,11 @@ _HOST = flags.DEFINE_string(
 _TRANSPORT = flags.DEFINE_enum(
     'transport',
     'stdio',
-    ['stdio', 'sse', 'streamable-http'],
+    ['stdio', 'streamable-http'],
     'MCP transport protocol.  "stdio" communicates over stdin/stdout and is'
     ' used when an MCP client (e.g. Jetski) launches the server as a'
     ' subprocess.  "streamable-http" starts a standalone HTTP endpoint that'
-    ' clients connect to via a URL (e.g. http://localhost:8775/mcp).'
-    '  "sse" is the legacy Server-Sent Events transport (deprecated by the'
-    ' MCP spec; prefer streamable-http).',
+    ' clients connect to via a URL (e.g. http://localhost:8775/mcp).',
 )
 
 _RUNTIME_KWARGS = flags.DEFINE_string(
@@ -98,17 +96,17 @@ _TOKENIZER_MODEL_NAME = flags.DEFINE_string(
 
 def main(argv: Sequence[str]) -> None:
   del argv
-  transport = cast(Literal['stdio', 'sse', 'streamable-http'], _TRANSPORT.value)
+  transport = cast(Literal['stdio', 'streamable-http'], _TRANSPORT.value)
 
   runtime_kwargs = None
   if _RUNTIME_KWARGS.value:
     runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
 
-  mcp = mcp_server.create_server(
+  mcp_server.start_mcp(
       index_path=_INDEX_PATH.value,
-      port=_PORT.value,
-      host=_HOST.value,
       transport=transport,
+      host=_HOST.value,
+      port=_PORT.value,
       runtime_kwargs=runtime_kwargs,
       extra_mcp_config={
           'max_results': _MAX_RESULTS.value,
@@ -124,7 +122,6 @@ def main(argv: Sequence[str]) -> None:
           ),
       },
   )
-  mcp.run(transport=transport)
 
 
 if __name__ == '__main__':

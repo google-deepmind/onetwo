@@ -59,8 +59,8 @@ _TOKENIZE_BACKEND_CONFIG = flags.DEFINE_string(
 _TRANSPORT = flags.DEFINE_enum(
     'transport',
     'stdio',
-    ['stdio', 'sse', 'streamable-http'],
-    'MCP transport protocol ("stdio", "sse", "streamable-http").',
+    ['stdio', 'streamable-http'],
+    'MCP transport protocol ("stdio" or "streamable-http").',
 )
 
 _HOST = flags.DEFINE_string(
