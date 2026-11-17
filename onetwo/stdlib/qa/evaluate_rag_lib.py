@@ -115,6 +115,7 @@ def evaluate_rag(
         rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
     ),
     generate_model_name: str = rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME,
+    generate_backend_kwargs: Mapping[str, Any] | None = None,
     ai_rater_generate_model_name: str = (
         rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME
     ),
@@ -137,6 +138,11 @@ def evaluate_rag(
     index_directory: Directory containing the pre-built index.
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name.
+    generate_backend_kwargs: Constructor kwargs of the generation backend, e.g.
+      `{'chat_kwargs': {'thinking_config': {'thinking_level': 'HIGH'}}}` for a
+      `GoogleGenAIAPI` backend. If None, defaults to
+      `rag_defaults.qa_generate_backend_kwargs(generate_model_name)`, i.e.
+      medium thinking for the default model and no kwargs for other models.
     ai_rater_generate_model_name: Generation model name used by the AI rater.
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments for the strategy. If None, defaults
@@ -186,6 +192,11 @@ def evaluate_rag(
   gen_backend_config = backend_registry.GenerateBackendConfig(
       backend_class_name=generate_model_backend_class_name,
       model_name=generate_model_name,
+      kwargs=(
+          dict(generate_backend_kwargs)
+          if generate_backend_kwargs is not None
+          else rag_defaults.qa_generate_backend_kwargs(generate_model_name)
+      ),
   )
   ai_rater_backend_config = backend_registry.GenerateBackendConfig(
       backend_class_name=generate_model_backend_class_name,

@@ -60,6 +60,18 @@ _GENERATE_MODEL_NAME = flags.DEFINE_string(
     'Name of the generation model.',
 )
 
+_GENERATE_BACKEND_KWARGS = flags.DEFINE_string(
+    'generate_backend_kwargs',
+    None,
+    (
+        'JSON string of constructor kwargs of the generation backend, e.g.'
+        ' \'{"chat_kwargs": {"thinking_config": {"thinking_level": "HIGH"}}}\'.'
+        ' If unset, defaults to medium thinking for the default model and to no'
+        ' kwargs for other models (see'
+        ' `rag_defaults.qa_generate_backend_kwargs`).'
+    ),
+)
+
 _AI_RATER_GENERATE_MODEL_NAME = flags.DEFINE_string(
     'ai_rater_generate_model_name',
     rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
@@ -137,6 +149,11 @@ def main(argv: Sequence[str]) -> None:
       output=_OUTPUT.value or None,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,
+      generate_backend_kwargs=(
+          json.loads(_GENERATE_BACKEND_KWARGS.value)
+          if _GENERATE_BACKEND_KWARGS.value is not None
+          else None
+      ),
       ai_rater_generate_model_name=_AI_RATER_GENERATE_MODEL_NAME.value,
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),

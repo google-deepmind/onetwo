@@ -20,6 +20,7 @@ from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.stdlib.qa import evaluate_rag_lib
 from onetwo.stdlib.qa import qa_evaluation
+from onetwo.stdlib.retrieval import rag_defaults
 
 
 class GetResultsDirectoryTest(absltest.TestCase):
@@ -151,6 +152,52 @@ class GetResultsDirectoryTest(absltest.TestCase):
             'mrr@50',
         ],
     )
+
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  @mock.patch.object(
+      datasets, 'load_examples', return_value=[{'question': 'q'}]
+  )
+  def test_evaluate_rag_generate_backend_config(self, _, mock_eval_qa):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    # No metrics, so that no AI rater backend (needing an API key) is built.
+    with self.subTest('default_model_uses_default_kwargs'):
+      evaluate_rag_lib.evaluate_rag(
+          dataset_name='ds',
+          output=self.create_tempdir().full_path,
+          metric_functions={},
+      )
+      config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
+      self.assertEqual(
+          config.model_name, rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
+      )
+      self.assertEqual(
+          config.kwargs, rag_defaults.DEFAULT_QA_GENERATE_BACKEND_KWARGS
+      )
+    with self.subTest('other_model_has_no_kwargs'):
+      evaluate_rag_lib.evaluate_rag(
+          dataset_name='ds',
+          output=self.create_tempdir().full_path,
+          metric_functions={},
+          generate_model_name='some-other-model',
+      )
+      config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
+      self.assertEqual(config.model_name, 'some-other-model')
+      self.assertEqual(config.kwargs, {})
+    with self.subTest('explicit_kwargs_replace_defaults'):
+      high_thinking = {
+          'chat_kwargs': {'thinking_config': {'thinking_level': 'HIGH'}}
+      }
+      evaluate_rag_lib.evaluate_rag(
+          dataset_name='ds',
+          output=self.create_tempdir().full_path,
+          metric_functions={},
+          generate_backend_kwargs=high_thinking,
+      )
+      config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
+      self.assertEqual(
+          config.model_name, rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
+      )
+      self.assertEqual(config.kwargs, high_thinking)
 
 if __name__ == '__main__':
   absltest.main()

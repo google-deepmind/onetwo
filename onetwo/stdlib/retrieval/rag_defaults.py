@@ -23,6 +23,8 @@ Defaults specific to one index or chunker (e.g. chunk size or searcher) are the
 defaults of its class.
 """
 
+from typing import Any
+
 from onetwo.backends import backend_registry
 
 # Embedding model used to build and query embedding-based indexes.
@@ -56,7 +58,18 @@ DEFAULT_INDEX_GENERATE_BACKEND_KWARGS = {
 # TODO: Decide whether index building and evaluation should use
 # the same default generation model.
 DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
-DEFAULT_QA_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
+DEFAULT_QA_GENERATE_MODEL_NAME = 'gemini-4-hydrogen'
+# Constructor kwargs of the default `GoogleGenAIAPI` QA backend, with medium
+# thinking for every call made by the QA strategies: `llm.chat` and
+# `llm.generate_object` (e.g. `rag`), and `llm.generate_with_tools`
+# (`agentic_retrieval`). Only applied with the default QA model, since other
+# models may not support the same thinking levels.
+_MEDIUM_THINKING = {'thinking_config': {'thinking_level': 'MEDIUM'}}
+DEFAULT_QA_GENERATE_BACKEND_KWARGS = {
+    'chat_kwargs': _MEDIUM_THINKING,
+    'generate_object_kwargs': _MEDIUM_THINKING,
+    'generate_with_tools_kwargs': _MEDIUM_THINKING,
+}
 DEFAULT_AI_RATER_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
 
 # Backend request settings applied by `rag.build_index` (and its command-line
@@ -94,3 +107,17 @@ def default_index_generate_backend_config() -> (
       model_name=DEFAULT_INDEX_GENERATE_MODEL_NAME,
       kwargs=DEFAULT_INDEX_GENERATE_BACKEND_KWARGS,
   )
+
+
+def qa_generate_backend_kwargs(model_name: str) -> dict[str, Any]:
+  """Returns the default constructor kwargs of the QA backend of `model_name`.
+
+  These are `DEFAULT_QA_GENERATE_BACKEND_KWARGS` (medium thinking) for the
+  default QA model, and no kwargs for any other model.
+
+  Args:
+    model_name: Name of the QA generation model.
+  """
+  if model_name == DEFAULT_QA_GENERATE_MODEL_NAME:
+    return dict(DEFAULT_QA_GENERATE_BACKEND_KWARGS)
+  return {}

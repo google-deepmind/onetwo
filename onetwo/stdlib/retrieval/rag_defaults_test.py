@@ -49,6 +49,23 @@ class RagDefaultsTest(absltest.TestCase):
         config, rag_defaults.default_index_generate_backend_config()
     )
 
+  def test_qa_generate_backend_kwargs(self):
+    medium_thinking = {'thinking_config': {'thinking_level': 'MEDIUM'}}
+    self.assertEqual(
+        rag_defaults.qa_generate_backend_kwargs(
+            rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
+        ),
+        {
+            'chat_kwargs': medium_thinking,
+            'generate_object_kwargs': medium_thinking,
+            'generate_with_tools_kwargs': medium_thinking,
+        },
+    )
+    # Other models may not support the same thinking levels.
+    self.assertEqual(
+        rag_defaults.qa_generate_backend_kwargs('some-other-model'), {}
+    )
+
   def test_default_tokenize_backend_config(self):
     config = rag_defaults.default_tokenize_backend_config()
     self.assertEqual(
