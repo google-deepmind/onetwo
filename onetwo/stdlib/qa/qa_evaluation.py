@@ -108,7 +108,7 @@ def evaluate_qa(
     if isinstance(index, str):
       if index:
         retriever = index_building.load_index(
-            index, runtime_kwargs=runtime_kwargs_dict
+            index, extra_backend_kwargs=runtime_kwargs_dict
         )
     else:
       retriever = index

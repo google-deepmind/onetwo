@@ -159,6 +159,8 @@ def _content_to_blocks(
   return blocks
 
 
+# TODO: Update the signature to match the one in
+# onetwo.stdlib.retrieval.mcp.mcp_server.
 def create_dual_modal_server(
     *,
     index_path: str,
@@ -203,7 +205,7 @@ def create_dual_modal_server(
 
   logging.info('Loading dual-modal index from: %s', index_path)
   dual_index = index_building.load_index(
-      index_path, runtime_kwargs=index_runtime_kwargs
+      index_path, extra_backend_kwargs=index_runtime_kwargs
   )
   if not isinstance(dual_index, indexing.DualModalDocumentIndex):
     raise TypeError(f'{index_path!r} is not a saved DualModalDocumentIndex.')

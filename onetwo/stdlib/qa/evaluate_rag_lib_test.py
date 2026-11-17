@@ -163,13 +163,13 @@ class GetResultsDirectoryTest(absltest.TestCase):
       self.assertTrue(cache_file.exists())
       self.assertIn('cache', mock_eval_qa.call_args.kwargs['runtime_kwargs'])
 
-  def test_get_default_runtime_kwargs(self):
+  def test_get_default_extra_backend_kwargs(self):
     self.assertEqual(
-        evaluate_rag_lib.get_default_runtime_kwargs(None),
+        evaluate_rag_lib.get_default_extra_backend_kwargs(None),
         {'max_retries': 5, 'http_options': {'timeout': 300000}},
     )
     self.assertEqual(
-        evaluate_rag_lib.get_default_runtime_kwargs(
+        evaluate_rag_lib.get_default_extra_backend_kwargs(
             {'max_retries': 1, 'http_options': {'timeout': 10}},
             max_retries=3,
             http_timeout_ms=100,
@@ -177,14 +177,14 @@ class GetResultsDirectoryTest(absltest.TestCase):
         {'max_retries': 1, 'http_options': {'timeout': 10}},
     )
     self.assertEqual(
-        evaluate_rag_lib.get_default_runtime_kwargs(
+        evaluate_rag_lib.get_default_extra_backend_kwargs(
             {'max_retries': 1, 'http_options': None}
         ),
         {'max_retries': 1},
     )
     runtime_kwargs = {'http_options': {'base_url': 'url'}}
     self.assertEqual(
-        evaluate_rag_lib.get_default_runtime_kwargs(
+        evaluate_rag_lib.get_default_extra_backend_kwargs(
             runtime_kwargs, max_retries=3, http_timeout_ms=100
         ),
         {'max_retries': 3, 'http_options': {'base_url': 'url', 'timeout': 100}},

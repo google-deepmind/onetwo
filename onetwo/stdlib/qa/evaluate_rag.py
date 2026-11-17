@@ -79,11 +79,12 @@ _AI_RATER_GENERATE_MODEL_NAME = flags.DEFINE_string(
     'Name of the generation model used by the AI rater (accuracy critic).',
 )
 
-_RUNTIME_KWARGS = flags.DEFINE_string(
-    'runtime_kwargs',
+_EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
+    'extra_backend_kwargs',
     '{}',
-    'JSON string containing runtime arguments for the backends (e.g. API key,'
-    ' project).',
+    'JSON string of extra keyword arguments for the constructors of the'
+    ' backends (e.g. an API key). Usually not needed: credentials are read from'
+    ' the environment (e.g. GOOGLE_API_KEY).',
     allow_override=True,
 )
 
@@ -93,7 +94,7 @@ _QA_STRATEGY_NAME = flags.DEFINE_string(
     'Name of the QA strategy to evaluate.',
 )
 
-# TODO: Consider combining with _RUNTIME_KWARGS.
+# TODO: Consider combining with _EXTRA_BACKEND_KWARGS.
 _QUERY_TIME_KWARGS = flags.DEFINE_string(
     'query_time_kwargs',
     '{"max_results": 20}',
@@ -122,7 +123,7 @@ _MAX_RETRIES = flags.DEFINE_integer(
     5,
     (
         'Maximum number of retries for backend requests. Ignored if set in'
-        ' --runtime_kwargs.'
+        ' --extra_backend_kwargs.'
     ),
 )
 
@@ -131,7 +132,7 @@ _HTTP_TIMEOUT = flags.DEFINE_integer(
     300000,
     (
         'HTTP timeout in milliseconds for backend requests (default: 5 mins).'
-        ' Ignored if set in --runtime_kwargs.'
+        ' Ignored if set in --extra_backend_kwargs.'
     ),
 )
 
@@ -178,8 +179,8 @@ def main(argv: Sequence[str]) -> None:
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),
       mcp_kwargs=json.loads(_MCP_KWARGS.value),
-      runtime_kwargs=evaluate_rag_lib.get_default_runtime_kwargs(
-          json.loads(_RUNTIME_KWARGS.value),
+      extra_backend_kwargs=evaluate_rag_lib.get_default_extra_backend_kwargs(
+          json.loads(_EXTRA_BACKEND_KWARGS.value),
           max_retries=_MAX_RETRIES.value,
           http_timeout_ms=_HTTP_TIMEOUT.value,
       ),

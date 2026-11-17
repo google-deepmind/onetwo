@@ -125,7 +125,7 @@ class ConfigSerializationTest(absltest.TestCase):
     index.save(index_dir)
     config_serialization.save_index_config(index, index_dir)
     loaded = index_building.load_index(
-        index_dir, runtime_kwargs={'api_key': 'secret'}
+        index_dir, extra_backend_kwargs={'api_key': 'secret'}
     )
 
     assert isinstance(loaded, indexing.RewritingEmbeddingBasedDocumentIndex)

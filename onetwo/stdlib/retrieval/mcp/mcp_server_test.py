@@ -609,21 +609,23 @@ class LoadIndexTest(absltest.TestCase):
     mock_load_index.assert_called_once()
     return mock_load_index.call_args
 
-  def test_loads_the_index_with_its_runtime_kwargs(self):
+  def test_loads_the_index_with_its_extra_backend_kwargs(self):
     call = self._create_server_and_get_load_index_call(
-        runtime_kwargs={'api_key': 'fake_key'}
+        extra_backend_kwargs={'api_key': 'fake_key'}
     )
 
     self.assertEqual(
         call,
-        mock.call('/fake/index/path', runtime_kwargs={'api_key': 'fake_key'}),
+        mock.call(
+            '/fake/index/path', extra_backend_kwargs={'api_key': 'fake_key'}
+        ),
     )
 
-  def test_runtime_kwargs_default_to_none(self):
+  def test_extra_backend_kwargs_default_to_none(self):
     call = self._create_server_and_get_load_index_call()
 
     self.assertEqual(
-        call, mock.call('/fake/index/path', runtime_kwargs=None)
+        call, mock.call('/fake/index/path', extra_backend_kwargs=None)
     )
 
 
@@ -652,11 +654,11 @@ class IndexObjectTest(absltest.TestCase):
     with self.subTest('serves_the_documents_of_the_index'):
       self.assertEqual('1002', json.loads(_text_of(result.content[0]))['docid'])
 
-  def test_runtime_kwargs_with_an_index_object_raise(self):
-    with self.assertRaisesRegex(ValueError, 'runtime_kwargs'):
+  def test_extra_backend_kwargs_with_an_index_object_raise(self):
+    with self.assertRaisesRegex(ValueError, 'extra_backend_kwargs'):
       mcp_server.create_server(
           _make_fake_index(_FAKE_DOCS),
-          runtime_kwargs={'api_key': 'fake_key'},
+          extra_backend_kwargs={'api_key': 'fake_key'},
           extra_mcp_config={'snippet_max_tokens': None},
       )
 
@@ -738,7 +740,7 @@ class StartMcpTest(absltest.TestCase):
         transport='streamable-http',
         host='::',
         port=1234,
-        runtime_kwargs={'api_key': 'fake_key'},
+        extra_backend_kwargs={'api_key': 'fake_key'},
         extra_mcp_config={'max_results': 3},
     )
 
@@ -747,7 +749,7 @@ class StartMcpTest(absltest.TestCase):
           '/fake/index/path',
           host='::',
           port=1234,
-          runtime_kwargs={'api_key': 'fake_key'},
+          extra_backend_kwargs={'api_key': 'fake_key'},
           extra_mcp_config={'max_results': 3},
       )
     with self.subTest('runs_it_with_the_transport'):

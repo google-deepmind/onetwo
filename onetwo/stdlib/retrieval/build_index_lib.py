@@ -82,18 +82,19 @@ def _corpus_name(corpus: str | datasets.DatasetLoader) -> str:
   return corpus.dataset_name or type(corpus).__name__
 
 
-def get_default_runtime_kwargs(
-    runtime_kwargs: Mapping[str, Any] | None,
+def get_default_extra_backend_kwargs(
+    extra_backend_kwargs: Mapping[str, Any] | None,
     *,
     max_retries: int = rag_defaults.DEFAULT_MAX_RETRIES,
     http_timeout_ms: int = rag_defaults.DEFAULT_HTTP_TIMEOUT_MS,
 ) -> dict[str, Any]:
-  """Returns `runtime_kwargs` with default backend request settings.
+  """Returns `extra_backend_kwargs` with default backend request settings.
 
-  Settings already in `runtime_kwargs` are kept. The input is not modified.
+  Settings already in `extra_backend_kwargs` are kept. The input is not
+  modified.
 
   Args:
-    runtime_kwargs: Arguments for backends (e.g. API key).
+    extra_backend_kwargs: Extra keyword arguments for the backends.
     max_retries: Maximum number of retries of backend requests, set as
       `'max_retries'` if absent.
     http_timeout_ms: HTTP timeout of backend requests in milliseconds, set as
@@ -101,9 +102,9 @@ def get_default_runtime_kwargs(
       absent, or as its `'timeout'` if `'http_options'` is a dict without one.
 
   Returns:
-    A new dict of runtime kwargs with the defaults applied.
+    A new dict of extra backend kwargs with the defaults applied.
   """
-  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  rt_kwargs = dict(extra_backend_kwargs) if extra_backend_kwargs else {}
   rt_kwargs.setdefault('max_retries', max_retries)
   http_options = rt_kwargs.get('http_options')
   if 'http_options' not in rt_kwargs:
@@ -121,7 +122,7 @@ def build_index(
     storage_format: serialization.StorageFormat = (
         serialization.StorageFormat.JSONL_NPY
     ),
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
 ) -> str:
   """Builds and saves a document index of the specified corpus.
 
@@ -154,13 +155,15 @@ def build_index(
       subdirectory `<corpus name>/<index_building.index_dir_name(index)>`.
     storage_format: How the index is saved on disk (see
       `serialization.StorageFormat`).
-    runtime_kwargs: Arguments for backends (e.g. API key), not saved with the
-      index. Any `runtime_kwargs` set on an index object are ignored. Backend
-      requests are retried up to `'max_retries'` times (default
-      `rag_defaults.DEFAULT_MAX_RETRIES`) and time out after `'http_options':
-      {'timeout': ...}` milliseconds (default
+    extra_backend_kwargs: Extra keyword arguments for the constructors of the
+      backends that this call creates (e.g. an API key). Not saved with the
+      index. Usually not needed: credentials are read from the environment (e.g.
+      `GOOGLE_API_KEY`). Not a stable part of the API. Any `runtime_kwargs` set
+      on an index object are ignored. Backend requests are retried up to
+      `'max_retries'` times (default `rag_defaults.DEFAULT_MAX_RETRIES`) and
+      time out after `'http_options': {'timeout': ...}` milliseconds (default
       `rag_defaults.DEFAULT_HTTP_TIMEOUT_MS`, also added to an `'http_options'`
-      dict without `'timeout'`). See `get_default_runtime_kwargs`.
+      dict without `'timeout'`). See `get_default_extra_backend_kwargs`.
 
   Returns:
     The output directory path where the index was saved.
@@ -170,7 +173,7 @@ def build_index(
       class of one of its components is not registered. Raised before the
       corpus is loaded.
   """
-  rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
+  rt_kwargs = get_default_extra_backend_kwargs(extra_backend_kwargs)
   if isinstance(index, str):
     index = _preset_index(IndexType(index))
 

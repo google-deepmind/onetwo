@@ -21,7 +21,7 @@ this directory for the server implementation.
 Example usage:
   python -m onetwo.stdlib.retrieval.mcp.mcp_server_main \
       --index_path=/path/to/index \
-      --runtime_kwargs='{"api_key": "YOUR_API_KEY"}' \
+      --extra_backend_kwargs='{"api_key": "YOUR_API_KEY"}' \
       --transport=streamable-http
 
 Clients then connect to http://localhost:8775/mcp.
@@ -74,12 +74,14 @@ _TRANSPORT = flags.DEFINE_enum(
     ' clients connect to via a URL (e.g. http://localhost:8775/mcp).',
 )
 
-_RUNTIME_KWARGS = flags.DEFINE_string(
-    'runtime_kwargs',
+_EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
+    'extra_backend_kwargs',
     None,
     (
-        'JSON-encoded dictionary of runtime kwargs of the loaded index (e.g.'
-        ' \'{"api_key": "YOUR_API_KEY"}\').'
+        'JSON-encoded dictionary of extra keyword arguments for the backends'
+        ' of the loaded index (e.g. \'{"api_key": "YOUR_API_KEY"}\'). Usually'
+        ' not needed: credentials are read from the environment (e.g.'
+        ' GOOGLE_API_KEY).'
     ),
 )
 
@@ -98,16 +100,16 @@ def main(argv: Sequence[str]) -> None:
   del argv
   transport = cast(Literal['stdio', 'streamable-http'], _TRANSPORT.value)
 
-  runtime_kwargs = None
-  if _RUNTIME_KWARGS.value:
-    runtime_kwargs = json.loads(_RUNTIME_KWARGS.value)
+  extra_backend_kwargs = None
+  if _EXTRA_BACKEND_KWARGS.value:
+    extra_backend_kwargs = json.loads(_EXTRA_BACKEND_KWARGS.value)
 
   mcp_server.start_mcp(
       _INDEX_PATH.value,
       transport=transport,
       host=_HOST.value,
       port=_PORT.value,
-      runtime_kwargs=runtime_kwargs,
+      extra_backend_kwargs=extra_backend_kwargs,
       extra_mcp_config={
           'max_results': _MAX_RESULTS.value,
           # A negative --snippet_max_tokens disables truncation.

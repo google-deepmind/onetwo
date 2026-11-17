@@ -68,7 +68,7 @@ class IndexBuildingTest(absltest.TestCase):
             index=self._embedding_index(), docs=_DOCS, output_dir=out_dir
         )
     )
-    loaded = index_building.load_index(out_dir, runtime_kwargs={'k': 'v'})
+    loaded = index_building.load_index(out_dir, extra_backend_kwargs={'k': 'v'})
 
     self.assertTrue(
         os.path.exists(
@@ -100,7 +100,7 @@ class IndexBuildingTest(absltest.TestCase):
     ot.run(index.add_docs(_DOCS))
     index.save(out_dir)
 
-    loaded = index_building.load_index(out_dir, runtime_kwargs={'k': 'v'})
+    loaded = index_building.load_index(out_dir, extra_backend_kwargs={'k': 'v'})
 
     assert isinstance(loaded, indexing.EmbeddingBasedDocumentIndex)
     self.assertEqual(loaded.runtime_kwargs, {'k': 'v'})

@@ -20,9 +20,10 @@ retrieval over an existing index.
 
 This module provides ``start_mcp``, which serves an index until the server is
 stopped, and ``create_server``, which only builds the server (e.g. to run it
-yourself or to test it).  Environment-specific settings (e.g. the embedding
-backend's credentials or cache) are passed via the ``runtime_kwargs``
-parameter. Advanced settings of the tools (e.g. the number of search hits) are
+yourself or to test it).  Extra keyword arguments for the index's backends
+(e.g. the embedding backend's credentials or cache) are passed via the
+``extra_backend_kwargs`` parameter. Advanced settings of the tools (e.g. the
+number of search hits) are
 passed via ``extra_mcp_config``, which is experimental and not part of the
 stable API.
 
@@ -157,7 +158,7 @@ def create_server(
     *,
     host: str = 'localhost',
     port: int = 8775,
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> server.FastMCP:
   """Creates and configures the OneTwo Index MCP server.
@@ -172,38 +173,40 @@ def create_server(
     host: Host/interface to bind the server on. Only used with
       ``transport='streamable-http'``.
     port: Port to listen on. Only used with ``transport='streamable-http'``.
-    runtime_kwargs: Runtime kwargs (e.g. the embedding backend's credentials or
-      cache) with which to load the index when ``index`` is a directory, see
-      ``index_building.load_index``. Must be None for an index object, which
-      already has its own.
+    extra_backend_kwargs: Extra keyword arguments for the constructors of the
+      backends that this call creates (e.g. an API key) when ``index`` is a
+      directory, see ``index_building.load_index``. Must be None for an index
+      object, which already has its backends. Usually not needed: credentials
+      are read from the environment (e.g. `GOOGLE_API_KEY`). Not a stable part
+      of the API.
     extra_mcp_config: Extra, advanced settings of the MCP tools, or None to use
-      the defaults. Unlike the other arguments, these settings
-      are NOT part of the stable API. They are still evolving, so keys may be
-      added, renamed or removed, and their meanings and defaults may change, in
-      any release and without notice. Most users should not need to set them.
-      Every key is optional (missing keys use their defaults), and unknown keys
-      raise a ``ValueError`` (rather than being ignored) so that typos and
-      removed keys fail loudly. Currently supported keys:
-      - ``'max_results'`` (``int``, default 5): number of hits returned by
-        ``search``.
-      - ``'snippet_max_tokens'`` (``int | None``, default 512): maximum number
-        of tokens of each text chunk of a ``search`` hit, or None to return the
-        full text. Media is never truncated, nor are ``get_document`` results.
-      - ``'tokenize_backend_config'`` (``TokenizeBackendConfig``, its dict, or
-        None): tokenizer used to truncate snippets. None (default) uses
-        ``rag_defaults.default_tokenize_backend_config()``.
+      the defaults. Unlike the other arguments, these settings are NOT part of
+      the stable API. They are still evolving, so keys may be added, renamed or
+      removed, and their meanings and defaults may change, in any release and
+      without notice. Most users should not need to set them. Every key is
+      optional (missing keys use their defaults), and unknown keys raise a
+      ``ValueError`` (rather than being ignored) so that typos and removed keys
+      fail loudly. Currently supported keys: - ``'max_results'`` (``int``,
+      default 5): number of hits returned by ``search``. -
+      ``'snippet_max_tokens'`` (``int | None``, default 512): maximum number of
+      tokens of each text chunk of a ``search`` hit, or None to return the full
+      text. Media is never truncated, nor are ``get_document`` results. -
+      ``'tokenize_backend_config'`` (``TokenizeBackendConfig``, its dict, or
+      None): tokenizer used to truncate snippets. None (default) uses
+      ``rag_defaults.default_tokenize_backend_config()``.
 
   Returns:
     A configured FastMCP server instance.
 
   Raises:
     ValueError: If ``extra_mcp_config`` has an unsupported key, or
-      ``runtime_kwargs`` is set for an index object.
+      ``extra_backend_kwargs`` is set for an index object.
   """
   config = _ExtraMcpConfig.from_mapping(extra_mcp_config)
-  if not isinstance(index, str) and runtime_kwargs is not None:
+  if not isinstance(index, str) and extra_backend_kwargs is not None:
     raise ValueError(
-        'runtime_kwargs are only used to load an index from a directory, not'
+        'extra_backend_kwargs are only used to load an index from a directory,'
+        ' not'
         f' with an index object ({type(index).__name__}).'
     )
 
@@ -213,7 +216,7 @@ def create_server(
   if isinstance(index, str):
     logging.info('Loading index from: %s', index)
     document_index = index_building.load_index(
-        index, runtime_kwargs=runtime_kwargs
+        index, extra_backend_kwargs=extra_backend_kwargs
     )
     logging.info(
         'Index loaded successfully. %d documents in the index.',
@@ -343,7 +346,7 @@ def start_mcp(
     transport: Literal['stdio', 'streamable-http'] = 'stdio',
     host: str = 'localhost',
     port: int = 8775,
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> None:
   """Serves the OneTwo Index MCP server until it is stopped.
@@ -362,7 +365,7 @@ def start_mcp(
     host: Host/interface to bind the server on. Only used with
       ``transport='streamable-http'``.
     port: Port to listen on. Only used with ``transport='streamable-http'``.
-    runtime_kwargs: See `create_server`.
+    extra_backend_kwargs: See `create_server`.
     extra_mcp_config: EXPERIMENTAL extra settings of the tools, see
       `create_server`.
   """
@@ -370,7 +373,7 @@ def start_mcp(
       index,
       host=host,
       port=port,
-      runtime_kwargs=runtime_kwargs,
+      extra_backend_kwargs=extra_backend_kwargs,
       extra_mcp_config=extra_mcp_config,
   )
   mcp.run(transport=transport)

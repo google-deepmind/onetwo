@@ -104,7 +104,7 @@ async def build_index(
 
 def load_index(
     index_directory: str,
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
 ) -> indexing.DocumentIndex:
   """Loads a saved index, whatever its type.
 
@@ -114,8 +114,10 @@ def load_index(
 
   Args:
     index_directory: Directory of the saved index.
-    runtime_kwargs: Environment-specific settings and credentials for the
-      index's backends (e.g. API key).
+    extra_backend_kwargs: Extra keyword arguments for the constructors of the
+      backends that this call creates (e.g. an API key). Usually not needed:
+      credentials are read from the environment (e.g. `GOOGLE_API_KEY`). Not a
+      stable part of the API.
 
   Returns:
     The loaded index.
@@ -127,7 +129,7 @@ def load_index(
     TypeError: If the saved config does not describe a `DocumentIndex`, or the
       index does not implement `load`.
   """
-  runtime_kwargs = dict(runtime_kwargs or {})
+  runtime_kwargs = dict(extra_backend_kwargs or {})
   if (
       epath.Path(index_directory) / config_serialization.INDEX_CONFIG_FILENAME
   ).exists():

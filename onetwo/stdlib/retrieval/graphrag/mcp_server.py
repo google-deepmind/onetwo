@@ -128,7 +128,7 @@ def unwrap_hipporag_index(
 
 def _load_index(
     index_path: str,
-    runtime_kwargs: Mapping[str, Any] | None,
+    extra_backend_kwargs: Mapping[str, Any] | None,
 ) -> indexing.HippoRAGDocumentIndex:
   """Loads a saved HippoRAG index (see `create_server`).
 
@@ -137,8 +137,8 @@ def _load_index(
 
   Args:
     index_path: Directory of the saved HippoRAG index.
-    runtime_kwargs: Runtime kwargs for the index and its embedding sub-indexes
-      (e.g. API keys or backend-specific settings).
+    extra_backend_kwargs: Extra keyword arguments for the backends of the index
+      and its embedding sub-indexes (e.g. an API key).
 
   Returns:
     The loaded `HippoRAGDocumentIndex`, unwrapped.
@@ -149,7 +149,7 @@ def _load_index(
   """
   logging.info('Loading GraphRAG index from: %s', index_path)
   return unwrap_hipporag_index(
-      index_building.load_index(index_path, dict(runtime_kwargs or {}))
+      index_building.load_index(index_path, dict(extra_backend_kwargs or {}))
   )
 
 
@@ -207,7 +207,7 @@ def create_server(
     *,
     host: str = 'localhost',
     port: int = 8775,
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> server.FastMCP:
   """Creates the GraphRAG MCP server for a HippoRAG index.
@@ -223,10 +223,12 @@ def create_server(
     host: Host/interface to bind the server on. Only used with
       ``transport='streamable-http'``.
     port: Port to listen on. Only used with ``transport='streamable-http'``.
-    runtime_kwargs: Runtime kwargs (e.g. API keys or backend-specific settings)
-      with which to load the index when ``index`` is a directory, see
-      ``index_building.load_index``. Must be None for an index object, which
-      already has its own.
+    extra_backend_kwargs: Extra keyword arguments for the constructors of the
+      backends that this call creates (e.g. an API key) when ``index`` is a
+      directory, see ``index_building.load_index``. Must be None for an index
+      object, which already has its backends. Usually not needed: credentials
+      are read from the environment (e.g. `GOOGLE_API_KEY`). Not a stable part
+      of the API.
     extra_mcp_config: Extra, advanced settings of the MCP tools, or None to use
       the defaults. Unlike the other arguments, these settings are NOT part of
       the stable API. They are still evolving, so keys may be added, renamed or
@@ -234,31 +236,31 @@ def create_server(
       without notice. Most users should not need to set them. Every key is
       optional (missing keys use their defaults), and unknown keys raise a
       ``ValueError`` (rather than being ignored) so that typos and removed keys
-      fail loudly. Currently supported keys:
-      - ``'snippet_max_tokens'`` (``int | None``, default 512): maximum length
-        of each text block of a snippet, in tokenizer tokens if
-        ``'tokenize_backend_config'`` is set and in whitespace-separated words
-        otherwise, or None to return the full text. Media is never truncated,
-        nor are ``get_document`` results.
-      - ``'tokenize_backend_config'`` (``TokenizeBackendConfig``, its dict, or
-        None): tokenizer used to truncate snippets. None (default) truncates
-        them by words.
+      fail loudly. Currently supported keys: - ``'snippet_max_tokens'`` (``int |
+      None``, default 512): maximum length of each text block of a snippet, in
+      tokenizer tokens if ``'tokenize_backend_config'`` is set and in
+      whitespace-separated words otherwise, or None to return the full text.
+      Media is never truncated, nor are ``get_document`` results. -
+      ``'tokenize_backend_config'`` (``TokenizeBackendConfig``, its dict, or
+      None): tokenizer used to truncate snippets. None (default) truncates them
+      by words.
 
   Returns:
     A configured FastMCP server instance.
 
   Raises:
     ValueError: If ``extra_mcp_config`` has an unsupported key, or
-      ``runtime_kwargs`` is set for an index object.
+      ``extra_backend_kwargs`` is set for an index object.
     TypeError: If the index is not a (possibly wrapped)
       ``HippoRAGDocumentIndex``.
   """
   config = _ExtraMcpConfig.from_mapping(extra_mcp_config)
   if isinstance(index, str):
-    hipporag_index = _load_index(index, runtime_kwargs)
-  elif runtime_kwargs is not None:
+    hipporag_index = _load_index(index, extra_backend_kwargs)
+  elif extra_backend_kwargs is not None:
     raise ValueError(
-        'runtime_kwargs are only used to load an index from a directory, not'
+        'extra_backend_kwargs are only used to load an index from a directory,'
+        ' not'
         f' with an index object ({type(index).__name__}).'
     )
   else:
@@ -747,7 +749,7 @@ def start_mcp(
     transport: Literal['stdio', 'streamable-http'] = 'stdio',
     host: str = 'localhost',
     port: int = 8775,
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
     extra_mcp_config: Mapping[str, Any] | None = None,
 ) -> None:
   """Serves the GraphRAG MCP server until it is stopped.
@@ -766,7 +768,7 @@ def start_mcp(
     host: Host/interface to bind the server on. Only used with
       ``transport='streamable-http'``.
     port: Port to listen on. Only used with ``transport='streamable-http'``.
-    runtime_kwargs: See `create_server`.
+    extra_backend_kwargs: See `create_server`.
     extra_mcp_config: EXPERIMENTAL extra settings of the tools, see
       `create_server`.
   """
@@ -774,7 +776,7 @@ def start_mcp(
       index,
       host=host,
       port=port,
-      runtime_kwargs=runtime_kwargs,
+      extra_backend_kwargs=extra_backend_kwargs,
       extra_mcp_config=extra_mcp_config,
   )
   mcp.run(transport=transport)

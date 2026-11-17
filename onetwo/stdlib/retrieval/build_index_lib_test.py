@@ -188,10 +188,10 @@ class BuildIndexLibTest(absltest.TestCase):
         datasets.get_dataset_loader(_DATASET_NAME),
         _custom_index(_SentenceChunker()),
         output=self.output_dir,
-        runtime_kwargs={'api_key': 'secret'},
+        extra_backend_kwargs={'api_key': 'secret'},
     )
     loaded = index_building.load_index(
-        out_dir, runtime_kwargs={'api_key': 'secret'}
+        out_dir, extra_backend_kwargs={'api_key': 'secret'}
     )
 
     with self.subTest('saves_index_config_without_credentials'):
@@ -358,19 +358,20 @@ class BuildIndexLibTest(absltest.TestCase):
     ):
       with self.subTest(name):
         self.assertEqual(
-            build_index_lib.get_default_runtime_kwargs(runtime_kwargs), expected
+            build_index_lib.get_default_extra_backend_kwargs(runtime_kwargs),
+            expected,
         )
 
   def test_with_request_defaults_custom_defaults(self):
     self.assertEqual(
-        build_index_lib.get_default_runtime_kwargs(
+        build_index_lib.get_default_extra_backend_kwargs(
             {'http_options': {}}, max_retries=3, http_timeout_ms=100
         ),
         {'max_retries': 3, 'http_options': {'timeout': 100}},
     )
     # Values set in `runtime_kwargs` take precedence over custom defaults.
     self.assertEqual(
-        build_index_lib.get_default_runtime_kwargs(
+        build_index_lib.get_default_extra_backend_kwargs(
             {'max_retries': 1, 'http_options': {'timeout': 10}},
             max_retries=3,
             http_timeout_ms=100,
@@ -382,7 +383,7 @@ class BuildIndexLibTest(absltest.TestCase):
     http_options = {'base_url': 'url'}
     runtime_kwargs = {'http_options': http_options}
 
-    build_index_lib.get_default_runtime_kwargs(runtime_kwargs)
+    build_index_lib.get_default_extra_backend_kwargs(runtime_kwargs)
 
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
     self.assertEqual(http_options, {'base_url': 'url'})
@@ -441,7 +442,7 @@ class BuildIndexLibTest(absltest.TestCase):
         self.assertIn(config_serialization.INDEX_CONFIG_FILENAME, files)
         self.assertEqual(index_building.load_index(out_dir).num_docs, 2)
 
-  def test_preset_gets_default_runtime_kwargs(self):
+  def test_preset_gets_default_extra_backend_kwargs(self):
     self._patch_preset_backends()
     from_config = self.enter_context(
         mock.patch.object(
@@ -454,7 +455,7 @@ class BuildIndexLibTest(absltest.TestCase):
     build_index_lib.build_index(
         datasets.get_dataset_loader(_DATASET_NAME),
         output=self.output_dir,
-        runtime_kwargs={'api_key': 'key'},
+        extra_backend_kwargs={'api_key': 'key'},
     )
 
     self.assertEqual(

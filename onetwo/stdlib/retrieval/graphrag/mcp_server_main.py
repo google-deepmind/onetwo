@@ -71,11 +71,12 @@ _HOST = flags.DEFINE_string(
     'Host/interface to bind the server on.',
 )
 
-_RUNTIME_KWARGS = flags.DEFINE_string(
-    'runtime_kwargs',
+_EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
+    'extra_backend_kwargs',
     None,
-    'Optional JSON-encoded dictionary of runtime kwargs passed to the index'
-    ' loader.',
+    'Optional JSON-encoded dictionary of extra keyword arguments for the'
+    ' backends of the loaded index (e.g. an API key). Usually not needed:'
+    ' credentials are read from the environment (e.g. GOOGLE_API_KEY).',
 )
 
 
@@ -86,8 +87,10 @@ def main(argv: Sequence[str]) -> None:
       transport=cast(Literal['stdio', 'streamable-http'], _TRANSPORT.value),
       host=_HOST.value,
       port=_PORT.value,
-      runtime_kwargs=(
-          json.loads(_RUNTIME_KWARGS.value) if _RUNTIME_KWARGS.value else None
+      extra_backend_kwargs=(
+          json.loads(_EXTRA_BACKEND_KWARGS.value)
+          if _EXTRA_BACKEND_KWARGS.value
+          else None
       ),
       extra_mcp_config={
           # A negative --snippet_max_tokens disables truncation.

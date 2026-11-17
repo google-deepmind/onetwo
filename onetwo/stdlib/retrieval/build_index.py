@@ -144,12 +144,14 @@ _TOKENIZE_MODEL_NAME = flags.DEFINE_string(
     'Name of the tokenizer model (when --chunker_type=tokens).',
 )
 
-_RUNTIME_KWARGS = flags.DEFINE_string(
-    'runtime_kwargs',
+_EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
+    'extra_backend_kwargs',
     '{}',
     (
-        'JSON string containing runtime arguments for the backend (e.g. API'
-        ' key, project).'
+        'JSON string of extra keyword arguments for the constructors of the'
+        ' backends (e.g. an API key, threadpool_size). Not saved with the'
+        ' index. Usually not needed: credentials are read from the environment'
+        ' (e.g. GOOGLE_API_KEY).'
     ),
     allow_override=True,
 )
@@ -170,7 +172,7 @@ _MAX_RETRIES = flags.DEFINE_integer(
     rag_defaults.DEFAULT_MAX_RETRIES,
     (
         'Maximum number of retries for backend requests. Ignored if'
-        ' --runtime_kwargs sets "max_retries".'
+        ' --extra_backend_kwargs sets "max_retries".'
     ),
 )
 
@@ -179,8 +181,8 @@ _HTTP_TIMEOUT = flags.DEFINE_integer(
     rag_defaults.DEFAULT_HTTP_TIMEOUT_MS,
     (
         'HTTP timeout in milliseconds for backend requests (default: 60s).'
-        ' Ignored if --runtime_kwargs sets "http_options" with a "timeout" (or'
-        ' an "http_options" that is not a dict).'
+        ' Ignored if --extra_backend_kwargs sets "http_options" with a'
+        ' "timeout" (or an "http_options" that is not a dict).'
     ),
 )
 
@@ -346,8 +348,8 @@ def main(argv: Sequence[str]) -> None:
       _index_from_flags(),
       output=_OUTPUT.value,
       storage_format=_STORAGE_FORMAT.value,
-      runtime_kwargs=build_index_lib.get_default_runtime_kwargs(
-          json.loads(_RUNTIME_KWARGS.value),
+      extra_backend_kwargs=build_index_lib.get_default_extra_backend_kwargs(
+          json.loads(_EXTRA_BACKEND_KWARGS.value),
           max_retries=_MAX_RETRIES.value,
           http_timeout_ms=_HTTP_TIMEOUT.value,
       ),

@@ -97,18 +97,19 @@ def get_results_directory(
   return epath.Path(index) / 'eval_results' / qa_strategy_name / run_name
 
 
-def get_default_runtime_kwargs(
-    runtime_kwargs: Mapping[str, Any] | None,
+def get_default_extra_backend_kwargs(
+    extra_backend_kwargs: Mapping[str, Any] | None,
     *,
     max_retries: int = 5,
     http_timeout_ms: int = 300000,
 ) -> dict[str, Any]:
-  """Returns `runtime_kwargs` with default backend request settings.
+  """Returns `extra_backend_kwargs` with default backend request settings.
 
-  Settings already in `runtime_kwargs` are kept. The input is not modified.
+  Settings already in `extra_backend_kwargs` are kept. The input is not
+  modified.
 
   Args:
-    runtime_kwargs: Arguments for backends (e.g. API key).
+    extra_backend_kwargs: Extra keyword arguments for the backends.
     max_retries: Maximum number of retries of backend requests, set as
       `'max_retries'` if absent.
     http_timeout_ms: HTTP timeout of backend requests in milliseconds, set as
@@ -117,9 +118,9 @@ def get_default_runtime_kwargs(
       If `'http_options'` is explicitly `None`, `'http_options'` is omitted.
 
   Returns:
-    A new dict of runtime kwargs with the defaults applied.
+    A new dict of extra backend kwargs with the defaults applied.
   """
-  rt_kwargs = dict(runtime_kwargs) if runtime_kwargs else {}
+  rt_kwargs = dict(extra_backend_kwargs) if extra_backend_kwargs else {}
   rt_kwargs.setdefault('max_retries', max_retries)
   http_options = rt_kwargs.get('http_options')
   if 'http_options' not in rt_kwargs:
@@ -134,7 +135,7 @@ def get_default_runtime_kwargs(
 def evaluate_rag(
     examples: str | datasets.DatasetLoader,
     output: str | None = None,
-    runtime_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
     index: str | indexing.DocumentIndex = '',
     generate_model_backend_class_name: str = (
         rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
@@ -159,9 +160,13 @@ def evaluate_rag(
     output: Base directory of the results (HTML report and cache), or None to
       save them in `index` when `index` is a directory (see
       `get_results_directory`).
-    runtime_kwargs: Runtime arguments for the backends (e.g. API key). Backend
-      requests default to 5 retries (`'max_retries'`) and a 300000 ms timeout
-      (`'http_options': {'timeout': ...}`); see `get_default_runtime_kwargs`.
+    extra_backend_kwargs: Extra keyword arguments for the constructors of the
+      backends that this call creates (e.g. an API key): those of the index, the
+      QA and AI rater generation backends, and `'cache'` if `cache` is set.
+      Usually not needed: credentials are read from the environment (e.g.
+      `GOOGLE_API_KEY`). Not a stable part of the API. Backend requests default
+      to 5 retries (`'max_retries'`) and a 300000 ms timeout (`'http_options':
+      {'timeout': ...}`); see `get_default_extra_backend_kwargs`.
     index: Directory of a saved index or a `DocumentIndex` object. Can only be
       `''` when `qa_strategy_name` is `'agentic_retrieval'` or `'closed_book'`.
     generate_model_backend_class_name: Generation backend class name.
@@ -202,7 +207,7 @@ def evaluate_rag(
       else {'max_results': 20}
   )
   mcp_kwargs = dict(mcp_kwargs) if mcp_kwargs else {}
-  rt_kwargs = get_default_runtime_kwargs(runtime_kwargs)
+  rt_kwargs = get_default_extra_backend_kwargs(extra_backend_kwargs)
 
   results_directory = get_results_directory(
       output=output,

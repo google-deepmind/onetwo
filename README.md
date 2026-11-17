@@ -120,7 +120,7 @@ from onetwo.evaluation import datasets
 index_dir = rag.build_index(
     corpus=datasets.get_dataset_loader('browsecomp_plus'),
     output='/tmp/onetwo_rag_index',
-    runtime_kwargs={'api_key': google_api_key},
+    extra_backend_kwargs={'api_key': google_api_key},
 )
 ```
 
@@ -139,7 +139,7 @@ summary = rag.evaluate(
     index=index_dir,
     output='/tmp/onetwo_rag_eval',
     query_time_kwargs={'max_results': 20},
-    runtime_kwargs={'api_key': google_api_key},
+    extra_backend_kwargs={'api_key': google_api_key},
 )
 ```
 

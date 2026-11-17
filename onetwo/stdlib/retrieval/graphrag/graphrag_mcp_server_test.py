@@ -350,7 +350,7 @@ class CreateServerTest(absltest.TestCase):
         return_value=rewriting_index,
     ) as mock_load_index:
       mcp_server.create_server(
-          '/path/to/index', runtime_kwargs={'api_key': 'key'}
+          '/path/to/index', extra_backend_kwargs={'api_key': 'key'}
       )
 
     mock_load_index.assert_called_once_with(
@@ -371,10 +371,11 @@ class CreateServerTest(absltest.TestCase):
     with self.assertRaisesRegex(TypeError, 'but got a NaiveIndex.'):
       mcp_server.create_server(indexing_lib.NaiveIndex())
 
-  def test_runtime_kwargs_with_index_object_raise(self):
-    with self.assertRaisesRegex(ValueError, 'runtime_kwargs'):
+  def test_extra_backend_kwargs_with_index_object_raise(self):
+    with self.assertRaisesRegex(ValueError, 'extra_backend_kwargs'):
       mcp_server.create_server(
-          indexing.HippoRAGDocumentIndex(), runtime_kwargs={'api_key': 'key'}
+          indexing.HippoRAGDocumentIndex(),
+          extra_backend_kwargs={'api_key': 'key'},
       )
 
   def test_unknown_extra_mcp_config_key_raises(self):
@@ -428,7 +429,7 @@ class StartMcpTest(absltest.TestCase):
         transport='streamable-http',
         host='::',
         port=1234,
-        runtime_kwargs={'api_key': 'key'},
+        extra_backend_kwargs={'api_key': 'key'},
         extra_mcp_config={'snippet_max_tokens': 64},
     )
 
@@ -437,7 +438,7 @@ class StartMcpTest(absltest.TestCase):
           '/path/to/index',
           host='::',
           port=1234,
-          runtime_kwargs={'api_key': 'key'},
+          extra_backend_kwargs={'api_key': 'key'},
           extra_mcp_config={'snippet_max_tokens': 64},
       )
     with self.subTest('runs_it_with_the_transport'):

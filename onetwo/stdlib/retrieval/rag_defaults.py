@@ -73,9 +73,9 @@ DEFAULT_QA_GENERATE_BACKEND_KWARGS = {
 DEFAULT_AI_RATER_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
 
 # Backend request settings applied by `rag.build_index` (and its command-line
-# tool) unless set in its `runtime_kwargs`: the maximum number of retries
-# (`runtime_kwargs['max_retries']`) and the HTTP timeout in milliseconds
-# (`runtime_kwargs['http_options']['timeout']`).
+# tool) unless set in its `extra_backend_kwargs`: the maximum number of retries
+# (`extra_backend_kwargs['max_retries']`) and the HTTP timeout in milliseconds
+# (`extra_backend_kwargs['http_options']['timeout']`).
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_HTTP_TIMEOUT_MS = 60_000
 
