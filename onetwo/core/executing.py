@@ -1478,17 +1478,18 @@ class ParallelExecutable(Executable[Sequence[Any]]):
 
   async def _producer_wrapper(self):
     """Wrapper around producer to catch exception and manage queue."""
-    try:
-      for i, executable in enumerate(self.iterable):
-        if executable is None:
-          raise ValueError(
-              'The iterable passed to `par_iter` should not contain `None`.'
-          )
-        await self.queue.put((i, executable))
-    finally:
-      # Add sentinels to the queue to signal workers to exit.
-      for _ in range(self.chunk_size):
-        await self.queue.put((-1, None))
+    for i, executable in enumerate(self.iterable):
+      if executable is None:
+        raise ValueError(
+            'The iterable passed to `par_iter` should not contain `None`.'
+        )
+      await self.queue.put((i, executable))
+    # Add sentinels to the queue to signal workers to exit. This is skipped if
+    # the producer fails or is cancelled: the workers are then cancelled too
+    # (see `_aexec_internal`), and nothing would take the sentinels from the
+    # (bounded) queue, so putting them would block forever.
+    for _ in range(self.chunk_size):
+      await self.queue.put((-1, None))
 
   async def _aexec(self) -> Sequence[Any]:
     total = self.total
@@ -1546,7 +1547,17 @@ class ParallelExecutable(Executable[Sequence[Any]]):
     ]
     producer_task = asyncio.create_task(self._producer_wrapper())
 
-    await asyncio.gather(producer_task, *workers)
+    tasks = [producer_task, *workers]
+    try:
+      await asyncio.gather(*tasks)
+    except BaseException:
+      # A worker or the producer raised (or we were cancelled): cancel the
+      # other tasks and wait for them, so that none is left running or blocked
+      # on the queue.
+      for task in tasks:
+        task.cancel()
+      await asyncio.gather(*tasks, return_exceptions=True)
+      raise
 
     if not self.results_dict:
       return []

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator, Sequence
+import concurrent.futures
 import copy
 import pprint
 import time
@@ -1204,6 +1205,34 @@ class ExecutionTest(parameterized.TestCase):
         raise res[1]  # pyrefly: ignore[unsupported-operation]
       with self.subTest('should_have_traceback_in_notes'):
         self.assertIn('in compute', res[1].__notes__[0])  # pyrefly: ignore[unsupported-operation]
+
+  @parameterized.named_parameters(
+      ('list', list),
+      ('iterator', iter),
+  )
+  def test_par_iter_slow_path_raises_without_hanging(self, make_iterable):
+    # With more executables than `chunk_size`, `par_iter` uses its bounded
+    # queue of workers. An executable that raises used to block the producer
+    # forever on the full queue while the workers were cancelled.
+    @executing.make_executable
+    async def compute(i: int) -> int:
+      await asyncio.sleep(0.001)
+      if i == 7:
+        raise ValueError('Some error')
+      return i
+
+    executable = executing.par_iter(
+        make_iterable([compute(i) for i in range(100)]), chunk_size=5
+    )
+    # Runs in a thread so that a regression fails the test instead of hanging
+    # (hence also `wait=False`, to not wait for a hanging thread).
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+      future = pool.submit(executing.run, executable)
+      with self.assertRaisesRegex(ValueError, 'Some error'):
+        future.result(timeout=30)
+    finally:
+      pool.shutdown(wait=False)
 
   def test_chain_with_iterate_argument(self):
     @executing.make_executable(iterate_argument='prefix')
