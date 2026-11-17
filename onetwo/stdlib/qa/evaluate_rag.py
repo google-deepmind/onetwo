@@ -20,13 +20,14 @@ from typing import Sequence
 
 from absl import app
 from absl import flags
+from onetwo.evaluation import datasets
 from onetwo.stdlib.qa import evaluate_rag_lib
 from onetwo.stdlib.retrieval import rag_defaults
 
-_DATASET_NAME = flags.DEFINE_string(
-    'dataset_name',
+_EXAMPLES = flags.DEFINE_string(
+    'examples',
     'browsecomp_plus',
-    'Name of the dataset to load from the registry.',
+    'Registered dataset name or path to a .jsonl/.json examples file.',
     allow_override=True,
 )
 
@@ -110,7 +111,10 @@ _MCP_KWARGS = flags.DEFINE_string(
 _MAX_EXAMPLES = flags.DEFINE_integer(
     'max_examples',
     None,
-    'Maximum number of examples to evaluate.',
+    (
+        'Maximum number of examples to evaluate (registered datasets only;'
+        ' raises an error when --examples is a file path).'
+    ),
 )
 
 _MAX_RETRIES = flags.DEFINE_integer(
@@ -139,12 +143,28 @@ _CACHE_RESULTS = flags.DEFINE_bool(
 )
 
 
+def _examples_from_flag(
+    value: str, max_examples: int | None
+) -> str | datasets.DatasetLoader:
+  """Resolves --examples to a registered DatasetLoader or file path."""
+  registered = datasets.list_dataset_loaders()
+  if value in registered:
+    return datasets.get_dataset_loader(
+        value, max_number_of_examples=max_examples
+    )
+  if max_examples is not None:
+    raise app.UsageError(
+        f'--max_examples only applies to registered datasets ({registered}).'
+    )
+  return value
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
   evaluate_rag_lib.evaluate_rag(
-      dataset_name=_DATASET_NAME.value,
+      examples=_examples_from_flag(_EXAMPLES.value, _MAX_EXAMPLES.value),
       index=_INDEX.value or '',
       output=_OUTPUT.value or None,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
@@ -163,7 +183,6 @@ def main(argv: Sequence[str]) -> None:
           max_retries=_MAX_RETRIES.value,
           http_timeout_ms=_HTTP_TIMEOUT.value,
       ),
-      max_examples=_MAX_EXAMPLES.value,
       cache=_CACHE_RESULTS.value,
   )
 

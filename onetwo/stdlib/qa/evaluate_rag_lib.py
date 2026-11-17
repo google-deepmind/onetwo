@@ -21,6 +21,7 @@ from typing import Any
 from etils import epath
 from onetwo.backends import backend_registry
 from onetwo.core import caching
+from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.evaluation import rag_metrics
@@ -28,6 +29,25 @@ from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import qa_spec
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
+
+
+def _examples_name(examples: str | datasets.DatasetLoader) -> str:
+  """Returns the name of `examples`, used in the results directory path."""
+  if isinstance(examples, str):
+    return epath.Path(examples).stem
+  return examples.dataset_name or type(examples).__name__
+
+
+def _load_examples(
+    examples: str | datasets.DatasetLoader,
+) -> list[dict[str, Any]]:
+  """Loads examples from a file path or `DatasetLoader`."""
+  print(f'Loading examples ({_examples_name(examples)})...')
+  if isinstance(examples, str):
+    examples = datasets.JsonlDatasetLoader(examples_path=examples)
+  loaded = [dict(ex) for ex in ot_executing.run(examples.load_examples())]
+  print(f'Loaded {len(loaded)} examples.')
+  return loaded
 
 
 def get_results_directory(
@@ -112,7 +132,7 @@ def get_default_runtime_kwargs(
 
 
 def evaluate_rag(
-    dataset_name: str,
+    examples: str | datasets.DatasetLoader,
     output: str | None = None,
     runtime_kwargs: Mapping[str, Any] | None = None,
     index: str | indexing.DocumentIndex = '',
@@ -127,14 +147,15 @@ def evaluate_rag(
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | None = None,
     mcp_kwargs: Mapping[str, Any] | None = None,
-    max_examples: int | None = 5,
     metric_functions: Mapping[str, Any] | None = None,
     cache: bool = False,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
   Args:
-    dataset_name: Name of the dataset to load from the registry.
+    examples: Path to a `.jsonl` or `.json` examples file, or a
+      `datasets.DatasetLoader` (e.g.
+      `datasets.get_dataset_loader(name, max_number_of_examples=N)`).
     output: Base directory of the results (HTML report and cache), or None to
       save them in `index` when `index` is a directory (see
       `get_results_directory`).
@@ -156,7 +177,6 @@ def evaluate_rag(
       to `{'max_results': 20}`.
     mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
       `mcp_server_urls`, a comma-separated list of MCP server URLs.
-    max_examples: Max examples to evaluate.
     metric_functions: Optional mapping of metric names to metric functions. When
       None, defaults to `rag_metrics.get_default_rag_metrics()`.
     cache: Whether to cache LLM calls in `<results directory>/cache.json` and
@@ -187,7 +207,7 @@ def evaluate_rag(
   results_directory = get_results_directory(
       output=output,
       index=index,
-      dataset_name=dataset_name,
+      dataset_name=_examples_name(examples),
       qa_strategy_name=qa_strategy_name,
       generate_model_name=generate_model_name,
       max_results=q_time_kwargs.get('max_results', 20),
@@ -229,13 +249,7 @@ def evaluate_rag(
       mcp_kwargs=mcp_kwargs,
   )
 
-  # 2. Load Dataset Examples
-  print(f'Loading dataset {dataset_name}...')
-  examples = datasets.load_examples(
-      dataset_name=dataset_name,
-      max_number_of_examples=max_examples,
-  )
-  print(f'Loaded {len(examples)} examples.')
+  dict_examples = _load_examples(examples)
 
   if metric_functions is None:
     metric_functions = rag_metrics.get_default_rag_metrics(
@@ -246,7 +260,6 @@ def evaluate_rag(
     )
 
   print('Running evaluation...')
-  dict_examples = [dict(ex) for ex in examples]
   summary = qa_evaluation.evaluate_qa(
       rag_spec=spec,
       examples=dict_examples,

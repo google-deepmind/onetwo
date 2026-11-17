@@ -16,12 +16,21 @@ from unittest import mock
 
 from absl.testing import absltest
 from etils import epath
+from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.stdlib.qa import evaluate_rag_lib
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
+
+
+class _CustomLoader(datasets.DatasetLoader):
+  """An unregistered dataset loader."""
+
+  @ot_executing.make_executable
+  async def load_examples(self):
+    return [{'question': 'q1', 'answer': 'a1', 'metadata': {}}]
 
 
 class GetResultsDirectoryTest(absltest.TestCase):
@@ -70,22 +79,70 @@ class GetResultsDirectoryTest(absltest.TestCase):
               )
           )
 
+  def test_examples_name(self):
+    custom_with_name = _CustomLoader()
+    custom_with_name.dataset_name = 'my_examples'
+    for examples, expected_name in (
+        (
+            datasets.get_dataset_loader('hotpotqa_validation'),
+            'hotpotqa_validation',
+        ),
+        (_CustomLoader(), '_CustomLoader'),
+        (custom_with_name, 'my_examples'),
+        ('/some/path/my_examples.jsonl', 'my_examples'),
+        ('relative/my_examples.json', 'my_examples'),
+    ):
+      with self.subTest(expected_name):
+        self.assertEqual(
+            evaluate_rag_lib._examples_name(examples), expected_name
+        )
+
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  @mock.patch.object(
-      datasets, 'load_examples', return_value=[{'question': 'q'}]
-  )
-  def test_evaluate_rag_cache(self, _, mock_eval_qa):
+  def test_evaluate_rag_loads_from_path(self, mock_eval_qa):
     mock_eval_qa.return_value = results.EvaluationSummary()
+    examples_file = self.create_tempdir().create_file(
+        'custom_qa.jsonl',
+        content='{"question": "q1", "answer": "a1"}\n',
+    )
     out_dir = self.create_tempdir().full_path
-    cache_file = epath.Path(out_dir) / 'ds/rag/m__max_results_20/cache.json'
 
     evaluate_rag_lib.evaluate_rag(
-        dataset_name='ds',
+        examples=examples_file.full_path,
+        output=out_dir,
+        index='/idx',
+        generate_model_name='m',
+        metric_functions={},
+    )
+
+    self.assertEqual(
+        mock_eval_qa.call_args.kwargs['examples'],
+        [{'question': 'q1', 'answer': 'a1', 'metadata': {}}],
+    )
+    self.assertTrue(
+        (
+            epath.Path(out_dir) / 'custom_qa/rag/m__max_results_20/results.html'
+        ).exists()
+    )
+
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  def test_evaluate_rag_cache(self, mock_eval_qa):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    out_dir = self.create_tempdir().full_path
+    cache_file = (
+        epath.Path(out_dir) / '_CustomLoader/rag/m__max_results_20/cache.json'
+    )
+
+    evaluate_rag_lib.evaluate_rag(
+        examples=_CustomLoader(),
         output=out_dir,
         index='/idx',
         generate_model_name='m',
         metric_functions={},
         cache=False,
+    )
+    self.assertEqual(
+        mock_eval_qa.call_args.kwargs['examples'],
+        [{'question': 'q1', 'answer': 'a1', 'metadata': {}}],
     )
     self.assertFalse(cache_file.exists())
     self.assertEqual(
@@ -96,7 +153,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     # First run with cache=True creates cache.json; second run loads it.
     for _ in range(2):
       evaluate_rag_lib.evaluate_rag(
-          dataset_name='ds',
+          examples=_CustomLoader(),
           output=out_dir,
           index='/idx',
           generate_model_name='m',
@@ -135,13 +192,10 @@ class GetResultsDirectoryTest(absltest.TestCase):
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
 
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  @mock.patch.object(
-      datasets, 'load_examples', return_value=[{'question': 'q'}]
-  )
-  def test_evaluate_rag_default_metrics(self, _, mock_eval_qa):
+  def test_evaluate_rag_default_metrics(self, mock_eval_qa):
     mock_eval_qa.return_value = results.EvaluationSummary()
     evaluate_rag_lib.evaluate_rag(
-        dataset_name='ds',
+        examples=_CustomLoader(),
         output=self.create_tempdir().full_path,
         index='/idx',
         qa_strategy_name='retrieval_only',
@@ -162,15 +216,12 @@ class GetResultsDirectoryTest(absltest.TestCase):
     )
 
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  @mock.patch.object(
-      datasets, 'load_examples', return_value=[{'question': 'q'}]
-  )
-  def test_evaluate_rag_generate_backend_config(self, _, mock_eval_qa):
+  def test_evaluate_rag_generate_backend_config(self, mock_eval_qa):
     mock_eval_qa.return_value = results.EvaluationSummary()
     # No metrics, so that no AI rater backend (needing an API key) is built.
     with self.subTest('default_model_uses_default_kwargs'):
       evaluate_rag_lib.evaluate_rag(
-          dataset_name='ds',
+          examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index='/idx',
           metric_functions={},
@@ -184,7 +235,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
       )
     with self.subTest('other_model_has_no_kwargs'):
       evaluate_rag_lib.evaluate_rag(
-          dataset_name='ds',
+          examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index='/idx',
           metric_functions={},
@@ -198,7 +249,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
           'chat_kwargs': {'thinking_config': {'thinking_level': 'HIGH'}}
       }
       evaluate_rag_lib.evaluate_rag(
-          dataset_name='ds',
+          examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index='/idx',
           metric_functions={},
@@ -212,17 +263,12 @@ class GetResultsDirectoryTest(absltest.TestCase):
 
   @mock.patch.object(qa_evaluation, 'save_html_report')
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  @mock.patch.object(
-      datasets, 'load_examples', return_value=[{'question': 'q'}]
-  )
-  def test_evaluate_rag_with_index_object(
-      self, _, mock_eval_qa, mock_save_html
-  ):
+  def test_evaluate_rag_with_index_object(self, mock_eval_qa, mock_save_html):
     mock_eval_qa.return_value = results.EvaluationSummary()
     index = indexing.EmptyIndex()
     with self.assertLogs(level='WARNING'):
       evaluate_rag_lib.evaluate_rag(
-          dataset_name='ds',
+          examples=_CustomLoader(),
           output=None,
           index=index,
           metric_functions={},
@@ -232,7 +278,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
 
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
   @mock.patch.object(
-      datasets, 'load_examples', return_value=[{'question': 'q'}]
+      evaluate_rag_lib, '_load_examples', return_value=[{'question': 'q'}]
   )
   def test_evaluate_rag_empty_index_validation(
       self, mock_load_examples, mock_eval_qa
@@ -244,14 +290,16 @@ class GetResultsDirectoryTest(absltest.TestCase):
       with self.subTest(strategy=strategy):
         with self.assertRaisesRegex(ValueError, 'index must be provided'):
           evaluate_rag_lib.evaluate_rag(
-              dataset_name='ds', output=out_dir, qa_strategy_name=strategy
+              examples=_CustomLoader(),
+              output=out_dir,
+              qa_strategy_name=strategy,
           )
     mock_load_examples.assert_not_called()
 
     for strategy in ('agentic_retrieval', 'closed_book'):
       with self.subTest(strategy=strategy):
         evaluate_rag_lib.evaluate_rag(
-            dataset_name='ds',
+            examples=_CustomLoader(),
             output=out_dir,
             qa_strategy_name=strategy,
             metric_functions={},

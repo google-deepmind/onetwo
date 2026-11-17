@@ -135,7 +135,7 @@ until it has collected enough evidence to answer.
 ```python
 # 2. Serve the index and evaluate RAG performance
 summary = rag.evaluate(
-    dataset_name='browsecomp_plus',
+    examples=datasets.get_dataset_loader('browsecomp_plus'),
     index=index_dir,
     output='/tmp/onetwo_rag_eval',
     query_time_kwargs={'max_results': 20},
