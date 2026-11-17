@@ -15,11 +15,14 @@
 """Tests for how `qa_evaluation` builds the strategy it evaluates."""
 
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import qa_evaluation
+from onetwo.stdlib.qa import qa_spec
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.tool_use import llm_tool_use
 
 
@@ -72,6 +75,20 @@ class AgenticRetrievalStrategyTest(parameterized.TestCase):
       )
     with self.subTest('forwards_other_kwargs'):
       self.assertEqual(strategy.max_steps, 7)
+
+  def test_evaluate_qa_uses_index_object_without_loading(self):
+    mock_load_index = self.enter_context(
+        mock.patch.object(qa_evaluation.index_building, 'load_index')
+    )
+    index = indexing.EmptyIndex()
+    summary = qa_evaluation.evaluate_qa(
+        rag_spec=qa_spec.QAStrategySpec(qa_strategy_name='retrieval_only'),
+        examples=[{'question': 'What is OneTwo?', 'answer': 'A library'}],
+        metric_functions={},
+        index=index,
+    )
+    mock_load_index.assert_not_called()
+    self.assertEqual(summary.counters['total_count'], 1)
 
 
 if __name__ == '__main__':

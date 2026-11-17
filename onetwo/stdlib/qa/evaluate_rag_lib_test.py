@@ -20,6 +20,7 @@ from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.stdlib.qa import evaluate_rag_lib
 from onetwo.stdlib.qa import qa_evaluation
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 
 
@@ -29,7 +30,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     self.assertEqual(
         evaluate_rag_lib.get_results_directory(
             output=None,
-            index_directory='/indexes/browsecomp_plus/my_index',
+            index='/indexes/browsecomp_plus/my_index',
             dataset_name='browsecomp_plus',
             qa_strategy_name='rag',
             generate_model_name='gemini',
@@ -45,7 +46,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     self.assertEqual(
         evaluate_rag_lib.get_results_directory(
             output='/results',
-            index_directory='/indexes/browsecomp_plus/my_index',
+            index='/indexes/browsecomp_plus/my_index',
             dataset_name='browsecomp_plus',
             qa_strategy_name='rag',
             generate_model_name='gemini',
@@ -54,16 +55,20 @@ class GetResultsDirectoryTest(absltest.TestCase):
         epath.Path('/results/browsecomp_plus/rag/gemini__max_results_20'),
     )
 
-  def test_without_directories_raises(self):
-    with self.assertRaisesRegex(ValueError, 'output'):
-      evaluate_rag_lib.get_results_directory(
-          output=None,
-          index_directory='',
-          dataset_name='browsecomp_plus',
-          qa_strategy_name='rag',
-          generate_model_name='gemini',
-          max_results=20,
-      )
+  def test_without_directories_returns_none_and_warns(self):
+    for index in ('', indexing.EmptyIndex()):
+      with self.subTest(index=index):
+        with self.assertLogs(level='WARNING'):
+          self.assertIsNone(
+              evaluate_rag_lib.get_results_directory(
+                  output=None,
+                  index=index,
+                  dataset_name='browsecomp_plus',
+                  qa_strategy_name='rag',
+                  generate_model_name='gemini',
+                  max_results=20,
+              )
+          )
 
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
   @mock.patch.object(
@@ -77,6 +82,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     evaluate_rag_lib.evaluate_rag(
         dataset_name='ds',
         output=out_dir,
+        index='/idx',
         generate_model_name='m',
         metric_functions={},
         cache=False,
@@ -92,6 +98,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
       evaluate_rag_lib.evaluate_rag(
           dataset_name='ds',
           output=out_dir,
+          index='/idx',
           generate_model_name='m',
           metric_functions={},
           cache=True,
@@ -136,6 +143,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     evaluate_rag_lib.evaluate_rag(
         dataset_name='ds',
         output=self.create_tempdir().full_path,
+        index='/idx',
         qa_strategy_name='retrieval_only',
         query_time_kwargs={'max_results': 50},
     )
@@ -164,6 +172,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
       evaluate_rag_lib.evaluate_rag(
           dataset_name='ds',
           output=self.create_tempdir().full_path,
+          index='/idx',
           metric_functions={},
       )
       config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
@@ -177,6 +186,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
       evaluate_rag_lib.evaluate_rag(
           dataset_name='ds',
           output=self.create_tempdir().full_path,
+          index='/idx',
           metric_functions={},
           generate_model_name='some-other-model',
       )
@@ -190,6 +200,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
       evaluate_rag_lib.evaluate_rag(
           dataset_name='ds',
           output=self.create_tempdir().full_path,
+          index='/idx',
           metric_functions={},
           generate_backend_kwargs=high_thinking,
       )
@@ -199,5 +210,52 @@ class GetResultsDirectoryTest(absltest.TestCase):
       )
       self.assertEqual(config.kwargs, high_thinking)
 
+  @mock.patch.object(qa_evaluation, 'save_html_report')
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  @mock.patch.object(
+      datasets, 'load_examples', return_value=[{'question': 'q'}]
+  )
+  def test_evaluate_rag_with_index_object(
+      self, _, mock_eval_qa, mock_save_html
+  ):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    index = indexing.EmptyIndex()
+    with self.assertLogs(level='WARNING'):
+      evaluate_rag_lib.evaluate_rag(
+          dataset_name='ds',
+          output=None,
+          index=index,
+          metric_functions={},
+      )
+    self.assertIs(mock_eval_qa.call_args.kwargs['index'], index)
+    mock_save_html.assert_not_called()
+
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  @mock.patch.object(
+      datasets, 'load_examples', return_value=[{'question': 'q'}]
+  )
+  def test_evaluate_rag_empty_index_validation(
+      self, mock_load_examples, mock_eval_qa
+  ):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    out_dir = self.create_tempdir().full_path
+
+    for strategy in ('rag', 'retrieval_only'):
+      with self.subTest(strategy=strategy):
+        with self.assertRaisesRegex(ValueError, 'index must be provided'):
+          evaluate_rag_lib.evaluate_rag(
+              dataset_name='ds', output=out_dir, qa_strategy_name=strategy
+          )
+    mock_load_examples.assert_not_called()
+
+    for strategy in ('agentic_retrieval', 'closed_book'):
+      with self.subTest(strategy=strategy):
+        evaluate_rag_lib.evaluate_rag(
+            dataset_name='ds',
+            output=out_dir,
+            qa_strategy_name=strategy,
+            metric_functions={},
+        )
+    self.assertEqual(mock_eval_qa.call_count, 2)
 if __name__ == '__main__':
   absltest.main()

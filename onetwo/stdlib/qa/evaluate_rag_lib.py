@@ -15,6 +15,7 @@
 """Library to evaluate a RAG strategy on a QA dataset."""
 
 from collections.abc import Mapping
+import logging
 from typing import Any
 
 from etils import epath
@@ -25,37 +26,37 @@ from onetwo.evaluation import datasets
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import qa_spec
+from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 
 
 def get_results_directory(
     *,
     output: str | epath.Path | None,
-    index_directory: str | epath.Path,
+    index: str | epath.Path | indexing.DocumentIndex,
     dataset_name: str,
     qa_strategy_name: str,
     generate_model_name: str,
     max_results: int | str,
-) -> epath.Path:
+) -> epath.Path | None:
   """Returns the directory where the results of an evaluation are saved.
 
   Results of evaluations with different settings go to different directories:
   - `<output>/<dataset>/<strategy>/<model>__max_results_<N>/` if `output` is
     set;
-  - else `<index_directory>/eval_results/<strategy>/<model>__max_results_<N>/`,
-    next to the evaluated index (whose directory already names the dataset).
+  - `<index>/eval_results/<strategy>/<model>__max_results_<N>/`, next to the
+    evaluated index (whose directory already names the dataset), if `index` is a
+    directory;
+  - else `None` (no directory on disk to save results).
 
   Args:
     output: Base directory of the results, or None to save them in the index
       directory.
-    index_directory: Directory of the evaluated index.
+    index: Directory of the evaluated index, or an index object.
     dataset_name: Name of the dataset.
     qa_strategy_name: Name of the QA strategy.
     generate_model_name: Name of the generation model.
     max_results: Number of retrieved documents (`max_results` query-time arg).
-
-  Raises:
-    ValueError: If neither `output` nor `index_directory` is set.
   """
   run_name = f'{generate_model_name}__max_results_{max_results}'
   if output:
@@ -65,11 +66,15 @@ def get_results_directory(
         / qa_strategy_name
         / run_name
     )
-  if not index_directory:
-    raise ValueError('Set `output` or `index_directory`.')
-  return (
-      epath.Path(index_directory) / 'eval_results' / qa_strategy_name / run_name
-  )
+  if not isinstance(index, (str, epath.Path)) or not index:
+    # TODO: Fix cache output handling when no results directory is
+    # available in a follow-up CL.
+    logging.warning(
+        'Neither output nor an index directory was provided; HTML report and'
+        ' cache will not be saved to disk.'
+    )
+    return None
+  return epath.Path(index) / 'eval_results' / qa_strategy_name / run_name
 
 
 def get_default_runtime_kwargs(
@@ -110,7 +115,7 @@ def evaluate_rag(
     dataset_name: str,
     output: str | None = None,
     runtime_kwargs: Mapping[str, Any] | None = None,
-    index_directory: str = '',
+    index: str | indexing.DocumentIndex = '',
     generate_model_backend_class_name: str = (
         rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
     ),
@@ -131,11 +136,13 @@ def evaluate_rag(
   Args:
     dataset_name: Name of the dataset to load from the registry.
     output: Base directory of the results (HTML report and cache), or None to
-      save them in `index_directory` (see `get_results_directory`).
+      save them in `index` when `index` is a directory (see
+      `get_results_directory`).
     runtime_kwargs: Runtime arguments for the backends (e.g. API key). Backend
       requests default to 5 retries (`'max_retries'`) and a 300000 ms timeout
       (`'http_options': {'timeout': ...}`); see `get_default_runtime_kwargs`.
-    index_directory: Directory containing the pre-built index.
+    index: Directory of a saved index or a `DocumentIndex` object. Can only be
+      `''` when `qa_strategy_name` is `'agentic_retrieval'` or `'closed_book'`.
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name.
     generate_backend_kwargs: Constructor kwargs of the generation backend, e.g.
@@ -157,7 +164,18 @@ def evaluate_rag(
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
+
+  Raises:
+    ValueError: If `index` is `''` and `qa_strategy_name` is neither
+      `'agentic_retrieval'` nor `'closed_book'`.
   """
+  if isinstance(index, str) and not index and qa_strategy_name not in (
+      'agentic_retrieval',
+      'closed_book',
+  ):
+    raise ValueError(
+        f'index must be provided for qa_strategy_name={qa_strategy_name!r}.'
+    )
   q_time_kwargs = (
       dict(query_time_kwargs)
       if query_time_kwargs is not None
@@ -168,7 +186,7 @@ def evaluate_rag(
 
   results_directory = get_results_directory(
       output=output,
-      index_directory=index_directory,
+      index=index,
       dataset_name=dataset_name,
       qa_strategy_name=qa_strategy_name,
       generate_model_name=generate_model_name,
@@ -176,8 +194,10 @@ def evaluate_rag(
   )
 
   fn_cache = None
-  cache_filename = str(results_directory / 'cache.json')
-  if cache:
+  cache_filename = None
+  # TODO: Remove the cache parameter.
+  if cache and results_directory is not None:
+    cache_filename = str(results_directory / 'cache.json')
     print(f'Using cache file: {cache_filename}')
     fn_cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
     if epath.Path(cache_filename).exists():
@@ -204,7 +224,6 @@ def evaluate_rag(
   )
   spec = qa_spec.QAStrategySpec(
       qa_strategy_name=qa_strategy_name,
-      index_path=index_directory,
       generate_backend_config=gen_backend_config,
       query_time_kwargs=q_time_kwargs,
       mcp_kwargs=mcp_kwargs,
@@ -233,6 +252,7 @@ def evaluate_rag(
       examples=dict_examples,
       metric_functions=metric_functions,
       runtime_kwargs=rt_kwargs,
+      index=index,
       output_results=True,
       enable_tracing=True,
   )
@@ -245,9 +265,10 @@ def evaluate_rag(
   print(f'Evaluation Metrics: {summary.metrics}')
 
   # 5. Save Results as HTML report
-  html_report_path = qa_evaluation.save_html_report(
-      summary=summary,
-      output_dir_path=results_directory,
-  )
-  print(f'HTML report saved to {html_report_path}')
+  if results_directory is not None:
+    html_report_path = qa_evaluation.save_html_report(
+        summary=summary,
+        output_dir_path=results_directory,
+    )
+    print(f'HTML report saved to {html_report_path}')
   return summary

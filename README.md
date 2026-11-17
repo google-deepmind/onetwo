@@ -136,7 +136,7 @@ until it has collected enough evidence to answer.
 # 2. Serve the index and evaluate RAG performance
 summary = rag.evaluate(
     dataset_name='browsecomp_plus',
-    index_directory=index_dir,
+    index=index_dir,
     output='/tmp/onetwo_rag_eval',
     query_time_kwargs={'max_results': 20},
     runtime_kwargs={'api_key': google_api_key},

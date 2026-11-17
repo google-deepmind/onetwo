@@ -41,6 +41,7 @@ from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import qa_spec
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import index_building
+from onetwo.stdlib.retrieval import indexing
 
 
 def _agentic_retrieval_strategy(
@@ -76,15 +77,17 @@ def evaluate_qa(
     rag_spec: qa_spec.QAStrategySpec,
     examples: Sequence[Mapping[str, Any]],
     metric_functions: Mapping[str, ot_evaluation.MetricFunction],
+    index: str | indexing.DocumentIndex = '',
     runtime_kwargs: Mapping[str, Any] | None = None,
     **kwargs,
 ) -> results.EvaluationSummary:
   """Evaluates a QA strategy on a dataset.
 
   Args:
-    rag_spec: Specification of the QA strategy and index.
+    rag_spec: Specification of the QA strategy.
     examples: Examples to evaluate on.
     metric_functions: Metrics to compute.
+    index: Directory of a saved index, an index object, or '' when unused.
     runtime_kwargs: Runtime arguments for the backends (e.g. API key).
     **kwargs: Additional arguments passed to ot.evaluate.
 
@@ -101,12 +104,14 @@ def evaluate_qa(
       )
       gen_backend.register()
 
-    if rag_spec.index_path:
-      index = index_building.load_index(
-          rag_spec.index_path, runtime_kwargs=runtime_kwargs_dict
-      )
+    retriever = None
+    if isinstance(index, str):
+      if index:
+        retriever = index_building.load_index(
+            index, runtime_kwargs=runtime_kwargs_dict
+        )
     else:
-      index = None
+      retriever = index
 
     if rag_spec.qa_strategy_name == 'agentic_retrieval':
       strategy = _agentic_retrieval_strategy(rag_spec.mcp_kwargs)
@@ -117,7 +122,7 @@ def evaluate_qa(
     else:
       strategy = strategies_lib.get_strategy(
           rag_spec.qa_strategy_name,
-          retriever=index,
+          retriever=retriever,
       )
 
     return ot_evaluation.evaluate(

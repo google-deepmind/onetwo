@@ -131,7 +131,7 @@ def build_index(
   inner_index=...)`.
   The config of the index (ready-made or not) is saved as `index_config.json`,
   so it can be loaded from its directory alone (e.g. by
-  `rag.evaluate(index_directory=...)`). The classes of
+  `rag.evaluate(..., index=...)`). The classes of
   a custom index and its components must be registered with
   `@registry.register(...)`, and the module that registers them must be
   imported before the index is loaded.

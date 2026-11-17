@@ -30,8 +30,8 @@ _DATASET_NAME = flags.DEFINE_string(
     allow_override=True,
 )
 
-_INDEX_DIRECTORY = flags.DEFINE_string(
-    'index_directory',
+_INDEX = flags.DEFINE_string(
+    'index',
     None,
     'Directory containing the pre-built index.',
 )
@@ -43,7 +43,7 @@ _OUTPUT = flags.DEFINE_string(
         'Base directory of the evaluation results, saved under'
         ' <output>/<dataset>/<strategy>/<model>__max_results_<N>/. If'
         ' empty, they are saved next to the index, under'
-        ' <index_directory>/eval_results/<strategy>/<model>__max_results_<N>/.'
+        ' <index>/eval_results/<strategy>/<model>__max_results_<N>/.'
     ),
     allow_override=True,
 )
@@ -145,7 +145,7 @@ def main(argv: Sequence[str]) -> None:
 
   evaluate_rag_lib.evaluate_rag(
       dataset_name=_DATASET_NAME.value,
-      index_directory=_INDEX_DIRECTORY.value or '',
+      index=_INDEX.value or '',
       output=_OUTPUT.value or None,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,
