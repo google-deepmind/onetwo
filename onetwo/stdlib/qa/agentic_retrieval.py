@@ -156,9 +156,13 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
       `agent_lib.Agent`).
     query_template: What the model is sent before it has made any tool call. A
       `str.format` template with a `{question}` placeholder and, optionally, an
-      `{additional_instructions}` one, the latter filled with whatever
-      `additional_instructions` the question is asked with, on a line of its
-      own, or with nothing. Literal braces must be doubled.
+      `{additional_instructions}` one, the latter filled with
+      `additional_instructions` (from the call if passed, else
+      `self.additional_instructions`) on a line of its own, or with nothing.
+      Literal braces must be doubled.
+    additional_instructions: Extra instructions added before the question in
+      `query_template` (e.g. to describe the corpus the tools search).
+      Overridden by a call-time `additional_instructions`.
     generate_kwargs: Generation parameters passed through to the backend on
       every call, e.g. `{'temperature': 0.0}`.
     doc_ids_from_answer: If set, called on the final answer for the ids of the
@@ -172,6 +176,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
   final_instruction: str = ''
   empty_reply_instruction: str = ''
   query_template: str = DEFAULT_MCP_QUERY_TEMPLATE
+  additional_instructions: str = ''
   generate_kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   doc_ids_from_answer: Callable[[str], Sequence[str]] | None = None
 
@@ -214,12 +219,11 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
 
     Args:
       question: The question to answer.
-      **query_time_kwargs: `additional_instructions`, if given, is a string
-        added to what the model is told before the question, e.g. to describe
-        the corpus the tools search. Anything else is accepted for consistency
-        with the other strategies and ignored: which tools to use and how is the
-        model's decision here, so there is nothing left for the caller to pass
-        through.
+      **query_time_kwargs: `additional_instructions`, if given, overrides
+        `self.additional_instructions` for this question. Anything else is
+        accepted for consistency with the other strategies and ignored: which
+        tools to use and how is the model's decision here, so there is nothing
+        left for the caller to pass through.
 
     Returns:
       The model's answer, and the documents `doc_ids_from_answer` finds in it,
@@ -227,7 +231,7 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
       empty by default and what would have to be settled to fill it.
     """
     additional_instructions = query_time_kwargs.pop(
-        'additional_instructions', ''
+        'additional_instructions', self.additional_instructions
     )
     del query_time_kwargs
     # One question is one run of the agent.

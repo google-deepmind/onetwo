@@ -199,6 +199,10 @@ class RAGContextBuilder:
   Attributes:
     retriever: The retriever to use for fetching relevant documents.
     prompt_builder: The prompt builder used to construct the prompt.
+    max_results: Maximum documents to retrieve; None (default) returns all.
+      Overridden by a call-time `max_results`.
+    min_score: Minimum similarity score of retrieved documents, or None for no
+      threshold. Overridden by a call-time `min_score`.
   """
 
   retriever: retrieval.Retriever[_PromptContent, _Document] | None = None
@@ -208,6 +212,8 @@ class RAGContextBuilder:
           template=default_qa_template,
       )
   )
+  max_results: int | None = None
+  min_score: float | None = None
 
   async def build_context(
       self,
@@ -218,8 +224,8 @@ class RAGContextBuilder:
 
     Args:
       question: The question to answer.
-      **query_time_kwargs: Keyword arguments forwarded to the retriever (e.g.
-        `max_results`).
+      **query_time_kwargs: Keyword arguments forwarded to the retriever,
+        overriding `max_results` and `min_score` when given.
 
     Returns:
       The compiled prompt and the list of retrieved documents. If no documents
@@ -235,9 +241,12 @@ class RAGContextBuilder:
           ' construction time.'
       )
 
-    # Retrieve relevant documents.
+    max_results = query_time_kwargs.pop('max_results', self.max_results)
+    min_score = query_time_kwargs.pop('min_score', self.min_score)
     retrieved_docs = await self.retriever.retrieve(
         query=question,
+        max_results=max_results,
+        min_score=min_score,
         **query_time_kwargs,
     )
     retrieved_docs = list(retrieved_docs)
@@ -255,12 +264,7 @@ class RAGContextBuilder:
 class RAGStrategy(
     RAGContextBuilder, qa.QAStrategy[_PromptContent, _StrategyResult]
 ):
-  """A strategy that retrieves relevant documents before answering (RAG).
-
-  Attributes:
-    retriever: The retriever to use for fetching relevant documents.
-    prompt_builder: The prompt builder used to construct the prompt.
-  """
+  """A strategy that retrieves relevant documents before answering (RAG)."""
 
   @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
   async def __call__(
@@ -282,9 +286,15 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
 
   Attributes:
     retriever: The retriever to use for fetching relevant documents.
+    max_results: Maximum documents to retrieve; None (default) returns all.
+      Overridden by a call-time `max_results`.
+    min_score: Minimum similarity score of retrieved documents, or None for no
+      threshold. Overridden by a call-time `min_score`.
   """
 
   retriever: retrieval.Retriever[_PromptContent, _Document] | None = None
+  max_results: int | None = None
+  min_score: float | None = None
 
   @executing.make_executable(copy_self=False, non_copied_args=['retriever'])
   async def __call__(
@@ -299,9 +309,12 @@ class RetrievalOnlyStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
           ' time.'
       )
 
-    # Retrieve relevant documents.
+    max_results = query_time_kwargs.pop('max_results', self.max_results)
+    min_score = query_time_kwargs.pop('min_score', self.min_score)
     retrieved_docs = await self.retriever.retrieve(
         query=question,
+        max_results=max_results,
+        min_score=min_score,
         **query_time_kwargs,
     )
     retrieved_docs = list(retrieved_docs)
@@ -353,6 +366,9 @@ def unregister_strategy(name: str) -> None:
 def get_strategy(name: str, **kwargs) -> qa.QAStrategy:
   """Creates and returns a strategy instance by name.
 
+  The 'rag' and 'retrieval_only' presets default max_results=20 (on the
+  classes directly, set max_results explicitly or all docs are returned).
+
   Args:
     name: The registered name of the strategy.
     **kwargs: Keyword arguments forwarded to the strategy factory.
@@ -381,7 +397,11 @@ def list_strategies() -> list[str]:
 # Register built-in strategies
 # =============================================================================
 
+# Set max_results in retrieval presets; None returns all documents.
 register_strategy('closed_book', ClosedBookStrategy)
 register_strategy('long_context', LongContextStrategy)
-register_strategy('rag', RAGStrategy)
-register_strategy('retrieval_only', RetrievalOnlyStrategy)
+register_strategy('rag', functools.partial(RAGStrategy, max_results=20))
+register_strategy(
+    'retrieval_only',
+    functools.partial(RetrievalOnlyStrategy, max_results=20),
+)

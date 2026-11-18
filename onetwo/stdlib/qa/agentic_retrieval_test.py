@@ -623,6 +623,37 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
           with_additional, 'Look it up.\nBe brief.\nQ: Capital of France? {end}'
       )
 
+  def test_additional_instructions_field_and_call_time_override(self):
+    template = 'Look it up.{additional_instructions}\nQ: {question}'
+    backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
+    backend.register()
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        query_template=template,
+        additional_instructions='Use search first.',
+    )
+
+    executing.run(strategy('Capital of France?'))
+    from_field = backend.seen_turns[0][0].content
+    backend.seen_turns.clear()
+    executing.run(
+        strategy('Capital of France?', additional_instructions='Be brief.')
+    )
+    from_call = backend.seen_turns[0][0].content
+    backend.seen_turns.clear()
+    executing.run(strategy('Capital of France?', additional_instructions=''))
+    cleared_by_call = backend.seen_turns[0][0].content
+
+    with self.subTest('uses_strategy_field_by_default'):
+      self.assertEqual(
+          from_field, 'Look it up.\nUse search first.\nQ: Capital of France?'
+      )
+    with self.subTest('call_time_value_overrides_field'):
+      self.assertEqual(
+          from_call, 'Look it up.\nBe brief.\nQ: Capital of France?'
+      )
+    with self.subTest('empty_call_time_value_clears_field'):
+      self.assertEqual(cleared_by_call, 'Look it up.\nQ: Capital of France?')
+
   def test_a_query_template_takes_the_text_of_a_chunk_list_question(self):
     backend = _ScriptedBackend(replies=[_model_turn('Paris.')])
     backend.register()

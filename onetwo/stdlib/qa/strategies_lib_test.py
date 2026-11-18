@@ -14,6 +14,7 @@
 
 from collections.abc import Iterable
 import dataclasses
+from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -45,11 +46,13 @@ class MockRetriever(retrieval.Retriever[_PromptContent, _Document]):
 
   def __init__(self, documents: list[_Document]):
     self._documents = documents
+    self.last_kwargs: dict[str, Any] = {}
 
-  @executing.make_executable
+  @executing.make_executable(copy_self=False)
   async def retrieve(
       self, query: _PromptContent, **kwargs
   ) -> Iterable[_Document]:
+    self.last_kwargs = dict(kwargs)
     max_results = kwargs.get('max_results')
     if max_results is not None:
       return self._documents[:max_results]
@@ -123,6 +126,25 @@ class RegistryTest(absltest.TestCase):
         ),
         strategies_lib.RetrievalOnlyStrategy,
     )
+
+  def test_retrieval_presets_default_max_results_to_20(self):
+    for name, expected_cls in (
+        ('rag', strategies_lib.RAGStrategy),
+        ('retrieval_only', strategies_lib.RetrievalOnlyStrategy),
+    ):
+      with self.subTest(name):
+        preset = strategies_lib.get_strategy(name)
+        assert isinstance(preset, expected_cls)
+        self.assertEqual(preset.max_results, 20)
+        self.assertIsNone(preset.min_score)
+
+        overridden = strategies_lib.get_strategy(name, max_results=5)
+        assert isinstance(overridden, expected_cls)
+        self.assertEqual(overridden.max_results, 5)
+
+        unbounded = strategies_lib.get_strategy(name, max_results=None)
+        assert isinstance(unbounded, expected_cls)
+        self.assertIsNone(unbounded.max_results)
 
   def test_get_unknown_strategy_raises(self):
     with self.assertRaises(KeyError):
@@ -370,6 +392,43 @@ class RAGStrategyTest(parameterized.TestCase):
     self.assertLen(result.docs, 1)
     self.assertEqual(result.docs[0].doc_id, 'd1')
 
+  def test_query_time_fields_and_call_time_override(self):
+    many_docs = [
+        _Document(doc_id=f'd{i}', content=f'Doc {i}') for i in range(25)
+    ]
+    retriever = MockRetriever(many_docs)
+
+    default_strategy = strategies_lib.RAGStrategy(retriever=retriever)
+    result_default = ot.run(default_strategy(question='What?'))
+    self.assertLen(result_default.docs, 25)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': None, 'min_score': None}
+    )
+
+    preset_strategy = strategies_lib.get_strategy('rag', retriever=retriever)
+    result_preset = ot.run(preset_strategy(question='What?'))
+    self.assertLen(result_preset.docs, 20)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': 20, 'min_score': None}
+    )
+
+    configured_strategy = strategies_lib.RAGStrategy(
+        retriever=retriever, max_results=2, min_score=0.75
+    )
+    result_configured = ot.run(configured_strategy(question='What?'))
+    self.assertLen(result_configured.docs, 2)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': 2, 'min_score': 0.75}
+    )
+
+    result_overridden = ot.run(
+        configured_strategy(question='What?', max_results=None, min_score=0.9)
+    )
+    self.assertLen(result_overridden.docs, 25)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': None, 'min_score': 0.9}
+    )
+
 
 # =============================================================================
 # Custom strategies built on RAGContextBuilder
@@ -504,6 +563,45 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
     self.assertEmpty(result.docs)
     self.assertEqual(result.answer, '')
     self.assertEmpty(self.llm_backend.prompts)
+
+  def test_query_time_fields_and_call_time_override(self):
+    many_docs = [
+        _Document(doc_id=f'd{i}', content=f'Doc {i}') for i in range(25)
+    ]
+    retriever = MockRetriever(many_docs)
+
+    default_strategy = strategies_lib.RetrievalOnlyStrategy(retriever=retriever)
+    result_default = ot.run(default_strategy(question='What?'))
+    self.assertLen(result_default.docs, 25)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': None, 'min_score': None}
+    )
+
+    preset_strategy = strategies_lib.get_strategy(
+        'retrieval_only', retriever=retriever
+    )
+    result_preset = ot.run(preset_strategy(question='What?'))
+    self.assertLen(result_preset.docs, 20)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': 20, 'min_score': None}
+    )
+
+    configured_strategy = strategies_lib.RetrievalOnlyStrategy(
+        retriever=retriever, max_results=3, min_score=0.6
+    )
+    result_configured = ot.run(configured_strategy(question='What?'))
+    self.assertLen(result_configured.docs, 3)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': 3, 'min_score': 0.6}
+    )
+
+    result_overridden = ot.run(
+        configured_strategy(question='What?', max_results=None, min_score=0.8)
+    )
+    self.assertLen(result_overridden.docs, 25)
+    self.assertEqual(
+        retriever.last_kwargs, {'max_results': None, 'min_score': 0.8}
+    )
 
 
 # =============================================================================
