@@ -73,12 +73,6 @@ _GENERATE_BACKEND_KWARGS = flags.DEFINE_string(
     ),
 )
 
-_AI_RATER_GENERATE_MODEL_NAME = flags.DEFINE_string(
-    'ai_rater_generate_model_name',
-    rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
-    'Name of the generation model used by the AI rater (accuracy critic).',
-)
-
 _EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
     'extra_backend_kwargs',
     '{}',
@@ -175,7 +169,6 @@ def main(argv: Sequence[str]) -> None:
           if _GENERATE_BACKEND_KWARGS.value is not None
           else None
       ),
-      ai_rater_generate_model_name=_AI_RATER_GENERATE_MODEL_NAME.value,
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),
       mcp_kwargs=json.loads(_MCP_KWARGS.value),

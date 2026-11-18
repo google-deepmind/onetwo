@@ -76,20 +76,19 @@ def _agentic_retrieval_strategy(
 def evaluate_qa(
     rag_spec: qa_spec.QAStrategySpec,
     examples: Sequence[Mapping[str, Any]],
-    metric_functions: Mapping[str, ot_evaluation.MetricFunction],
     index: str | indexing.DocumentIndex = '',
     runtime_kwargs: Mapping[str, Any] | None = None,
-    **kwargs,
+    evaluate_kwargs: Mapping[str, Any] | None = None,
 ) -> results.EvaluationSummary:
   """Evaluates a QA strategy on a dataset.
 
   Args:
     rag_spec: Specification of the QA strategy.
     examples: Examples to evaluate on.
-    metric_functions: Metrics to compute.
     index: Directory of a saved index, an index object, or '' when unused.
     runtime_kwargs: Runtime arguments for the backends (e.g. API key).
-    **kwargs: Additional arguments passed to ot.evaluate.
+    evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
+      `metric_functions`, `output_results`, `enable_tracing`).
 
   Returns:
     EvaluationSummary.
@@ -128,12 +127,11 @@ def evaluate_qa(
     return ot_evaluation.evaluate(
         strategy=strategy,
         examples=examples,
-        metric_functions=metric_functions,
         inputs_extractor=lambda x: (
             [x['question']],
             rag_spec.query_time_kwargs,
         ),
-        **kwargs,
+        **(evaluate_kwargs or {}),
     )
 
 

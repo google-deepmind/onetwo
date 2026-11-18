@@ -111,7 +111,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
         output=out_dir,
         index='/idx',
         generate_model_name='m',
-        metric_functions={},
+        evaluate_kwargs={'metric_functions': {}},
     )
 
     self.assertEqual(
@@ -137,7 +137,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
         output=out_dir,
         index='/idx',
         generate_model_name='m',
-        metric_functions={},
+        evaluate_kwargs={'metric_functions': {}},
         cache=False,
     )
     self.assertEqual(
@@ -157,7 +157,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
           output=out_dir,
           index='/idx',
           generate_model_name='m',
-          metric_functions={},
+          evaluate_kwargs={'metric_functions': {}},
           cache=True,
       )
       self.assertTrue(cache_file.exists())
@@ -201,8 +201,11 @@ class GetResultsDirectoryTest(absltest.TestCase):
         qa_strategy_name='retrieval_only',
         query_time_kwargs={'max_results': 50},
     )
+    evaluate_kwargs = mock_eval_qa.call_args.kwargs['evaluate_kwargs']
+    self.assertTrue(evaluate_kwargs['output_results'])
+    self.assertNotIn('enable_tracing', evaluate_kwargs)
     self.assertCountEqual(
-        mock_eval_qa.call_args.kwargs['metric_functions'].keys(),
+        evaluate_kwargs['metric_functions'].keys(),
         [
             'recall@5',
             'recall@10',
@@ -224,7 +227,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index='/idx',
-          metric_functions={},
+          evaluate_kwargs={'metric_functions': {}},
       )
       config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
       self.assertEqual(
@@ -238,7 +241,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index='/idx',
-          metric_functions={},
+          evaluate_kwargs={'metric_functions': {}},
           generate_model_name='some-other-model',
       )
       config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
@@ -252,7 +255,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index='/idx',
-          metric_functions={},
+          evaluate_kwargs={'metric_functions': {}},
           generate_backend_kwargs=high_thinking,
       )
       config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
@@ -260,6 +263,51 @@ class GetResultsDirectoryTest(absltest.TestCase):
           config.model_name, rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
       )
       self.assertEqual(config.kwargs, high_thinking)
+
+  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  def test_evaluate_rag_custom_evaluate_kwargs(self, mock_eval_qa):
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    custom_metrics = {'exact': lambda target, prediction: 1.0}
+    evaluate_kwargs = {
+        'metric_functions': custom_metrics,
+        'enable_tracing': False,
+        'chunk_size': 10,
+    }
+
+    evaluate_rag_lib.evaluate_rag(
+        examples=_CustomLoader(),
+        output=self.create_tempdir().full_path,
+        index='/idx',
+        evaluate_kwargs=evaluate_kwargs,
+    )
+
+    self.assertEqual(
+        mock_eval_qa.call_args.kwargs['evaluate_kwargs'],
+        {
+            'output_results': True,
+            'enable_tracing': False,
+            'metric_functions': custom_metrics,
+            'chunk_size': 10,
+        },
+    )
+    self.assertNotIn('output_results', evaluate_kwargs)
+
+    evaluate_rag_lib.evaluate_rag(
+        examples=_CustomLoader(),
+        output=self.create_tempdir().full_path,
+        index='/idx',
+        evaluate_kwargs={
+            'metric_functions': custom_metrics,
+            'output_results': False,
+        },
+    )
+    self.assertEqual(
+        mock_eval_qa.call_args.kwargs['evaluate_kwargs'],
+        {
+            'metric_functions': custom_metrics,
+            'output_results': False,
+        },
+    )
 
   @mock.patch.object(qa_evaluation, 'save_html_report')
   @mock.patch.object(qa_evaluation, 'evaluate_qa')
@@ -271,7 +319,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
           examples=_CustomLoader(),
           output=None,
           index=index,
-          metric_functions={},
+          evaluate_kwargs={'metric_functions': {}},
       )
     self.assertIs(mock_eval_qa.call_args.kwargs['index'], index)
     mock_save_html.assert_not_called()
@@ -302,8 +350,10 @@ class GetResultsDirectoryTest(absltest.TestCase):
             examples=_CustomLoader(),
             output=out_dir,
             qa_strategy_name=strategy,
-            metric_functions={},
+            evaluate_kwargs={'metric_functions': {}},
         )
     self.assertEqual(mock_eval_qa.call_count, 2)
+
+
 if __name__ == '__main__':
   absltest.main()

@@ -84,8 +84,8 @@ class AgenticRetrievalStrategyTest(parameterized.TestCase):
     summary = qa_evaluation.evaluate_qa(
         rag_spec=qa_spec.QAStrategySpec(qa_strategy_name='retrieval_only'),
         examples=[{'question': 'What is OneTwo?', 'answer': 'A library'}],
-        metric_functions={},
         index=index,
+        evaluate_kwargs={'metric_functions': {}},
     )
     mock_load_index.assert_not_called()
     self.assertEqual(summary.counters['total_count'], 1)

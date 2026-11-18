@@ -142,13 +142,10 @@ def evaluate_rag(
     ),
     generate_model_name: str = rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME,
     generate_backend_kwargs: Mapping[str, Any] | None = None,
-    ai_rater_generate_model_name: str = (
-        rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME
-    ),
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | None = None,
     mcp_kwargs: Mapping[str, Any] | None = None,
-    metric_functions: Mapping[str, Any] | None = None,
+    evaluate_kwargs: Mapping[str, Any] | None = None,
     cache: bool = False,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
@@ -176,14 +173,15 @@ def evaluate_rag(
       `GoogleGenAIAPI` backend. If None, defaults to
       `rag_defaults.qa_generate_backend_kwargs(generate_model_name)`, i.e.
       medium thinking for the default model and no kwargs for other models.
-    ai_rater_generate_model_name: Generation model name used by the AI rater.
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments for the strategy. If None, defaults
       to `{'max_results': 20}`.
     mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
       `mcp_server_urls`, a comma-separated list of MCP server URLs.
-    metric_functions: Optional mapping of metric names to metric functions. When
-      None, defaults to `rag_metrics.get_default_rag_metrics()`.
+    evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
+      `metric_functions`, `chunk_size`). Defaults `'output_results'` to True
+      and `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)`
+      with the default AI rater when absent.
     cache: Whether to cache LLM calls in `<results directory>/cache.json` and
       reuse the cache on reruns.
 
@@ -243,10 +241,6 @@ def evaluate_rag(
           else rag_defaults.qa_generate_backend_kwargs(generate_model_name)
       ),
   )
-  ai_rater_backend_config = backend_registry.GenerateBackendConfig(
-      backend_class_name=generate_model_backend_class_name,
-      model_name=ai_rater_generate_model_name,
-  )
   spec = qa_spec.QAStrategySpec(
       qa_strategy_name=qa_strategy_name,
       generate_backend_config=gen_backend_config,
@@ -256,8 +250,14 @@ def evaluate_rag(
 
   dict_examples = _load_examples(examples)
 
-  if metric_functions is None:
-    metric_functions = rag_metrics.get_default_rag_metrics(
+  evaluate_kwargs = dict(evaluate_kwargs) if evaluate_kwargs else {}
+  evaluate_kwargs.setdefault('output_results', True)
+  if 'metric_functions' not in evaluate_kwargs:
+    ai_rater_backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name=rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME,
+        model_name=rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
+    )
+    evaluate_kwargs['metric_functions'] = rag_metrics.get_default_rag_metrics(
         max_results=q_time_kwargs.get('max_results', None),
         retrieval_only=(qa_strategy_name == 'retrieval_only'),
         accuracy_critic_backend_config=ai_rater_backend_config,
@@ -268,11 +268,9 @@ def evaluate_rag(
   summary = qa_evaluation.evaluate_qa(
       rag_spec=spec,
       examples=dict_examples,
-      metric_functions=metric_functions,
-      runtime_kwargs=rt_kwargs,
       index=index,
-      output_results=True,
-      enable_tracing=True,
+      runtime_kwargs=rt_kwargs,
+      evaluate_kwargs=evaluate_kwargs,
   )
 
   if fn_cache is not None:
