@@ -87,11 +87,9 @@ def get_results_directory(
         / run_name
     )
   if not isinstance(index, (str, epath.Path)) or not index:
-    # TODO: Fix cache output handling when no results directory is
-    # available in a follow-up CL.
     logging.warning(
-        'Neither output nor an index directory was provided; HTML report and'
-        ' cache will not be saved to disk.'
+        'Neither output nor an index directory was provided; HTML report will'
+        ' not be saved to disk.'
     )
     return None
   return epath.Path(index) / 'eval_results' / qa_strategy_name / run_name
@@ -146,7 +144,6 @@ def evaluate_rag(
     query_time_kwargs: Mapping[str, Any] | None = None,
     mcp_kwargs: Mapping[str, Any] | None = None,
     evaluate_kwargs: Mapping[str, Any] | None = None,
-    cache: bool = False,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -154,16 +151,19 @@ def evaluate_rag(
     examples: Path to a `.jsonl` or `.json` examples file, or a
       `datasets.DatasetLoader` (e.g.
       `datasets.get_dataset_loader(name, max_number_of_examples=N)`).
-    output: Base directory of the results (HTML report and cache), or None to
-      save them in `index` when `index` is a directory (see
-      `get_results_directory`).
+    output: Base directory of the HTML report, or None to save it in `index`
+      when `index` is a directory (see `get_results_directory`).
     extra_backend_kwargs: Extra keyword arguments for the constructors of the
-      backends that this call creates (e.g. an API key): those of the index, the
-      QA and AI rater generation backends, and `'cache'` if `cache` is set.
-      Usually not needed: credentials are read from the environment (e.g.
-      `GOOGLE_API_KEY`). Not a stable part of the API. Backend requests default
-      to 5 retries (`'max_retries'`) and a 300000 ms timeout (`'http_options':
-      {'timeout': ...}`); see `get_default_extra_backend_kwargs`.
+      backends that this call creates (e.g. an API key): those of the index and
+      the QA and AI rater generation backends. Usually not needed: credentials
+      are read from the environment (e.g. `GOOGLE_API_KEY`). Not a stable part
+      of the API. Backend requests default to 5 retries (`'max_retries'`) and a
+      300000 ms timeout (`'http_options': {'timeout': ...}`); see
+      `get_default_extra_backend_kwargs`. If `'cache_filename'` is set,
+      `evaluate_rag` creates one shared `caching.SimpleFunctionCache` loaded
+      from and saved to that path, passes it as `'cache'` to all backends, and
+      does not forward `'cache_filename'` itself, so caching works with every
+      backend accepting `'cache'`.
     index: Directory of a saved index or a `DocumentIndex` object. Can only be
       `''` when `qa_strategy_name` is `'agentic_retrieval'` or `'closed_book'`.
     generate_model_backend_class_name: Generation backend class name.
@@ -182,8 +182,6 @@ def evaluate_rag(
       `metric_functions`, `chunk_size`). Defaults `'output_results'` to True
       and `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)`
       with the default AI rater when absent.
-    cache: Whether to cache LLM calls in `<results directory>/cache.json` and
-      reuse the cache on reruns.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -206,6 +204,18 @@ def evaluate_rag(
   )
   mcp_kwargs = dict(mcp_kwargs) if mcp_kwargs else {}
   rt_kwargs = get_default_extra_backend_kwargs(extra_backend_kwargs)
+  cache_filename = rt_kwargs.pop('cache_filename', None)
+
+  fn_cache = None
+  if cache_filename:
+    print(f'Using cache file: {cache_filename}')
+    fn_cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
+    if epath.Path(cache_filename).exists():
+      print(f'Loading existing cache from {cache_filename}...')
+      fn_cache.load(overwrite=True)
+    else:
+      print('No existing cache found. A new cache will be created.')
+    rt_kwargs['cache'] = fn_cache
 
   results_directory = get_results_directory(
       output=output,
@@ -215,22 +225,6 @@ def evaluate_rag(
       generate_model_name=generate_model_name,
       max_results=q_time_kwargs.get('max_results', 20),
   )
-
-  fn_cache = None
-  cache_filename = None
-  # TODO: Remove the cache parameter.
-  if cache and results_directory is not None:
-    cache_filename = str(results_directory / 'cache.json')
-    print(f'Using cache file: {cache_filename}')
-    fn_cache = caching.SimpleFunctionCache(cache_filename=cache_filename)
-    if epath.Path(cache_filename).exists():
-      print(f'Loading existing cache from {cache_filename}...')
-      fn_cache.load(overwrite=True)
-    else:
-      print('No existing cache found. A new cache will be created.')
-
-  if fn_cache is not None:
-    rt_kwargs['cache'] = fn_cache
 
   gen_backend_config = backend_registry.GenerateBackendConfig(
       backend_class_name=generate_model_backend_class_name,

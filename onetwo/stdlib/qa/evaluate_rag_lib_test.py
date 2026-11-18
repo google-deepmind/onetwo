@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from unittest import mock
 
 from absl.testing import absltest
 from etils import epath
+from onetwo.core import caching
 from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.evaluation import datasets
@@ -128,9 +130,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
   def test_evaluate_rag_cache(self, mock_eval_qa):
     mock_eval_qa.return_value = results.EvaluationSummary()
     out_dir = self.create_tempdir().full_path
-    cache_file = (
-        epath.Path(out_dir) / '_CustomLoader/rag/m__max_results_20/cache.json'
-    )
+    cache_file = epath.Path(self.create_tempdir().full_path) / 'cache.json'
 
     evaluate_rag_lib.evaluate_rag(
         examples=_CustomLoader(),
@@ -138,7 +138,6 @@ class GetResultsDirectoryTest(absltest.TestCase):
         index='/idx',
         generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
-        cache=False,
     )
     self.assertEqual(
         mock_eval_qa.call_args.kwargs['examples'],
@@ -150,18 +149,51 @@ class GetResultsDirectoryTest(absltest.TestCase):
         {'max_retries': 5, 'http_options': {'timeout': 300000}},
     )
 
-    # First run with cache=True creates cache.json; second run loads it.
-    for _ in range(2):
-      evaluate_rag_lib.evaluate_rag(
-          examples=_CustomLoader(),
-          output=out_dir,
-          index='/idx',
-          generate_model_name='m',
-          evaluate_kwargs={'metric_functions': {}},
-          cache=True,
-      )
-      self.assertTrue(cache_file.exists())
-      self.assertIn('cache', mock_eval_qa.call_args.kwargs['runtime_kwargs'])
+    def _populate_cache(**kwargs):
+      fn_cache = kwargs['runtime_kwargs']['cache']
+      asyncio.run(fn_cache.cache_value('k1', None, 'v1'))
+      return results.EvaluationSummary()
+
+    mock_eval_qa.side_effect = _populate_cache
+    extra_backend_kwargs = {
+        'api_key': 'secret',
+        'cache_filename': str(cache_file),
+    }
+    evaluate_rag_lib.evaluate_rag(
+        examples=_CustomLoader(),
+        output=out_dir,
+        index='/idx',
+        extra_backend_kwargs=extra_backend_kwargs,
+        generate_model_name='m',
+        evaluate_kwargs={'metric_functions': {}},
+    )
+    self.assertTrue(cache_file.exists())
+    first_rt_kwargs = mock_eval_qa.call_args.kwargs['runtime_kwargs']
+    self.assertIsInstance(first_rt_kwargs['cache'], caching.SimpleFunctionCache)
+    self.assertNotIn('cache_filename', first_rt_kwargs)
+    self.assertEqual(
+        extra_backend_kwargs,
+        {'api_key': 'secret', 'cache_filename': str(cache_file)},
+    )
+
+    # Second run loads the saved cache from disk into a fresh cache object.
+    mock_eval_qa.side_effect = None
+    mock_eval_qa.return_value = results.EvaluationSummary()
+    evaluate_rag_lib.evaluate_rag(
+        examples=_CustomLoader(),
+        output=out_dir,
+        index='/idx',
+        extra_backend_kwargs=extra_backend_kwargs,
+        generate_model_name='m',
+        evaluate_kwargs={'metric_functions': {}},
+    )
+    second_cache = mock_eval_qa.call_args.kwargs['runtime_kwargs']['cache']
+    self.assertIsInstance(second_cache, caching.SimpleFunctionCache)
+    self.assertIsNot(second_cache, first_rt_kwargs['cache'])
+    self.assertEqual(second_cache.get_key_count(), 1)
+    self.assertNotIn(
+        'cache_filename', mock_eval_qa.call_args.kwargs['runtime_kwargs']
+    )
 
   def test_get_default_extra_backend_kwargs(self):
     self.assertEqual(

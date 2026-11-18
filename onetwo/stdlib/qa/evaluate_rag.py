@@ -77,8 +77,9 @@ _EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
     'extra_backend_kwargs',
     '{}',
     'JSON string of extra keyword arguments for the constructors of the'
-    ' backends (e.g. an API key). Usually not needed: credentials are read from'
-    ' the environment (e.g. GOOGLE_API_KEY).',
+    ' backends (e.g. an API key, or cache_filename for a shared cache).'
+    ' Usually not needed: credentials are read from the environment (e.g.'
+    ' GOOGLE_API_KEY).',
     allow_override=True,
 )
 
@@ -130,13 +131,6 @@ _HTTP_TIMEOUT = flags.DEFINE_integer(
     ),
 )
 
-_CACHE_RESULTS = flags.DEFINE_bool(
-    'cache_results',
-    False,
-    'Whether to cache LLM generation results to disk and reuse existing cache'
-    ' on reruns.',
-)
-
 
 def _examples_from_flag(
     value: str, max_examples: int | None
@@ -177,7 +171,6 @@ def main(argv: Sequence[str]) -> None:
           max_retries=_MAX_RETRIES.value,
           http_timeout_ms=_HTTP_TIMEOUT.value,
       ),
-      cache=_CACHE_RESULTS.value,
   )
 
 
