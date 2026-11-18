@@ -117,7 +117,7 @@ from onetwo import rag
 from onetwo.evaluation import datasets
 
 # 1. Build an index over your corpus
-index_dir = rag.build_index(
+index = rag.build_index(
     corpus=datasets.get_dataset_loader('browsecomp_plus'),
     output='/tmp/onetwo_rag_index',
     extra_backend_kwargs={'api_key': google_api_key},
@@ -136,7 +136,7 @@ until it has collected enough evidence to answer.
 # 2. Serve the index and evaluate RAG performance
 summary = rag.evaluate(
     examples=datasets.get_dataset_loader('browsecomp_plus'),
-    index=index_dir,
+    index=index,
     output='/tmp/onetwo_rag_eval',
     query_time_kwargs={'max_results': 20},
     extra_backend_kwargs={'api_key': google_api_key},

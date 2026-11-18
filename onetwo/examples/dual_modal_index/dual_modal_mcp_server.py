@@ -175,7 +175,7 @@ def create_dual_modal_server(
   """Creates and configures the Dual-Modal Index MCP server.
 
   Args:
-    index_path: Directory of a saved DualModalDocumentIndex (e.g. returned by
+    index_path: Directory of a saved DualModalDocumentIndex (e.g. saved by
       rag.build_index). Its text index backs search_text_chunks, and its image
       index search_images.
     max_results: Default number of top hits returned by each search tool.

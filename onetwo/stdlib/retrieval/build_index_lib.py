@@ -123,7 +123,7 @@ def build_index(
         serialization.StorageFormat.JSONL_NPY
     ),
     extra_backend_kwargs: Mapping[str, Any] | None = None,
-) -> str:
+) -> indexing.DocumentIndex:
   """Builds and saves a document index of the specified corpus.
 
   To customize the index (e.g. its embedding model or chunker), pass an index
@@ -166,7 +166,11 @@ def build_index(
       dict without `'timeout'`). See `get_default_extra_backend_kwargs`.
 
   Returns:
-    The output directory path where the index was saved.
+    The built index, with the `extra_backend_kwargs`, ready to be used, e.g. by
+    `rag.evaluate(..., index=...)` or `rag.start_mcp(...)`. It is also saved in
+    `<output>/<corpus name>/<index_building.index_dir_name(index)>` (the
+    directory is printed), from which it can be loaded later, e.g. by
+    `index_building.load_index` or `rag.evaluate(..., index=<directory>)`.
 
   Raises:
     KeyError, TypeError: If an index object cannot be saved, e.g. because the
@@ -199,7 +203,7 @@ def build_index(
   index.save(out_dir, storage_format)
   config_serialization.save_index_config(index, out_dir)
   print(f'Index built and saved to {out_dir}.')
-  return out_dir
+  return index
 
 
 def _load_documents(

@@ -167,9 +167,9 @@ def create_server(
   its `run` method with a transport, or use `start_mcp` instead.
 
   Args:
-    index: The index to serve: the directory of a saved index (e.g. as returned
+    index: The index to serve: the directory of a saved index (e.g. one saved
       by ``rag.build_index``), loaded with ``index_building.load_index``, or an
-      index object (e.g. one that was just built or loaded).
+      index object (e.g. one returned by ``rag.build_index``).
     host: Host/interface to bind the server on. Only used with
       ``transport='streamable-http'``.
     port: Port to listen on. Only used with ``transport='streamable-http'``.

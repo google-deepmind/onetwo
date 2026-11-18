@@ -107,11 +107,8 @@ def _chunking_index(
   )
 
 
-def _doc_ids(index_directory: str) -> list[str]:
-  return sorted(
-      doc.doc_id
-      for doc in index_building.load_index(index_directory).get_docs()
-  )
+def _doc_ids(index: indexing.DocumentIndex) -> list[str]:
+  return sorted(doc.doc_id for doc in index.get_docs())
 
 
 def _custom_index(
@@ -184,65 +181,79 @@ class BuildIndexLibTest(absltest.TestCase):
         )
     )
 
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         datasets.get_dataset_loader(_DATASET_NAME),
         _custom_index(_SentenceChunker()),
         output=self.output_dir,
-        extra_backend_kwargs={'api_key': 'secret'},
-    )
-    loaded = index_building.load_index(
-        out_dir, extra_backend_kwargs={'api_key': 'secret'}
     )
 
+    [doc] = ot_executing.run(index.retrieve('madrid', max_results=1))
+    self.assertEqual(doc.text, 'Madrid is in Spain.')
+
+  def test_unregistered_class_raises_before_loading_corpus(self):
+    corpus = mock.MagicMock()
+
+    with self.assertRaisesRegex(TypeError, 'register its class'):
+      build_index_lib.build_index(
+          corpus,
+          _custom_index(_UnregisteredChunker()),
+          output=self.output_dir,
+      )
+    corpus.load_documents.assert_not_called()
+
+  def test_saves_the_index(self):
+    index = build_index_lib.build_index(
+        datasets.get_dataset_loader(_DATASET_NAME),
+        _embedding_index(),
+        output=self.output_dir,
+        extra_backend_kwargs={'api_key': 'secret'},
+    )
+    # Saved in `<output>/<corpus name>/<index_building.index_dir_name(index)>`.
+    index_dir = os.path.join(
+        self.output_dir, _DATASET_NAME, index_building.index_dir_name(index)
+    )
+
+    with self.subTest('loads_the_index'):
+      loaded = index_building.load_index(index_dir)
+      self.assertEqual(_doc_ids(loaded), ['d1', 'd2'])
     with self.subTest('saves_index_config_without_credentials'):
       with open(
-          os.path.join(out_dir, config_serialization.INDEX_CONFIG_FILENAME)
+          os.path.join(index_dir, config_serialization.INDEX_CONFIG_FILENAME)
       ) as f:
         self.assertNotIn('secret', f.read())
-    with self.subTest('loads_the_index'):
-      [doc] = ot_executing.run(loaded.retrieve('madrid', max_results=1))
-      self.assertEqual(doc.text, 'Madrid is in Spain.')
-    with self.subTest('unregistered_class_raises_before_loading_corpus'):
-      corpus = mock.MagicMock()
-      with self.assertRaisesRegex(TypeError, 'register its class'):
-        build_index_lib.build_index(
-            corpus,
-            _custom_index(_UnregisteredChunker()),
-            output=self.output_dir,
+    with self.subTest('saves_manifest_with_storage_format'):
+      with open(os.path.join(index_dir, serialization.MANIFEST_JSON_NAME)) as f:
+        self.assertEqual(
+            json.load(f)['serializer_type'],
+            serialization.StorageFormat.JSONL_NPY.value,
         )
-      corpus.load_documents.assert_not_called()
 
   def test_loads_documents_from_folder(self):
     corpus_dir = self.create_tempdir().mkdir('my_corpus')
     corpus_dir.create_file('paris.txt', content='Paris is in France.')
     corpus_dir.create_file('sub/madrid.txt', content='Madrid is in Spain.')
 
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         corpus_dir.full_path, _embedding_index(), output=self.output_dir
     )
 
-    self.assertEqual(_doc_ids(out_dir), ['paris.txt', 'sub/madrid.txt'])
-    self.assertEqual(os.path.basename(os.path.dirname(out_dir)), 'my_corpus')
+    self.assertEqual(_doc_ids(index), ['paris.txt', 'sub/madrid.txt'])
 
   def test_registered_loader_corpus(self):
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         datasets.get_dataset_loader(_DATASET_NAME),
         _embedding_index(),
         output=self.output_dir,
     )
 
-    self.assertEqual(_doc_ids(out_dir), ['d1', 'd2'])
-    self.assertEqual(os.path.basename(os.path.dirname(out_dir)), _DATASET_NAME)
+    self.assertEqual(_doc_ids(index), ['d1', 'd2'])
 
   def test_custom_loader_corpus(self):
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         _CustomLoader(), _embedding_index(), output=self.output_dir
     )
 
-    self.assertEqual(_doc_ids(out_dir), ['c1', 'c2', 'c3'])
-    self.assertEqual(
-        os.path.basename(os.path.dirname(out_dir)), '_CustomLoader'
-    )
+    self.assertEqual(_doc_ids(index), ['c1', 'c2', 'c3'])
 
   def test_custom_loader_corpus_with_dataset_name(self):
     loader = _CustomLoader()
@@ -260,13 +271,12 @@ class BuildIndexLibTest(absltest.TestCase):
     )
     loader_cls.return_value.load_documents = fake_load_documents
 
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         '/some/path/my_corpus/', _embedding_index(), output=self.output_dir
     )
 
     loader_cls.assert_called_once_with(path='/some/path/my_corpus/')
-    self.assertEqual(_doc_ids(out_dir), ['d1'])
-    self.assertEqual(os.path.basename(os.path.dirname(out_dir)), 'my_corpus')
+    self.assertEqual(_doc_ids(index), ['d1'])
 
   def test_corpus_name(self):
     for corpus, expected_name in (
@@ -299,13 +309,13 @@ class BuildIndexLibTest(absltest.TestCase):
     with open(os.path.join(input_dir.full_path, 'two_pages.pdf'), 'wb') as f:
       writer.write(f)
 
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         input_dir.full_path,
         _chunking_index(pdf_chunking.ChunkByPdfPages(pages_per_chunk=1)),
         output=self.output_dir,
     )
 
-    self.assertEqual(index_building.load_index(out_dir).num_docs, 2)
+    self.assertEqual(index.num_docs, 2)
 
   def test_audio_seconds_chunker(self):
     input_dir = self.create_tempdir()
@@ -316,7 +326,7 @@ class BuildIndexLibTest(absltest.TestCase):
       f.setframerate(8000)
       f.writeframes(b'\x00\x00' * 16000)
 
-    out_dir = build_index_lib.build_index(
+    index = build_index_lib.build_index(
         input_dir.full_path,
         _chunking_index(
             audio_chunking.ChunkByAudioSeconds(seconds_per_chunk=1.0)
@@ -324,7 +334,7 @@ class BuildIndexLibTest(absltest.TestCase):
         output=self.output_dir,
     )
 
-    self.assertEqual(index_building.load_index(out_dir).num_docs, 2)
+    self.assertEqual(index.num_docs, 2)
 
   def test_with_request_defaults(self):
     default_timeout = rag_defaults.DEFAULT_HTTP_TIMEOUT_MS
@@ -417,30 +427,24 @@ class BuildIndexLibTest(absltest.TestCase):
         )
     )
 
-  def test_presets_are_saved_with_index_config(self):
+  def test_presets(self):
     self._patch_preset_backends()
     for index_type, index_class in (
         (
             build_index_lib.IndexType.EMBEDDING,
-            'RewritingEmbeddingBasedDocumentIndex',
+            indexing.RewritingEmbeddingBasedDocumentIndex,
         ),
-        (build_index_lib.IndexType.GRAPHRAG, 'RewritingDocumentIndex'),
+        (build_index_lib.IndexType.GRAPHRAG, indexing.RewritingDocumentIndex),
     ):
       with self.subTest(index_type):
-        out_dir = build_index_lib.build_index(
+        index = build_index_lib.build_index(
             datasets.get_dataset_loader(_DATASET_NAME),
             index_type,
             output=self.output_dir,
         )
 
-        self.assertRegex(
-            os.path.basename(out_dir),
-            f'^{index_class}_chunker_RoutingChunker_fake-model'
-            '__hash_[0-9a-f]{8}$',
-        )
-        files = os.listdir(out_dir)
-        self.assertIn(config_serialization.INDEX_CONFIG_FILENAME, files)
-        self.assertEqual(index_building.load_index(out_dir).num_docs, 2)
+        self.assertIsInstance(index, index_class)
+        self.assertEqual(index.num_docs, 2)
 
   def test_preset_gets_default_extra_backend_kwargs(self):
     self._patch_preset_backends()
@@ -479,13 +483,13 @@ class BuildIndexLibTest(absltest.TestCase):
         serialization.StorageFormat.JSONL_NPY,
     ):
       with self.subTest(storage_format.name):
-        out_dir = build_index_lib.build_index(
+        build_index_lib.build_index(
             datasets.get_dataset_loader(_DATASET_NAME),
             output=self.output_dir,
             storage_format=storage_format,
         )
 
-        save.assert_called_with(mock.ANY, out_dir, storage_format)
+        save.assert_called_with(mock.ANY, mock.ANY, storage_format)
 
   def test_storage_formats_are_registered_serializers(self):
     # The values are the keys of `SERIALIZER_REGISTRY` and the
@@ -496,20 +500,6 @@ class BuildIndexLibTest(absltest.TestCase):
       with self.subTest(storage_format.name):
         self.assertIn(storage_format.value, serialization.SERIALIZER_REGISTRY)
     self.assertEqual(serialization.StorageFormat.JSONL_NPY.value, 'simple')
-
-  def test_saves_manifest_with_storage_format(self):
-    out_dir = build_index_lib.build_index(
-        datasets.get_dataset_loader(_DATASET_NAME),
-        _embedding_index(),
-        output=self.output_dir,
-        storage_format=serialization.StorageFormat.JSONL_NPY,
-    )
-
-    with open(os.path.join(out_dir, serialization.MANIFEST_JSON_NAME)) as f:
-      self.assertEqual(
-          json.load(f)['serializer_type'],
-          serialization.StorageFormat.JSONL_NPY.value,
-      )
 
 
 if __name__ == '__main__':
