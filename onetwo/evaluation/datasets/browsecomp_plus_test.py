@@ -36,8 +36,26 @@ def _make_browsecomp_plus_question_row(
     evidence_doc_ids: list[str] | None = None,
     negative_doc_ids: list[str] | None = None,
     split: str = 'train',
+    flat_doc_keys: bool = False,
 ) -> dict[str, Any]:
-  """Creates a fake BrowseComp Plus question row mimicking TFDS numpy output."""
+  """Creates a fake BrowseComp Plus question row mimicking TFDS numpy output.
+
+  Args:
+    query: The question.
+    answer: The answer.
+    query_id: The question ID.
+    encrypt: Whether to encrypt the fields, as in the dataset.
+    gold_doc_ids: IDs of the gold docs.
+    evidence_doc_ids: IDs of the evidence docs.
+    negative_doc_ids: IDs of the negative docs.
+    split: The split of the question.
+    flat_doc_keys: If True, the nested doc features are plain dicts (keys like
+      'docid'), as with some TFDS versions, instead of being flattened with '/'
+      separators (keys like 'default/gold_docs/docid').
+
+  Returns:
+    The fake question row.
+  """
   if gold_doc_ids is None:
     gold_doc_ids = []
   if evidence_doc_ids is None:
@@ -49,9 +67,12 @@ def _make_browsecomp_plus_question_row(
     encoded = [d.encode('utf-8') for d in doc_ids]
     if encrypt:
       encoded = [_encrypt_string(d).encode('utf-8') for d in doc_ids]
+    key_prefix = '' if flat_doc_keys else f'{prefix}/'
     return {
-        f'{prefix}/docid': np.array(encoded, dtype=object),
-        f'{prefix}/text': np.array([b'fake_text'] * len(doc_ids), dtype=object),
+        f'{key_prefix}docid': np.array(encoded, dtype=object),
+        f'{key_prefix}text': np.array(
+            [b'fake_text'] * len(doc_ids), dtype=object
+        ),
     }
 
   if encrypt:
@@ -255,8 +276,14 @@ class BrowseCompPlusDatasetLoaderTest(parameterized.TestCase):
     self.assertEqual(example['question'], 'What color is the sky?')
     self.assertEqual(example['answer'], 'Blue')
 
+  @parameterized.named_parameters(
+      dict(testcase_name='flattened_doc_keys', flat_doc_keys=False),
+      dict(testcase_name='flat_doc_keys', flat_doc_keys=True),
+  )
   @mock.patch('onetwo.evaluation.datasets.browsecomp_plus.tfds')
-  def test_example_metadata_includes_golden_doc_ids(self, mock_tfds):
+  def test_example_metadata_includes_golden_doc_ids(
+      self, mock_tfds, flat_doc_keys
+  ):
     rows = [
         _make_browsecomp_plus_question_row(
             query='Q1',
@@ -265,6 +292,7 @@ class BrowseCompPlusDatasetLoaderTest(parameterized.TestCase):
             evidence_doc_ids=['101', '102', '103'],
             negative_doc_ids=['201', '202'],
             split='test',
+            flat_doc_keys=flat_doc_keys,
         ),
     ]
     mock_tfds.load.return_value = mock.MagicMock()

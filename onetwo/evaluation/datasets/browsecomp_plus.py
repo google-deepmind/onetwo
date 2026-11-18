@@ -118,9 +118,10 @@ class BrowseCompPlusDatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
   def _extract_doc_ids(self, docs_dict: dict[str, Any]) -> list[str]:
     """Extracts and decrypts document IDs from a TFDS nested docs dict.
 
-    TFDS flattens nested features with '/' separators, so gold_docs becomes
-    a dict with keys like 'default/gold_docs/docid' and
-    'default/gold_docs/text'.
+    Depending on the TFDS version, nested features such as gold_docs are either
+    flattened with '/' separators (keys like 'default/gold_docs/docid' and
+    'default/gold_docs/text') or kept as a plain dict (keys like 'docid' and
+    'text'). Both are supported.
 
     Args:
       docs_dict: A dict from a TFDS row representing nested doc features.
@@ -130,7 +131,7 @@ class BrowseCompPlusDatasetLoader(datasets_lib.DatasetLoader[_ExampleDict]):
     """
     docid_key = None
     for key in docs_dict:
-      if key.endswith('/docid'):
+      if key == 'docid' or key.endswith('/docid'):
         docid_key = key
         break
     if docid_key is None:
