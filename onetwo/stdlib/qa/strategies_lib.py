@@ -407,11 +407,7 @@ def list_strategies() -> list[str]:
 # Register built-in strategies
 # =============================================================================
 
-# Set max_results in retrieval presets; None returns all documents.
 register_strategy('closed_book', ClosedBookStrategy)
 register_strategy('long_context', LongContextStrategy)
-register_strategy('rag', functools.partial(RAGStrategy, max_results=20))
-register_strategy(
-    'retrieval_only',
-    functools.partial(RetrievalOnlyStrategy, max_results=20),
-)
+register_strategy('rag', RAGStrategy)
+register_strategy('retrieval_only', RetrievalOnlyStrategy)

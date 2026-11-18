@@ -129,24 +129,20 @@ class RegistryTest(absltest.TestCase):
         strategies_lib.RetrievalOnlyStrategy,
     )
 
-  def test_retrieval_presets_default_max_results_to_20(self):
-    for name, expected_cls in (
-        ('rag', strategies_lib.RAGStrategy),
-        ('retrieval_only', strategies_lib.RetrievalOnlyStrategy),
-    ):
-      with self.subTest(name):
-        preset = strategies_lib.get_strategy(name)
-        assert isinstance(preset, expected_cls)
-        self.assertEqual(preset.max_results, 20)
-        self.assertIsNone(preset.min_score)
+  def test_retrieval_strategies_default_max_results_to_none(self):
+    rag = strategies_lib.get_strategy('rag')
+    assert isinstance(rag, strategies_lib.RAGStrategy)
+    self.assertIsNone(rag.max_results)
+    self.assertIsNone(rag.min_score)
 
-        overridden = strategies_lib.get_strategy(name, max_results=5)
-        assert isinstance(overridden, expected_cls)
-        self.assertEqual(overridden.max_results, 5)
+    retrieval_only = strategies_lib.get_strategy('retrieval_only')
+    assert isinstance(retrieval_only, strategies_lib.RetrievalOnlyStrategy)
+    self.assertIsNone(retrieval_only.max_results)
+    self.assertIsNone(retrieval_only.min_score)
 
-        unbounded = strategies_lib.get_strategy(name, max_results=None)
-        assert isinstance(unbounded, expected_cls)
-        self.assertIsNone(unbounded.max_results)
+    configured = strategies_lib.get_strategy('rag', max_results=5)
+    assert isinstance(configured, strategies_lib.RAGStrategy)
+    self.assertEqual(configured.max_results, 5)
 
   def test_get_unknown_strategy_raises(self):
     with self.assertRaises(KeyError):
@@ -407,13 +403,6 @@ class RAGStrategyTest(parameterized.TestCase):
         retriever.last_kwargs, {'max_results': None, 'min_score': None}
     )
 
-    preset_strategy = strategies_lib.get_strategy('rag', retriever=retriever)
-    result_preset = ot.run(preset_strategy(question='What?'))
-    self.assertLen(result_preset.docs, 20)
-    self.assertEqual(
-        retriever.last_kwargs, {'max_results': 20, 'min_score': None}
-    )
-
     configured_strategy = strategies_lib.RAGStrategy(
         retriever=retriever, max_results=2, min_score=0.75
     )
@@ -577,15 +566,6 @@ class RetrievalOnlyStrategyTest(parameterized.TestCase):
     self.assertLen(result_default.docs, 25)
     self.assertEqual(
         retriever.last_kwargs, {'max_results': None, 'min_score': None}
-    )
-
-    preset_strategy = strategies_lib.get_strategy(
-        'retrieval_only', retriever=retriever
-    )
-    result_preset = ot.run(preset_strategy(question='What?'))
-    self.assertLen(result_preset.docs, 20)
-    self.assertEqual(
-        retriever.last_kwargs, {'max_results': 20, 'min_score': None}
     )
 
     configured_strategy = strategies_lib.RetrievalOnlyStrategy(
