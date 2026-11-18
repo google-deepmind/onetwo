@@ -13,58 +13,77 @@
 # limitations under the License.
 
 import inspect
+from unittest import mock
 
 from absl.testing import absltest
+from onetwo.backends import backend_registry
 from onetwo.stdlib.retrieval import build_index_lib
 from onetwo.stdlib.retrieval import rag_defaults
 
 
 class RagDefaultsTest(absltest.TestCase):
 
-  def test_default_embed_backend_config(self):
-    config = rag_defaults.default_embed_backend_config()
-    self.assertEqual(
-        config.backend_class_name, rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME
-    )
-    self.assertEqual(config.model_name, rag_defaults.DEFAULT_EMBED_MODEL_NAME)
-    # Each call returns a new config, so that their `kwargs` are not shared.
-    self.assertIsNot(config, rag_defaults.default_embed_backend_config())
-
-  def test_default_index_generate_backend_config(self):
-    config = rag_defaults.default_index_generate_backend_config()
-    self.assertEqual(
-        config.backend_class_name,
-        rag_defaults.DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME,
-    )
-    self.assertEqual(
-        config.model_name, rag_defaults.DEFAULT_INDEX_GENERATE_MODEL_NAME
-    )
-    low_thinking = {
-        'generate_object_kwargs': {
-            'thinking_config': {'thinking_level': 'LOW'}
-        }
-    }
-    self.assertEqual(config.kwargs, low_thinking)
-    self.assertIsNot(
-        config, rag_defaults.default_index_generate_backend_config()
-    )
-
-  def test_qa_generate_backend_kwargs(self):
+  def test_google_genai_api_defaults_are_registered(self):
     medium_thinking = {'thinking_config': {'thinking_level': 'MEDIUM'}}
     self.assertEqual(
-        rag_defaults.qa_generate_backend_kwargs(
-            rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
+        rag_defaults.default_embed_backend_config(),
+        backend_registry.EmbedBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name='gemini-embedding-2',
         ),
-        {
-            'chat_kwargs': medium_thinking,
-            'generate_object_kwargs': medium_thinking,
-            'generate_with_tools_kwargs': medium_thinking,
-        },
     )
-    # Other models may not support the same thinking levels.
     self.assertEqual(
-        rag_defaults.qa_generate_backend_kwargs('some-other-model'), {}
+        rag_defaults.default_index_generate_backend_config(),
+        backend_registry.GenerateBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name='gemini-4-hydrogen',
+            kwargs={
+                'generate_object_kwargs': {
+                    'thinking_config': {'thinking_level': 'LOW'}
+                }
+            },
+        ),
     )
+    self.assertEqual(
+        rag_defaults.default_qa_generate_backend_config('GoogleGenAIAPI'),
+        backend_registry.GenerateBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name='gemini-4-hydrogen',
+            kwargs={
+                'chat_kwargs': medium_thinking,
+                'generate_object_kwargs': medium_thinking,
+                'generate_with_tools_kwargs': medium_thinking,
+            },
+        ),
+    )
+
+  def test_getters_return_copies(self):
+    config = rag_defaults.default_qa_generate_backend_config()
+    config.kwargs['chat_kwargs']['thinking_config']['thinking_level'] = 'HIGH'
+
+    self.assertEqual(
+        rag_defaults.default_qa_generate_backend_config().kwargs['chat_kwargs'],
+        {'thinking_config': {'thinking_level': 'MEDIUM'}},
+    )
+
+  def test_unknown_backend_raises(self):
+    with self.assertRaisesRegex(ValueError, "'Unknown'.*'GoogleGenAIAPI'"):
+      rag_defaults.default_embed_backend_config('Unknown')
+
+  def test_register_backend_defaults(self):
+    self.enter_context(mock.patch.dict(rag_defaults._BACKEND_DEFAULTS))
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='FakeAPI', model_name='fake-model'
+    )
+    rag_defaults.register_backend_defaults(
+        'FakeAPI', rag_defaults.BackendDefaults(qa_generate=config)
+    )
+
+    self.assertEqual(
+        rag_defaults.default_qa_generate_backend_config('FakeAPI'), config
+    )
+    with self.assertRaisesRegex(ValueError, "'FakeAPI' has no default embed"):
+      rag_defaults.default_embed_backend_config('FakeAPI')
 
   def test_default_tokenize_backend_config(self):
     config = rag_defaults.default_tokenize_backend_config()
@@ -85,6 +104,37 @@ class RagDefaultsTest(absltest.TestCase):
     self.assertEqual(
         params['index'].default, build_index_lib.IndexType.EMBEDDING
     )
+
+
+class QaGenerateBackendConfigTest(absltest.TestCase):
+
+  def test_default_model_keeps_default_kwargs(self):
+    default = rag_defaults.default_qa_generate_backend_config()
+
+    for model_name in (None, default.model_name):
+      with self.subTest(str(model_name)):
+        self.assertEqual(
+            rag_defaults.qa_generate_backend_config(
+                rag_defaults.DEFAULT_BACKEND_CLASS_NAME, model_name
+            ),
+            default,
+        )
+
+  def test_other_model_has_no_default_kwargs(self):
+    config = rag_defaults.qa_generate_backend_config(
+        rag_defaults.DEFAULT_BACKEND_CLASS_NAME, 'other-model'
+    )
+
+    self.assertEqual(config.model_name, 'other-model')
+    self.assertEqual(config.kwargs, {})
+
+  def test_backend_without_defaults_with_explicit_model(self):
+    config = rag_defaults.qa_generate_backend_config(
+        'BackendWithoutDefaults', 'some-model'
+    )
+
+    self.assertEqual(config.backend_class_name, 'BackendWithoutDefaults')
+    self.assertEqual(config.model_name, 'some-model')
 
 
 if __name__ == '__main__':

@@ -51,13 +51,13 @@ _OUTPUT = flags.DEFINE_string(
 
 _GENERATE_MODEL_BACKEND_CLASS_NAME = flags.DEFINE_string(
     'generate_model_backend_class_name',
-    rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME,
+    rag_defaults.DEFAULT_BACKEND_CLASS_NAME,
     'Name of the generation backend class.',
 )
 
 _GENERATE_MODEL_NAME = flags.DEFINE_string(
     'generate_model_name',
-    rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME,
+    rag_defaults.DEFAULT_GENERATE_MODEL,
     'Name of the generation model.',
 )
 
@@ -69,7 +69,7 @@ _GENERATE_BACKEND_KWARGS = flags.DEFINE_string(
         ' \'{"chat_kwargs": {"thinking_config": {"thinking_level": "HIGH"}}}\'.'
         ' If unset, defaults to medium thinking for the default model and to no'
         ' kwargs for other models (see'
-        ' `rag_defaults.qa_generate_backend_kwargs`).'
+        ' `rag_defaults.qa_generate_backend_config`).'
     ),
 )
 

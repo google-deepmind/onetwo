@@ -263,10 +263,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
       )
       config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
       self.assertEqual(
-          config.model_name, rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
-      )
-      self.assertEqual(
-          config.kwargs, rag_defaults.DEFAULT_QA_GENERATE_BACKEND_KWARGS
+          config, rag_defaults.default_qa_generate_backend_config()
       )
     with self.subTest('other_model_has_no_kwargs'):
       evaluate_rag_lib.evaluate_rag(
@@ -292,7 +289,8 @@ class GetResultsDirectoryTest(absltest.TestCase):
       )
       config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
       self.assertEqual(
-          config.model_name, rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME
+          config.model_name,
+          rag_defaults.default_qa_generate_backend_config().model_name,
       )
       self.assertEqual(config.kwargs, high_thinking)
 

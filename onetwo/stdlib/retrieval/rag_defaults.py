@@ -12,64 +12,216 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Default models and settings used by the OneTwo RAG API.
+"""Default backends, models and settings of the OneTwo RAG API.
 
-All default backends and models of `rag.build_index`, `rag.evaluate` and their
-command-line tools, as well as the default backend request settings of
-`rag.build_index`, are defined here, so that they can be found (and updated) in
-one place.
+All the default backends and models of `rag.build_index` and `rag.evaluate`
+(and of their command-line tools) are defined here. The default configs of a
+backend class are registered with `register_backend_defaults`: other backends
+(e.g. internal ones) register theirs from their own modules. Currently only
+GoogleGenAIAPI defaults are registered here. Defaults specific to an index or
+chunker are the defaults of its class.
 
-Defaults specific to one index or chunker (e.g. chunk size or searcher) are the
-defaults of its class.
+The defaults are updated as newer models become available. Saved indexes keep
+the configs they were built with (in `index_config.json`), so they keep loading
+with their models until those models are turned down. Evaluation defaults are
+not saved: pass the models explicitly to compare evaluations across changes of
+the defaults.
 """
 
-from typing import Any
+import copy
+import dataclasses
+from typing import Any, TypeVar
 
 from onetwo.backends import backend_registry
 
-# Embedding model used to build and query embedding-based indexes.
-DEFAULT_EMBED_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
-DEFAULT_EMBED_MODEL_NAME = 'gemini-embedding-2'
+# Default backend class and models of `rag.build_index` and `rag.evaluate`
+# (registered below for `GoogleGenAIAPI`).
+DEFAULT_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
+DEFAULT_GENERATE_MODEL = 'gemini-4-hydrogen'
+DEFAULT_EMBEDDING_MODEL = 'gemini-embedding-2'
 
-# Tokenizer used to chunk documents by tokens (`chunking_strategy='tokens'`).
-# The Gemini tokenizer is only available inside Google (see
-# `sentencepiece_tokenizer.TOKENIZER_PATHS`), so the open-source release
-# defaults to a publicly downloadable SentencePiece model.
+
+@dataclasses.dataclass(frozen=True)
+class BackendDefaults:
+  """Default configs of one backend class, per role.
+
+  A role that the backend does not support is None.
+
+  Attributes:
+    embed: Config to embed documents and queries.
+    index_generate: Config to generate while building indexes (e.g. GraphRAG
+      entity and triple extraction).
+    qa_generate: Config to generate answers when evaluating QA strategies.
+  """
+
+  embed: backend_registry.EmbedBackendConfig | None = None
+  index_generate: backend_registry.GenerateBackendConfig | None = None
+  qa_generate: backend_registry.GenerateBackendConfig | None = None
+
+
+_BACKEND_DEFAULTS: dict[str, BackendDefaults] = {}
+
+_ConfigT = TypeVar('_ConfigT', bound=backend_registry.BackendConfig)
+
+
+def register_backend_defaults(
+    backend_class_name: str, defaults: BackendDefaults
+) -> None:
+  """Registers the default configs of a backend class.
+
+  Args:
+    backend_class_name: Name of the backend class.
+    defaults: Default configs of the backend class.
+  """
+  _BACKEND_DEFAULTS[backend_class_name] = defaults
+
+
+def _backend_defaults(backend_class_name: str) -> BackendDefaults:
+  """Returns the registered defaults of a backend class."""
+  if backend_class_name not in _BACKEND_DEFAULTS:
+    raise ValueError(
+        f'No defaults registered for backend class {backend_class_name!r}.'
+        f' Registered: {sorted(_BACKEND_DEFAULTS)}. Import the module that'
+        ' registers its defaults.'
+    )
+  return _BACKEND_DEFAULTS[backend_class_name]
+
+
+def _copy(
+    backend_class_name: str, config: _ConfigT | None, role: str
+) -> _ConfigT:
+  """Returns a copy of a default config, which must exist."""
+  if config is None:
+    raise ValueError(f'{backend_class_name!r} has no default {role} config.')
+  return copy.deepcopy(config)
+
+
+def default_embed_backend_config(
+    backend_class_name: str = DEFAULT_BACKEND_CLASS_NAME,
+) -> backend_registry.EmbedBackendConfig:
+  """Returns a new copy of the default embedding config of a backend class.
+
+  Args:
+    backend_class_name: Name of the backend class.
+  """
+  return _copy(
+      backend_class_name,
+      _backend_defaults(backend_class_name).embed,
+      'embedding',
+  )
+
+
+def default_index_generate_backend_config(
+    backend_class_name: str = DEFAULT_BACKEND_CLASS_NAME,
+) -> backend_registry.GenerateBackendConfig:
+  """Returns a new copy of the default index-building generation config.
+
+  Args:
+    backend_class_name: Name of the backend class.
+  """
+  return _copy(
+      backend_class_name,
+      _backend_defaults(backend_class_name).index_generate,
+      'index generation',
+  )
+
+
+def default_qa_generate_backend_config(
+    backend_class_name: str = DEFAULT_BACKEND_CLASS_NAME,
+) -> backend_registry.GenerateBackendConfig:
+  """Returns a new copy of the default QA generation config.
+
+  Args:
+    backend_class_name: Name of the backend class.
+  """
+  return _copy(
+      backend_class_name,
+      _backend_defaults(backend_class_name).qa_generate,
+      'QA generation',
+  )
+
+
+def qa_generate_backend_config(
+    backend_class_name: str = DEFAULT_BACKEND_CLASS_NAME,
+    model_name: str | None = None,
+) -> backend_registry.GenerateBackendConfig:
+  """Returns the QA generation config of a backend class and model.
+
+  Transitional: will be removed when `rag.evaluate` takes strategies with their
+  own backend config.
+
+  Without a model, or with the default model of the backend class, this is its
+  default QA config (e.g. with its thinking level). Any other model gets no
+  default kwargs, since it may not support them, and any backend class can be
+  used with an explicit model.
+
+  Args:
+    backend_class_name: Name of the generation backend class.
+    model_name: Name of the generation model, or None for the default one.
+  """
+  if model_name is None:
+    return default_qa_generate_backend_config(backend_class_name)
+  defaults = _BACKEND_DEFAULTS.get(backend_class_name)
+  if (
+      defaults
+      and defaults.qa_generate
+      and (defaults.qa_generate.model_name == model_name)
+  ):
+    return copy.deepcopy(defaults.qa_generate)
+  return backend_registry.GenerateBackendConfig(
+      backend_class_name=backend_class_name, model_name=model_name
+  )
+
+
+def _thinking(level: str) -> dict[str, Any]:
+  return {'thinking_config': {'thinking_level': level}}
+
+
+register_backend_defaults(
+    'GoogleGenAIAPI',
+    BackendDefaults(
+        embed=backend_registry.EmbedBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name=DEFAULT_EMBEDDING_MODEL,
+        ),
+        # GraphRAG extracts entities and triples with `llm.generate_object`:
+        # LOW thinking keeps these many calls fast and cheap.
+        index_generate=backend_registry.GenerateBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name=DEFAULT_GENERATE_MODEL,
+            kwargs={'generate_object_kwargs': _thinking('LOW')},
+        ),
+        # MEDIUM thinking for every call of the QA strategies.
+        qa_generate=backend_registry.GenerateBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name=DEFAULT_GENERATE_MODEL,
+            kwargs={
+                'chat_kwargs': _thinking('MEDIUM'),
+                'generate_object_kwargs': _thinking('MEDIUM'),
+                'generate_with_tools_kwargs': _thinking('MEDIUM'),
+            },
+        ),
+    ),
+)
+
+# Default tokenizer to chunk documents by tokens, used by
+# `routing_chunking.RoutingChunker` and the MCP server.
 DEFAULT_TOKENIZE_BACKEND_CLASS_NAME = 'SentencePieceTokenizer'
 DEFAULT_TOKENIZE_MODEL_NAME = (
     'https://huggingface.co/t5-small/resolve/main/spiece.model'
 )
 
-# Generation model used while building indexes (e.g. HippoRAG extraction), with
-# low thinking to keep the many extraction calls fast and cheap (LOW is the
-# lowest level supported by gemini-4-hydrogen, which rejects MINIMAL).
-DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
-DEFAULT_INDEX_GENERATE_MODEL_NAME = 'gemini-4-hydrogen'
-# Constructor kwargs of the `GoogleGenAIAPI` index generation backend. HippoRAG
-# extracts entities and triples with `llm.generate_object`.
-DEFAULT_INDEX_GENERATE_BACKEND_KWARGS = {
-    'generate_object_kwargs': {
-        'thinking_config': {'thinking_level': 'LOW'}
-    },
-}
 
-# Generation models used by `rag.evaluate`: to answer questions, and by the AI
-# rater to grade the answers.
-# TODO: Decide whether index building and evaluation should use
-# the same default generation model.
-DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME = 'GoogleGenAIAPI'
-DEFAULT_QA_GENERATE_MODEL_NAME = 'gemini-4-hydrogen'
-# Constructor kwargs of the default `GoogleGenAIAPI` QA backend, with medium
-# thinking for every call made by the QA strategies: `llm.chat` and
-# `llm.generate_object` (e.g. `rag`), and `llm.generate_with_tools`
-# (`agentic_retrieval`). Only applied with the default QA model, since other
-# models may not support the same thinking levels.
-_MEDIUM_THINKING = {'thinking_config': {'thinking_level': 'MEDIUM'}}
-DEFAULT_QA_GENERATE_BACKEND_KWARGS = {
-    'chat_kwargs': _MEDIUM_THINKING,
-    'generate_object_kwargs': _MEDIUM_THINKING,
-    'generate_with_tools_kwargs': _MEDIUM_THINKING,
-}
+def default_tokenize_backend_config() -> backend_registry.TokenizeBackendConfig:
+  """Returns a new config for the default tokenizer."""
+  return backend_registry.TokenizeBackendConfig(
+      backend_class_name=DEFAULT_TOKENIZE_BACKEND_CLASS_NAME,
+      model_name=DEFAULT_TOKENIZE_MODEL_NAME,
+  )
+
+
+# TODO: Handle the default AI rater model name in a similar way
+# to the generation and embedding models.
 DEFAULT_AI_RATER_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
 
 # Backend request settings applied by `rag.build_index` (and its command-line
@@ -78,46 +230,3 @@ DEFAULT_AI_RATER_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
 # (`extra_backend_kwargs['http_options']['timeout']`).
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_HTTP_TIMEOUT_MS = 60_000
-
-
-def default_embed_backend_config() -> backend_registry.EmbedBackendConfig:
-  """Returns a new config for the default embedding model."""
-  return backend_registry.EmbedBackendConfig(
-      backend_class_name=DEFAULT_EMBED_BACKEND_CLASS_NAME,
-      model_name=DEFAULT_EMBED_MODEL_NAME,
-  )
-
-
-def default_tokenize_backend_config() -> (
-    backend_registry.TokenizeBackendConfig
-):
-  """Returns a new config for the default tokenizer."""
-  return backend_registry.TokenizeBackendConfig(
-      backend_class_name=DEFAULT_TOKENIZE_BACKEND_CLASS_NAME,
-      model_name=DEFAULT_TOKENIZE_MODEL_NAME,
-  )
-
-
-def default_index_generate_backend_config() -> (
-    backend_registry.GenerateBackendConfig
-):
-  """Returns a new config for the default index-building generation model."""
-  return backend_registry.GenerateBackendConfig(
-      backend_class_name=DEFAULT_INDEX_GENERATE_BACKEND_CLASS_NAME,
-      model_name=DEFAULT_INDEX_GENERATE_MODEL_NAME,
-      kwargs=DEFAULT_INDEX_GENERATE_BACKEND_KWARGS,
-  )
-
-
-def qa_generate_backend_kwargs(model_name: str) -> dict[str, Any]:
-  """Returns the default constructor kwargs of the QA backend of `model_name`.
-
-  These are `DEFAULT_QA_GENERATE_BACKEND_KWARGS` (medium thinking) for the
-  default QA model, and no kwargs for any other model.
-
-  Args:
-    model_name: Name of the QA generation model.
-  """
-  if model_name == DEFAULT_QA_GENERATE_MODEL_NAME:
-    return dict(DEFAULT_QA_GENERATE_BACKEND_KWARGS)
-  return {}

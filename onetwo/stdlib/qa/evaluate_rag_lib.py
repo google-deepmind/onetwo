@@ -15,6 +15,7 @@
 """Library to evaluate a RAG strategy on a QA dataset."""
 
 from collections.abc import Mapping
+import dataclasses
 import logging
 from typing import Any
 
@@ -136,9 +137,9 @@ def evaluate_rag(
     extra_backend_kwargs: Mapping[str, Any] | None = None,
     index: str | indexing.DocumentIndex = '',
     generate_model_backend_class_name: str = (
-        rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME
+        rag_defaults.DEFAULT_BACKEND_CLASS_NAME
     ),
-    generate_model_name: str = rag_defaults.DEFAULT_QA_GENERATE_MODEL_NAME,
+    generate_model_name: str | None = None,
     generate_backend_kwargs: Mapping[str, Any] | None = None,
     qa_strategy_name: str = 'rag',
     query_time_kwargs: Mapping[str, Any] | None = None,
@@ -149,8 +150,8 @@ def evaluate_rag(
 
   Args:
     examples: Path to a `.jsonl` or `.json` examples file, or a
-      `datasets.DatasetLoader` (e.g.
-      `datasets.get_dataset_loader(name, max_number_of_examples=N)`).
+      `datasets.DatasetLoader` (e.g. `datasets.get_dataset_loader(name,
+      max_number_of_examples=N)`).
     output: Base directory of the HTML report, or None to save it in `index`
       when `index` is a directory (see `get_results_directory`).
     extra_backend_kwargs: Extra keyword arguments for the constructors of the
@@ -167,21 +168,23 @@ def evaluate_rag(
     index: Directory of a saved index or a `DocumentIndex` object. Can only be
       `''` when `qa_strategy_name` is `'agentic_retrieval'` or `'closed_book'`.
     generate_model_backend_class_name: Generation backend class name.
-    generate_model_name: Generation model name.
+    generate_model_name: Generation model name. If None, the default QA model of
+      `generate_model_backend_class_name` (see
+      `rag_defaults.default_qa_generate_backend_config`).
     generate_backend_kwargs: Constructor kwargs of the generation backend, e.g.
       `{'chat_kwargs': {'thinking_config': {'thinking_level': 'HIGH'}}}` for a
-      `GoogleGenAIAPI` backend. If None, defaults to
-      `rag_defaults.qa_generate_backend_kwargs(generate_model_name)`, i.e.
-      medium thinking for the default model and no kwargs for other models.
+      `GoogleGenAIAPI` backend. If None, the kwargs of the default QA config
+      when `generate_model_name` is None (e.g. medium thinking for
+      `GoogleGenAIAPI`), and no kwargs otherwise.
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments for the strategy. If None, defaults
       to `{'max_results': 20}`.
     mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
       `mcp_server_urls`, a comma-separated list of MCP server URLs.
     evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
-      `metric_functions`, `chunk_size`). Defaults `'output_results'` to True
-      and `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)`
-      with the default AI rater when absent.
+      `metric_functions`, `chunk_size`). Defaults `'output_results'` to True and
+      `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)` with
+      the default AI rater when absent.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -217,6 +220,15 @@ def evaluate_rag(
       print('No existing cache found. A new cache will be created.')
     rt_kwargs['cache'] = fn_cache
 
+  gen_backend_config = rag_defaults.qa_generate_backend_config(
+      generate_model_backend_class_name, generate_model_name
+  )
+  generate_model_name = gen_backend_config.model_name or ''
+  if generate_backend_kwargs is not None:
+    gen_backend_config = dataclasses.replace(
+        gen_backend_config, kwargs=dict(generate_backend_kwargs)
+    )
+
   results_directory = get_results_directory(
       output=output,
       index=index,
@@ -226,15 +238,6 @@ def evaluate_rag(
       max_results=q_time_kwargs.get('max_results', 20),
   )
 
-  gen_backend_config = backend_registry.GenerateBackendConfig(
-      backend_class_name=generate_model_backend_class_name,
-      model_name=generate_model_name,
-      kwargs=(
-          dict(generate_backend_kwargs)
-          if generate_backend_kwargs is not None
-          else rag_defaults.qa_generate_backend_kwargs(generate_model_name)
-      ),
-  )
   spec = qa_spec.QAStrategySpec(
       qa_strategy_name=qa_strategy_name,
       generate_backend_config=gen_backend_config,
@@ -248,7 +251,7 @@ def evaluate_rag(
   evaluate_kwargs.setdefault('output_results', True)
   if 'metric_functions' not in evaluate_kwargs:
     ai_rater_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name=rag_defaults.DEFAULT_QA_GENERATE_BACKEND_CLASS_NAME,
+        backend_class_name=rag_defaults.DEFAULT_BACKEND_CLASS_NAME,
         model_name=rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
     )
     evaluate_kwargs['metric_functions'] = rag_metrics.get_default_rag_metrics(

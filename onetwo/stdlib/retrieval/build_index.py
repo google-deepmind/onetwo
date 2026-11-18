@@ -76,13 +76,13 @@ _OUTPUT = flags.DEFINE_string(
 
 _EMBEDDING_BACKEND_CLASS_NAME = flags.DEFINE_string(
     'embedding_backend_class_name',
-    rag_defaults.DEFAULT_EMBED_BACKEND_CLASS_NAME,
+    rag_defaults.DEFAULT_BACKEND_CLASS_NAME,
     'Name of the embedding backend class.',
 )
 
 _EMBEDDING_MODEL_NAME = flags.DEFINE_string(
     'embedding_model_name',
-    rag_defaults.DEFAULT_EMBED_MODEL_NAME,
+    rag_defaults.DEFAULT_EMBEDDING_MODEL,
     'Name of the embedding model.',
 )
 
