@@ -19,6 +19,7 @@ import base64
 import io
 import json
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -137,17 +138,15 @@ class DualModalMcpServerTest(parameterized.TestCase):
             document_task_type=None
         ),
     )
-    dual_index = dual_modal_indexing.DualModalDocumentIndex(
+    self._dual_index = dual_modal_indexing.DualModalDocumentIndex(
         text_index=text_index, image_index=image_index
     )
-    ot.run(dual_index.add_docs(self._docs))
-    dual_index.save(self._index_dir)
-    config_serialization.save_index_config(dual_index, self._index_dir)
-    self._mcp = dual_modal_mcp_server.create_dual_modal_server(
-        index_path=self._index_dir,
-        max_results=2,
-        snippet_max_chars=-1,
-        transport='stdio',
+    ot.run(self._dual_index.add_docs(self._docs))
+    self._dual_index.save(self._index_dir)
+    config_serialization.save_index_config(self._dual_index, self._index_dir)
+    self._mcp = dual_modal_mcp_server.create_server(
+        self._index_dir,
+        extra_mcp_config={'max_results': 2, 'snippet_max_chars': None},
     )
 
   @parameterized.named_parameters(
@@ -197,11 +196,9 @@ class DualModalMcpServerTest(parameterized.TestCase):
       self.assertEqual(top_one_hit[0]['docid'], 'doc_solar')
 
     with self.subTest('truncates_to_snippet_max_chars'):
-      truncated_mcp = dual_modal_mcp_server.create_dual_modal_server(
-          index_path=self._index_dir,
-          max_results=1,
-          snippet_max_chars=10,
-          transport='stdio',
+      truncated_mcp = dual_modal_mcp_server.create_server(
+          self._index_dir,
+          extra_mcp_config={'max_results': 1, 'snippet_max_chars': 10},
       )
       short_hits = _call_tool(
           truncated_mcp, 'search_text_chunks', {'query': 'Solar Observatory'}
@@ -291,18 +288,40 @@ class DualModalMcpServerTest(parameterized.TestCase):
         log_output.output[0],
     )
 
-  def test_create_dual_modal_server_validates_inputs(self):
-    self.assertEqual(self._mcp.settings.port, 8000)
-    http_mcp = dual_modal_mcp_server.create_dual_modal_server(
-        index_path=self._index_dir,
-        host='0.0.0.0',
-        port=9123,
-        transport='streamable-http',
+  def test_create_server_serves_an_index_object(self):
+    mcp = dual_modal_mcp_server.create_server(
+        self._dual_index, extra_mcp_config={'max_results': 1}
+    )
+    hits = _call_tool(mcp, 'search_text_chunks', {'query': 'Solar Observatory'})
+    self.assertLen(hits, 1)
+    self.assertEqual(hits[0]['docid'], 'doc_solar')
+    res = _call_tool(mcp, 'get_document', {'docid': 'doc_solar'})
+    self.assertEqual(json.loads(res.content[0].text)['docid'], 'doc_solar')
+
+  def test_create_server_host_and_port(self):
+    self.assertEqual(self._mcp.settings.host, 'localhost')
+    self.assertEqual(self._mcp.settings.port, 8775)
+    http_mcp = dual_modal_mcp_server.create_server(
+        self._index_dir, host='0.0.0.0', port=9123
     )
     self.assertEqual(http_mcp.settings.host, '0.0.0.0')
     self.assertEqual(http_mcp.settings.port, 9123)
 
-    no_orig_dir = self.create_tempdir('no_orig').full_path
+  def test_create_server_rejects_unknown_extra_mcp_config_keys(self):
+    with self.assertRaisesRegex(
+        ValueError, r"Unknown extra_mcp_config keys: \['max_result'\]"
+    ):
+      dual_modal_mcp_server.create_server(
+          self._index_dir, extra_mcp_config={'max_result': 3}
+      )
+
+  def test_create_server_rejects_extra_backend_kwargs_with_index_object(self):
+    with self.assertRaisesRegex(ValueError, 'extra_backend_kwargs'):
+      dual_modal_mcp_server.create_server(
+          self._dual_index, extra_backend_kwargs={'api_key': 'key'}
+      )
+
+  def test_create_server_requires_preserved_original_docs(self):
     index_without_orig = dual_modal_indexing.DualModalDocumentIndex(
         text_index=indexing.RewritingEmbeddingBasedDocumentIndex(
             preserve_original_docs=False
@@ -310,24 +329,53 @@ class DualModalMcpServerTest(parameterized.TestCase):
         image_index=indexing.RewritingEmbeddingBasedDocumentIndex(),
     )
     ot.run(index_without_orig.add_docs(self._docs))
-    index_without_orig.save(no_orig_dir)
-    config_serialization.save_index_config(index_without_orig, no_orig_dir)
-    with self.assertRaisesRegex(ValueError, 'preserve_original_docs=True'):
-      dual_modal_mcp_server.create_dual_modal_server(
-          index_path=no_orig_dir, include_get_document=True
-      )
+    with self.subTest('index_object'):
+      with self.assertRaisesRegex(ValueError, 'preserve_original_docs=True'):
+        dual_modal_mcp_server.create_server(index_without_orig)
 
-    plain_dir = self.create_tempdir('plain').full_path
+    with self.subTest('saved_index'):
+      no_orig_dir = self.create_tempdir('no_orig').full_path
+      index_without_orig.save(no_orig_dir)
+      config_serialization.save_index_config(index_without_orig, no_orig_dir)
+      with self.assertRaisesRegex(ValueError, 'preserve_original_docs=True'):
+        dual_modal_mcp_server.create_server(no_orig_dir)
+
+  def test_create_server_requires_a_dual_modal_index(self):
     plain_index = indexing.RewritingEmbeddingBasedDocumentIndex()
     ot.run(plain_index.add_docs(self._docs))
-    plain_index.save(plain_dir)
-    config_serialization.save_index_config(plain_index, plain_dir)
-    with self.assertRaisesRegex(
-        TypeError, 'not a saved DualModalDocumentIndex'
-    ):
-      dual_modal_mcp_server.create_dual_modal_server(
-          index_path=plain_dir, transport='stdio'
+    with self.subTest('index_object'):
+      with self.assertRaisesRegex(
+          TypeError,
+          'requires a DualModalDocumentIndex, but got a'
+          ' RewritingEmbeddingBasedDocumentIndex',
+      ):
+        dual_modal_mcp_server.create_server(plain_index)
+
+    with self.subTest('saved_index'):
+      plain_dir = self.create_tempdir('plain').full_path
+      plain_index.save(plain_dir)
+      config_serialization.save_index_config(plain_index, plain_dir)
+      with self.assertRaisesRegex(
+          TypeError, 'requires a DualModalDocumentIndex'
+      ):
+        dual_modal_mcp_server.create_server(plain_dir)
+
+  def test_start_mcp_runs_the_server_with_the_transport(self):
+    with mock.patch.object(
+        fastmcp_server.FastMCP, 'run', autospec=True
+    ) as mock_run:
+      dual_modal_mcp_server.start_mcp(
+          self._dual_index,
+          transport='streamable-http',
+          port=9124,
+          extra_mcp_config={'max_results': 1},
       )
+    mock_run.assert_called_once()
+    mcp = mock_run.call_args.args[0]
+    self.assertEqual(mcp.settings.port, 9124)
+    self.assertEqual(
+        mock_run.call_args.kwargs, {'transport': 'streamable-http'}
+    )
 
   def test_content_to_blocks_rejects_non_bytes_image_chunk(self):
     pil_chunk = content_lib.Chunk(PILImage.new('RGB', (2, 2)))

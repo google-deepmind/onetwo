@@ -22,6 +22,8 @@ Example usage:
       --index_path=/path/to/dual_modal_index \
       --transport=streamable-http \
       --port=8775
+
+Clients then connect to http://localhost:8775/mcp.
 """
 
 from collections.abc import Sequence
@@ -48,40 +50,35 @@ _MAX_RESULTS = flags.DEFINE_integer(
 _SNIPPET_MAX_CHARS = flags.DEFINE_integer(
     'snippet_max_chars',
     1200,
-    'Maximum characters per text snippet (~300 tokens; -1 disables'
-    ' truncation).',
-)
-
-_INCLUDE_GET_DOCUMENT = flags.DEFINE_boolean(
-    'include_get_document',
-    True,
-    'If True, register get_document to retrieve full unchunked documents.',
+    'Maximum characters per text snippet (~300 tokens). -1 means no'
+    ' truncation.',
 )
 
 _HOST = flags.DEFINE_string(
     'host',
     'localhost',
-    'Host/interface to bind the HTTP/SSE server on.',
+    'Host/interface to bind the server on.',
 )
 
 _PORT = flags.DEFINE_integer(
     'port',
     8775,
-    'Port to listen on for HTTP/SSE transports.',
+    'Port to listen on.',
 )
 
 _TRANSPORT = flags.DEFINE_enum(
     'transport',
     'streamable-http',
-    ['stdio', 'sse', 'streamable-http'],
-    'MCP transport protocol ("stdio", "sse", or "streamable-http").',
+    ['stdio', 'streamable-http'],
+    'MCP transport protocol ("stdio" or "streamable-http").',
 )
 
-_RUNTIME_KWARGS = flags.DEFINE_string(
-    'runtime_kwargs',
-    '',
-    'Optional JSON-encoded dictionary of runtime kwargs forwarded to'
-    ' index_building.load_index.',
+_EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
+    'extra_backend_kwargs',
+    None,
+    'Optional JSON-encoded dictionary of extra keyword arguments for the'
+    ' backends of the loaded index (e.g. an API key). Usually not needed:'
+    ' credentials are read from the environment (e.g. GOOGLE_API_KEY).',
 )
 
 
@@ -89,25 +86,25 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError(f'Unexpected command line arguments: {argv[1:]}')
 
-  runtime_kwargs = (
-      json.loads(_RUNTIME_KWARGS.value) if _RUNTIME_KWARGS.value else None
-  )
-
-  mcp = dual_modal_mcp_server.create_dual_modal_server(
-      index_path=_INDEX_PATH.value,
-      max_results=_MAX_RESULTS.value,
-      snippet_max_chars=_SNIPPET_MAX_CHARS.value,
-      include_get_document=_INCLUDE_GET_DOCUMENT.value,
+  dual_modal_mcp_server.start_mcp(
+      _INDEX_PATH.value,
+      transport=cast(Literal['stdio', 'streamable-http'], _TRANSPORT.value),
       host=_HOST.value,
       port=_PORT.value,
-      transport=_TRANSPORT.value,
-      index_runtime_kwargs=runtime_kwargs,
-  )
-  # _TRANSPORT.value is typed as str, while mcp.run expects a Literal.
-  mcp.run(
-      transport=cast(
-          Literal['stdio', 'sse', 'streamable-http'], _TRANSPORT.value
-      )
+      extra_backend_kwargs=(
+          json.loads(_EXTRA_BACKEND_KWARGS.value)
+          if _EXTRA_BACKEND_KWARGS.value
+          else None
+      ),
+      extra_mcp_config={
+          'max_results': _MAX_RESULTS.value,
+          # A negative --snippet_max_chars disables truncation.
+          'snippet_max_chars': (
+              _SNIPPET_MAX_CHARS.value
+              if _SNIPPET_MAX_CHARS.value >= 0
+              else None
+          ),
+      },
   )
 
 
