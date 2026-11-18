@@ -73,6 +73,7 @@ import re
 from typing import Any, cast
 
 from onetwo.agents import agent as agent_lib
+from onetwo.backends import backend_registry
 from onetwo.core import content as content_lib
 from onetwo.core import executing
 from onetwo.core import function_calling as fc_types
@@ -138,7 +139,10 @@ def extract_cited_doc_ids(answer: str) -> list[str]:
 
 
 @dataclasses.dataclass
-class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
+class AgenticRetrievalStrategy(
+    qa.QAStrategy[_PromptContent, _StrategyResult],
+    backend_registry.BackendMixin,
+):
   """Answers a question by letting the model use the tools it is given.
 
   Attributes:
@@ -247,7 +251,8 @@ class AgenticRetrievalStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         content=self._first_turn_content(question, additional_instructions),
     )
     # Empty when the model was still calling tools as `max_steps` ran out.
-    answer = cast(str, await agent([turn]))
+    with self._backend_context():
+      answer = cast(str, await agent([turn]))
     docs = []
     if self.doc_ids_from_answer is not None and answer:
       docs = [

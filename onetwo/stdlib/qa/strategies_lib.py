@@ -38,10 +38,12 @@ Usage:
   ```
 """
 
+from collections.abc import Sequence
 import dataclasses
 import functools
-from typing import Callable, Sequence
+from typing import Callable
 
+from onetwo.backends import backend_registry
 from onetwo.builtins import composables
 from onetwo.builtins import llm
 from onetwo.core import composing
@@ -107,7 +109,10 @@ default_qa_template_only_from_context = lambda context, question: (
 
 
 @dataclasses.dataclass
-class ClosedBookStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
+class ClosedBookStrategy(
+    qa.QAStrategy[_PromptContent, _StrategyResult],
+    backend_registry.BackendMixin,
+):
   """A strategy that answers questions without any context (closed-book).
 
   The context field in the prompt is set to "None".
@@ -132,12 +137,16 @@ class ClosedBookStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
     """Returns an answer with no context."""
     dummy_doc = _Document(doc_id='none', content='None')
     context = await self.prompt_builder([dummy_doc], question)
-    answer = await llm.chat(context.to_messages())
+    with self._backend_context():
+      answer = await llm.chat(context.to_messages())
     return _StrategyResult(answer=str(answer), docs=[])
 
 
 @dataclasses.dataclass
-class LongContextStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
+class LongContextStrategy(
+    qa.QAStrategy[_PromptContent, _StrategyResult],
+    backend_registry.BackendMixin,
+):
   """A strategy that puts all documents in context (long-context).
 
   Attributes:
@@ -166,7 +175,8 @@ class LongContextStrategy(qa.QAStrategy[_PromptContent, _StrategyResult]):
         else [_Document(doc_id='none', content='None')]
     )
     context = await self.prompt_builder(docs, question)
-    answer = await llm.chat(context.to_messages())
+    with self._backend_context():
+      answer = await llm.chat(context.to_messages())
     return _StrategyResult(answer=str(answer), docs=list(self.documents))
 
 
@@ -262,7 +272,9 @@ class RAGContextBuilder:
 
 @dataclasses.dataclass
 class RAGStrategy(
-    RAGContextBuilder, qa.QAStrategy[_PromptContent, _StrategyResult]
+    qa.QAStrategy[_PromptContent, _StrategyResult],
+    RAGContextBuilder,
+    backend_registry.BackendMixin,
 ):
   """A strategy that retrieves relevant documents before answering (RAG)."""
 
@@ -276,7 +288,8 @@ class RAGStrategy(
     context, retrieved_docs = await self.build_context(
         question, **query_time_kwargs
     )
-    answer = await llm.chat(context.to_messages())
+    with self._backend_context():
+      answer = await llm.chat(context.to_messages())
     return _StrategyResult(answer=str(answer), docs=retrieved_docs)
 
 
@@ -365,9 +378,6 @@ def unregister_strategy(name: str) -> None:
 
 def get_strategy(name: str, **kwargs) -> qa.QAStrategy:
   """Creates and returns a strategy instance by name.
-
-  The 'rag' and 'retrieval_only' presets default max_results=20 (on the
-  classes directly, set max_results explicitly or all docs are returned).
 
   Args:
     name: The registered name of the strategy.

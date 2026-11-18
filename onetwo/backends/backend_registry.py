@@ -14,6 +14,8 @@
 
 """Registry for OneTwo backend classes."""
 
+from collections.abc import Iterator, Mapping
+import contextlib
 import dataclasses
 from typing import Any
 
@@ -24,6 +26,7 @@ from onetwo.backends import google_genai_api
 from onetwo.backends import ollama_api
 from onetwo.backends import openai_api
 from onetwo.backends import sentencepiece_tokenizer
+from onetwo.core import routing
 
 
 BACKEND_REGISTRY: dict[str, type[backends_base.Backend]] = {
@@ -148,3 +151,40 @@ def get_backend(
     kwargs.update(runtime_kwargs)
 
   return instantiate_backend(class_name=config.backend_class_name, **kwargs)
+
+
+@dataclasses.dataclass
+class BackendMixin:
+  """Mixin for dataclasses that own an optional backend.
+
+  Attributes:
+    backend_config: Configuration of the backend (generation, embedding,
+      tokenizer, etc.), or None to use whichever backend is currently
+      registered.
+    runtime_kwargs: Environment settings and credentials for the backend
+      (excluded from `repr` and equality, and never serialized).
+  """
+
+  backend_config: BackendConfig | None = dataclasses.field(
+      default=None, kw_only=True
+  )
+  runtime_kwargs: Mapping[str, Any] | None = dataclasses.field(
+      default=None, repr=False, compare=False, kw_only=True
+  )
+  _backend: backends_base.Backend | None = dataclasses.field(
+      default=None, init=False, repr=False, compare=False
+  )
+
+  @contextlib.contextmanager
+  def _backend_context(self) -> Iterator[None]:
+    """Registers this object's backend in a local registry context."""
+    if self.backend_config is None:
+      yield
+      return
+    if self._backend is None:
+      self._backend = get_backend(
+          self.backend_config, **(self.runtime_kwargs or {})
+      )
+    with routing.RegistryContext():
+      self._backend.register()
+      yield

@@ -15,10 +15,12 @@
 from collections.abc import Iterable
 import dataclasses
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from onetwo import ot
+from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
@@ -669,6 +671,107 @@ class CrossStrategyTest(parameterized.TestCase):
     result = ot.run(strategy(question=question))
     self.assertIsInstance(result, _StrategyResult)
     self.assertEqual(result.answer, 'cross answer')
+
+
+# =============================================================================
+# Strategy-owned generation backend tests
+# =============================================================================
+
+
+class StrategyOwnedBackendTest(parameterized.TestCase):
+  """Integration tests for strategy-owned backend_config and runtime_kwargs."""
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+    self.seen_kwargs: list[dict[str, Any]] = []
+
+    def _make_backend(**kwargs):
+      self.seen_kwargs.append(kwargs)
+      return backends_test_utils.LLMForTest(
+          default_reply=f"owned:{kwargs.get('model_name')}"
+      )
+
+    self.enter_context(
+        mock.patch.dict(
+            backend_registry.BACKEND_REGISTRY, {'Fake': _make_backend}
+        )
+    )
+
+  @parameterized.named_parameters(
+      ('closed_book', strategies_lib.ClosedBookStrategy),
+      (
+          'long_context',
+          lambda **kw: strategies_lib.LongContextStrategy(
+              documents=_TEXT_DOCS, **kw
+          ),
+      ),
+      (
+          'rag',
+          lambda **kw: strategies_lib.RAGStrategy(
+              retriever=MockRetriever(_TEXT_DOCS), **kw
+          ),
+      ),
+  )
+  def test_uses_own_backend_and_restores_ambient_registry(self, factory):
+    ambient = backends_test_utils.LLMForTest(default_reply='ambient answer')
+    ambient.register()
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='Fake',
+        model_name='test-model',
+        kwargs={'temperature': 0.2},
+    )
+    strategy = factory(
+        backend_config=config,
+        runtime_kwargs={'api_key': 'secret-key'},
+    )
+
+    first = ot.run(strategy(question=_TEXT_QUESTION))
+    second = ot.run(strategy(question='Another question?'))
+
+    self.assertEqual((first.answer, second.answer), ('owned:test-model',) * 2)
+    self.assertEqual(
+        self.seen_kwargs,
+        [{
+            'model_name': 'test-model',
+            'temperature': 0.2,
+            'api_key': 'secret-key',
+        }],
+    )
+    self.assertEqual(
+        ot.run(
+            strategies_lib.ClosedBookStrategy()(question=_TEXT_QUESTION)
+        ).answer,
+        'ambient answer',
+    )
+    self.assertLen(ambient.prompts, 1)
+
+  def test_rag_retriever_runs_outside_generation_backend_context(self):
+    ambient = backends_test_utils.LLMForTest(default_reply='ambient')
+    ambient.register()
+    seen_during_retrieve: list[str] = []
+
+    class _AmbientCheckingRetriever(MockRetriever):
+
+      @executing.make_executable(copy_self=False)
+      async def retrieve(
+          self, query: _PromptContent, **kwargs
+      ) -> Iterable[_Document]:
+        del query, kwargs
+        seen_during_retrieve.append(str(await llm.generate_text('probe')))
+        return list(self._documents)
+
+    strategy = strategies_lib.RAGStrategy(
+        retriever=_AmbientCheckingRetriever(_TEXT_DOCS),
+        backend_config=backend_registry.GenerateBackendConfig(
+            backend_class_name='Fake', model_name='gen-model'
+        ),
+    )
+
+    result = ot.run(strategy(question=_TEXT_QUESTION))
+
+    self.assertEqual(seen_during_retrieve, ['ambient'])
+    self.assertEqual(result.answer, 'owned:gen-model')
 
 
 if __name__ == '__main__':

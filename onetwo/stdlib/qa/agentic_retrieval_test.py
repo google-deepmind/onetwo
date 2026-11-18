@@ -20,9 +20,11 @@ import dataclasses
 import functools
 import re
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.backends import backend_registry
 from onetwo.builtins import llm
 from onetwo.core import content as content_lib
 from onetwo.core import executing
@@ -709,6 +711,54 @@ class AgenticRetrievalStrategyTest(absltest.TestCase):
       executing.run(strategy('What is two plus two?'))
 
       self.assertEqual([spec.name for spec in backend.seen_tools[0]], ['_add'])
+
+  def test_uses_own_backend_and_restores_ambient_registry(self):
+    seen_kwargs: list[dict[str, Any]] = []
+
+    def _make_backend(**kwargs):
+      seen_kwargs.append(kwargs)
+      return _ScriptedBackend(
+          replies=[
+              _model_turn(calls=[_call('_add', left=2, right=2)]),
+              _model_turn(f"Four ({kwargs.get('model_name')})."),
+          ]
+      )
+
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='Fake',
+        model_name='agent-model',
+        kwargs={'temperature': 0.1},
+    )
+    strategy = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_add],
+        backend_config=config,
+        runtime_kwargs={'api_key': 'secret-agent-key'},
+    )
+
+    with mock.patch.dict(
+        backend_registry.BACKEND_REGISTRY, {'Fake': _make_backend}
+    ):
+      ambient = _ScriptedBackend(replies=[_model_turn('Ambient.')])
+      ambient.register()
+      first = executing.run(strategy('What is two plus two?'))
+      second = executing.run(strategy('Again?'))
+      ambient_res = executing.run(
+          agentic_retrieval.AgenticRetrievalStrategy()('Ambient question?')
+      )
+
+    self.assertEqual(
+        (first.answer, second.answer), ('Four (agent-model).',) * 2
+    )
+    self.assertEqual(ambient_res.answer, 'Ambient.')
+    self.assertLen(ambient.seen_turns, 1)
+    self.assertEqual(
+        seen_kwargs,
+        [{
+            'model_name': 'agent-model',
+            'temperature': 0.1,
+            'api_key': 'secret-agent-key',
+        }],
+    )
 
 
 class ExtractCitedDocIdsTest(parameterized.TestCase):
