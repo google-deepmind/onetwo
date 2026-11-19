@@ -1210,6 +1210,36 @@ class FormatAgentStepsTest(absltest.TestCase):
         '3. No tool call, the model answers: It is 15 degrees.',
     )
 
+  def test_shows_only_the_docids_of_retrieval_results(self):
+    def search(query: str) -> str:
+      """Returns hits as an index MCP server's `search` does."""
+      del query
+      return (
+          '{"docid": "lion_chunk1", "score": 0.65}\nLions live in prides.\n'
+          '{"docid": "lion_chunk2", "score": 0.64}\nThey are apex predators.'
+      )
+
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall('search', kwargs={'query': 'lions'})
+                ]
+            ),
+            _model_turn('Lions live in prides.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(tools=[search])
+
+    _, state = _run_with_state(agent, 'Where do lions live?')
+
+    self.assertEqual(
+        agent_lib.format_agent_steps(state),
+        "1. search('lions') -> lion_chunk1, lion_chunk2\n"
+        '2. No tool call, the model answers: Lions live in prides.',
+    )
+
   def test_uses_the_given_result_formatter(self):
     backend = _ScriptedBackend(
         replies=[

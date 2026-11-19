@@ -60,6 +60,7 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 import contextlib
 import copy
 import dataclasses
+import re
 from typing import Any, TypeAlias
 
 from onetwo.agents import agents_base
@@ -652,6 +653,19 @@ def format_tool_calls(
   return '\n'.join(lines)
 
 
+# The docids of the hits that retrieval tools return, e.g. the JSON headers
+# `{"docid": "...", "score": ...}` of the OneTwo index MCP server's `search`.
+_DOCID_PATTERN = re.compile(r'"docid": "([^"]+)"')
+
+
+def _docids_or_clipped(result: Any, max_chars: int) -> str:
+  """Returns the docids in `result`, or else `result` as text, clipped."""
+  docids = _DOCID_PATTERN.findall(str(result))
+  if docids:
+    return ', '.join(docids)
+  return _clip(result, max_chars)
+
+
 def format_agent_steps(
     state: AgentState,
     format_result: Callable[[Any], str] | None = None,
@@ -665,7 +679,8 @@ def format_agent_steps(
 
     1. get_weather('London') -> {'temp': 15}
     2. explode('boom') -> error: ValueError: boom
-    3. No tool call, the model answers: It is 15 degrees.
+    3. search('lions') -> lion_chunk1, lion_chunk2
+    4. No tool call, the model answers: It is 15 degrees.
 
   The calls of a single step share its number. A call that was not executed
   (one requested on the final call, see `Agent.final_instruction`) is shown as
@@ -673,9 +688,9 @@ def format_agent_steps(
 
   Args:
     state: The final state of a run.
-    format_result: Formats what a tool returned, e.g. to show only the ids of
-      the documents a search returned. Defaults to the value as text, cut to
-      `max_chars`.
+    format_result: Formats what a tool returned. By default, a result with
+      `"docid": "..."` entries (e.g. the hits of an index MCP server's `search`)
+      is shown as its docids, and any other result as text, cut to `max_chars`.
     max_chars: Longer results, errors and answers are cut to this length. Not
       applied to the output of `format_result`.
 
@@ -683,7 +698,7 @@ def format_agent_steps(
     One line per tool call and one for the answer, if the model gave one.
   """
   if format_result is None:
-    format_result = lambda result: _clip(result, max_chars)
+    format_result = lambda result: _docids_or_clipped(result, max_chars)
   lines = []
   step = 0
   for index, turn in enumerate(state.turns):
