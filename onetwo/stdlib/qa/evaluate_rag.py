@@ -18,9 +18,11 @@ r"""Binary to evaluate a RAG strategy on a QA dataset.
 from collections.abc import Sequence
 import dataclasses
 import json
+import os
 
 from absl import app
 from absl import flags
+from absl import logging
 from onetwo.backends import backend_registry
 from onetwo.core import content as content_lib
 from onetwo.evaluation import datasets
@@ -58,10 +60,8 @@ _OUTPUT = flags.DEFINE_string(
     'output',
     '',
     (
-        'Base directory of the evaluation results, saved under'
-        ' <output>/<dataset>/<strategy>/<model>__max_results_<N>/. If'
-        ' empty, they are saved next to the index, under'
-        ' <index>/eval_results/<strategy>/<model>__max_results_<N>/.'
+        'Parent directory of the evaluation runs. Default:'
+        ' <index>/eval_results; without --index, results are not saved.'
     ),
     allow_override=True,
 )
@@ -203,9 +203,16 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
+  output = _OUTPUT.value or None
+  if output is None and _INDEX.value:
+    # By default, the runs are saved next to the index.
+    output = os.path.join(_INDEX.value, 'eval_results')
+  if output is None:
+    logging.warning('Results are not saved: pass --output to save them.')
+
   evaluate_rag_lib.evaluate_rag(
       examples=_examples_from_flag(_EXAMPLES.value, _MAX_EXAMPLES.value),
-      output=_OUTPUT.value or None,
+      output=output,
       extra_backend_kwargs=evaluate_rag_lib.get_default_extra_backend_kwargs(
           json.loads(_EXTRA_BACKEND_KWARGS.value),
           max_retries=_MAX_RETRIES.value,

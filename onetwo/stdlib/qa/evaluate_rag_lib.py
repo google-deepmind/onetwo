@@ -104,51 +104,6 @@ def _load_examples(
   return loaded
 
 
-def get_results_directory(
-    *,
-    output: str | epath.Path | None,
-    index: str | epath.Path | indexing.DocumentIndex | None,
-    dataset_name: str,
-    qa_strategy_name: str,
-    generate_model_name: str,
-    max_results: int | str,
-) -> epath.Path | None:
-  """Returns the directory where the results of an evaluation are saved.
-
-  Results of evaluations with different settings go to different directories:
-  - `<output>/<dataset>/<strategy>/<model>__max_results_<N>/` if `output` is
-    set;
-  - `<index>/eval_results/<strategy>/<model>__max_results_<N>/`, next to the
-    evaluated index (whose directory already names the dataset), if `index` is a
-    directory;
-  - else `None` (no directory on disk to save results).
-
-  Args:
-    output: Base directory of the results, or None to save them in the index
-      directory.
-    index: Directory of the evaluated index, or an index object.
-    dataset_name: Name of the dataset.
-    qa_strategy_name: Name of the QA strategy.
-    generate_model_name: Name of the generation model.
-    max_results: Number of retrieved documents (`max_results` query-time arg).
-  """
-  run_name = f'{generate_model_name}__max_results_{max_results}'
-  if output:
-    return (
-        epath.Path(output)
-        / dataset_name
-        / qa_strategy_name
-        / run_name
-    )
-  if not isinstance(index, (str, epath.Path)) or not index:
-    logging.warning(
-        'Neither output nor an index directory was provided; HTML report will'
-        ' not be saved to disk.'
-    )
-    return None
-  return epath.Path(index) / 'eval_results' / qa_strategy_name / run_name
-
-
 def get_default_extra_backend_kwargs(
     extra_backend_kwargs: Mapping[str, Any] | None,
     *,
@@ -279,8 +234,9 @@ def evaluate_rag(
     examples: Path to a `.jsonl` or `.json` examples file, or a
       `datasets.DatasetLoader` (e.g. `datasets.get_dataset_loader(name,
       max_number_of_examples=N)`).
-    output: Base directory of the HTML report, or None to save it in `index`
-      when `index` is a directory (see `get_results_directory`).
+    output: Parent folder of the results. Each run is saved in a new folder
+      `<output>/<dataset>/<name>__hash_<h>_run<i>/` with `results.html` and
+      `eval_config.json` (no credentials). If None, nothing is saved.
     extra_backend_kwargs: Extra keyword arguments for the constructors of the
       backends that this call creates (e.g. an API key): those of the index and
       the QA and AI rater generation backends. Usually not needed: credentials
@@ -354,32 +310,6 @@ def evaluate_rag(
   # Attach index or MCP servers to (a copy of) the strategy.
   strategy = _with_context(strategy, index, mcp_urls, rt_kwargs)
 
-  # TODO: Replaced by descriptive run folders in a follow-up
-  # change.
-  backend_cfg = (
-      strategy.backend_config
-      if isinstance(strategy, backend_registry.BackendMixin)
-      else None
-  )
-  max_results = None
-  if isinstance(
-      strategy,
-      (strategies_lib.RAGStrategy, strategies_lib.RetrievalOnlyStrategy),
-  ):
-    max_results = strategy.max_results
-  results_directory = get_results_directory(
-      output=output,
-      index=index,
-      dataset_name=_examples_name(examples),
-      qa_strategy_name=preset_name or type(strategy).__name__,
-      generate_model_name=(
-          backend_cfg.model_name
-          if backend_cfg is not None and backend_cfg.model_name
-          else 'none'
-      ),
-      max_results='none' if max_results is None else max_results,
-  )
-
   dict_examples = _load_examples(examples)
 
   evaluate_kwargs = dict(evaluate_kwargs) if evaluate_kwargs else {}
@@ -412,11 +342,17 @@ def evaluate_rag(
 
   print(f'Evaluation Metrics: {summary.metrics}')
 
-  # 5. Save Results as HTML report
-  if results_directory is not None:
-    html_report_path = qa_evaluation.save_html_report(
-        summary=summary,
-        output_dir_path=results_directory,
+  if output is not None:
+    # TODO: Pass fewer arguments to save_run_outputs, e.g. one
+    # run-settings object.
+    qa_evaluation.save_run_outputs(
+        summary,
+        output=output,
+        examples_name=_examples_name(examples),
+        index=index,
+        mcp_urls=mcp_urls,
+        preset_name=preset_name,
+        strategy=strategy,
+        metric_functions=evaluate_kwargs['metric_functions'],
     )
-    print(f'HTML report saved to {html_report_path}')
   return summary

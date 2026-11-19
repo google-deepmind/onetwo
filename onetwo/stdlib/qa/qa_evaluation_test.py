@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
+from etils import epath
 from onetwo.core import results
 from onetwo.stdlib.qa import qa_evaluation
 
@@ -27,6 +30,29 @@ class SaveHtmlReportTest(absltest.TestCase):
     )
     self.assertTrue(path.exists())
     self.assertEqual(path.name, 'results.html')
+
+  def test_create_run_directory_retries_on_file_exists_race(self):
+    dataset_dir = epath.Path(self.create_tempdir().full_path) / 'ds'
+    first = qa_evaluation._create_run_directory(dataset_dir, 'p__hash_1')
+    self.assertEqual(first.name, 'p__hash_1_run1')
+
+    real_mkdir = type(first).mkdir
+    raced = False
+
+    def _racy_mkdir(path_self, *args, **kwargs):
+      nonlocal raced
+      if path_self.name.startswith('p__hash_1_run'):
+        # Leaf mkdir must not pass parents=True so creation is atomic on CNS.
+        self.assertFalse(kwargs.get('parents', False))
+        self.assertFalse(kwargs.get('exist_ok', False))
+      if path_self.name == 'p__hash_1_run2' and not raced:
+        raced = True
+        raise FileExistsError('simulated parallel run')
+      return real_mkdir(path_self, *args, **kwargs)
+
+    with mock.patch.object(type(first), 'mkdir', _racy_mkdir):
+      created = qa_evaluation._create_run_directory(dataset_dir, 'p__hash_1')
+    self.assertEqual(created.name, 'p__hash_1_run3')
 
 
 if __name__ == '__main__':
