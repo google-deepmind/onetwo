@@ -827,23 +827,15 @@ class AbstractEmbeddingBasedIndex(
   )
 
   # Localized embedder backend to use for calculating embeddings. This is
-  # lazily instantiated from the embedder configuration during initialization
-  # and the manifest when the index is loaded.
+  # lazily instantiated from `embed_backend_config` (which is saved with the
+  # index and restored when it is loaded).
   _embedder_backend: backends_base.Backend | None = dataclasses.field(
       default=None, init=False, repr=False, compare=False
   )
 
   @property
   def embedder_backend(self):
-    """Lazily instantiates the backend from the manifest if not set.
-
-    We use a property with lazy instantiation instead of eager initialization
-    in `__post_init__` because this object may be pickled and unpickled by Beam
-    workers. The `__getstate__` method explicitly drops `_embedder_backend` to
-    avoid pickling issues with backend clients (e.g. gRPC channels). This lazy
-    property ensures the backend is seamlessly recreated upon first use after
-    unpickling.
-    """
+    """Lazily instantiates the backend from `embed_backend_config` if unset."""
     if (self._embedder_backend is None and
         self.embed_backend_config is not None):
       self._embedder_backend = backend_registry.get_backend(
