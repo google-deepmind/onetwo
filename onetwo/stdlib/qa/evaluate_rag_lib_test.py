@@ -18,6 +18,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from onetwo.backends import backend_registry
 from onetwo.core import caching
 from onetwo.core import executing as ot_executing
 from onetwo.core import results
@@ -123,7 +124,6 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         examples=examples_file.full_path,
         output=out_dir,
         index=indexing.EmptyIndex(),
-        generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
     )
 
@@ -131,9 +131,11 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         mock_eval.call_args.kwargs['examples'],
         [{'question': 'q1', 'answer': 'a1', 'metadata': {}}],
     )
+    default_model = rag_defaults.DEFAULT_GENERATE_MODEL
     self.assertTrue(
         (
-            epath.Path(out_dir) / 'custom_qa/rag/m__max_results_20/results.html'
+            epath.Path(out_dir)
+            / f'custom_qa/rag/{default_model}__max_results_20/results.html'
         ).exists()
     )
 
@@ -150,12 +152,7 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         examples=_CustomLoader(),
         output=out_dir,
         index='/idx',
-        generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
-    )
-    self.assertEqual(
-        mock_eval.call_args.kwargs['examples'],
-        [{'question': 'q1', 'answer': 'a1', 'metadata': {}}],
     )
     self.assertFalse(cache_file.exists())
     self.assertEqual(
@@ -179,7 +176,6 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         output=out_dir,
         index='/idx',
         extra_backend_kwargs=extra_backend_kwargs,
-        generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
     )
     self.assertTrue(cache_file.exists())
@@ -203,7 +199,6 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         output=out_dir,
         index='/idx',
         extra_backend_kwargs=extra_backend_kwargs,
-        generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
     )
     second_rt_kwargs = mock_eval.call_args.kwargs['strategy'].runtime_kwargs
@@ -248,8 +243,7 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         examples=_CustomLoader(),
         output=self.create_tempdir().full_path,
         index=indexing.EmptyIndex(),
-        qa_strategy_name='retrieval_only',
-        query_time_kwargs={'max_results': 50},
+        strategy=strategies_lib.RetrievalOnlyStrategy(max_results=50),
     )
     evaluate_kwargs = mock_eval.call_args.kwargs
     self.assertTrue(evaluate_kwargs['output_results'])
@@ -260,62 +254,138 @@ class GetResultsDirectoryTest(parameterized.TestCase):
             'recall@5',
             'recall@10',
             'recall@20',
-            'recall@50',
             'mrr@5',
             'mrr@10',
             'mrr@20',
-            'mrr@50',
         ],
-    )
-    self.assertEqual(
-        evaluate_kwargs['inputs_extractor']({'question': 'q?'}),
-        (['q?'], {'max_results': 50}),
     )
 
   @mock.patch.object(ot_evaluation, 'evaluate')
-  def test_evaluate_rag_generate_backend_config(self, mock_eval):
+  def test_evaluate_rag_preset_and_strategy_object_configs(self, mock_eval):
     mock_eval.return_value = results.EvaluationSummary()
     index = indexing.EmptyIndex()
-    # No metrics, so that no AI rater backend (needing an API key) is built.
-    with self.subTest('default_model_uses_default_kwargs'):
+    default_config = rag_defaults.default_qa_generate_backend_config()
+
+    with self.subTest('preset_gets_default_qa_generate_backend_config'):
+      for preset in (evaluate_rag_lib.StrategyType.RAG, 'rag'):
+        evaluate_rag_lib.evaluate_rag(
+            examples=_CustomLoader(),
+            output=self.create_tempdir().full_path,
+            index=index,
+            strategy=preset,  # pyrefly: ignore[bad-argument-type]
+            extra_backend_kwargs={'api_key': 'eval-key'},
+            evaluate_kwargs={'metric_functions': {}},
+        )
+        built = mock_eval.call_args.kwargs['strategy']
+        self.assertIsInstance(built, strategies_lib.RAGStrategy)
+        self.assertEqual(built.backend_config, default_config)
+        self.assertEqual(built.max_results, 20)
+        self.assertIs(built.retriever, index)
+        self.assertIsNotNone(built.runtime_kwargs)
+        self.assertEqual(built.runtime_kwargs['api_key'], 'eval-key')
+
+    with self.subTest('unknown_strategy_name_raises_value_error'):
+      with self.assertRaises(ValueError):
+        evaluate_rag_lib.evaluate_rag(
+            examples=_CustomLoader(),
+            output=self.create_tempdir().full_path,
+            index=index,
+            strategy='long_context',  # pyrefly: ignore[bad-argument-type]
+            evaluate_kwargs={'metric_functions': {}},
+        )
+
+    with self.subTest('retrieval_only_preset_defaults_max_results_to_20'):
       evaluate_rag_lib.evaluate_rag(
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index=index,
+          strategy=evaluate_rag_lib.StrategyType.RETRIEVAL_ONLY,
           evaluate_kwargs={'metric_functions': {}},
       )
-      config = mock_eval.call_args.kwargs['strategy'].backend_config
-      self.assertEqual(
-          config, rag_defaults.default_qa_generate_backend_config()
-      )
-    with self.subTest('other_model_has_no_kwargs'):
+      built = mock_eval.call_args.kwargs['strategy']
+      self.assertIsInstance(built, strategies_lib.RetrievalOnlyStrategy)
+      self.assertEqual(built.max_results, 20)
+
+    with self.subTest('unbounded_strategy_object_preserves_none_max_results'):
       evaluate_rag_lib.evaluate_rag(
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index=index,
+          strategy=strategies_lib.RAGStrategy(),
           evaluate_kwargs={'metric_functions': {}},
-          generate_model_name='some-other-model',
       )
-      config = mock_eval.call_args.kwargs['strategy'].backend_config
-      self.assertEqual(config.model_name, 'some-other-model')
-      self.assertEqual(config.kwargs, {})
-    with self.subTest('explicit_kwargs_replace_defaults'):
-      high_thinking = {
-          'chat_kwargs': {'thinking_config': {'thinking_level': 'HIGH'}}
-      }
+      built = mock_eval.call_args.kwargs['strategy']
+      self.assertIsInstance(built, strategies_lib.RAGStrategy)
+      self.assertIsNone(built.max_results)
+
+    with self.subTest('object_with_none_generator_gets_default_on_copy'):
+      for caller_strategy, idx in (
+          (strategies_lib.RAGStrategy(max_results=50), index),
+          (
+              agentic_retrieval.AgenticRetrievalStrategy(
+                  max_steps=30, tools=[_dummy_tool]
+              ),
+              None,
+          ),
+      ):
+        evaluate_rag_lib.evaluate_rag(
+            examples=_CustomLoader(),
+            output=self.create_tempdir().full_path,
+            index=idx,
+            strategy=caller_strategy,
+            extra_backend_kwargs={'api_key': 'eval-key'},
+            evaluate_kwargs={'metric_functions': {}},
+        )
+        built = mock_eval.call_args.kwargs['strategy']
+        self.assertEqual(built.backend_config, default_config)
+        self.assertEqual(built.runtime_kwargs['api_key'], 'eval-key')
+        self.assertIsNone(caller_strategy.backend_config)
+        self.assertIsNone(caller_strategy.runtime_kwargs)
+
+    with self.subTest('object_with_explicit_config_keeps_it_without_mutating'):
+      custom_config = backend_registry.GenerateBackendConfig(
+          backend_class_name='GoogleGenAIAPI',
+          model_name='custom-model',
+          kwargs={'temperature': 0.2},
+      )
+      caller_strategy = strategies_lib.RAGStrategy(
+          max_results=10,
+          backend_config=custom_config,
+      )
       evaluate_rag_lib.evaluate_rag(
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
           index=index,
+          strategy=caller_strategy,
+          extra_backend_kwargs={'api_key': 'eval-key'},
           evaluate_kwargs={'metric_functions': {}},
-          generate_backend_kwargs=high_thinking,
       )
-      config = mock_eval.call_args.kwargs['strategy'].backend_config
-      self.assertEqual(
-          config.model_name,
-          rag_defaults.default_qa_generate_backend_config().model_name,
+      built = mock_eval.call_args.kwargs['strategy']
+      self.assertIsInstance(built, strategies_lib.RAGStrategy)
+      self.assertEqual(built.backend_config, custom_config)
+      self.assertEqual(built.max_results, 10)
+      self.assertIs(built.retriever, index)
+      self.assertIsNotNone(built.runtime_kwargs)
+      self.assertEqual(built.runtime_kwargs['api_key'], 'eval-key')
+      self.assertIsNone(caller_strategy.retriever)
+      self.assertIsNone(caller_strategy.runtime_kwargs)
+
+    with self.subTest('non_empty_strategy_runtime_kwargs_preserved'):
+      caller_strategy = strategies_lib.ClosedBookStrategy(
+          runtime_kwargs={'api_key': 'strategy-key'},
       )
-      self.assertEqual(config.kwargs, high_thinking)
+      evaluate_rag_lib.evaluate_rag(
+          examples=_CustomLoader(),
+          output=self.create_tempdir().full_path,
+          strategy=caller_strategy,
+          extra_backend_kwargs={'api_key': 'eval-key'},
+          evaluate_kwargs={'metric_functions': {}},
+      )
+      built = mock_eval.call_args.kwargs['strategy']
+      self.assertIsInstance(built, strategies_lib.ClosedBookStrategy)
+      self.assertEqual(built.backend_config, default_config)
+      self.assertEqual(built.runtime_kwargs, {'api_key': 'strategy-key'})
+      self.assertIsNone(caller_strategy.backend_config)
 
   @mock.patch.object(ot_evaluation, 'evaluate')
   def test_evaluate_rag_custom_evaluate_kwargs(self, mock_eval):
@@ -337,10 +407,6 @@ class GetResultsDirectoryTest(parameterized.TestCase):
     forwarded = dict(mock_eval.call_args.kwargs)
     forwarded.pop('strategy')
     forwarded.pop('examples')
-    inputs_extractor = forwarded.pop('inputs_extractor')
-    self.assertEqual(
-        inputs_extractor({'question': 'q?'}), (['q?'], {'max_results': 20})
-    )
     self.assertEqual(
         forwarded,
         {
@@ -351,9 +417,7 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         },
     )
     self.assertNotIn('output_results', evaluate_kwargs)
-    self.assertNotIn('inputs_extractor', evaluate_kwargs)
 
-    custom_extractor = lambda x: ([x['q']], {})
     evaluate_rag_lib.evaluate_rag(
         examples=_CustomLoader(),
         output=self.create_tempdir().full_path,
@@ -361,7 +425,6 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         evaluate_kwargs={
             'metric_functions': custom_metrics,
             'output_results': False,
-            'inputs_extractor': custom_extractor,
         },
     )
     forwarded = dict(mock_eval.call_args.kwargs)
@@ -372,7 +435,6 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         {
             'metric_functions': custom_metrics,
             'output_results': False,
-            'inputs_extractor': custom_extractor,
         },
     )
 
@@ -398,47 +460,60 @@ class GetResultsDirectoryTest(parameterized.TestCase):
     mock_save_html.assert_not_called()
 
   @mock.patch.object(ot_evaluation, 'evaluate')
-  def test_evaluate_rag_agentic_mcp_urls_and_other_mcp_kwargs(self, mock_eval):
+  def test_results_directory_derived_from_resolved_strategy(self, mock_eval):
     mock_eval.return_value = results.EvaluationSummary()
-    out_dir = epath.Path(self.create_tempdir().full_path)
-    urls = ['http://localhost:8775/mcp', 'https://example.com:8775/mcp']
-    evaluate_rag_lib.evaluate_rag(
-        examples=_CustomLoader(),
-        output=str(out_dir),
-        qa_strategy_name='agentic_retrieval',
-        generate_model_name='m',
-        mcp_kwargs={'max_steps': 30, 'final_instruction': 'Answer now.'},
-        evaluate_kwargs={'metric_functions': {}},
-        mcp_urls=urls,
+    index = indexing.EmptyIndex()
+    default_model = rag_defaults.DEFAULT_GENERATE_MODEL
+    custom_cfg = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI', model_name='gemini-custom'
     )
-    strategy = mock_eval.call_args.kwargs['strategy']
-    self.assertIsInstance(
-        strategy, agentic_retrieval.AgenticRetrievalStrategy
-    )
-    self.assertEqual(
-        [type(t) for t in strategy.tools],
-        [llm_tool_use.ToolSource, llm_tool_use.ToolSource],
-    )
-    self.assertIs(
-        strategy.doc_ids_from_answer, agentic_retrieval.extract_cited_doc_ids
-    )
-    self.assertEqual(strategy.max_steps, 30)
-    self.assertEqual(strategy.final_instruction, 'Answer now.')
-    self.assertTrue(
+    cases = [
         (
-            out_dir
-            / '_CustomLoader/agentic_retrieval/m__max_results_20/results.html'
-        ).exists()
-    )
-
-    with self.assertRaisesRegex(TypeError, 'mcp_server_urls'):
-      evaluate_rag_lib.evaluate_rag(
-          examples=_CustomLoader(),
-          qa_strategy_name='agentic_retrieval',
-          mcp_kwargs={'mcp_server_urls': urls[0]},
-          evaluate_kwargs={'metric_functions': {}},
-          mcp_urls=[urls[0]],
-      )
+            'rag_preset',
+            evaluate_rag_lib.StrategyType.RAG,
+            index,
+            f'rag/{default_model}__max_results_20',
+        ),
+        (
+            'retrieval_only_preset',
+            evaluate_rag_lib.StrategyType.RETRIEVAL_ONLY,
+            index,
+            'retrieval_only/none__max_results_20',
+        ),
+        (
+            'closed_book_preset',
+            evaluate_rag_lib.StrategyType.CLOSED_BOOK,
+            None,
+            f'closed_book/{default_model}__max_results_none',
+        ),
+        (
+            'rag_object_custom',
+            strategies_lib.RAGStrategy(
+                max_results=10, backend_config=custom_cfg
+            ),
+            index,
+            'RAGStrategy/gemini-custom__max_results_10',
+        ),
+        (
+            'rag_object_unbounded',
+            strategies_lib.RAGStrategy(),
+            index,
+            f'RAGStrategy/{default_model}__max_results_none',
+        ),
+    ]
+    for name, strategy, idx, expected_rel in cases:
+      with self.subTest(name):
+        out_dir = epath.Path(self.create_tempdir().full_path)
+        evaluate_rag_lib.evaluate_rag(
+            examples=_CustomLoader(),
+            output=str(out_dir),
+            index=idx,
+            strategy=strategy,
+            evaluate_kwargs={'metric_functions': {}},
+        )
+        self.assertTrue(
+            (out_dir / '_CustomLoader' / expected_rel / 'results.html').exists()
+        )
 
   def test_with_context_sets_retriever_without_mutating_caller(self):
     loaded_index = indexing.EmptyIndex()
@@ -497,37 +572,25 @@ class GetResultsDirectoryTest(parameterized.TestCase):
         evaluate_rag_lib, '_load_examples'
     ) as mock_load_examples:
       for bad_strategy, expected_msg in (
-          ('rag', 'RAGStrategy needs an index'),
-          ('retrieval_only', 'RetrievalOnlyStrategy needs an index'),
-          ('agentic_retrieval', 'AgenticRetrievalStrategy needs mcp_urls'),
+          (evaluate_rag_lib.StrategyType.RAG, 'RAGStrategy needs an index'),
+          (
+              evaluate_rag_lib.StrategyType.RETRIEVAL_ONLY,
+              'RetrievalOnlyStrategy needs an index',
+          ),
+          (
+              evaluate_rag_lib.StrategyType.AGENTIC_RETRIEVAL,
+              'AgenticRetrievalStrategy needs mcp_urls',
+          ),
       ):
         with self.subTest(strategy=bad_strategy):
           with self.assertRaisesRegex(ValueError, expected_msg):
             evaluate_rag_lib.evaluate_rag(
                 examples=_CustomLoader(),
                 index=None,
-                qa_strategy_name=bad_strategy,
+                strategy=bad_strategy,
                 evaluate_kwargs={'metric_functions': {}},
             )
       mock_load_examples.assert_not_called()
-
-    out_dir = epath.Path(self.create_tempdir().full_path)
-    with mock.patch.object(
-        ot_evaluation, 'evaluate', return_value=results.EvaluationSummary()
-    ):
-      evaluate_rag_lib.evaluate_rag(
-          examples=_CustomLoader(),
-          output=str(out_dir),
-          index=None,
-          qa_strategy_name='closed_book',
-          generate_model_name='m',
-          evaluate_kwargs={'metric_functions': {}},
-      )
-    self.assertTrue(
-        (
-            out_dir / '_CustomLoader/closed_book/m__max_results_20/results.html'
-        ).exists()
-    )
 
   def test_with_context_mcp_urls_appends_tools_and_sets_default_doc_ids(self):
     urls = ['http://localhost:8775/mcp', 'https://example.com:8775/mcp']

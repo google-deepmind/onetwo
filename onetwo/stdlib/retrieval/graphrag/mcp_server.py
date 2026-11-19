@@ -757,7 +757,7 @@ def start_mcp(
   Builds the server with `create_server` (see there for the arguments other
   than `transport`) and runs it. This blocks: e.g. to evaluate a strategy with
   the server (`rag.evaluate` with `mcp_urls=['http://...']` and
-  `qa_strategy_name='agentic_retrieval'`), start it in another process.
+  `strategy='agentic_retrieval'`), start it in another process.
 
   Args:
     index: The index to serve: the directory of a saved HippoRAG index or an

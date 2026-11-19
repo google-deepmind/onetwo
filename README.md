@@ -128,7 +128,7 @@ index = rag.build_index(
 
 **2. Index serving & evaluation (`rag.evaluate`):** integrates the index built
 in step 1 with new or existing agents. The model can either retrieve and
-generate once per question, or, with `qa_strategy_name='agentic_retrieval'`, act
+generate once per question, or, with `strategy='agentic_retrieval'`, act
 as an agent that queries the index (exposed as an MCP service) step by step,
 until it has collected enough evidence to answer.
 
@@ -138,7 +138,6 @@ summary = rag.evaluate(
     examples=datasets.get_dataset_loader('browsecomp_plus'),
     index=index,
     output='/tmp/onetwo_rag_eval',
-    query_time_kwargs={'max_results': 20},
     extra_backend_kwargs={'api_key': google_api_key},
 )
 ```

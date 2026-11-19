@@ -22,5 +22,6 @@ from onetwo.stdlib.retrieval.mcp import mcp_server as _mcp_server
 build_index = _build_index_module.build_index
 IndexType = _build_index_module.IndexType
 evaluate = _evaluate_rag_module.evaluate_rag
+StrategyType = _evaluate_rag_module.StrategyType
 StorageFormat = _serialization.StorageFormat
 start_mcp = _mcp_server.start_mcp

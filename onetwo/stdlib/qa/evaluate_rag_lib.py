@@ -16,6 +16,7 @@
 
 from collections.abc import Mapping, Sequence
 import dataclasses
+import enum
 from typing import Any
 
 from absl import logging
@@ -39,6 +40,49 @@ from onetwo.stdlib.retrieval import rag_defaults
 
 _PromptContent = str | content_lib.ChunkList
 _StrategyResult = qa.StrategyResult
+
+
+class StrategyType(str, enum.Enum):
+  """Ready-made QA strategies, with the defaults of rag.evaluate.
+
+  CLOSED_BOOK: Answers without retrieving.
+  RAG: Retrieves up to 20 documents from index once, then answers.
+  RETRIEVAL_ONLY: Retrieves up to 20 documents from index, without answering.
+  AGENTIC_RETRIEVAL: Searches the MCP servers in mcp_urls until it can answer.
+  """
+
+  CLOSED_BOOK = 'closed_book'
+  RAG = 'rag'
+  RETRIEVAL_ONLY = 'retrieval_only'
+  AGENTIC_RETRIEVAL = 'agentic_retrieval'
+
+
+def _preset_strategy(
+    strategy_type: StrategyType,
+    runtime_kwargs: Mapping[str, Any],
+) -> qa.QAStrategy[_PromptContent, _StrategyResult]:
+  """Returns a new ready-made strategy of type `strategy_type`."""
+  if strategy_type == StrategyType.RETRIEVAL_ONLY:
+    # Without a limit, all documents of the index are retrieved.
+    return strategies_lib.RetrievalOnlyStrategy(max_results=20)
+  backend_config = rag_defaults.default_qa_generate_backend_config()
+  if strategy_type == StrategyType.RAG:
+    return strategies_lib.RAGStrategy(
+        max_results=20,
+        backend_config=backend_config,
+        runtime_kwargs=runtime_kwargs,
+    )
+  if strategy_type == StrategyType.CLOSED_BOOK:
+    return strategies_lib.ClosedBookStrategy(
+        backend_config=backend_config,
+        runtime_kwargs=runtime_kwargs,
+    )
+  if strategy_type == StrategyType.AGENTIC_RETRIEVAL:
+    return agentic_retrieval.AgenticRetrievalStrategy(
+        backend_config=backend_config,
+        runtime_kwargs=runtime_kwargs,
+    )
+  raise ValueError(f'Unknown strategy type: {strategy_type}')
 
 
 def _examples_name(examples: str | datasets.DatasetLoader) -> str:
@@ -223,14 +267,9 @@ def evaluate_rag(
     output: str | None = None,
     extra_backend_kwargs: Mapping[str, Any] | None = None,
     index: str | indexing.DocumentIndex | None = None,
-    generate_model_backend_class_name: str = (
-        rag_defaults.DEFAULT_BACKEND_CLASS_NAME
+    strategy: StrategyType | qa.QAStrategy[_PromptContent, _StrategyResult] = (
+        StrategyType.RAG
     ),
-    generate_model_name: str | None = None,
-    generate_backend_kwargs: Mapping[str, Any] | None = None,
-    qa_strategy_name: str = 'rag',
-    query_time_kwargs: Mapping[str, Any] | None = None,
-    mcp_kwargs: Mapping[str, Any] | None = None,
     evaluate_kwargs: Mapping[str, Any] | None = None,
     mcp_urls: Sequence[str] = (),
 ) -> results.EvaluationSummary:
@@ -257,25 +296,18 @@ def evaluate_rag(
       any existing one with a warning). Used by retrieval strategies (e.g.
       `'rag'`, `'retrieval_only'`); raises ValueError if passed to another
       strategy or missing when needed (and no retriever is already set).
-    generate_model_backend_class_name: Generation backend class name.
-    generate_model_name: Generation model name. If None, the default QA model of
-      `generate_model_backend_class_name` (see
-      `rag_defaults.default_qa_generate_backend_config`).
-    generate_backend_kwargs: Constructor kwargs of the generation backend, e.g.
-      `{'chat_kwargs': {'thinking_config': {'thinking_level': 'HIGH'}}}` for a
-      `GoogleGenAIAPI` backend. If None, the kwargs of the default QA config
-      when `generate_model_name` is None (e.g. medium thinking for
-      `GoogleGenAIAPI`), and no kwargs otherwise.
-    qa_strategy_name: QA strategy name.
-    query_time_kwargs: Query-time arguments for the strategy. If None, defaults
-      to `{'max_results': 20}`.
-    mcp_kwargs: Extra constructor arguments of the `agentic_retrieval` strategy
-      (e.g. `max_steps`, `final_instruction`, `query_template`). Pass MCP server
-      URLs through `mcp_urls` instead of `mcp_server_urls`.
+    strategy: Ready-made `StrategyType` (or its string name, e.g. `'rag'`,
+      `'retrieval_only'`, `'closed_book'`, `'agentic_retrieval'`) or
+      `QAStrategy` instance. The `'rag'` and `'retrieval_only'` presets retrieve
+      up to 20 documents; on a strategy object, set `max_results`, otherwise all
+      documents are returned. Missing `backend_config` and `runtime_kwargs` are
+      filled on a copy from
+      `rag_defaults.default_qa_generate_backend_config()` and
+      `extra_backend_kwargs`; caller's strategy is never modified.
     evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
       `metric_functions`, `chunk_size`). Defaults `'output_results'` to True and
       `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)` with
-      the default AI rater when absent.
+      `k = 5, 10, 20` and the default AI rater when absent.
     mcp_urls: URLs of MCP servers to add to the `tools` of
       `'agentic_retrieval'`. Raises ValueError if passed to another strategy or
       missing when needed (and no tools are already set). Passing both `index`
@@ -285,16 +317,10 @@ def evaluate_rag(
     EvaluationSummary object containing metrics and detailed results.
 
   Raises:
-    KeyError: If `qa_strategy_name` is an unregistered strategy name.
-    ValueError: If `index` or `mcp_urls` is passed to a strategy that does not
-      use it, or a needed `index` or `mcp_urls` is missing.
+    ValueError: If `strategy` is an unknown strategy name, `index` or `mcp_urls`
+      is passed to a strategy that does not use it, or a needed `index` or
+      `mcp_urls` is missing.
   """
-  q_time_kwargs = (
-      dict(query_time_kwargs)
-      if query_time_kwargs is not None
-      else {'max_results': 20}
-  )
-  mcp_kwargs = dict(mcp_kwargs) if mcp_kwargs else {}
   rt_kwargs = get_default_extra_backend_kwargs(extra_backend_kwargs)
   cache_filename = rt_kwargs.pop('cache_filename', None)
 
@@ -309,55 +335,65 @@ def evaluate_rag(
       print('No existing cache found. A new cache will be created.')
     rt_kwargs['cache'] = fn_cache
 
-  gen_backend_config = rag_defaults.qa_generate_backend_config(
-      generate_model_backend_class_name, generate_model_name
-  )
-  generate_model_name = gen_backend_config.model_name or ''
-  if generate_backend_kwargs is not None:
-    gen_backend_config = dataclasses.replace(
-        gen_backend_config, kwargs=dict(generate_backend_kwargs)
-    )
-
-  if qa_strategy_name == 'agentic_retrieval':
-    strategy = strategies_lib.get_strategy(qa_strategy_name, **mcp_kwargs)
-  else:
-    strategy = strategies_lib.get_strategy(qa_strategy_name)
-
-  if isinstance(strategy, backend_registry.BackendMixin):
+  preset_name = None
+  if isinstance(strategy, str):
+    strategy_type = StrategyType(strategy)
+    preset_name = strategy_type.value
+    strategy = _preset_strategy(strategy_type, rt_kwargs)
+  elif isinstance(strategy, backend_registry.BackendMixin):
+    # A strategy object without its own backend or credentials uses defaults.
     strategy = dataclasses.replace(
         strategy,
-        backend_config=gen_backend_config,
-        runtime_kwargs=rt_kwargs,
+        backend_config=(
+            strategy.backend_config
+            or rag_defaults.default_qa_generate_backend_config()
+        ),
+        runtime_kwargs=strategy.runtime_kwargs or rt_kwargs,
     )
 
   # Attach index or MCP servers to (a copy of) the strategy.
   strategy = _with_context(strategy, index, mcp_urls, rt_kwargs)
 
+  # TODO: Replaced by descriptive run folders in a follow-up
+  # change.
+  backend_cfg = (
+      strategy.backend_config
+      if isinstance(strategy, backend_registry.BackendMixin)
+      else None
+  )
+  max_results = None
+  if isinstance(
+      strategy,
+      (strategies_lib.RAGStrategy, strategies_lib.RetrievalOnlyStrategy),
+  ):
+    max_results = strategy.max_results
   results_directory = get_results_directory(
       output=output,
       index=index,
       dataset_name=_examples_name(examples),
-      qa_strategy_name=qa_strategy_name,
-      generate_model_name=generate_model_name,
-      max_results=q_time_kwargs.get('max_results', 20),
+      qa_strategy_name=preset_name or type(strategy).__name__,
+      generate_model_name=(
+          backend_cfg.model_name
+          if backend_cfg is not None and backend_cfg.model_name
+          else 'none'
+      ),
+      max_results='none' if max_results is None else max_results,
   )
 
   dict_examples = _load_examples(examples)
 
   evaluate_kwargs = dict(evaluate_kwargs) if evaluate_kwargs else {}
   evaluate_kwargs.setdefault('output_results', True)
-  # TODO: Removed with query_time_kwargs in a follow-up change.
-  evaluate_kwargs.setdefault(
-      'inputs_extractor', lambda x: ([x['question']], q_time_kwargs)
-  )
   if 'metric_functions' not in evaluate_kwargs:
     ai_rater_backend_config = backend_registry.GenerateBackendConfig(
         backend_class_name=rag_defaults.DEFAULT_BACKEND_CLASS_NAME,
         model_name=rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
     )
+    # A retrieval-only strategy gives no answer, so only retrieval is scored.
+    retrieval_only = isinstance(strategy, strategies_lib.RetrievalOnlyStrategy)
     evaluate_kwargs['metric_functions'] = rag_metrics.get_default_rag_metrics(
-        max_results=q_time_kwargs.get('max_results', None),
-        retrieval_only=(qa_strategy_name == 'retrieval_only'),
+        max_results=None,
+        retrieval_only=retrieval_only,
         accuracy_critic_backend_config=ai_rater_backend_config,
         runtime_kwargs=rt_kwargs,
     )

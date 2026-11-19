@@ -15,14 +15,22 @@
 r"""Binary to evaluate a RAG strategy on a QA dataset.
 """
 
+from collections.abc import Sequence
+import dataclasses
 import json
-from typing import Sequence
 
 from absl import app
 from absl import flags
+from onetwo.backends import backend_registry
+from onetwo.core import content as content_lib
 from onetwo.evaluation import datasets
 from onetwo.stdlib.qa import evaluate_rag_lib
+from onetwo.stdlib.qa import qa
+from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import rag_defaults
+
+_PromptContent = str | content_lib.ChunkList
+_StrategyResult = qa.StrategyResult
 
 _EXAMPLES = flags.DEFINE_string(
     'examples',
@@ -66,8 +74,11 @@ _GENERATE_MODEL_BACKEND_CLASS_NAME = flags.DEFINE_string(
 
 _GENERATE_MODEL_NAME = flags.DEFINE_string(
     'generate_model_name',
-    rag_defaults.DEFAULT_GENERATE_MODEL,
-    'Name of the generation model.',
+    None,
+    (
+        'Name of the generation model. If unset, uses the default QA model of'
+        ' --generate_model_backend_class_name.'
+    ),
 )
 
 _GENERATE_BACKEND_KWARGS = flags.DEFINE_string(
@@ -92,25 +103,29 @@ _EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
     allow_override=True,
 )
 
-_QA_STRATEGY_NAME = flags.DEFINE_string(
+_QA_STRATEGY_NAME = flags.DEFINE_enum(
     'qa_strategy_name',
     'rag',
-    'Name of the QA strategy to evaluate.',
+    ['closed_book', 'rag', 'retrieval_only', 'agentic_retrieval'],
+    'Ready-made QA strategy to evaluate.',
 )
 
-# TODO: Consider combining with _EXTRA_BACKEND_KWARGS.
-_QUERY_TIME_KWARGS = flags.DEFINE_string(
-    'query_time_kwargs',
-    '{"max_results": 20}',
-    'JSON string containing query-time arguments for the strategy.',
+_MAX_RESULTS = flags.DEFINE_integer(
+    'max_results',
+    20,
+    (
+        'Maximum number of documents to retrieve per question (for strategies'
+        ' with a retriever).'
+    ),
 )
 
-_MCP_KWARGS = flags.DEFINE_string(
-    'mcp_kwargs',
-    '{}',
-    'JSON string containing extra constructor arguments for the'
-    ' agentic_retrieval strategy, e.g. \'{"max_steps": 30}\'. Pass MCP server'
-    ' URLs via --mcp_urls.',
+_MIN_SCORE = flags.DEFINE_float(
+    'min_score',
+    None,
+    (
+        'Minimum similarity score of retrieved documents (for strategies with a'
+        ' retriever).'
+    ),
 )
 
 _MAX_EXAMPLES = flags.DEFINE_integer(
@@ -157,30 +172,48 @@ def _examples_from_flag(
   return value
 
 
+def _strategy_from_flags() -> qa.QAStrategy[_PromptContent, _StrategyResult]:
+  """Returns the preset --qa_strategy_name with the settings of the flags."""
+  name = _QA_STRATEGY_NAME.value
+  if name in (
+      evaluate_rag_lib.StrategyType.RAG,
+      evaluate_rag_lib.StrategyType.RETRIEVAL_ONLY,
+  ):
+    strategy = strategies_lib.get_strategy(
+        name,
+        max_results=_MAX_RESULTS.value,
+        min_score=_MIN_SCORE.value,
+    )
+  else:
+    strategy = strategies_lib.get_strategy(name)
+  if isinstance(strategy, backend_registry.BackendMixin):
+    config = rag_defaults.qa_generate_backend_config(
+        _GENERATE_MODEL_BACKEND_CLASS_NAME.value,
+        _GENERATE_MODEL_NAME.value,
+    )
+    if _GENERATE_BACKEND_KWARGS.value is not None:
+      config = dataclasses.replace(
+          config, kwargs=json.loads(_GENERATE_BACKEND_KWARGS.value)
+      )
+    strategy = dataclasses.replace(strategy, backend_config=config)
+  return strategy
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
   evaluate_rag_lib.evaluate_rag(
       examples=_examples_from_flag(_EXAMPLES.value, _MAX_EXAMPLES.value),
-      index=_INDEX.value or None,
       output=_OUTPUT.value or None,
-      generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
-      generate_model_name=_GENERATE_MODEL_NAME.value,
-      generate_backend_kwargs=(
-          json.loads(_GENERATE_BACKEND_KWARGS.value)
-          if _GENERATE_BACKEND_KWARGS.value is not None
-          else None
-      ),
-      qa_strategy_name=_QA_STRATEGY_NAME.value,
-      query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),
-      mcp_kwargs=json.loads(_MCP_KWARGS.value),
-      mcp_urls=_MCP_URLS.value,
       extra_backend_kwargs=evaluate_rag_lib.get_default_extra_backend_kwargs(
           json.loads(_EXTRA_BACKEND_KWARGS.value),
           max_retries=_MAX_RETRIES.value,
           http_timeout_ms=_HTTP_TIMEOUT.value,
       ),
+      index=_INDEX.value or None,
+      strategy=_strategy_from_flags(),
+      mcp_urls=_MCP_URLS.value,
   )
 
 
