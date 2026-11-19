@@ -1172,5 +1172,119 @@ class FCAgentTracingTest(absltest.TestCase):
       agent_lib.format_tool_calls(trace)
 
 
+class FormatAgentStepsTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    llm.reset_defaults()
+
+  def test_formats_each_call_and_the_answer(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    ),
+                    fc_types.FunctionCall(
+                        '_explode', kwargs={'reason': 'boom'}
+                    ),
+                ]
+            ),
+            _model_turn(
+                calls=[fc_types.FunctionCall('_get_time', args=('Paris',))]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather, _explode, _get_time])
+
+    _, state = _run_with_state(agent, 'Weather in London?')
+
+    self.assertEqual(
+        agent_lib.format_agent_steps(state),
+        "1. _get_weather('London') -> {'location': 'London', 'temp': 15}\n"
+        "1. _explode('boom') -> error: ValueError: boom\n"
+        "2. _get_time('Paris') -> 12:00 in Paris\n"
+        '3. No tool call, the model answers: It is 15 degrees.',
+    )
+
+  def test_uses_the_given_result_formatter(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather])
+
+    _, state = _run_with_state(agent, 'Weather in London?')
+
+    self.assertEqual(
+        agent_lib.format_agent_steps(
+            state, format_result=lambda result: f"{result['temp']} degrees"
+        ),
+        "1. _get_weather('London') -> 15 degrees\n"
+        '2. No tool call, the model answers: It is 15 degrees.',
+    )
+
+  def test_cuts_long_results_and_answers(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+            _model_turn('It is 15 degrees.'),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(tools=[_get_weather])
+
+    _, state = _run_with_state(agent, 'Weather in London?')
+
+    self.assertEqual(
+        agent_lib.format_agent_steps(state, max_chars=10),
+        "1. _get_weather('London') -> {'locat...\n"
+        '2. No tool call, the model answers: It is 1...',
+    )
+
+  def test_shows_calls_that_were_not_executed(self):
+    backend = _ScriptedBackend(
+        replies=[
+            _model_turn(
+                calls=[
+                    fc_types.FunctionCall(
+                        '_get_weather', kwargs={'location': 'London'}
+                    )
+                ]
+            ),
+        ]
+    )
+    backend.register()
+    agent = agent_lib.Agent(
+        tools=[_get_weather], max_steps=1, final_instruction='Answer now.'
+    )
+
+    _, state = _run_with_state(agent, 'Weather in London?')
+
+    self.assertEqual(
+        agent_lib.format_agent_steps(state),
+        "1. _get_weather('London') -> {'location': 'London', 'temp': 15}\n"
+        "2. _get_weather('London') -> not executed",
+    )
+
+
 if __name__ == '__main__':
   absltest.main()

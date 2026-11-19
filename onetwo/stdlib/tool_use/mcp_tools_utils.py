@@ -23,6 +23,9 @@ whose content is an ``application/pdf`` chunk) is a block per chunk (text,
 image, audio, or an embedded binary resource for anything else, such as PDFs),
 so that its non-text content reaches the model as such rather than as text
 placeholders (e.g. ``<application/pdf>``).
+
+Also serves MCP servers in a background thread (`serve_in_background`), so that
+a client can connect to them from the same process, e.g. in a colab.
 """
 
 # TODO: Show that the OneTwo agent works with multimodal MCP
@@ -30,13 +33,18 @@ placeholders (e.g. ``<application/pdf>``).
 # returns these content blocks in the agent manual tests.
 
 import base64
+import dataclasses
 import json
+import threading
+import time
 from typing import Any
 from urllib import parse
 
 from mcp import types as mcp_types
+from mcp.server.fastmcp import server
 from onetwo.core import content as content_lib
 from onetwo.stdlib.retrieval import chunking
+import uvicorn
 
 # Prefix of the placeholder URIs of the embedded resources of the results, e.g.
 # `onetwo-index://unused-uri/<docid>`. MCP requires a URI on every embedded
@@ -135,3 +143,97 @@ def json_block(value: Any) -> mcp_types.TextContent:
   # that MCP servers return more explicit (e.g. a dataclass with their doc_id,
   # title and score), instead of the free-form dicts passed here.
   return mcp_types.TextContent(type='text', text=json.dumps(value, default=str))
+
+
+@dataclasses.dataclass(frozen=True)
+class BackgroundMcpServer:
+  """An MCP server running in a background thread of this process.
+
+  Returned by `serve_in_background`.
+
+  Attributes:
+    url: The streamable-HTTP endpoint of the server, e.g.
+      `http://localhost:8775/mcp`, to connect clients to (e.g.
+      `mcp_tools.server(url)`).
+  """
+
+  url: str
+  _server: uvicorn.Server = dataclasses.field(repr=False)
+  _thread: threading.Thread = dataclasses.field(repr=False)
+
+  def stop(self, timeout: float = 10.0) -> None:
+    """Stops the server and frees its port.
+
+    Args:
+      timeout: How long to wait, in seconds, for the server to shut down.
+    """
+    self._server.should_exit = True
+    self._thread.join(timeout)
+
+
+def serve_in_background(
+    mcp: server.FastMCP, *, startup_timeout: float = 30.0
+) -> BackgroundMcpServer:
+  """Serves `mcp` over streamable HTTP in a background thread.
+
+  Unlike `mcp.run(transport='streamable-http')`, which blocks until the server
+  is stopped, this returns as soon as the server accepts connections, so that
+  a client can connect to it from the same process (e.g. an agent in a colab):
+
+  ```python
+    background_server = serve_in_background(mcp)
+    agent = agent_lib.Agent(tools=[mcp_tools.server(background_server.url)])
+    ...
+    background_server.stop()
+  ```
+
+  The server is served on the host and port of `mcp.settings`, i.e. those it
+  was created with.
+
+  Args:
+    mcp: The server to serve.
+    startup_timeout: How long to wait, in seconds, for the server to start.
+
+  Returns:
+    The running server, with its URL and a way to stop it.
+
+  Raises:
+    RuntimeError: If the server fails to start, e.g. because its port is
+      already in use.
+    TimeoutError: If the server does not start within `startup_timeout`.
+  """
+  host, port = mcp.settings.host, mcp.settings.port
+  # `loop='asyncio'`: the default, 'auto', uses uvloop if it can be imported,
+  # which is not always usable (e.g. in some colab runtimes).
+  uvicorn_server = uvicorn.Server(
+      uvicorn.Config(
+          mcp.streamable_http_app(),
+          host=host,
+          port=port,
+          loop='asyncio',
+          log_level=mcp.settings.log_level.lower(),
+      )
+  )
+  thread = threading.Thread(
+      target=uvicorn_server.run, name=f'mcp-server-{port}', daemon=True
+  )
+  thread.start()
+  deadline = time.monotonic() + startup_timeout
+  while not uvicorn_server.started:
+    if not thread.is_alive():
+      raise RuntimeError(
+          f'The MCP server failed to start on {host}:{port}, e.g. because the'
+          ' port is already in use. See the logs for details.'
+      )
+    if time.monotonic() > deadline:
+      uvicorn_server.should_exit = True
+      raise TimeoutError(
+          f'The MCP server did not start on {host}:{port} within'
+          f' {startup_timeout} seconds.'
+      )
+    time.sleep(0.05)
+  return BackgroundMcpServer(
+      url=f'http://{host}:{port}{mcp.settings.streamable_http_path}',
+      _server=uvicorn_server,
+      _thread=thread,
+  )

@@ -25,3 +25,4 @@ evaluate = _evaluate_rag_module.evaluate_rag
 StrategyType = _evaluate_rag_module.StrategyType
 StorageFormat = _serialization.StorageFormat
 start_mcp = _mcp_server.start_mcp
+start_mcp_in_background = _mcp_server.start_mcp_in_background

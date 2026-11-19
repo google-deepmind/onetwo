@@ -19,13 +19,13 @@ as an MCP tool, allowing AI agents (e.g., Antigravity) to perform agentic
 retrieval over an existing index.
 
 This module provides ``start_mcp``, which serves an index until the server is
-stopped, and ``create_server``, which only builds the server (e.g. to run it
-yourself or to test it).  Extra keyword arguments for the index's backends
-(e.g. the embedding backend's credentials or cache) are passed via the
-``extra_backend_kwargs`` parameter. Advanced settings of the tools (e.g. the
-number of search hits) are
-passed via ``extra_mcp_config``, which is experimental and not part of the
-stable API.
+stopped, ``start_mcp_in_background``, which serves it in a background thread
+(e.g. to use it from a colab), and ``create_server``, which only builds the
+server (e.g. to run it yourself or to test it).  Extra keyword arguments for the
+index's backends (e.g. the embedding backend's credentials or cache) are passed
+via the ``extra_backend_kwargs`` parameter. Advanced settings of the tools (e.g.
+the number of search hits) are passed via ``extra_mcp_config``, which is
+experimental and not part of the stable API.
 
 Typical workflow:
   1. Build an embedding index offline (e.g., via
@@ -377,3 +377,52 @@ def start_mcp(
       extra_mcp_config=extra_mcp_config,
   )
   mcp.run(transport=transport)
+
+
+def start_mcp_in_background(
+    index: str | indexing.DocumentIndex,
+    *,
+    host: str = 'localhost',
+    port: int = 8775,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
+    extra_mcp_config: Mapping[str, Any] | None = None,
+) -> mcp_tools_utils.BackgroundMcpServer:
+  """Serves the OneTwo Index MCP server in a background thread.
+
+  Like `start_mcp` with ``transport='streamable-http'``, but returns as soon as
+  the server accepts connections instead of blocking, so that it can be used
+  from the same process, e.g. by an agent in a colab:
+
+  ```python
+    index_server = rag.start_mcp_in_background(index)
+    agent = agent_lib.Agent(tools=[mcp_tools.server(index_server.url)])
+    ...
+    index_server.stop()
+  ```
+
+  Args:
+    index: The index to serve: the directory of a saved index or an index
+      object, see `create_server`.
+    host: Host/interface to bind the server on.
+    port: Port to listen on.
+    extra_backend_kwargs: See `create_server`.
+    extra_mcp_config: EXPERIMENTAL extra settings of the tools, see
+      `create_server`.
+
+  Returns:
+    The running server, with its URL (http://<host>:<port>/mcp) and a `stop`
+    method.
+
+  Raises:
+    RuntimeError: If the server fails to start, e.g. because its port is
+      already in use.
+    TimeoutError: If the server does not start in time.
+  """
+  mcp = create_server(
+      index,
+      host=host,
+      port=port,
+      extra_backend_kwargs=extra_backend_kwargs,
+      extra_mcp_config=extra_mcp_config,
+  )
+  return mcp_tools_utils.serve_in_background(mcp)

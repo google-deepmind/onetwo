@@ -650,3 +650,66 @@ def format_tool_calls(
     else:
       lines.append(f'  -> {_clip(response, max_chars)}')
   return '\n'.join(lines)
+
+
+def format_agent_steps(
+    state: AgentState,
+    format_result: Callable[[Any], str] | None = None,
+    max_chars: int = 160,
+) -> str:
+  """Returns the steps of a run, one line per tool call, and the answer.
+
+  Unlike `format_tool_calls`, which reads a trace, this reads the final state of
+  a run (`agent(..., return_final_state=True)`), so it needs no tracing and
+  also shows the answer:
+
+    1. get_weather('London') -> {'temp': 15}
+    2. explode('boom') -> error: ValueError: boom
+    3. No tool call, the model answers: It is 15 degrees.
+
+  The calls of a single step share its number. A call that was not executed
+  (one requested on the final call, see `Agent.final_instruction`) is shown as
+  such.
+
+  Args:
+    state: The final state of a run.
+    format_result: Formats what a tool returned, e.g. to show only the ids of
+      the documents a search returned. Defaults to the value as text, cut to
+      `max_chars`.
+    max_chars: Longer results, errors and answers are cut to this length. Not
+      applied to the output of `format_result`.
+
+  Returns:
+    One line per tool call and one for the answer, if the model gave one.
+  """
+  if format_result is None:
+    format_result = lambda result: _clip(result, max_chars)
+  lines = []
+  step = 0
+  for index, turn in enumerate(state.turns):
+    if turn.role != fc_types.ConversationRole.MODEL:
+      continue
+    step += 1
+    if not turn.calls:
+      answer = _clip(turn.content or '', max_chars)
+      lines.append(f'{step}. No tool call, the model answers: {answer}')
+      continue
+    # The results of this turn's calls are in the tool turn that follows it.
+    responses = []
+    if index + 1 < len(state.turns):
+      next_turn = state.turns[index + 1]
+      if next_turn.role == fc_types.ConversationRole.TOOL:
+        responses = list(next_turn.responses)
+    for call_index, call in enumerate(turn.calls):
+      args = ', '.join(
+          [repr(value) for value in call.args]
+          + [repr(value) for value in call.kwargs.values()]
+      )
+      if call_index >= len(responses):
+        result = 'not executed'
+      elif responses[call_index].error:
+        result = f'error: {_clip(responses[call_index].error, max_chars)}'
+      else:
+        result = format_result(responses[call_index].response)
+      lines.append(f'{step}. {call.function_name}({args}) -> {result}')
+  return '\n'.join(lines)
