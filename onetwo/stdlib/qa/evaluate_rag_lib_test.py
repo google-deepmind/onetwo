@@ -932,6 +932,42 @@ class EvaluateRagLibTest(parameterized.TestCase):
         evaluate_rag_lib._with_context(strategy_factory(), index, mcp_urls, {})
     mock_load.assert_not_called()
 
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_signature_order_and_keyword_only_args(self, mock_eval):
+    mock_eval.return_value = results.EvaluationSummary()
+    index = indexing.EmptyIndex()
+
+    # Positional arguments are (examples, index, strategy).
+    evaluate_rag_lib.evaluate_rag(
+        _CustomLoader(),
+        index,
+        evaluate_rag_lib.StrategyType.RETRIEVAL_ONLY,
+        output=None,
+        evaluate_kwargs={'metric_functions': {}},
+        extra_backend_kwargs={},
+    )
+    built = mock_eval.call_args.kwargs['strategy']
+    self.assertIsInstance(built, strategies_lib.RetrievalOnlyStrategy)
+    self.assertIs(built.retriever, index)
+
+    # Trailing options (mcp_urls, output, evaluate_kwargs, extra_backend_kwargs)
+    # are keyword-only, so a 4th positional argument fails with TypeError.
+    with self.assertRaisesRegex(TypeError, 'positional'):
+      evaluate_rag_lib.evaluate_rag(
+          _CustomLoader(),
+          index,
+          evaluate_rag_lib.StrategyType.RETRIEVAL_ONLY,
+          '/tmp/out',  # pyrefly: ignore[bad-argument-count]
+      )
+
+    # Passing output as the 2nd positional argument alongside index= fails.
+    with self.assertRaisesRegex(TypeError, 'index'):
+      evaluate_rag_lib.evaluate_rag(
+          _CustomLoader(),
+          '/tmp/out',
+          index=index,  # pyrefly: ignore[bad-keyword-argument]
+      )
+
 
 if __name__ == '__main__':
   absltest.main()

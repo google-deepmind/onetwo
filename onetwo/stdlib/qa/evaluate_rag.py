@@ -212,15 +212,15 @@ def main(argv: Sequence[str]) -> None:
 
   evaluate_rag_lib.evaluate_rag(
       examples=_examples_from_flag(_EXAMPLES.value, _MAX_EXAMPLES.value),
+      index=_INDEX.value or None,
+      strategy=_strategy_from_flags(),
+      mcp_urls=_MCP_URLS.value,
       output=output,
       extra_backend_kwargs=evaluate_rag_lib.get_default_extra_backend_kwargs(
           json.loads(_EXTRA_BACKEND_KWARGS.value),
           max_retries=_MAX_RETRIES.value,
           http_timeout_ms=_HTTP_TIMEOUT.value,
       ),
-      index=_INDEX.value or None,
-      strategy=_strategy_from_flags(),
-      mcp_urls=_MCP_URLS.value,
   )
 
 

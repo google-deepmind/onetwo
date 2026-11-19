@@ -219,14 +219,15 @@ def _with_mcp_servers(
 
 def evaluate_rag(
     examples: str | datasets.DatasetLoader,
-    output: str | None = None,
-    extra_backend_kwargs: Mapping[str, Any] | None = None,
     index: str | indexing.DocumentIndex | None = None,
     strategy: StrategyType | qa.QAStrategy[_PromptContent, _StrategyResult] = (
         StrategyType.RAG
     ),
-    evaluate_kwargs: Mapping[str, Any] | None = None,
+    *,
     mcp_urls: Sequence[str] = (),
+    output: str | None = None,
+    evaluate_kwargs: Mapping[str, Any] | None = None,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -234,20 +235,6 @@ def evaluate_rag(
     examples: Path to a `.jsonl` or `.json` examples file, or a
       `datasets.DatasetLoader` (e.g. `datasets.get_dataset_loader(name,
       max_number_of_examples=N)`).
-    output: Parent folder of the results. Each run is saved in a new folder
-      `<output>/<dataset>/<name>__hash_<h>_run<i>/` with `results.html` and
-      `eval_config.json` (no credentials). If None, nothing is saved.
-    extra_backend_kwargs: Extra keyword arguments for the constructors of the
-      backends that this call creates (e.g. an API key): those of the index and
-      the QA and AI rater generation backends. Usually not needed: credentials
-      are read from the environment (e.g. `GOOGLE_API_KEY`). Not a stable part
-      of the API. Backend requests default to 5 retries (`'max_retries'`) and a
-      300000 ms timeout (`'http_options': {'timeout': ...}`); see
-      `get_default_extra_backend_kwargs`. If `'cache_filename'` is set,
-      `evaluate_rag` creates one shared `caching.SimpleFunctionCache` loaded
-      from and saved to that path, passes it as `'cache'` to all backends, and
-      does not forward `'cache_filename'` itself, so caching works with every
-      backend accepting `'cache'`.
     index: Saved-index directory or index object (set as `retriever`, overriding
       any existing one with a warning). Used by retrieval strategies (e.g.
       `'rag'`, `'retrieval_only'`); raises ValueError if passed to another
@@ -260,14 +247,23 @@ def evaluate_rag(
       filled on a copy from
       `rag_defaults.default_qa_generate_backend_config()` and
       `extra_backend_kwargs`; caller's strategy is never modified.
-    evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
-      `metric_functions`, `chunk_size`). Defaults `'output_results'` to True and
-      `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)` with
-      `k = 5, 10, 20` and the default AI rater when absent.
     mcp_urls: URLs of MCP servers to add to the `tools` of
       `'agentic_retrieval'`. Raises ValueError if passed to another strategy or
       missing when needed (and no tools are already set). Passing both `index`
       and `mcp_urls` always raises ValueError.
+    output: Parent folder of the results. Each run is saved in a new folder
+      `<output>/<dataset>/<name>__hash_<h>_run<i>/` with `results.html` and
+      `eval_config.json` (no credentials). If None, nothing is saved.
+    evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
+      `metric_functions`, `chunk_size`). Defaults `'output_results'` to True and
+      `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)` with
+      `k = 5, 10, 20` and the default AI rater when absent.
+    extra_backend_kwargs: Extra constructor kwargs for created backends (index,
+      QA, AI rater), e.g. API keys (usually read from `GOOGLE_API_KEY`). Not a
+      stable API. Defaults to 5 retries and 300000 ms timeout (see
+      `get_default_extra_backend_kwargs`). `'cache_filename'`, if set, loads and
+      saves one shared `caching.SimpleFunctionCache` passed as `'cache'` (not
+      forwarded as `'cache_filename'`).
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
