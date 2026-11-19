@@ -21,8 +21,12 @@ from onetwo.core import caching
 from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.evaluation import datasets
+from onetwo.evaluation import evaluation as ot_evaluation
+from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import evaluate_rag_lib
 from onetwo.stdlib.qa import qa_evaluation
+from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 
@@ -99,9 +103,9 @@ class GetResultsDirectoryTest(absltest.TestCase):
             evaluate_rag_lib._examples_name(examples), expected_name
         )
 
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  def test_evaluate_rag_loads_from_path(self, mock_eval_qa):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_loads_from_path(self, mock_eval):
+    mock_eval.return_value = results.EvaluationSummary()
     examples_file = self.create_tempdir().create_file(
         'custom_qa.jsonl',
         content='{"question": "q1", "answer": "a1"}\n',
@@ -111,13 +115,13 @@ class GetResultsDirectoryTest(absltest.TestCase):
     evaluate_rag_lib.evaluate_rag(
         examples=examples_file.full_path,
         output=out_dir,
-        index='/idx',
+        index=indexing.EmptyIndex(),
         generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
     )
 
     self.assertEqual(
-        mock_eval_qa.call_args.kwargs['examples'],
+        mock_eval.call_args.kwargs['examples'],
         [{'question': 'q1', 'answer': 'a1', 'metadata': {}}],
     )
     self.assertTrue(
@@ -126,9 +130,12 @@ class GetResultsDirectoryTest(absltest.TestCase):
         ).exists()
     )
 
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  def test_evaluate_rag_cache(self, mock_eval_qa):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+  @mock.patch.object(
+      index_building, 'load_index', return_value=indexing.EmptyIndex()
+  )
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_cache(self, mock_eval, mock_load_index):
+    mock_eval.return_value = results.EvaluationSummary()
     out_dir = self.create_tempdir().full_path
     cache_file = epath.Path(self.create_tempdir().full_path) / 'cache.json'
 
@@ -140,21 +147,22 @@ class GetResultsDirectoryTest(absltest.TestCase):
         evaluate_kwargs={'metric_functions': {}},
     )
     self.assertEqual(
-        mock_eval_qa.call_args.kwargs['examples'],
+        mock_eval.call_args.kwargs['examples'],
         [{'question': 'q1', 'answer': 'a1', 'metadata': {}}],
     )
     self.assertFalse(cache_file.exists())
     self.assertEqual(
-        mock_eval_qa.call_args.kwargs['runtime_kwargs'],
+        mock_load_index.call_args.kwargs['extra_backend_kwargs'],
         {'max_retries': 5, 'http_options': {'timeout': 300000}},
     )
 
     def _populate_cache(**kwargs):
-      fn_cache = kwargs['runtime_kwargs']['cache']
+      strategy = kwargs['strategy']
+      fn_cache = strategy.runtime_kwargs['cache']
       asyncio.run(fn_cache.cache_value('k1', None, 'v1'))
       return results.EvaluationSummary()
 
-    mock_eval_qa.side_effect = _populate_cache
+    mock_eval.side_effect = _populate_cache
     extra_backend_kwargs = {
         'api_key': 'secret',
         'cache_filename': str(cache_file),
@@ -168,8 +176,12 @@ class GetResultsDirectoryTest(absltest.TestCase):
         evaluate_kwargs={'metric_functions': {}},
     )
     self.assertTrue(cache_file.exists())
-    first_rt_kwargs = mock_eval_qa.call_args.kwargs['runtime_kwargs']
+    first_rt_kwargs = mock_eval.call_args.kwargs['strategy'].runtime_kwargs
     self.assertIsInstance(first_rt_kwargs['cache'], caching.SimpleFunctionCache)
+    self.assertIs(
+        mock_load_index.call_args.kwargs['extra_backend_kwargs']['cache'],
+        first_rt_kwargs['cache'],
+    )
     self.assertNotIn('cache_filename', first_rt_kwargs)
     self.assertEqual(
         extra_backend_kwargs,
@@ -177,8 +189,8 @@ class GetResultsDirectoryTest(absltest.TestCase):
     )
 
     # Second run loads the saved cache from disk into a fresh cache object.
-    mock_eval_qa.side_effect = None
-    mock_eval_qa.return_value = results.EvaluationSummary()
+    mock_eval.side_effect = None
+    mock_eval.return_value = results.EvaluationSummary()
     evaluate_rag_lib.evaluate_rag(
         examples=_CustomLoader(),
         output=out_dir,
@@ -187,13 +199,12 @@ class GetResultsDirectoryTest(absltest.TestCase):
         generate_model_name='m',
         evaluate_kwargs={'metric_functions': {}},
     )
-    second_cache = mock_eval_qa.call_args.kwargs['runtime_kwargs']['cache']
+    second_rt_kwargs = mock_eval.call_args.kwargs['strategy'].runtime_kwargs
+    second_cache = second_rt_kwargs['cache']
     self.assertIsInstance(second_cache, caching.SimpleFunctionCache)
     self.assertIsNot(second_cache, first_rt_kwargs['cache'])
     self.assertEqual(second_cache.get_key_count(), 1)
-    self.assertNotIn(
-        'cache_filename', mock_eval_qa.call_args.kwargs['runtime_kwargs']
-    )
+    self.assertNotIn('cache_filename', second_rt_kwargs)
 
   def test_get_default_extra_backend_kwargs(self):
     self.assertEqual(
@@ -223,17 +234,17 @@ class GetResultsDirectoryTest(absltest.TestCase):
     )
     self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
 
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  def test_evaluate_rag_default_metrics(self, mock_eval_qa):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_default_metrics(self, mock_eval):
+    mock_eval.return_value = results.EvaluationSummary()
     evaluate_rag_lib.evaluate_rag(
         examples=_CustomLoader(),
         output=self.create_tempdir().full_path,
-        index='/idx',
+        index=indexing.EmptyIndex(),
         qa_strategy_name='retrieval_only',
         query_time_kwargs={'max_results': 50},
     )
-    evaluate_kwargs = mock_eval_qa.call_args.kwargs['evaluate_kwargs']
+    evaluate_kwargs = mock_eval.call_args.kwargs
     self.assertTrue(evaluate_kwargs['output_results'])
     self.assertNotIn('enable_tracing', evaluate_kwargs)
     self.assertCountEqual(
@@ -249,19 +260,24 @@ class GetResultsDirectoryTest(absltest.TestCase):
             'mrr@50',
         ],
     )
+    self.assertEqual(
+        evaluate_kwargs['inputs_extractor']({'question': 'q?'}),
+        (['q?'], {'max_results': 50}),
+    )
 
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  def test_evaluate_rag_generate_backend_config(self, mock_eval_qa):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_generate_backend_config(self, mock_eval):
+    mock_eval.return_value = results.EvaluationSummary()
+    index = indexing.EmptyIndex()
     # No metrics, so that no AI rater backend (needing an API key) is built.
     with self.subTest('default_model_uses_default_kwargs'):
       evaluate_rag_lib.evaluate_rag(
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
-          index='/idx',
+          index=index,
           evaluate_kwargs={'metric_functions': {}},
       )
-      config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
+      config = mock_eval.call_args.kwargs['strategy'].backend_config
       self.assertEqual(
           config, rag_defaults.default_qa_generate_backend_config()
       )
@@ -269,11 +285,11 @@ class GetResultsDirectoryTest(absltest.TestCase):
       evaluate_rag_lib.evaluate_rag(
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
-          index='/idx',
+          index=index,
           evaluate_kwargs={'metric_functions': {}},
           generate_model_name='some-other-model',
       )
-      config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
+      config = mock_eval.call_args.kwargs['strategy'].backend_config
       self.assertEqual(config.model_name, 'some-other-model')
       self.assertEqual(config.kwargs, {})
     with self.subTest('explicit_kwargs_replace_defaults'):
@@ -283,20 +299,20 @@ class GetResultsDirectoryTest(absltest.TestCase):
       evaluate_rag_lib.evaluate_rag(
           examples=_CustomLoader(),
           output=self.create_tempdir().full_path,
-          index='/idx',
+          index=index,
           evaluate_kwargs={'metric_functions': {}},
           generate_backend_kwargs=high_thinking,
       )
-      config = mock_eval_qa.call_args.kwargs['rag_spec'].generate_backend_config
+      config = mock_eval.call_args.kwargs['strategy'].backend_config
       self.assertEqual(
           config.model_name,
           rag_defaults.default_qa_generate_backend_config().model_name,
       )
       self.assertEqual(config.kwargs, high_thinking)
 
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  def test_evaluate_rag_custom_evaluate_kwargs(self, mock_eval_qa):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_custom_evaluate_kwargs(self, mock_eval):
+    mock_eval.return_value = results.EvaluationSummary()
     custom_metrics = {'exact': lambda target, prediction: 1.0}
     evaluate_kwargs = {
         'metric_functions': custom_metrics,
@@ -307,12 +323,19 @@ class GetResultsDirectoryTest(absltest.TestCase):
     evaluate_rag_lib.evaluate_rag(
         examples=_CustomLoader(),
         output=self.create_tempdir().full_path,
-        index='/idx',
+        index=indexing.EmptyIndex(),
         evaluate_kwargs=evaluate_kwargs,
     )
 
+    forwarded = dict(mock_eval.call_args.kwargs)
+    forwarded.pop('strategy')
+    forwarded.pop('examples')
+    inputs_extractor = forwarded.pop('inputs_extractor')
     self.assertEqual(
-        mock_eval_qa.call_args.kwargs['evaluate_kwargs'],
+        inputs_extractor({'question': 'q?'}), (['q?'], {'max_results': 20})
+    )
+    self.assertEqual(
+        forwarded,
         {
             'output_results': True,
             'enable_tracing': False,
@@ -321,28 +344,38 @@ class GetResultsDirectoryTest(absltest.TestCase):
         },
     )
     self.assertNotIn('output_results', evaluate_kwargs)
+    self.assertNotIn('inputs_extractor', evaluate_kwargs)
 
+    custom_extractor = lambda x: ([x['q']], {})
     evaluate_rag_lib.evaluate_rag(
         examples=_CustomLoader(),
         output=self.create_tempdir().full_path,
-        index='/idx',
+        index=indexing.EmptyIndex(),
         evaluate_kwargs={
             'metric_functions': custom_metrics,
             'output_results': False,
+            'inputs_extractor': custom_extractor,
         },
     )
+    forwarded = dict(mock_eval.call_args.kwargs)
+    forwarded.pop('strategy')
+    forwarded.pop('examples')
     self.assertEqual(
-        mock_eval_qa.call_args.kwargs['evaluate_kwargs'],
+        forwarded,
         {
             'metric_functions': custom_metrics,
             'output_results': False,
+            'inputs_extractor': custom_extractor,
         },
     )
 
+  @mock.patch.object(index_building, 'load_index')
   @mock.patch.object(qa_evaluation, 'save_html_report')
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
-  def test_evaluate_rag_with_index_object(self, mock_eval_qa, mock_save_html):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+  @mock.patch.object(ot_evaluation, 'evaluate')
+  def test_evaluate_rag_with_index_object(
+      self, mock_eval, mock_save_html, mock_load_index
+  ):
+    mock_eval.return_value = results.EvaluationSummary()
     index = indexing.EmptyIndex()
     with self.assertLogs(level='WARNING'):
       evaluate_rag_lib.evaluate_rag(
@@ -351,17 +384,20 @@ class GetResultsDirectoryTest(absltest.TestCase):
           index=index,
           evaluate_kwargs={'metric_functions': {}},
       )
-    self.assertIs(mock_eval_qa.call_args.kwargs['index'], index)
+    mock_load_index.assert_not_called()
+    strategy = mock_eval.call_args.kwargs['strategy']
+    self.assertIsInstance(strategy, strategies_lib.RAGStrategy)
+    self.assertIs(strategy.retriever, index)
     mock_save_html.assert_not_called()
 
-  @mock.patch.object(qa_evaluation, 'evaluate_qa')
+  @mock.patch.object(ot_evaluation, 'evaluate')
   @mock.patch.object(
       evaluate_rag_lib, '_load_examples', return_value=[{'question': 'q'}]
   )
   def test_evaluate_rag_empty_index_validation(
-      self, mock_load_examples, mock_eval_qa
+      self, mock_load_examples, mock_eval
   ):
-    mock_eval_qa.return_value = results.EvaluationSummary()
+    mock_eval.return_value = results.EvaluationSummary()
     out_dir = self.create_tempdir().full_path
 
     for strategy in ('rag', 'retrieval_only'):
@@ -374,7 +410,10 @@ class GetResultsDirectoryTest(absltest.TestCase):
           )
     mock_load_examples.assert_not_called()
 
-    for strategy in ('agentic_retrieval', 'closed_book'):
+    for strategy, expected_cls in (
+        ('agentic_retrieval', agentic_retrieval.AgenticRetrievalStrategy),
+        ('closed_book', strategies_lib.ClosedBookStrategy),
+    ):
       with self.subTest(strategy=strategy):
         evaluate_rag_lib.evaluate_rag(
             examples=_CustomLoader(),
@@ -382,7 +421,10 @@ class GetResultsDirectoryTest(absltest.TestCase):
             qa_strategy_name=strategy,
             evaluate_kwargs={'metric_functions': {}},
         )
-    self.assertEqual(mock_eval_qa.call_count, 2)
+        self.assertIsInstance(
+            mock_eval.call_args.kwargs['strategy'], expected_cls
+        )
+    self.assertEqual(mock_eval.call_count, 2)
 
 
 if __name__ == '__main__':

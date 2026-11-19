@@ -15,22 +15,20 @@
 """Tests for how `qa_evaluation` builds the strategy it evaluates."""
 
 from typing import Any
-from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from onetwo.core import results
 from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import qa_evaluation
-from onetwo.stdlib.qa import qa_spec
-from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.tool_use import llm_tool_use
 
 
 def _build(
     mcp_kwargs: dict[str, Any],
 ) -> agentic_retrieval.AgenticRetrievalStrategy:
-  """Returns the strategy `evaluate_qa` builds from `mcp_kwargs`."""
-  strategy = qa_evaluation._agentic_retrieval_strategy(mcp_kwargs)
+  """Returns the strategy built from `mcp_kwargs`."""
+  strategy = qa_evaluation.agentic_retrieval_strategy(mcp_kwargs)
   assert isinstance(strategy, agentic_retrieval.AgenticRetrievalStrategy)
   return strategy
 
@@ -76,19 +74,14 @@ class AgenticRetrievalStrategyTest(parameterized.TestCase):
     with self.subTest('forwards_other_kwargs'):
       self.assertEqual(strategy.max_steps, 7)
 
-  def test_evaluate_qa_uses_index_object_without_loading(self):
-    mock_load_index = self.enter_context(
-        mock.patch.object(qa_evaluation.index_building, 'load_index')
+  def test_save_html_report_writes_html_file(self):
+    out_dir = self.create_tempdir().full_path
+    path = qa_evaluation.save_html_report(
+        summary=results.EvaluationSummary(metrics={'accuracy': 1.0}),
+        output_dir_path=out_dir,
     )
-    index = indexing.EmptyIndex()
-    summary = qa_evaluation.evaluate_qa(
-        rag_spec=qa_spec.QAStrategySpec(qa_strategy_name='retrieval_only'),
-        examples=[{'question': 'What is OneTwo?', 'answer': 'A library'}],
-        index=index,
-        evaluate_kwargs={'metric_functions': {}},
-    )
-    mock_load_index.assert_not_called()
-    self.assertEqual(summary.counters['total_count'], 1)
+    self.assertTrue(path.exists())
+    self.assertEqual(path.name, 'results.html')
 
 
 if __name__ == '__main__':

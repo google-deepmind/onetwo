@@ -25,9 +25,11 @@ from onetwo.core import caching
 from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.evaluation import datasets
+from onetwo.evaluation import evaluation as ot_evaluation
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import qa_evaluation
-from onetwo.stdlib.qa import qa_spec
+from onetwo.stdlib.qa import strategies_lib
+from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
 
@@ -238,17 +240,38 @@ def evaluate_rag(
       max_results=q_time_kwargs.get('max_results', 20),
   )
 
-  spec = qa_spec.QAStrategySpec(
-      qa_strategy_name=qa_strategy_name,
-      generate_backend_config=gen_backend_config,
-      query_time_kwargs=q_time_kwargs,
-      mcp_kwargs=mcp_kwargs,
-  )
+  if qa_strategy_name == 'agentic_retrieval':
+    strategy_obj = qa_evaluation.agentic_retrieval_strategy(mcp_kwargs)
+  elif qa_strategy_name == 'closed_book':
+    strategy_obj = strategies_lib.get_strategy(qa_strategy_name)
+  else:
+    if isinstance(index, str):
+      retriever = (
+          index_building.load_index(index, extra_backend_kwargs=rt_kwargs)
+          if index
+          else None
+      )
+    else:
+      retriever = index
+    strategy_obj = strategies_lib.get_strategy(
+        qa_strategy_name, retriever=retriever
+    )
+
+  if isinstance(strategy_obj, backend_registry.BackendMixin):
+    strategy_obj = dataclasses.replace(
+        strategy_obj,
+        backend_config=gen_backend_config,
+        runtime_kwargs=rt_kwargs,
+    )
 
   dict_examples = _load_examples(examples)
 
   evaluate_kwargs = dict(evaluate_kwargs) if evaluate_kwargs else {}
   evaluate_kwargs.setdefault('output_results', True)
+  # TODO: Removed with query_time_kwargs in a follow-up change.
+  evaluate_kwargs.setdefault(
+      'inputs_extractor', lambda x: ([x['question']], q_time_kwargs)
+  )
   if 'metric_functions' not in evaluate_kwargs:
     ai_rater_backend_config = backend_registry.GenerateBackendConfig(
         backend_class_name=rag_defaults.DEFAULT_BACKEND_CLASS_NAME,
@@ -262,12 +285,10 @@ def evaluate_rag(
     )
 
   print('Running evaluation...')
-  summary = qa_evaluation.evaluate_qa(
-      rag_spec=spec,
+  summary = ot_evaluation.evaluate(
+      strategy=strategy_obj,
       examples=dict_examples,
-      index=index,
-      runtime_kwargs=rt_kwargs,
-      evaluate_kwargs=evaluate_kwargs,
+      **evaluate_kwargs,
   )
 
   if fn_cache is not None:

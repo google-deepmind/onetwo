@@ -28,23 +28,18 @@
 
 """QA evaluation library."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 from etils import epath
-from onetwo.backends import backend_registry
 from onetwo.core import results
-from onetwo.core import routing
-from onetwo.evaluation import evaluation as ot_evaluation
 from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import qa
-from onetwo.stdlib.qa import qa_spec
 from onetwo.stdlib.qa import strategies_lib
-from onetwo.stdlib.retrieval import index_building
-from onetwo.stdlib.retrieval import indexing
 
 
-def _agentic_retrieval_strategy(
+# TODO: Replaced by _with_index in a follow-up change.
+def agentic_retrieval_strategy(
     mcp_kwargs: Mapping[str, Any],
 ) -> qa.QAStrategy:
   """Returns an `agentic_retrieval` strategy using the given MCP servers.
@@ -63,7 +58,7 @@ def _agentic_retrieval_strategy(
   from onetwo.stdlib.tool_use import mcp_tools  # pylint: disable=g-import-not-at-top
 
   strategy_kwargs = dict(mcp_kwargs)
-  # `None`, e.g. from `{"mcp_server_urls": null}` in JSON, means no servers.
+  # None, e.g. from {"mcp_server_urls": null} in JSON, means no servers.
   urls = (strategy_kwargs.pop('mcp_server_urls', None) or '').split(',')
   return strategies_lib.get_strategy(
       'agentic_retrieval',
@@ -71,68 +66,6 @@ def _agentic_retrieval_strategy(
       doc_ids_from_answer=agentic_retrieval.extract_cited_doc_ids,
       **strategy_kwargs,
   )
-
-
-def evaluate_qa(
-    rag_spec: qa_spec.QAStrategySpec,
-    examples: Sequence[Mapping[str, Any]],
-    index: str | indexing.DocumentIndex = '',
-    runtime_kwargs: Mapping[str, Any] | None = None,
-    evaluate_kwargs: Mapping[str, Any] | None = None,
-) -> results.EvaluationSummary:
-  """Evaluates a QA strategy on a dataset.
-
-  Args:
-    rag_spec: Specification of the QA strategy.
-    examples: Examples to evaluate on.
-    index: Directory of a saved index, an index object, or '' when unused.
-    runtime_kwargs: Runtime arguments for the backends (e.g. API key).
-    evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
-      `metric_functions`, `output_results`, `enable_tracing`).
-
-  Returns:
-    EvaluationSummary.
-  """
-  runtime_kwargs_dict = dict(runtime_kwargs) if runtime_kwargs else {}
-
-  with routing.RegistryContext():
-    if rag_spec.generate_backend_config is not None:
-      gen_backend = backend_registry.get_backend(
-          rag_spec.generate_backend_config,
-          **runtime_kwargs_dict,
-      )
-      gen_backend.register()
-
-    retriever = None
-    if isinstance(index, str):
-      if index:
-        retriever = index_building.load_index(
-            index, extra_backend_kwargs=runtime_kwargs_dict
-        )
-    else:
-      retriever = index
-
-    if rag_spec.qa_strategy_name == 'agentic_retrieval':
-      strategy = _agentic_retrieval_strategy(rag_spec.mcp_kwargs)
-    elif rag_spec.qa_strategy_name == 'closed_book':
-      strategy = strategies_lib.get_strategy(
-          rag_spec.qa_strategy_name,
-      )
-    else:
-      strategy = strategies_lib.get_strategy(
-          rag_spec.qa_strategy_name,
-          retriever=retriever,
-      )
-
-    return ot_evaluation.evaluate(
-        strategy=strategy,
-        examples=examples,
-        inputs_extractor=lambda x: (
-            [x['question']],
-            rag_spec.query_time_kwargs,
-        ),
-        **(evaluate_kwargs or {}),
-    )
 
 
 def save_html_report(
