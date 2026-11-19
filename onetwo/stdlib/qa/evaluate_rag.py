@@ -37,6 +37,15 @@ _INDEX = flags.DEFINE_string(
     'Directory containing the pre-built index.',
 )
 
+_MCP_URLS = flags.DEFINE_list(
+    'mcp_urls',
+    [],
+    (
+        'Comma-separated URLs of MCP servers whose tools the agentic_retrieval'
+        ' strategy can call.'
+    ),
+)
+
 _OUTPUT = flags.DEFINE_string(
     'output',
     '',
@@ -99,9 +108,9 @@ _QUERY_TIME_KWARGS = flags.DEFINE_string(
 _MCP_KWARGS = flags.DEFINE_string(
     'mcp_kwargs',
     '{}',
-    'JSON string containing strategy arguments passed at strategy'
-    ' construction, used by the agentic_retrieval strategy, e.g.'
-    ' \'{"mcp_server_urls": "http://host:8777/mcp"}\'.',
+    'JSON string containing extra constructor arguments for the'
+    ' agentic_retrieval strategy, e.g. \'{"max_steps": 30}\'. Pass MCP server'
+    ' URLs via --mcp_urls.',
 )
 
 _MAX_EXAMPLES = flags.DEFINE_integer(
@@ -154,7 +163,7 @@ def main(argv: Sequence[str]) -> None:
 
   evaluate_rag_lib.evaluate_rag(
       examples=_examples_from_flag(_EXAMPLES.value, _MAX_EXAMPLES.value),
-      index=_INDEX.value or '',
+      index=_INDEX.value or None,
       output=_OUTPUT.value or None,
       generate_model_backend_class_name=_GENERATE_MODEL_BACKEND_CLASS_NAME.value,
       generate_model_name=_GENERATE_MODEL_NAME.value,
@@ -166,6 +175,7 @@ def main(argv: Sequence[str]) -> None:
       qa_strategy_name=_QA_STRATEGY_NAME.value,
       query_time_kwargs=json.loads(_QUERY_TIME_KWARGS.value),
       mcp_kwargs=json.loads(_MCP_KWARGS.value),
+      mcp_urls=_MCP_URLS.value,
       extra_backend_kwargs=evaluate_rag_lib.get_default_extra_backend_kwargs(
           json.loads(_EXTRA_BACKEND_KWARGS.value),
           max_retries=_MAX_RETRIES.value,

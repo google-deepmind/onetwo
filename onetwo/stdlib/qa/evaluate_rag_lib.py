@@ -14,24 +14,31 @@
 
 """Library to evaluate a RAG strategy on a QA dataset."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import dataclasses
-import logging
 from typing import Any
 
+from absl import logging
 from etils import epath
 from onetwo.backends import backend_registry
 from onetwo.core import caching
+from onetwo.core import content as content_lib
 from onetwo.core import executing as ot_executing
 from onetwo.core import results
 from onetwo.evaluation import datasets
 from onetwo.evaluation import evaluation as ot_evaluation
 from onetwo.evaluation import rag_metrics
+# Imported so that 'agentic_retrieval' is registered in strategies_lib.
+from onetwo.stdlib.qa import agentic_retrieval
+from onetwo.stdlib.qa import qa
 from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
+
+_PromptContent = str | content_lib.ChunkList
+_StrategyResult = qa.StrategyResult
 
 
 def _examples_name(examples: str | datasets.DatasetLoader) -> str:
@@ -56,7 +63,7 @@ def _load_examples(
 def get_results_directory(
     *,
     output: str | epath.Path | None,
-    index: str | epath.Path | indexing.DocumentIndex,
+    index: str | epath.Path | indexing.DocumentIndex | None,
     dataset_name: str,
     qa_strategy_name: str,
     generate_model_name: str,
@@ -133,11 +140,89 @@ def get_default_extra_backend_kwargs(
   return rt_kwargs
 
 
+def _with_context(
+    strategy: qa.QAStrategy[_PromptContent, _StrategyResult],
+    index: str | indexing.DocumentIndex | None,
+    mcp_urls: Sequence[str],
+    extra_backend_kwargs: Mapping[str, Any],
+) -> qa.QAStrategy[_PromptContent, _StrategyResult]:
+  """Returns a copy of `strategy` that searches `index` or `mcp_urls`."""
+  name = type(strategy).__name__
+  if isinstance(
+      strategy,
+      (strategies_lib.RAGStrategy, strategies_lib.RetrievalOnlyStrategy),
+  ):
+    if mcp_urls:
+      raise ValueError(f'{name} does not use mcp_urls; pass an index.')
+    return _with_retriever(strategy, index, extra_backend_kwargs)
+  if isinstance(strategy, agentic_retrieval.AgenticRetrievalStrategy):
+    if index is not None:
+      raise ValueError(f'{name} does not use index; pass mcp_urls.')
+    return _with_mcp_servers(strategy, mcp_urls)
+  if index is not None or mcp_urls:
+    raise ValueError(f'{name} does not use index or mcp_urls.')
+  return strategy
+
+
+def _with_retriever(
+    strategy: strategies_lib.RAGStrategy | strategies_lib.RetrievalOnlyStrategy,
+    index: str | indexing.DocumentIndex | None,
+    extra_backend_kwargs: Mapping[str, Any],
+) -> qa.QAStrategy[_PromptContent, _StrategyResult]:
+  """Sets `index`, a saved-index directory or index object, as the retriever."""
+  name = type(strategy).__name__
+  # Fail fast before loading examples when no index is available.
+  if index is None and strategy.retriever is None:
+    raise ValueError(f'{name} needs an index.')
+  if index is None:
+    return strategy
+  # A passed index takes priority over a retriever already on the strategy.
+  if strategy.retriever is not None:
+    logging.warning(
+        '%s has a retriever; using the index passed instead.', name
+    )
+  if isinstance(index, str):
+    index = index_building.load_index(
+        index, extra_backend_kwargs=extra_backend_kwargs
+    )
+  # Return a copy so the caller's strategy object is never mutated.
+  # Indexes take str queries; evaluate_rag only asks str questions.
+  return dataclasses.replace(
+      strategy,
+      retriever=index,  # pyrefly: ignore[bad-argument-type]
+  )
+
+
+def _with_mcp_servers(
+    strategy: agentic_retrieval.AgenticRetrievalStrategy,
+    mcp_urls: Sequence[str],
+) -> agentic_retrieval.AgenticRetrievalStrategy:
+  """Adds an MCP tool server per URL in `mcp_urls` to `strategy`."""
+  name = type(strategy).__name__
+  # Fail fast when neither mcp_urls nor existing tools are provided.
+  if not mcp_urls and not strategy.tools:
+    raise ValueError(f'{name} needs mcp_urls.')
+  if not mcp_urls:
+    return strategy
+  # Imported here so that the MCP client libraries are only needed by callers
+  # that evaluate this strategy.
+  from onetwo.stdlib.tool_use import mcp_tools  # pylint: disable=g-import-not-at-top
+  # Append MCP tools on a copy, keeping existing tools and citation parser.
+  return dataclasses.replace(
+      strategy,
+      tools=[*strategy.tools, *(mcp_tools.server(url) for url in mcp_urls)],
+      doc_ids_from_answer=(
+          strategy.doc_ids_from_answer
+          or agentic_retrieval.extract_cited_doc_ids
+      ),
+  )
+
+
 def evaluate_rag(
     examples: str | datasets.DatasetLoader,
     output: str | None = None,
     extra_backend_kwargs: Mapping[str, Any] | None = None,
-    index: str | indexing.DocumentIndex = '',
+    index: str | indexing.DocumentIndex | None = None,
     generate_model_backend_class_name: str = (
         rag_defaults.DEFAULT_BACKEND_CLASS_NAME
     ),
@@ -147,6 +232,7 @@ def evaluate_rag(
     query_time_kwargs: Mapping[str, Any] | None = None,
     mcp_kwargs: Mapping[str, Any] | None = None,
     evaluate_kwargs: Mapping[str, Any] | None = None,
+    mcp_urls: Sequence[str] = (),
 ) -> results.EvaluationSummary:
   """Evaluates a RAG strategy on a QA dataset.
 
@@ -167,8 +253,10 @@ def evaluate_rag(
       from and saved to that path, passes it as `'cache'` to all backends, and
       does not forward `'cache_filename'` itself, so caching works with every
       backend accepting `'cache'`.
-    index: Directory of a saved index or a `DocumentIndex` object. Can only be
-      `''` when `qa_strategy_name` is `'agentic_retrieval'` or `'closed_book'`.
+    index: Saved-index directory or index object (set as `retriever`, overriding
+      any existing one with a warning). Used by retrieval strategies (e.g.
+      `'rag'`, `'retrieval_only'`); raises ValueError if passed to another
+      strategy or missing when needed (and no retriever is already set).
     generate_model_backend_class_name: Generation backend class name.
     generate_model_name: Generation model name. If None, the default QA model of
       `generate_model_backend_class_name` (see
@@ -181,27 +269,26 @@ def evaluate_rag(
     qa_strategy_name: QA strategy name.
     query_time_kwargs: Query-time arguments for the strategy. If None, defaults
       to `{'max_results': 20}`.
-    mcp_kwargs: Arguments of the `agentic_retrieval` strategy, e.g.
-      `mcp_server_urls`, a comma-separated list of MCP server URLs.
+    mcp_kwargs: Extra constructor arguments of the `agentic_retrieval` strategy
+      (e.g. `max_steps`, `final_instruction`, `query_template`). Pass MCP server
+      URLs through `mcp_urls` instead of `mcp_server_urls`.
     evaluate_kwargs: Keyword arguments forwarded to `ot.evaluate` (e.g.
       `metric_functions`, `chunk_size`). Defaults `'output_results'` to True and
       `'metric_functions'` to `rag_metrics.get_default_rag_metrics(...)` with
       the default AI rater when absent.
+    mcp_urls: URLs of MCP servers to add to the `tools` of
+      `'agentic_retrieval'`. Raises ValueError if passed to another strategy or
+      missing when needed (and no tools are already set). Passing both `index`
+      and `mcp_urls` always raises ValueError.
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
 
   Raises:
-    ValueError: If `index` is `''` and `qa_strategy_name` is neither
-      `'agentic_retrieval'` nor `'closed_book'`.
+    KeyError: If `qa_strategy_name` is an unregistered strategy name.
+    ValueError: If `index` or `mcp_urls` is passed to a strategy that does not
+      use it, or a needed `index` or `mcp_urls` is missing.
   """
-  if isinstance(index, str) and not index and qa_strategy_name not in (
-      'agentic_retrieval',
-      'closed_book',
-  ):
-    raise ValueError(
-        f'index must be provided for qa_strategy_name={qa_strategy_name!r}.'
-    )
   q_time_kwargs = (
       dict(query_time_kwargs)
       if query_time_kwargs is not None
@@ -231,6 +318,21 @@ def evaluate_rag(
         gen_backend_config, kwargs=dict(generate_backend_kwargs)
     )
 
+  if qa_strategy_name == 'agentic_retrieval':
+    strategy = strategies_lib.get_strategy(qa_strategy_name, **mcp_kwargs)
+  else:
+    strategy = strategies_lib.get_strategy(qa_strategy_name)
+
+  if isinstance(strategy, backend_registry.BackendMixin):
+    strategy = dataclasses.replace(
+        strategy,
+        backend_config=gen_backend_config,
+        runtime_kwargs=rt_kwargs,
+    )
+
+  # Attach index or MCP servers to (a copy of) the strategy.
+  strategy = _with_context(strategy, index, mcp_urls, rt_kwargs)
+
   results_directory = get_results_directory(
       output=output,
       index=index,
@@ -239,30 +341,6 @@ def evaluate_rag(
       generate_model_name=generate_model_name,
       max_results=q_time_kwargs.get('max_results', 20),
   )
-
-  if qa_strategy_name == 'agentic_retrieval':
-    strategy_obj = qa_evaluation.agentic_retrieval_strategy(mcp_kwargs)
-  elif qa_strategy_name == 'closed_book':
-    strategy_obj = strategies_lib.get_strategy(qa_strategy_name)
-  else:
-    if isinstance(index, str):
-      retriever = (
-          index_building.load_index(index, extra_backend_kwargs=rt_kwargs)
-          if index
-          else None
-      )
-    else:
-      retriever = index
-    strategy_obj = strategies_lib.get_strategy(
-        qa_strategy_name, retriever=retriever
-    )
-
-  if isinstance(strategy_obj, backend_registry.BackendMixin):
-    strategy_obj = dataclasses.replace(
-        strategy_obj,
-        backend_config=gen_backend_config,
-        runtime_kwargs=rt_kwargs,
-    )
 
   dict_examples = _load_examples(examples)
 
@@ -286,7 +364,7 @@ def evaluate_rag(
 
   print('Running evaluation...')
   summary = ot_evaluation.evaluate(
-      strategy=strategy_obj,
+      strategy=strategy,
       examples=dict_examples,
       **evaluate_kwargs,
   )

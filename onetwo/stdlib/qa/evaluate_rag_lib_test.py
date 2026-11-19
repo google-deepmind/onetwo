@@ -16,6 +16,7 @@ import asyncio
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
 from onetwo.core import caching
 from onetwo.core import executing as ot_executing
@@ -29,6 +30,7 @@ from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
 from onetwo.stdlib.retrieval import rag_defaults
+from onetwo.stdlib.tool_use import llm_tool_use
 
 
 class _CustomLoader(datasets.DatasetLoader):
@@ -39,7 +41,12 @@ class _CustomLoader(datasets.DatasetLoader):
     return [{'question': 'q1', 'answer': 'a1', 'metadata': {}}]
 
 
-class GetResultsDirectoryTest(absltest.TestCase):
+def _dummy_tool(query: str) -> str:
+  """Dummy tool for agentic retrieval tests."""
+  return query
+
+
+class GetResultsDirectoryTest(parameterized.TestCase):
 
   def test_in_index_directory_by_default(self):
     self.assertEqual(
@@ -71,7 +78,7 @@ class GetResultsDirectoryTest(absltest.TestCase):
     )
 
   def test_without_directories_returns_none_and_warns(self):
-    for index in ('', indexing.EmptyIndex()):
+    for index in (None, '', indexing.EmptyIndex()):
       with self.subTest(index=index):
         with self.assertLogs(level='WARNING'):
           self.assertIsNone(
@@ -391,40 +398,246 @@ class GetResultsDirectoryTest(absltest.TestCase):
     mock_save_html.assert_not_called()
 
   @mock.patch.object(ot_evaluation, 'evaluate')
-  @mock.patch.object(
-      evaluate_rag_lib, '_load_examples', return_value=[{'question': 'q'}]
-  )
-  def test_evaluate_rag_empty_index_validation(
-      self, mock_load_examples, mock_eval
-  ):
+  def test_evaluate_rag_agentic_mcp_urls_and_other_mcp_kwargs(self, mock_eval):
     mock_eval.return_value = results.EvaluationSummary()
-    out_dir = self.create_tempdir().full_path
+    out_dir = epath.Path(self.create_tempdir().full_path)
+    urls = ['http://localhost:8775/mcp', 'https://example.com:8775/mcp']
+    evaluate_rag_lib.evaluate_rag(
+        examples=_CustomLoader(),
+        output=str(out_dir),
+        qa_strategy_name='agentic_retrieval',
+        generate_model_name='m',
+        mcp_kwargs={'max_steps': 30, 'final_instruction': 'Answer now.'},
+        evaluate_kwargs={'metric_functions': {}},
+        mcp_urls=urls,
+    )
+    strategy = mock_eval.call_args.kwargs['strategy']
+    self.assertIsInstance(
+        strategy, agentic_retrieval.AgenticRetrievalStrategy
+    )
+    self.assertEqual(
+        [type(t) for t in strategy.tools],
+        [llm_tool_use.ToolSource, llm_tool_use.ToolSource],
+    )
+    self.assertIs(
+        strategy.doc_ids_from_answer, agentic_retrieval.extract_cited_doc_ids
+    )
+    self.assertEqual(strategy.max_steps, 30)
+    self.assertEqual(strategy.final_instruction, 'Answer now.')
+    self.assertTrue(
+        (
+            out_dir
+            / '_CustomLoader/agentic_retrieval/m__max_results_20/results.html'
+        ).exists()
+    )
 
-    for strategy in ('rag', 'retrieval_only'):
-      with self.subTest(strategy=strategy):
-        with self.assertRaisesRegex(ValueError, 'index must be provided'):
-          evaluate_rag_lib.evaluate_rag(
-              examples=_CustomLoader(),
-              output=out_dir,
-              qa_strategy_name=strategy,
-          )
-    mock_load_examples.assert_not_called()
+    with self.assertRaisesRegex(TypeError, 'mcp_server_urls'):
+      evaluate_rag_lib.evaluate_rag(
+          examples=_CustomLoader(),
+          qa_strategy_name='agentic_retrieval',
+          mcp_kwargs={'mcp_server_urls': urls[0]},
+          evaluate_kwargs={'metric_functions': {}},
+          mcp_urls=[urls[0]],
+      )
 
-    for strategy, expected_cls in (
-        ('agentic_retrieval', agentic_retrieval.AgenticRetrievalStrategy),
-        ('closed_book', strategies_lib.ClosedBookStrategy),
+  def test_with_context_sets_retriever_without_mutating_caller(self):
+    loaded_index = indexing.EmptyIndex()
+    caller = strategies_lib.RAGStrategy()
+    with mock.patch.object(
+        index_building, 'load_index', return_value=loaded_index
+    ) as mock_load:
+      updated = evaluate_rag_lib._with_context(
+          caller, '/saved/index', (), {'api_key': 'k'}
+      )
+    self.assertIsInstance(updated, strategies_lib.RAGStrategy)
+    mock_load.assert_called_once_with(
+        '/saved/index', extra_backend_kwargs={'api_key': 'k'}
+    )
+    self.assertIs(updated.retriever, loaded_index)
+    self.assertIsNone(caller.retriever)
+
+  def test_with_context_replaces_existing_retriever_with_warning(self):
+    existing_index = indexing.EmptyIndex()
+    new_index = indexing.EmptyIndex()
+    caller = strategies_lib.RAGStrategy(
+        retriever=existing_index,  # pyrefly: ignore[bad-argument-type]
+    )
+    with self.assertLogs(level='WARNING') as cm:
+      replaced = evaluate_rag_lib._with_context(caller, new_index, (), {})
+    self.assertIsInstance(replaced, strategies_lib.RAGStrategy)
+    self.assertIs(replaced.retriever, new_index)
+    self.assertIs(caller.retriever, existing_index)
+    self.assertTrue(
+        any('RAGStrategy has a retriever' in msg for msg in cm.output)
+    )
+
+  def test_with_context_missing_raises_or_keeps_own(self):
+    own_index = indexing.EmptyIndex()
+    rag_with_own = strategies_lib.RAGStrategy(
+        retriever=own_index,  # pyrefly: ignore[bad-argument-type]
+    )
+    self.assertIs(
+        evaluate_rag_lib._with_context(rag_with_own, None, (), {}), rag_with_own
+    )
+
+    agentic_with_own = agentic_retrieval.AgenticRetrievalStrategy(
+        tools=[_dummy_tool]
+    )
+    self.assertIs(
+        evaluate_rag_lib._with_context(agentic_with_own, None, (), {}),
+        agentic_with_own,
+    )
+
+    closed_book = strategies_lib.ClosedBookStrategy()
+    self.assertIs(
+        evaluate_rag_lib._with_context(closed_book, None, (), {}), closed_book
+    )
+
+    with mock.patch.object(
+        evaluate_rag_lib, '_load_examples'
+    ) as mock_load_examples:
+      for bad_strategy, expected_msg in (
+          ('rag', 'RAGStrategy needs an index'),
+          ('retrieval_only', 'RetrievalOnlyStrategy needs an index'),
+          ('agentic_retrieval', 'AgenticRetrievalStrategy needs mcp_urls'),
+      ):
+        with self.subTest(strategy=bad_strategy):
+          with self.assertRaisesRegex(ValueError, expected_msg):
+            evaluate_rag_lib.evaluate_rag(
+                examples=_CustomLoader(),
+                index=None,
+                qa_strategy_name=bad_strategy,
+                evaluate_kwargs={'metric_functions': {}},
+            )
+      mock_load_examples.assert_not_called()
+
+    out_dir = epath.Path(self.create_tempdir().full_path)
+    with mock.patch.object(
+        ot_evaluation, 'evaluate', return_value=results.EvaluationSummary()
     ):
-      with self.subTest(strategy=strategy):
-        evaluate_rag_lib.evaluate_rag(
-            examples=_CustomLoader(),
-            output=out_dir,
-            qa_strategy_name=strategy,
-            evaluate_kwargs={'metric_functions': {}},
-        )
-        self.assertIsInstance(
-            mock_eval.call_args.kwargs['strategy'], expected_cls
-        )
-    self.assertEqual(mock_eval.call_count, 2)
+      evaluate_rag_lib.evaluate_rag(
+          examples=_CustomLoader(),
+          output=str(out_dir),
+          index=None,
+          qa_strategy_name='closed_book',
+          generate_model_name='m',
+          evaluate_kwargs={'metric_functions': {}},
+      )
+    self.assertTrue(
+        (
+            out_dir / '_CustomLoader/closed_book/m__max_results_20/results.html'
+        ).exists()
+    )
+
+  def test_with_context_mcp_urls_appends_tools_and_sets_default_doc_ids(self):
+    urls = ['http://localhost:8775/mcp', 'https://example.com:8775/mcp']
+    caller = agentic_retrieval.AgenticRetrievalStrategy(tools=[_dummy_tool])
+    updated = evaluate_rag_lib._with_context(caller, None, urls, {})
+    self.assertIsInstance(
+        updated, agentic_retrieval.AgenticRetrievalStrategy
+    )
+    self.assertLen(updated.tools, 3)
+    self.assertIs(updated.tools[0], _dummy_tool)
+    self.assertIsInstance(updated.tools[1], llm_tool_use.ToolSource)
+    self.assertIsInstance(updated.tools[2], llm_tool_use.ToolSource)
+    self.assertIs(
+        updated.doc_ids_from_answer, agentic_retrieval.extract_cited_doc_ids
+    )
+    self.assertEqual(list(caller.tools), [_dummy_tool])
+    self.assertIsNone(caller.doc_ids_from_answer)
+
+    custom_parser = lambda answer: ['custom']
+    caller_custom_parser = agentic_retrieval.AgenticRetrievalStrategy(
+        doc_ids_from_answer=custom_parser
+    )
+    updated_custom = evaluate_rag_lib._with_context(
+        caller_custom_parser, None, [urls[0]], {}
+    )
+    self.assertIsInstance(
+        updated_custom, agentic_retrieval.AgenticRetrievalStrategy
+    )
+    self.assertIs(updated_custom.doc_ids_from_answer, custom_parser)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='rag_with_mcp_urls',
+          strategy_factory=strategies_lib.RAGStrategy,
+          index=None,
+          mcp_urls=['http://localhost:8775/mcp'],
+          expected='RAGStrategy does not use mcp_urls; pass an index.',
+      ),
+      dict(
+          testcase_name='rag_with_both',
+          strategy_factory=strategies_lib.RAGStrategy,
+          index='/saved/index',
+          mcp_urls=['http://localhost:8775/mcp'],
+          expected='RAGStrategy does not use mcp_urls; pass an index.',
+      ),
+      dict(
+          testcase_name='retrieval_only_with_both',
+          strategy_factory=strategies_lib.RetrievalOnlyStrategy,
+          index=indexing.EmptyIndex(),
+          mcp_urls=['http://localhost:8775/mcp'],
+          expected=(
+              'RetrievalOnlyStrategy does not use mcp_urls; pass an index.'
+          ),
+      ),
+      dict(
+          testcase_name='agentic_with_index_path',
+          strategy_factory=agentic_retrieval.AgenticRetrievalStrategy,
+          index='/saved/index',
+          mcp_urls=(),
+          expected=(
+              'AgenticRetrievalStrategy does not use index; pass mcp_urls.'
+          ),
+      ),
+      dict(
+          testcase_name='agentic_with_index_object',
+          strategy_factory=agentic_retrieval.AgenticRetrievalStrategy,
+          index=indexing.EmptyIndex(),
+          mcp_urls=(),
+          expected=(
+              'AgenticRetrievalStrategy does not use index; pass mcp_urls.'
+          ),
+      ),
+      dict(
+          testcase_name='agentic_with_both',
+          strategy_factory=agentic_retrieval.AgenticRetrievalStrategy,
+          index='/saved/index',
+          mcp_urls=['http://localhost:8775/mcp'],
+          expected=(
+              'AgenticRetrievalStrategy does not use index; pass mcp_urls.'
+          ),
+      ),
+      dict(
+          testcase_name='closed_book_with_index',
+          strategy_factory=strategies_lib.ClosedBookStrategy,
+          index='/saved/index',
+          mcp_urls=(),
+          expected='ClosedBookStrategy does not use index or mcp_urls.',
+      ),
+      dict(
+          testcase_name='closed_book_with_mcp_urls',
+          strategy_factory=strategies_lib.ClosedBookStrategy,
+          index=None,
+          mcp_urls=['http://localhost:8775/mcp'],
+          expected='ClosedBookStrategy does not use index or mcp_urls.',
+      ),
+      dict(
+          testcase_name='closed_book_with_both',
+          strategy_factory=strategies_lib.ClosedBookStrategy,
+          index='/saved/index',
+          mcp_urls=['http://localhost:8775/mcp'],
+          expected='ClosedBookStrategy does not use index or mcp_urls.',
+      ),
+  )
+  def test_with_context_disallowed_arguments_raise_value_error(
+      self, strategy_factory, index, mcp_urls, expected
+  ):
+    with mock.patch.object(index_building, 'load_index') as mock_load:
+      with self.assertRaisesRegex(ValueError, expected):
+        evaluate_rag_lib._with_context(strategy_factory(), index, mcp_urls, {})
+    mock_load.assert_not_called()
 
 
 if __name__ == '__main__':

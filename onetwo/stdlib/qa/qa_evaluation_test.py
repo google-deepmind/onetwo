@@ -12,67 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for how `qa_evaluation` builds the strategy it evaluates."""
-
-from typing import Any
-
 from absl.testing import absltest
-from absl.testing import parameterized
 from onetwo.core import results
-from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import qa_evaluation
-from onetwo.stdlib.tool_use import llm_tool_use
 
 
-def _build(
-    mcp_kwargs: dict[str, Any],
-) -> agentic_retrieval.AgenticRetrievalStrategy:
-  """Returns the strategy built from `mcp_kwargs`."""
-  strategy = qa_evaluation.agentic_retrieval_strategy(mcp_kwargs)
-  assert isinstance(strategy, agentic_retrieval.AgenticRetrievalStrategy)
-  return strategy
-
-
-class AgenticRetrievalStrategyTest(parameterized.TestCase):
-  """Tests for building the `agentic_retrieval` strategy from `mcp_kwargs`."""
-
-  @parameterized.named_parameters(
-      dict(
-          testcase_name='comma_separated_string',
-          mcp_kwargs={'mcp_server_urls': 'http://a/mcp, http://b/mcp,'},
-          expected_num_tools=2,
-      ),
-      dict(
-          testcase_name='no_urls',
-          mcp_kwargs={},
-          expected_num_tools=0,
-      ),
-      dict(
-          testcase_name='null_urls',
-          mcp_kwargs={'mcp_server_urls': None},
-          expected_num_tools=0,
-      ),
-  )
-  def test_builds_one_tool_per_url(
-      self, mcp_kwargs: dict[str, Any], expected_num_tools: int
-  ):
-    strategy = _build(mcp_kwargs)
-
-    self.assertLen(strategy.tools, expected_num_tools)
-
-  def test_defaults(self):
-    strategy = _build({'mcp_server_urls': 'http://a/mcp', 'max_steps': 7})
-
-    with self.subTest('urls_become_tool_sources'):
-      self.assertEqual(
-          [type(tool) for tool in strategy.tools], [llm_tool_use.ToolSource]
-      )
-    with self.subTest('reports_cited_documents'):
-      self.assertIs(
-          strategy.doc_ids_from_answer, agentic_retrieval.extract_cited_doc_ids
-      )
-    with self.subTest('forwards_other_kwargs'):
-      self.assertEqual(strategy.max_steps, 7)
+class SaveHtmlReportTest(absltest.TestCase):
 
   def test_save_html_report_writes_html_file(self):
     out_dir = self.create_tempdir().full_path
