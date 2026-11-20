@@ -197,13 +197,18 @@ def _thinking(level: str) -> dict[str, Any]:
 # Request settings of the GoogleGenAIAPI default configs: the maximum number of
 # retries, the HTTP timeout in milliseconds and the number of threads. Embedding
 # requests are short, generation requests (with thinking) can be long.
+# 10 retries back off for ~3 minutes in total (up to 32 s each), so that
+# requests wait out the per-minute token quotas of the API instead of failing.
+# The numbers of threads suit the default index (chunks of 512 tokens); with
+# long inputs (e.g. whole documents), fewer threads stay within the quotas, e.g.
+# `extra_backend_kwargs={'threadpool_size': 4}`.
 _EMBED_REQUEST_KWARGS: dict[str, Any] = {
-    'max_retries': 5,
+    'max_retries': 10,
     'http_options': {'timeout': 60_000},
     'threadpool_size': 20,
 }
 _GENERATE_REQUEST_KWARGS: dict[str, Any] = {
-    'max_retries': 5,
+    'max_retries': 10,
     'http_options': {'timeout': 300_000},
     'threadpool_size': 10,
 }

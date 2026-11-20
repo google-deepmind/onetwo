@@ -26,7 +26,7 @@ class RagDefaultsTest(absltest.TestCase):
   def test_google_genai_api_defaults_are_registered(self):
     medium_thinking = {'thinking_config': {'thinking_level': 'MEDIUM'}}
     generate_request_kwargs = {
-        'max_retries': 5,
+        'max_retries': 10,
         'http_options': {'timeout': 300_000},
         'threadpool_size': 10,
     }
@@ -36,7 +36,7 @@ class RagDefaultsTest(absltest.TestCase):
             backend_class_name='GoogleGenAIAPI',
             model_name='gemini-embedding-2',
             kwargs={
-                'max_retries': 5,
+                'max_retries': 10,
                 'http_options': {'timeout': 60_000},
                 'threadpool_size': 20,
             },
@@ -153,7 +153,7 @@ class QaGenerateBackendConfigTest(absltest.TestCase):
     self.assertEqual(
         config.kwargs,
         {
-            'max_retries': 5,
+            'max_retries': 10,
             'http_options': {'timeout': 300_000},
             'threadpool_size': 10,
         },
