@@ -336,68 +336,6 @@ class BuildIndexLibTest(absltest.TestCase):
 
     self.assertEqual(index.num_docs, 2)
 
-  def test_with_request_defaults(self):
-    default_timeout = rag_defaults.DEFAULT_HTTP_TIMEOUT_MS
-    for name, runtime_kwargs, expected in (
-        (
-            'none',
-            None,
-            {
-                'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
-                'http_options': {'timeout': default_timeout},
-            },
-        ),
-        (
-            'set_values_are_kept',
-            {'max_retries': 0, 'http_options': {'timeout': 10}},
-            {'max_retries': 0, 'http_options': {'timeout': 10}},
-        ),
-        (
-            'timeout_is_merged_into_http_options',
-            {'max_retries': 1, 'http_options': {'base_url': 'url'}},
-            {
-                'max_retries': 1,
-                'http_options': {'base_url': 'url', 'timeout': default_timeout},
-            },
-        ),
-        (
-            'non_dict_http_options_is_kept',
-            {'max_retries': 1, 'http_options': None},
-            {'max_retries': 1, 'http_options': None},
-        ),
-    ):
-      with self.subTest(name):
-        self.assertEqual(
-            build_index_lib.get_default_extra_backend_kwargs(runtime_kwargs),
-            expected,
-        )
-
-  def test_with_request_defaults_custom_defaults(self):
-    self.assertEqual(
-        build_index_lib.get_default_extra_backend_kwargs(
-            {'http_options': {}}, max_retries=3, http_timeout_ms=100
-        ),
-        {'max_retries': 3, 'http_options': {'timeout': 100}},
-    )
-    # Values set in `runtime_kwargs` take precedence over custom defaults.
-    self.assertEqual(
-        build_index_lib.get_default_extra_backend_kwargs(
-            {'max_retries': 1, 'http_options': {'timeout': 10}},
-            max_retries=3,
-            http_timeout_ms=100,
-        ),
-        {'max_retries': 1, 'http_options': {'timeout': 10}},
-    )
-
-  def test_with_request_defaults_does_not_modify_input(self):
-    http_options = {'base_url': 'url'}
-    runtime_kwargs = {'http_options': http_options}
-
-    build_index_lib.get_default_extra_backend_kwargs(runtime_kwargs)
-
-    self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
-    self.assertEqual(http_options, {'base_url': 'url'})
-
   def _patch_preset_backends(self) -> None:
     """Makes the ready-made indexes use fake embedding and extraction."""
     self.enter_context(
@@ -464,11 +402,7 @@ class BuildIndexLibTest(absltest.TestCase):
 
     self.assertEqual(
         from_config.call_args.args[1],
-        {
-            'api_key': 'key',
-            'max_retries': rag_defaults.DEFAULT_MAX_RETRIES,
-            'http_options': {'timeout': rag_defaults.DEFAULT_HTTP_TIMEOUT_MS},
-        },
+        {'api_key': 'key'},
     )
 
   def test_preset_storage_format_reaches_save(self):

@@ -111,8 +111,7 @@ class EvaluateRagLibTest(parameterized.TestCase):
     )
     self.assertFalse(cache_file.exists())
     self.assertEqual(
-        mock_load_index.call_args.kwargs['extra_backend_kwargs'],
-        {'max_retries': 5, 'http_options': {'timeout': 300000}},
+        mock_load_index.call_args.kwargs['extra_backend_kwargs'], {}
     )
 
     def _populate_cache(**kwargs):
@@ -162,34 +161,6 @@ class EvaluateRagLibTest(parameterized.TestCase):
     self.assertIsNot(second_cache, first_rt_kwargs['cache'])
     self.assertEqual(second_cache.get_key_count(), 1)
     self.assertNotIn('cache_filename', second_rt_kwargs)
-
-  def test_get_default_extra_backend_kwargs(self):
-    self.assertEqual(
-        evaluate_rag_lib.get_default_extra_backend_kwargs(None),
-        {'max_retries': 5, 'http_options': {'timeout': 300000}},
-    )
-    self.assertEqual(
-        evaluate_rag_lib.get_default_extra_backend_kwargs(
-            {'max_retries': 1, 'http_options': {'timeout': 10}},
-            max_retries=3,
-            http_timeout_ms=100,
-        ),
-        {'max_retries': 1, 'http_options': {'timeout': 10}},
-    )
-    self.assertEqual(
-        evaluate_rag_lib.get_default_extra_backend_kwargs(
-            {'max_retries': 1, 'http_options': None}
-        ),
-        {'max_retries': 1},
-    )
-    runtime_kwargs = {'http_options': {'base_url': 'url'}}
-    self.assertEqual(
-        evaluate_rag_lib.get_default_extra_backend_kwargs(
-            runtime_kwargs, max_retries=3, http_timeout_ms=100
-        ),
-        {'max_retries': 3, 'http_options': {'base_url': 'url', 'timeout': 100}},
-    )
-    self.assertEqual(runtime_kwargs, {'http_options': {'base_url': 'url'}})
 
   @mock.patch.object(ot_evaluation, 'evaluate')
   def test_evaluate_rag_default_metrics(self, mock_eval):

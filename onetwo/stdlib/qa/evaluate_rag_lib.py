@@ -46,11 +46,6 @@ _PromptContent = str | content_lib.ChunkList
 _StrategyResult = qa.StrategyResult
 _Strategy = qa.QAStrategy[_PromptContent, _StrategyResult]
 
-# Default backend request settings of `evaluate_rag`. The timeout is longer than
-# for index building, since QA strategies may generate long answers.
-_DEFAULT_MAX_RETRIES = 5
-_DEFAULT_HTTP_TIMEOUT_MS = 300_000
-
 # Number of documents retrieved by the ready-made retrieval strategies.
 _DEFAULT_MAX_RESULTS = 20
 
@@ -111,10 +106,11 @@ def evaluate_rag(
       default AI rater.
     extra_backend_kwargs: Extra constructor kwargs for the created backends
       (index, QA, AI rater), e.g. API keys (usually read from `GOOGLE_API_KEY`).
-      Not a stable API. Defaults to 5 retries and a 300000 ms timeout (see
-      `get_default_extra_backend_kwargs`). The special key `'cache_filename'`,
-      if set, loads and saves one shared `caching.SimpleFunctionCache`, passed
-      to the backends as `'cache'` (`'cache_filename'` itself is not forwarded).
+      Not a stable API. They override the same keys of the kwargs of the backend
+      configs (e.g. the request settings of the default configs, see
+      `rag_defaults`). The special key `'cache_filename'`, if set, loads and
+      saves one shared `caching.SimpleFunctionCache`, passed to the backends as
+      `'cache'` (`'cache_filename'` itself is not forwarded).
 
   Returns:
     EvaluationSummary object containing metrics and detailed results.
@@ -124,7 +120,7 @@ def evaluate_rag(
       is passed to a strategy that does not use it, or a needed `index` or
       `mcp_urls` is missing.
   """
-  backend_kwargs = get_default_extra_backend_kwargs(extra_backend_kwargs)
+  backend_kwargs = dict(extra_backend_kwargs) if extra_backend_kwargs else {}
   cache = _load_cache(backend_kwargs)
   strategy, preset_name = _resolve_strategy(strategy, backend_kwargs)
   strategy = _with_context(strategy, index, mcp_urls, backend_kwargs)
@@ -157,41 +153,6 @@ def evaluate_rag(
         metric_functions=evaluate_kwargs['metric_functions'],
     )
   return summary
-
-
-def get_default_extra_backend_kwargs(
-    extra_backend_kwargs: Mapping[str, Any] | None,
-    *,
-    max_retries: int = _DEFAULT_MAX_RETRIES,
-    http_timeout_ms: int = _DEFAULT_HTTP_TIMEOUT_MS,
-) -> dict[str, Any]:
-  """Returns `extra_backend_kwargs` with default backend request settings.
-
-  Settings already in `extra_backend_kwargs` are kept. The input is not
-  modified.
-
-  Args:
-    extra_backend_kwargs: Extra keyword arguments for the backends.
-    max_retries: Maximum number of retries of backend requests, set as
-      `'max_retries'` if absent.
-    http_timeout_ms: HTTP timeout of backend requests in milliseconds, set as
-      `'http_options': {'timeout': http_timeout_ms}` if `'http_options'` is
-      absent, or as its `'timeout'` if `'http_options'` is a dict without one.
-      If `'http_options'` is explicitly `None`, `'http_options'` is omitted.
-
-  Returns:
-    A new dict of extra backend kwargs with the defaults applied.
-  """
-  kwargs = dict(extra_backend_kwargs) if extra_backend_kwargs else {}
-  kwargs.setdefault('max_retries', max_retries)
-  http_options = kwargs.get('http_options')
-  if 'http_options' not in kwargs:
-    kwargs['http_options'] = {'timeout': http_timeout_ms}
-  elif http_options is None:
-    del kwargs['http_options']
-  elif isinstance(http_options, dict) and 'timeout' not in http_options:
-    kwargs['http_options'] = {**http_options, 'timeout': http_timeout_ms}
-  return kwargs
 
 
 def _load_cache(

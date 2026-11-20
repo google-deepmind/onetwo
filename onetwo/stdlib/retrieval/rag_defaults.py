@@ -269,11 +269,3 @@ def default_ai_rater_backend_config() -> backend_registry.GenerateBackendConfig:
       model_name=DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
       kwargs=copy.deepcopy(_GENERATE_REQUEST_KWARGS),
   )
-
-
-# Backend request settings applied by `rag.build_index` (and its command-line
-# tool) unless set in its `extra_backend_kwargs`: the maximum number of retries
-# (`extra_backend_kwargs['max_retries']`) and the HTTP timeout in milliseconds
-# (`extra_backend_kwargs['http_options']['timeout']`).
-DEFAULT_MAX_RETRIES = 5
-DEFAULT_HTTP_TIMEOUT_MS = 60_000
