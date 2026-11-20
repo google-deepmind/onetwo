@@ -29,7 +29,7 @@ from onetwo.evaluation import datasets
 from onetwo.evaluation import evaluation as ot_evaluation
 from onetwo.stdlib.qa import agentic_retrieval
 from onetwo.stdlib.qa import evaluate_rag_lib
-from onetwo.stdlib.qa import qa_evaluation
+from onetwo.stdlib.qa import evaluate_rag_utils
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
@@ -396,7 +396,7 @@ class EvaluateRagLibTest(parameterized.TestCase):
   @mock.patch.object(
       index_building, 'load_index', return_value=indexing.EmptyIndex()
   )
-  @mock.patch.object(qa_evaluation, 'save_html_report')
+  @mock.patch.object(evaluate_rag_utils, 'save_html_report')
   @mock.patch.object(ot_evaluation, 'evaluate')
   def test_evaluate_rag_output_none_writes_nothing(
       self, mock_eval, mock_save_html, mock_load_index

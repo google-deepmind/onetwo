@@ -35,8 +35,8 @@ from onetwo.evaluation import datasets
 from onetwo.evaluation import evaluation as ot_evaluation
 from onetwo.evaluation import rag_metrics
 from onetwo.stdlib.qa import agentic_retrieval
+from onetwo.stdlib.qa import evaluate_rag_utils
 from onetwo.stdlib.qa import qa
-from onetwo.stdlib.qa import qa_evaluation
 from onetwo.stdlib.qa import strategies_lib
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing
@@ -146,7 +146,7 @@ def evaluate_rag(
   if output is not None:
     # TODO: Pass fewer arguments to save_run_outputs, e.g. one
     # run-settings object.
-    qa_evaluation.save_run_outputs(
+    evaluate_rag_utils.save_run_outputs(
         summary,
         output=output,
         examples_name=_examples_name(examples),

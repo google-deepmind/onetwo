@@ -26,7 +26,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""QA evaluation library."""
+"""Utilities for saving RAG evaluation run outputs."""
 
 from collections.abc import Mapping, Sequence
 import dataclasses

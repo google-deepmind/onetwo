@@ -17,14 +17,14 @@ from unittest import mock
 from absl.testing import absltest
 from etils import epath
 from onetwo.core import results
-from onetwo.stdlib.qa import qa_evaluation
+from onetwo.stdlib.qa import evaluate_rag_utils
 
 
 class SaveHtmlReportTest(absltest.TestCase):
 
   def test_save_html_report_writes_html_file(self):
     out_dir = self.create_tempdir().full_path
-    path = qa_evaluation.save_html_report(
+    path = evaluate_rag_utils.save_html_report(
         summary=results.EvaluationSummary(metrics={'accuracy': 1.0}),
         output_dir_path=out_dir,
     )
@@ -33,7 +33,7 @@ class SaveHtmlReportTest(absltest.TestCase):
 
   def test_create_run_directory_retries_on_file_exists_race(self):
     dataset_dir = epath.Path(self.create_tempdir().full_path) / 'ds'
-    first = qa_evaluation._create_run_directory(dataset_dir, 'p__hash_1')
+    first = evaluate_rag_utils._create_run_directory(dataset_dir, 'p__hash_1')
     self.assertEqual(first.name, 'p__hash_1_run1')
 
     real_mkdir = type(first).mkdir
@@ -51,7 +51,9 @@ class SaveHtmlReportTest(absltest.TestCase):
       return real_mkdir(path_self, *args, **kwargs)
 
     with mock.patch.object(type(first), 'mkdir', _racy_mkdir):
-      created = qa_evaluation._create_run_directory(dataset_dir, 'p__hash_1')
+      created = evaluate_rag_utils._create_run_directory(
+          dataset_dir, 'p__hash_1'
+      )
     self.assertEqual(created.name, 'p__hash_1_run3')
 
 
