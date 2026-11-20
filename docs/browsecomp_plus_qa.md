@@ -92,8 +92,9 @@ and 2,695,813 relationships between them from the ~100k documents.
 After building the indexes, we can run the QA evals. OneTwo's `evaluate_rag`
 allows evaluating any QA strategy, ranging from closed-book QA to RAG to
 MCP-based QA. `evaluate_rag` runs on BrowseComp-Plus by default. Results are
-saved under `<output>/browsecomp_plus/<strategy>/<model>__max_results_<N>/` in
-an html file. This file contains each question, answer, metric and LLM trace
+saved under
+`<output>/browsecomp_plus/<strategy>_<model>_<settings>__hash_<h>_run<i>/`
+in an html file. This file contains each question, answer, metric and LLM trace
 computed during the evaluation. Add `--max_examples=5` for a quick smoke test.
 
 ### Closed book
