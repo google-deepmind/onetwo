@@ -5,16 +5,19 @@
 </div>
 
 <div style=" font-size: 25px; line-height: normal; text-align: justify; max-width: 600px; margin: auto;">
-<span style="color: #fbb95d; font-weight: bold;">One</span><span style="color: #fb8987; font-weight: bold;">Two</span> is a python library for developing and deploying LLM
-agents in production. In just a few lines of code, you can
-<span style="color: #4885ed; font-weight: bold;">define custom agents</span> and combine them with an extensive library of
+<span style="color: #fbb95d; font-weight: bold;">One</span><span style="color: #fb8987; font-weight: bold;">Two</span> is a Python library for developing and deploying LLM
+agents and RAG workflows in production. In just a few lines of code, you can
+<span style="color: #3cba54; font-weight: bold;">build RAG pipelines</span> and <span style="color: #4885ed; font-weight: bold;">define custom agents</span> using our extensive library of
 <span style=" color: #db3236; font-weight: bold;">pre-built
 components</span>. </div>
 
 ## 🔥 Features
 
+*   **Build end-to-end RAG pipelines (Retrieval-Augmented Generation)**: Build
+    an index over your documents and evaluate RAG quality in just two function
+    calls.
 *   **Swap models easily (Model-agnostic)**: Write code once using a uniform API
-    and run it on any internal or external model without changing your logic.
+    and run it on any model without changing your logic.
 *   **Write prompts your way (Convenient syntax)**: Build prompts flexibly using
     formatted strings, Jinja templates, or modular function calls.
 *   **Run reproducible experiments**: Automatically cache results to replay
@@ -27,9 +30,9 @@ components</span>. </div>
     workflow while OneTwo automatically handles asynchronous execution, request
     batching, and smart caching.
 
-## Quick start
+## Installation
 
-### Installation
+OneTwo requires Python 3.13 or later.
 
 You may want to install the package in a virtual environment, in which case you
 will need to start a virtual environment with the following command:
@@ -53,31 +56,26 @@ Install the package:
 pip install git+https://github.com/google-deepmind/onetwo
 ```
 
-### 📝 Usage example
+## 📝 Usage example
 
 ```python
 from onetwo import ot
 from onetwo.builtins import llm
 from onetwo.backends import google_genai_api
 
-# Please provide the Gemini API key.
-google_api_key = ""
+# Before running: export GOOGLE_API_KEY="YOUR_API_KEY"
 
 # Select a model + the backend (e.g., Gemini API).
 google_genai_api.GoogleGenAIAPI(
     vertexai=False,
-    api_key=google_api_key,
-    generate_model_name=f'models/gemini-2.5-flash',
-    chat_model_name=f'models/gemini-2.5-flash',
+    model_name='gemini-4-hydrogen',
 ).register()
 
 # Define a prompting strategy with two LLM calls.
 @ot.make_executable
 async def invention_year(technology: str) -> int:
   """Get the year a technology was invented."""
-  # First, get the inventor.
   inventor = await llm.instruct(f"Who is the primary inventor of {technology}? Answer with just the name.")
-  # Then, get the year of invention.
   year = await llm.generate_object(f"In what year did {inventor} invent {technology}?", cls=int)
   return year
 
@@ -90,24 +88,12 @@ print(f"The World Wide Web was invented in: {year}")
 Play with this snippet in the
 [getting started tutorial](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/getting_started.ipynb).
 
-### 🧠 OneTwo Agents
+## 🔍 Retrieval-Augmented Generation (RAG)
 
-OneTwo makes it really easy to build stateful, autonomous agents that can
-reason, use tools, and solve complex problems. Compose agents naturally using
-Python control flow while OneTwo takes care of batching, streaming, and
-execution details behind the scenes.
-
-![OneTwo Agent](./assets/onetwo_agent.gif)
-
-Want to create and play with this agent? Check out our
-[in-depth tutorial](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/tutorial.ipynb).
-
-### 🔍 Retrieval Augmented Generation
-
-OneTwo provides a streamlined Python framework to integrate
-**Retrieval-Augmented Generation (RAG)** capabilities into production
-workflows. Specifically, you can build knowledge graphs from arbitrary corpora
-and evaluate question-answering pipelines in just two function calls:
+OneTwo provides a streamlined framework to integrate **Retrieval-Augmented
+Generation (RAG)** capabilities into production workflows. Specifically, you can
+build knowledge graphs from arbitrary corpora and evaluate question-answering
+pipelines in just two function calls:
 
 **1. Index building (`rag.build_index`):** turns your custom corpus into a
 searchable index
@@ -121,61 +107,90 @@ from onetwo.evaluation import datasets
 # 1. Build an index over your corpus
 index = rag.build_index(
     corpus=datasets.get_dataset_loader('browsecomp_plus'),
+    index='embedding',
     output='/tmp/onetwo_rag_index'
 )
 ```
 
+**Going further:** with `index='graphrag'`, `rag.build_index` builds a
+GraphRAG index instead. It extracts the entities and relations of each document
+and merges them into a single knowledge graph as shown below:
+
 ![GraphRAG index building](./assets/graphrag_index_building.png)
 
-**2. Index serving & evaluation (`rag.evaluate`):** integrates the index built
-in step 1 with new or existing agents. The model can either retrieve and
-generate once per question, or, with `strategy='agentic_retrieval'`, act
-as an agent that queries the index (exposed as an MCP service) step by step,
-until it has collected enough evidence to answer.
+**2. Index serving & evaluation (`rag.evaluate`):** evaluates a
+question-answering strategy that uses the index built in step 1. With
+`strategy='rag'`, the model retrieves once per question and then answers.
 
 ```python
 # 2. Serve the index and evaluate RAG performance
 summary = rag.evaluate(
     examples=datasets.get_dataset_loader('browsecomp_plus'),
     index=index,
+    strategy='rag',
     output='/tmp/onetwo_rag_eval'
 )
 ```
 
+**Going further:** with `strategy='agentic_retrieval'`, the model acts as an
+agent that searches the index step by step. Serve the index as an MCP server
+with `server = rag.start_mcp_in_background(index)`, and pass
+`mcp_urls=[server.url]` instead of `index` to `rag.evaluate`. Below, an agent
+queries a GraphRAG index over MCP:
+
 ![GraphRAG serving over MCP](./assets/graphrag_mcp_serving.gif)
 
-Check out our
-[RAG tutorial](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/rag_tutorial.ipynb)
-to easily create RAG and Question Answering workflows.
+See our [BrowseComp-Plus guide](docs/browsecomp_plus_qa.md) for the commands to
+reproduce the results below:
 
-### Running unit tests
+![AI rater accuracy of each QA strategy on BrowseComp-Plus](./assets/browsecomp_plus_hydrogen_accuracy.svg)
 
-In order to run the tests, first clone the repository:
+Want to build and benchmark your own RAG workflows? Check out our
+[RAG tutorial](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/rag_tutorial.ipynb).
+
+## 🧠 OneTwo Agents
+
+OneTwo makes it really easy to build stateful, autonomous agents that can
+reason, use tools, and solve complex problems. Compose agents naturally using
+Python control flow while OneTwo takes care of batching, streaming, and
+execution details behind the scenes.
+
+![OneTwo Agent](./assets/onetwo_agent.gif)
+
+Want to create and play with this agent? Check out our
+[in-depth tutorial](https://colab.research.google.com/github/google-deepmind/onetwo/blob/main/colabs/tutorial.ipynb).
+
+## Running unit tests
+
+In order to run the tests, first clone the repository and install the package:
 
 ```shell
 git clone https://github.com/google-deepmind/onetwo
+cd onetwo
+pip install .
 ```
 
-Then from the cloned directory you can invoke `pytest`:
+Then invoke `pytest`:
 
 ```shell
-pytest onetwo/core
+pytest onetwo
 ```
-
-However, doing `pytest onetwo` will not work as pytest collects all the test
-names without keeping their directory of origin so there may be name clashes, so
-you have to loop through the subdirectories.
 
 ## Documentation
 
-Some background on the basic concepts of the library can be found here:
-[Basics](docs/basics.md).
-
-Some of the frequently asked questions are discussed here: [FAQ](docs/faq.md).
+*   [Question Answering on BrowseComp-Plus](docs/browsecomp_plus_qa.md): build
+    embedding-based and graph-based (GraphRAG) indexes over the BrowseComp-Plus
+    corpus, then evaluate closed-book, RAG and agentic retrieval strategies on
+    them.
+*   [Multimodal RAG: the SpanishGov case study](docs/multimodal_rag.md): build
+    a custom dual-modal (text and image) index with its own MCP server, and
+    compare it to the standard index MCP server on questions that need both text
+    and images.
 
 ## Citing OneTwo
 
-To cite this repository:
+If you have found OneTwo useful in your research, please cite it in your
+publications as follows:
 
 ```bibtex
 @software{onetwo2026github,
