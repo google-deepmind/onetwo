@@ -114,14 +114,12 @@ class SpanishGovernmentMultimodalQADatasetLoaderTest(parameterized.TestCase):
     self.assertEqual(examples[0]['answer'], 'A1')
     self.mock_tfds.load.assert_has_calls([
         mock.call(
-            'megaelius__spanishgovernmentmultimodalqa/questions',
+            'huggingface:megaelius__spanishgovernmentmultimodalqa/questions',
             split='test',
-            data_dir='/tmp/test/dir',
         ),
         mock.call(
-            'megaelius__spanishgovernmentmultimodalqa/corpus',
+            'huggingface:megaelius__spanishgovernmentmultimodalqa/corpus',
             split='test',
-            data_dir='/tmp/test/dir',
         ),
     ])
 
@@ -191,9 +189,8 @@ class SpanishGovernmentMultimodalQADatasetLoaderTest(parameterized.TestCase):
     doc = documents[0]
     self.assertEqual(doc.doc_id, 'p1')
     self.mock_tfds.load.assert_called_once_with(
-        'megaelius__spanishgovernmentmultimodalqa/corpus',
+        'huggingface:megaelius__spanishgovernmentmultimodalqa/corpus',
         split='test',
-        data_dir='/tmp/test/dir',
     )
 
     # Check document content.

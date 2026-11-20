@@ -24,18 +24,29 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from google import generativeai
-from google.ai import generativelanguage as glm
-from google.generativeai import client
-from google.generativeai.types import content_types
-from google.generativeai.types import model_types
-from onetwo.backends import gemini_api
 from onetwo.builtins import llm
 from onetwo.core import caching
 from onetwo.core import content as content_lib
 from onetwo.core import core_test_utils
 from onetwo.core import executing
 from onetwo.core import sampling
+
+# `google-generativeai` is an optional dependency of the open-source OneTwo
+# package (installed with `pip install 'onetwo[gemini_legacy]'`), so skip these
+# tests if it is not installed.
+# pylint: disable=g-import-not-at-top
+try:
+  from google import generativeai
+  from google.ai import generativelanguage as glm
+  from google.generativeai import client
+  from google.generativeai.types import content_types
+  from google.generativeai.types import model_types
+  from onetwo.backends import gemini_api
+except ImportError as e:
+  raise unittest.SkipTest(
+      'google-generativeai is not installed; skipping GeminiAPI tests.'
+  ) from e
+# pylint: enable=g-import-not-at-top
 
 
 _Message: TypeAlias = content_lib.Message
