@@ -116,11 +116,12 @@ searchable index
 from onetwo import rag
 from onetwo.evaluation import datasets
 
+# Before running: export GOOGLE_API_KEY="YOUR_API_KEY"
+
 # 1. Build an index over your corpus
 index = rag.build_index(
     corpus=datasets.get_dataset_loader('browsecomp_plus'),
-    output='/tmp/onetwo_rag_index',
-    extra_backend_kwargs={'api_key': google_api_key},
+    output='/tmp/onetwo_rag_index'
 )
 ```
 
@@ -137,8 +138,7 @@ until it has collected enough evidence to answer.
 summary = rag.evaluate(
     examples=datasets.get_dataset_loader('browsecomp_plus'),
     index=index,
-    output='/tmp/onetwo_rag_eval',
-    extra_backend_kwargs={'api_key': google_api_key},
+    output='/tmp/onetwo_rag_eval'
 )
 ```
 

@@ -24,10 +24,9 @@ and choose where to save the indexes and results.
 pip install git+https://github.com/google-deepmind/onetwo
 
 export GOOGLE_API_KEY="YOUR_API_KEY"
-# Passed to all the commands below: the API key, and the number of parallel
-# requests to the Gemini API (the default is 1). Lower it if you hit API rate
-# limits.
-export EXTRA_BACKEND_KWARGS="{\"api_key\": \"${GOOGLE_API_KEY}\", \"threadpool_size\": 10}"
+# Passed to all the commands below: the number of parallel requests to the
+# Gemini API (the default is 1). Lower it if you hit API rate limits.
+export EXTRA_BACKEND_KWARGS='{"threadpool_size": 10}'
 
 # Where the indexes and the evaluation results are saved.
 export BASELINE_INDEX_DIR=~/onetwo_indexes/baseline
