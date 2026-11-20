@@ -1,5 +1,216 @@
 # OneTwo Change Log
 
+## v0.6.0
+
+*   **⚠️ Breaking changes**
+    *   **OneTwo is now statically typed.** The core decorators were rewritten
+        so that type checkers (like Pyrefly) see the real signatures and return
+        types of decorated functions instead of `Any`. Code that type-checked
+        against v0.5.0 may now report errors, and some decorators changed their
+        calling convention:
+        *   **`ot.make_executable`:** Note that runtime behaviour is unchanged.
+            What breaks is type checking:
+            *   Decorated functions are now typed as returning
+                `FunctionExecWrapper[T]` instead of `Any`, where `T` is the
+                result type of the function, unwrapped from coroutines, async
+                generators and returned `Executable`s. E.g.
+                `async def f(...) -> str` is typed as returning
+                `FunctionExecWrapper[str]`, so using `f(...)` where a `str` is
+                expected (instead of `await f(...)` or `ot.run(f(...))`) now
+                fails type checking.
+            *   Without arguments (`@ot.make_executable`), the decorated
+                function keeps its parameters (via `ParamSpec`), so calls with
+                wrong argument types or counts are now flagged.
+        *   **`tracing.trace`:** Must now always be called with parentheses:
+            `@tracing.trace()` (or `@tracing.trace(name=...)`). A bare
+            `@tracing.trace` no longer works.
+        *   **`caching.cache_method`:** Now only supports `async def` methods,
+            and preserves the signature of the decorated method.
+        *   **`utils.with_retry` / `utils.rate_limit_method`:** Preserve the
+            signature of the decorated method instead of collapsing it to
+            `Callable[..., Any]`.
+        *   **`Composable.execute`** is now an executable.
+        *   **Legacy built-ins:** `llm.generate_text` and `llm.generate_texts`
+            are deprecated and moved to `builtins/legacy_llm_builtins.py`.
+    *   **Python >= 3.13 is now required**.
+*   **OneTwo Agent with MCP support**
+    *   **`Agent`:** Added a generic agent that runs model-native function
+        calling to completion. Tools can be plain Python callables (their
+        declarations are inferred from signatures and docstrings), `Tool`s, or
+        **MCP servers**, mixed freely, e.g. `Agent(tools=[get_weather,
+        mcp_tools.server('http://localhost:8777/mcp')])`. Supports multimodal
+        questions, parallel tool calls, a final answer without tools when steps
+        run out, and recovery from empty model turns. Added
+        `agent.format_tool_calls` and `agent.format_agent_steps` to inspect
+        runs.
+    *   **MCP tools:** Added `mcp_tools.server` (streamable HTTP) and
+        `mcp_tools.stdio_server` to use any MCP server as a source of agent
+        tools, with sessions that stay alive across failing tool calls and
+        support for image tool results.
+    *   **`llm.generate_with_tools`:** New built-in for model-native function
+        calling, implemented in the `GoogleGenAIAPI`, `ClaudeAPI` and
+        `OpenAIAPI` backends.
+    *   **`core.function_calling`:** New core types `ToolSpec`,
+        `ConversationTurn`, `FunctionCall` and `FunctionResponse` (with
+        correlation `id`s). Function-calling runs, including thoughts and tool
+        calls, are recorded in execution traces.
+    *   **Tool schemas:** Added `tool_schema.tool_from_callable` to infer a tool
+        declaration from a Python callable. `llm_tool_use.Tool` gained
+        `parameters` and `to_spec()`.
+*   **RAG**
+    *   **New top-level `rag` module** (`from onetwo import rag`) to build,
+        serve and evaluate retrieval pipelines in a few calls:
+        *   **`rag.build_index(corpus, index, *, output, ...)`:** Builds and
+            saves a document index from a registered `DatasetLoader` or a folder
+            of files of any type, and returns the built index. `index` is either
+            a ready-made `rag.IndexType` (`EMBEDDING` or `GRAPHRAG`) or any
+            `DocumentIndex` object. Also available as a command-line tool
+            (`build_index`).
+        *   **`rag.evaluate(examples, index, strategy, *, ...)`:** Evaluates a
+            QA strategy on a QA dataset. `strategy` is either a ready-made
+            `rag.StrategyType` (`CLOSED_BOOK`, `RAG`, `RETRIEVAL_ONLY`,
+            `AGENTIC_RETRIEVAL`) or any `QAStrategy` object; `mcp_urls` points
+            agentic strategies at MCP servers. Results are saved in descriptive
+            folders under `output`. Also available as a command-line tool
+            (`evaluate_rag`).
+        *   **`rag.start_mcp` / `rag.start_mcp_in_background`:** Serve a saved
+            index or an index object as an MCP server (stdio or streamable HTTP)
+            with `search` and `get_document` tools.
+        *   **`rag.StorageFormat`:** Chooses how an index is saved, at save
+            time.
+    *   **Indexing:**
+        *   `use_task_type`, the `prepare_*` hooks, `default_prepare_query` and
+            `default_prepare_document` were removed. Embedding indexes are
+            configured with an `EmbedBackendConfig` and a `searcher: Searcher`.
+        *   `EmbeddingBasedDocumentIndex` is now coupled with its embedding
+            backend: it takes an `embed_backend_config` and instantiates its own
+            embedder backend from it (with credentials passed separately and
+            never saved), instead of relying on the globally registered
+            `llm.embed`. The config is saved with the index, so a loaded index
+            embeds queries with the same backend and model it was built with.
+        *   Chunk `doc_id`s now use a `_chunk` suffix format, and chunkers
+            record the source span of each chunk in its metadata
+            (`span_within_original_doc`).
+        *   Added ID-based document lookup (`get_doc`, `get_docs_by_ids`,
+            `get_doc_embedding`) to indexes, and preservation of the original
+            (unchunked) documents in rewriting indexes across save and load.
+    *   **Index configuration and persistence:** Indexes are their own configs:
+        they are saved as `index_config.json` and rebuilt from it by
+        `index_building.load_index`, whatever their type. Custom components
+        (indexes, chunkers, formatters, searchers, ...) are registered by stable
+        name with `registry.register`. Serializers are pluggable, support
+        sharding, show progress bars and load faster.
+    *   **QA strategy results:** `QAStrategy` implementations now return a
+        `StrategyResult`, holding the answer together with the retrieved
+        `Document`s. Strategies always receive `query_time_kwargs`.
+    *   **Datasets:** `onetwo.evaluation.datasets` is now a package. The
+        `max_documents` property of dataset loaders was renamed to
+        `max_number_of_documents`.
+    *   **GraphRAG:** Added `HippoRAGDocumentIndex`, a knowledge-graph index
+        based on HippoRAG (with multimodal entity extraction), along with its
+        own MCP server and serialization.
+    *   **Chunking:**
+        *   Added `RoutingChunker`, which chunks each document according to its
+            content type, and is the default chunker of the ready-made indexes.
+        *   Added `ChunkByMaxWords`, `ChunkByPdfPages`, `ChunkByAudioSeconds`
+            and `ChunkByVideoSeconds`.
+        *   The tokenizer of `ChunkByMaxTokens` is configurable through a
+            `TokenizeBackendConfig`.
+    *   **Formatting:** Added `KeepTextFormatter` and `KeepImageFormatter`.
+    *   **QA strategies:**
+        *   Added a strategies registry (`strategies_lib`) with
+            `ClosedBookStrategy`, `LongContextStrategy`, `RAGStrategy` and
+            `RetrievalOnlyStrategy`. `RAGContextBuilder` was extracted from
+            `RAGStrategy` to ease writing custom RAG strategies.
+        *   Added `AgenticRetrievalStrategy`, in which the model searches MCP
+            servers step by step (with a configurable step budget and a forced
+            final answer) until it can answer, and cites the documents it used.
+        *   QA strategies own their generation backend and expose `max_results`,
+            `min_score` and `additional_instructions`.
+    *   **Examples:** Added a dual-modal (text and image) index with its MCP
+        server under `examples/dual_modal_index`.
+*   **Backends**
+    *   **OllamaAPI:** Added new backend for local models served by Ollama,
+        including `.embed`.
+    *   **`llm.embed`:** Now takes `task_type` (`llm.EmbedTaskType` or `str`)
+        and `title` arguments shared by all backends.
+    *   **Backend registry:** Added `BackendConfig` (`GenerateBackendConfig`,
+        `EmbedBackendConfig`, `TokenizeBackendConfig`) and `get_backend` to
+        instantiate backends from serializable configs.
+    *   **GoogleGenAIAPI:**
+        *   Accepts a single `model_name`, like other backends.
+        *   `CachedChunkList.refresh_cache=False` uses an existing prefix cache
+            as is, without refreshing it on every call.
+        *   Records tool call counts and token metrics in traces.
+*   **Core**
+    *   **Execution & Parallelism:**
+        *   `par_iter` can show a progress bar (`show_progress`,
+            `progress_desc`, `total`).
+        *   `merge_iter` uses a sliding-window worker pool, so a slow iterator
+            no longer blocks the others.
+        *   `@to_thread_pool_method` can wrap async methods.
+    *   **Caching:** Faster binary serialization of containers.
+    *   **Content:** Added JSON-compatible serialization of `Document`, `Chunk`
+        and `ChunkList`.
+*   **Evaluation**
+    *   **ot.evaluate:** Metric functions receive the `execution_result` and run
+        in parallel per example.
+    *   Added `EvaluationConfig` and `evaluate_with_config`.
+    *   **RAG metrics:** Added `rag_metrics` with `recall@k`, a configurable
+        AI-rater accuracy critic, runtime, token-count and tool-call metrics.
+    *   **Datasets:** Added loaders for BrowseComp-Plus, Spanish Government
+        Multimodal QA, JSON Lines files (`JsonlDatasetLoader`) and folders of
+        multimodal files (`MultimodalDatasetLoader`). Added `example_id` to
+        `QAExample`.
+*   **Colabs & Docs**
+    *   **RAG Tutorial:** Rewritten around the `rag` module, including an index
+        MCP server used by an `Agent`, and Ollama examples.
+    *   **Tutorials:** Reorganized the OneTwo and Getting Started tutorials and
+        updated default models.
+    *   Added a
+        [guide](https://github.com/google-deepmind/onetwo/blob/main/docs/browsecomp_plus_qa.md)
+        to run QA on BrowseComp-Plus with RAG and GraphRAG.
+*   **Fixes**
+    *   **Security:**
+        *   `HTMLRenderer` now escapes LLM requests and replies (and dict keys
+            and stage names).
+        *   The `code_execution` multiprocess sandbox now uses a random
+            per-sandbox authkey for its hook channel, and exchanges JSON instead
+            of pickled messages.
+    *   **Execution:**
+        *   `par_iter` (with more executables than `chunk_size`) no longer hangs
+            forever when an executable raises; the error is now reported.
+        *   Fixed CPU-burning spin-locks in the queue processing of `iterating`,
+            which starved the event loop threads (~30% faster evaluation).
+        *   `ot.run` no longer creates and closes a new event loop on every
+            call, which invalidated the connections of long-lived backends in
+            multi-threaded hosts (`OSError: [Errno 9] Bad file descriptor`).
+    *   **Backends:**
+        *   Fixed rate-limiting deadlocks and 429 retry handling in
+            `GoogleGenAIAPI` and `GeminiAPI`.
+        *   `GoogleGenAIAPI.embed`: fixed double formatting of titles, and
+            failures on empty content and multi-chunk text, for v1 embedding
+            models such as `gemini-embedding-001`. Very large texts are now
+            cropped client-side (without changing the embedding) instead of
+            making the request fail.
+    *   **Retrieval:**
+        *   Creating an `EmbeddingBasedIndex` without documents no longer raises
+            `ValueError: need at least one array to stack`.
+        *   `EmbeddingBasedIndex.retrieve_doc_score` now scores like the
+            searcher (cosine similarity when `normalize_embeds` is set) and
+            returns a `float`.
+        *   `ChunkByMaxTokens` with `overlap_window > 0` no longer creates
+            redundant tail chunks that only repeat the end of the previous
+            chunk.
+    *   **Evaluation:**
+        *   `ot.evaluate` now keeps the `extra_info` of all metrics.
+        *   A single example failing with a `BaseException` (e.g.
+            `asyncio.CancelledError`) no longer cancels the whole evaluation
+            batch.
+        *   `structured_evaluation_critic` returns a score of 0.0 with
+            diagnostics instead of crashing when the rater returns invalid
+            output.
+
 ## v0.5.0
 
 *   **Backends**
