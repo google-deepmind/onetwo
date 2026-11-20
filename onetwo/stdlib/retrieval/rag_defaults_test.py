@@ -25,11 +25,21 @@ class RagDefaultsTest(absltest.TestCase):
 
   def test_google_genai_api_defaults_are_registered(self):
     medium_thinking = {'thinking_config': {'thinking_level': 'MEDIUM'}}
+    generate_request_kwargs = {
+        'max_retries': 5,
+        'http_options': {'timeout': 300_000},
+        'threadpool_size': 10,
+    }
     self.assertEqual(
         rag_defaults.default_embed_backend_config(),
         backend_registry.EmbedBackendConfig(
             backend_class_name='GoogleGenAIAPI',
             model_name='gemini-embedding-2',
+            kwargs={
+                'max_retries': 5,
+                'http_options': {'timeout': 60_000},
+                'threadpool_size': 20,
+            },
         ),
     )
     self.assertEqual(
@@ -40,7 +50,8 @@ class RagDefaultsTest(absltest.TestCase):
             kwargs={
                 'generate_object_kwargs': {
                     'thinking_config': {'thinking_level': 'LOW'}
-                }
+                },
+                **generate_request_kwargs,
             },
         ),
     )
@@ -53,7 +64,16 @@ class RagDefaultsTest(absltest.TestCase):
                 'chat_kwargs': medium_thinking,
                 'generate_object_kwargs': medium_thinking,
                 'generate_with_tools_kwargs': medium_thinking,
+                **generate_request_kwargs,
             },
+        ),
+    )
+    self.assertEqual(
+        rag_defaults.default_ai_rater_backend_config(),
+        backend_registry.GenerateBackendConfig(
+            backend_class_name='GoogleGenAIAPI',
+            model_name='gemini-3.6-flash',
+            kwargs=generate_request_kwargs,
         ),
     )
 
@@ -120,13 +140,20 @@ class QaGenerateBackendConfigTest(absltest.TestCase):
             default,
         )
 
-  def test_other_model_has_no_default_kwargs(self):
+  def test_other_model_keeps_only_request_kwargs(self):
     config = rag_defaults.qa_generate_backend_config(
-        rag_defaults.DEFAULT_BACKEND_CLASS_NAME, 'other-model'
+        'GoogleGenAIAPI', 'other-model'
     )
 
     self.assertEqual(config.model_name, 'other-model')
-    self.assertEqual(config.kwargs, {})
+    self.assertEqual(
+        config.kwargs,
+        {
+            'max_retries': 5,
+            'http_options': {'timeout': 300_000},
+            'threadpool_size': 10,
+        },
+    )
 
   def test_backend_without_defaults_with_explicit_model(self):
     config = rag_defaults.qa_generate_backend_config(
@@ -135,6 +162,7 @@ class QaGenerateBackendConfigTest(absltest.TestCase):
 
     self.assertEqual(config.backend_class_name, 'BackendWithoutDefaults')
     self.assertEqual(config.model_name, 'some-model')
+    self.assertEqual(config.kwargs, {})
 
 
 if __name__ == '__main__':

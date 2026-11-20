@@ -390,10 +390,7 @@ def _with_default_evaluate_kwargs(
   evaluate_kwargs = dict(evaluate_kwargs) if evaluate_kwargs else {}
   evaluate_kwargs.setdefault('output_results', True)
   if 'metric_functions' not in evaluate_kwargs:
-    ai_rater_backend_config = backend_registry.GenerateBackendConfig(
-        backend_class_name=rag_defaults.DEFAULT_BACKEND_CLASS_NAME,
-        model_name=rag_defaults.DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
-    )
+    ai_rater_backend_config = rag_defaults.default_ai_rater_backend_config()
     # A retrieval-only strategy gives no answer, so only retrieval is scored.
     retrieval_only = isinstance(strategy, strategies_lib.RetrievalOnlyStrategy)
     evaluate_kwargs['metric_functions'] = rag_metrics.get_default_rag_metrics(

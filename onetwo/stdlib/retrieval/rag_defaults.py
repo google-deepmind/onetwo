@@ -26,6 +26,12 @@ the configs they were built with (in `index_config.json`), so they keep loading
 with their models until those models are turned down. Evaluation defaults are
 not saved: pass the models explicitly to compare evaluations across changes of
 the defaults.
+
+The default configs also set request settings (e.g. retries, HTTP timeout and
+number of threads), so they are saved with the indexes too. Like the models,
+these defaults may change: the only guarantee is that saved indexes keep
+loading. Runtime arguments (e.g. `extra_backend_kwargs` of `rag.build_index`
+and `rag.evaluate`) override the request settings of a config.
 """
 
 import copy
@@ -152,8 +158,9 @@ def qa_generate_backend_config(
 
   Without a model, or with the default model of the backend class, this is its
   default QA config (e.g. with its thinking level). Any other model gets no
-  default kwargs, since it may not support them, and any backend class can be
-  used with an explicit model.
+  model-specific kwargs (e.g. thinking), since it may not support them, but
+  GoogleGenAIAPI models keep the default request settings. Any backend class
+  can be used with an explicit model.
 
   Args:
     backend_class_name: Name of the generation backend class.
@@ -168,13 +175,33 @@ def qa_generate_backend_config(
       and (defaults.qa_generate.model_name == model_name)
   ):
     return copy.deepcopy(defaults.qa_generate)
+  kwargs = {}
+  if backend_class_name == 'GoogleGenAIAPI':
+    kwargs = copy.deepcopy(_GENERATE_REQUEST_KWARGS)
   return backend_registry.GenerateBackendConfig(
-      backend_class_name=backend_class_name, model_name=model_name
+      backend_class_name=backend_class_name,
+      model_name=model_name,
+      kwargs=kwargs,
   )
 
 
 def _thinking(level: str) -> dict[str, Any]:
   return {'thinking_config': {'thinking_level': level}}
+
+
+# Request settings of the GoogleGenAIAPI default configs: the maximum number of
+# retries, the HTTP timeout in milliseconds and the number of threads. Embedding
+# requests are short, generation requests (with thinking) can be long.
+_EMBED_REQUEST_KWARGS: dict[str, Any] = {
+    'max_retries': 5,
+    'http_options': {'timeout': 60_000},
+    'threadpool_size': 20,
+}
+_GENERATE_REQUEST_KWARGS: dict[str, Any] = {
+    'max_retries': 5,
+    'http_options': {'timeout': 300_000},
+    'threadpool_size': 10,
+}
 
 
 register_backend_defaults(
@@ -183,13 +210,17 @@ register_backend_defaults(
         embed=backend_registry.EmbedBackendConfig(
             backend_class_name='GoogleGenAIAPI',
             model_name=DEFAULT_EMBEDDING_MODEL,
+            kwargs=copy.deepcopy(_EMBED_REQUEST_KWARGS),
         ),
         # GraphRAG extracts entities and triples with `llm.generate_object`:
         # LOW thinking keeps these many calls fast and cheap.
         index_generate=backend_registry.GenerateBackendConfig(
             backend_class_name='GoogleGenAIAPI',
             model_name=DEFAULT_GENERATE_MODEL,
-            kwargs={'generate_object_kwargs': _thinking('LOW')},
+            kwargs={
+                'generate_object_kwargs': _thinking('LOW'),
+                **copy.deepcopy(_GENERATE_REQUEST_KWARGS),
+            },
         ),
         # MEDIUM thinking for every call of the QA strategies.
         qa_generate=backend_registry.GenerateBackendConfig(
@@ -199,6 +230,7 @@ register_backend_defaults(
                 'chat_kwargs': _thinking('MEDIUM'),
                 'generate_object_kwargs': _thinking('MEDIUM'),
                 'generate_with_tools_kwargs': _thinking('MEDIUM'),
+                **copy.deepcopy(_GENERATE_REQUEST_KWARGS),
             },
         ),
     ),
@@ -223,6 +255,16 @@ def default_tokenize_backend_config() -> backend_registry.TokenizeBackendConfig:
 # TODO: Handle the default AI rater model name in a similar way
 # to the generation and embedding models.
 DEFAULT_AI_RATER_GENERATE_MODEL_NAME = 'gemini-3.6-flash'
+
+
+def default_ai_rater_backend_config() -> backend_registry.GenerateBackendConfig:
+  """Returns a new config for the default AI rater of `rag.evaluate`."""
+  return backend_registry.GenerateBackendConfig(
+      backend_class_name='GoogleGenAIAPI',
+      model_name=DEFAULT_AI_RATER_GENERATE_MODEL_NAME,
+      kwargs=copy.deepcopy(_GENERATE_REQUEST_KWARGS),
+  )
+
 
 # Backend request settings applied by `rag.build_index` (and its command-line
 # tool) unless set in its `extra_backend_kwargs`: the maximum number of retries
