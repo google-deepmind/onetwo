@@ -109,15 +109,41 @@ class BackendRegistryTest(absltest.TestCase):
     )
     self.assertEqual(backend.model_name, 'GEMINI3_G145')
 
-  def test_get_backend_conflict(self):
+  def test_get_backend_runtime_kwargs_override_config_kwargs(self):
     config = backend_registry.GenerateBackendConfig(
         backend_class_name='GoogleGenAIAPI',
-        kwargs={'temperature': 0.5},
+        kwargs={
+            'temperature': 0.5,
+            'max_retries': 5,
+            'http_options': {'timeout': 300_000, 'api_version': 'v1'},
+        },
     )
-    with self.assertRaisesRegex(
-        ValueError, 'Conflict between BackendConfig and runtime arguments'
-    ):
-      backend_registry.get_backend(config, temperature=0.8)
+    backend = backend_registry.get_backend(
+        config,
+        api_key='test_key',
+        temperature=0.8,
+        http_options={'timeout': 60_000},
+    )
+    self.assertIsInstance(backend, google_genai_api.GoogleGenAIAPI)
+    with self.subTest('overrides_config_value'):
+      self.assertEqual(backend.temperature, 0.8)
+    with self.subTest('keeps_other_config_values'):
+      self.assertEqual(backend.max_retries, 5)
+    with self.subTest('replaces_nested_dict'):
+      http_options = backend.http_options
+      assert isinstance(http_options, dict)
+      self.assertEqual(http_options.get('timeout'), 60_000)
+      self.assertNotIn('api_version', http_options)
+    with self.subTest('adds_new_key'):
+      self.assertEqual(backend.api_key, 'test_key')
+
+  def test_get_backend_does_not_modify_config(self):
+    config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI',
+        kwargs={'http_options': {'timeout': 300_000}},
+    )
+    backend_registry.get_backend(config, api_key='test_key')
+    self.assertEqual(config.kwargs, {'http_options': {'timeout': 300_000}})
 
   def test_backend_config_serialization(self):
     config = backend_registry.GenerateBackendConfig(

@@ -16,9 +16,11 @@
 
 from collections.abc import Iterator, Mapping
 import contextlib
+import copy
 import dataclasses
 from typing import Any
 
+from absl import logging
 import dataclasses_json
 from onetwo.backends import backends_base
 from onetwo.backends import claude_api
@@ -46,12 +48,10 @@ class BackendConfig(dataclasses_json.DataClassJsonMixin):
     backend_class_name: The name of the backend class to instantiate (e.g.
       'GoogleGenAIAPI').
     model_name: The name of the model to use.
-    kwargs: Additional arguments to unpack into the backend constructor. This
-      dictionary should contain model hyperparameters (e.g., `temperature`,
-      `max_tokens`, `output_dimensionality`). Note that sensitive credentials
-      (`api_key`, `credentials`) and environment-specific deployment settings
-      (`threadpool_size`, `project`, `location`, `http_options`) are to be
-      omitted here and must be provided dynamically at runtime instead.
+    kwargs: Additional arguments to unpack into the backend constructor (e.g.,
+      `temperature`, `max_tokens`, `output_dimensionality`, `max_retries`).
+      Sensitive credentials (`api_key`, `credentials`) must not be stored here;
+      pass them at runtime to `get_backend` instead.
   """
 
   backend_class_name: str | None = None
@@ -121,9 +121,11 @@ def get_backend(
   Args:
     config: The serialized configuration containing model hyperparameters (e.g.,
       `temperature`, `max_tokens`, `output_dimensionality`).
-    **runtime_kwargs: Environment-specific deployment settings (e.g.,
-      `threadpool_size`, `project`) and credentials (`api_key`, `credentials`)
-      that are not stored in the serializable configuration.
+    **runtime_kwargs: Arguments that are not stored in the serializable
+      configuration, such as credentials (`api_key`, `credentials`) and
+      environment-specific settings (e.g., `project`). They override the
+      same-named top-level keys of `config.kwargs`; nested values (e.g.,
+      `http_options`) are replaced, not merged.
 
   Returns:
     An instance of the requested backend.
@@ -131,7 +133,8 @@ def get_backend(
   if config.backend_class_name is None:
     raise ValueError('backend_class_name must be specified.')
 
-  kwargs = dict(config.kwargs)
+  # Deep copy, as backends may modify nested values (e.g., `http_options`).
+  kwargs = copy.deepcopy(config.kwargs)
 
   if config.model_name:
     if isinstance(config, (GenerateBackendConfig, TokenizeBackendConfig)):
@@ -139,16 +142,13 @@ def get_backend(
     else:
       kwargs['embed_model_name'] = config.model_name
 
-  if runtime_kwargs:
-    # Raise an error if we are overriding something from the BackendConfig.
-    overlapping_keys = set(kwargs.keys()).intersection(runtime_kwargs.keys())
-    if overlapping_keys:
-      raise ValueError(
-          f'Conflict between BackendConfig and runtime arguments. The following'
-          f' keys should not be in both: {overlapping_keys}'
-      )
-
-    kwargs.update(runtime_kwargs)
+  overridden_keys = sorted(set(kwargs) & set(runtime_kwargs))
+  if overridden_keys:
+    logging.info(
+        'Runtime arguments override backend config kwargs: %s',
+        overridden_keys,
+    )
+  kwargs.update(runtime_kwargs)
 
   return instantiate_backend(class_name=config.backend_class_name, **kwargs)
 
