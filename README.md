@@ -197,8 +197,8 @@ publications as follows:
   author = {Olivier Bousquet and Parth Kothari and Elias Abad Rocamora and Nathan Scales and Nathanael Sch{\"a}rli and Ilya Tolstikhin},
   title = {{O}ne{T}wo: {I}nteracting with {L}arge {M}odels},
   url = {https://github.com/google-deepmind/onetwo},
-  version = {0.5.0},
-  date = {2026-06-02},
+  version = {0.6.0},
+  date = {2026-11-20},
   year = {2026}
 }
 ```
