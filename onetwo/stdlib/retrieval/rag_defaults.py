@@ -82,6 +82,11 @@ def register_backend_defaults(
   _BACKEND_DEFAULTS[backend_class_name] = defaults
 
 
+def has_backend_defaults(backend_class_name: str) -> bool:
+  """Returns whether default configs are registered for a backend class."""
+  return backend_class_name in _BACKEND_DEFAULTS
+
+
 def _backend_defaults(backend_class_name: str) -> BackendDefaults:
   """Returns the registered defaults of a backend class."""
   if backend_class_name not in _BACKEND_DEFAULTS:

@@ -81,18 +81,6 @@ _GENERATE_MODEL_NAME = flags.DEFINE_string(
     ),
 )
 
-_GENERATE_BACKEND_KWARGS = flags.DEFINE_string(
-    'generate_backend_kwargs',
-    None,
-    (
-        'JSON string of constructor kwargs of the generation backend, e.g.'
-        ' \'{"chat_kwargs": {"thinking_config": {"thinking_level": "HIGH"}}}\'.'
-        ' If unset, defaults to medium thinking for the default model and to no'
-        ' kwargs for other models (see'
-        ' `rag_defaults.qa_generate_backend_config`).'
-    ),
-)
-
 _EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
     'extra_backend_kwargs',
     '{}',
@@ -137,24 +125,6 @@ _MAX_EXAMPLES = flags.DEFINE_integer(
     ),
 )
 
-_MAX_RETRIES = flags.DEFINE_integer(
-    'max_retries',
-    5,
-    (
-        'Maximum number of retries for backend requests. Ignored if set in'
-        ' --extra_backend_kwargs.'
-    ),
-)
-
-_HTTP_TIMEOUT = flags.DEFINE_integer(
-    'http_timeout',
-    300000,
-    (
-        'HTTP timeout in milliseconds for backend requests (default: 5 mins).'
-        ' Ignored if set in --extra_backend_kwargs.'
-    ),
-)
-
 
 def _examples_from_flag(
     value: str, max_examples: int | None
@@ -191,10 +161,6 @@ def _strategy_from_flags() -> qa.QAStrategy[_PromptContent, _StrategyResult]:
         _GENERATE_MODEL_BACKEND_CLASS_NAME.value,
         _GENERATE_MODEL_NAME.value,
     )
-    if _GENERATE_BACKEND_KWARGS.value is not None:
-      config = dataclasses.replace(
-          config, kwargs=json.loads(_GENERATE_BACKEND_KWARGS.value)
-      )
     strategy = dataclasses.replace(strategy, backend_config=config)
   return strategy
 
@@ -216,11 +182,7 @@ def main(argv: Sequence[str]) -> None:
       strategy=_strategy_from_flags(),
       mcp_urls=_MCP_URLS.value,
       output=output,
-      extra_backend_kwargs=evaluate_rag_lib.get_default_extra_backend_kwargs(
-          json.loads(_EXTRA_BACKEND_KWARGS.value),
-          max_retries=_MAX_RETRIES.value,
-          http_timeout_ms=_HTTP_TIMEOUT.value,
-      ),
+      extra_backend_kwargs=json.loads(_EXTRA_BACKEND_KWARGS.value),
   )
 
 

@@ -29,6 +29,7 @@
 r"""Binary to build an embedding-based document index.
 """
 
+import dataclasses
 import json
 from typing import Sequence
 
@@ -144,6 +145,11 @@ _TOKENIZE_MODEL_NAME = flags.DEFINE_string(
     'Name of the tokenizer model (when --chunker_type=tokens).',
 )
 
+# TODO: Request settings passed in --extra_backend_kwargs that
+# differ from those of the default backend configs (e.g. `threadpool_size`,
+# `max_retries`) are used to build the index, but are not saved in
+# `index_config.json` (nor change its folder hash), so loading the index uses
+# the saved ones. Let the command line set them in the backend configs instead.
 _EXTRA_BACKEND_KWARGS = flags.DEFINE_string(
     'extra_backend_kwargs',
     '{}',
@@ -164,25 +170,6 @@ _MAX_DOCUMENTS = flags.DEFINE_integer(
         ' Only applies when --corpus is a registered dataset, whose loader'
         ' loads at most this many documents; it is an error with a folder'
         ' --corpus.'
-    ),
-)
-
-_MAX_RETRIES = flags.DEFINE_integer(
-    'max_retries',
-    rag_defaults.DEFAULT_MAX_RETRIES,
-    (
-        'Maximum number of retries for backend requests. Ignored if'
-        ' --extra_backend_kwargs sets "max_retries".'
-    ),
-)
-
-_HTTP_TIMEOUT = flags.DEFINE_integer(
-    'http_timeout',
-    rag_defaults.DEFAULT_HTTP_TIMEOUT_MS,
-    (
-        'HTTP timeout in milliseconds for backend requests (default: 60s).'
-        ' Ignored if --extra_backend_kwargs sets "http_options" with a'
-        ' "timeout" (or an "http_options" that is not a dict).'
     ),
 )
 
@@ -241,15 +228,22 @@ def _corpus_from_flag(
 
 
 def _embedder_from_flags() -> backend_registry.EmbedBackendConfig:
-  """Returns the embedding backend config set by the embedding flags."""
+  """Returns the embedding backend config set by the embedding flags.
+
+  Starts from the default embedding config of the backend class (e.g. with its
+  request settings), if any.
+  """
+  class_name = _EMBEDDING_BACKEND_CLASS_NAME.value
+  if rag_defaults.has_backend_defaults(class_name):
+    config = rag_defaults.default_embed_backend_config(class_name)
+  else:
+    config = backend_registry.EmbedBackendConfig(backend_class_name=class_name)
+  kwargs = dict(config.kwargs)
   embed_kwargs = json.loads(_EMBED_KWARGS.value)
-  backend_kwargs = {}
   if embed_kwargs:
-    backend_kwargs['embed_kwargs'] = dict(embed_kwargs)
-  return backend_registry.EmbedBackendConfig(
-      backend_class_name=_EMBEDDING_BACKEND_CLASS_NAME.value,
-      model_name=_EMBEDDING_MODEL_NAME.value,
-      kwargs=backend_kwargs,
+    kwargs['embed_kwargs'] = {**kwargs.get('embed_kwargs', {}), **embed_kwargs}
+  return dataclasses.replace(
+      config, model_name=_EMBEDDING_MODEL_NAME.value, kwargs=kwargs
   )
 
 
@@ -348,11 +342,7 @@ def main(argv: Sequence[str]) -> None:
       _index_from_flags(),
       output=_OUTPUT.value,
       storage_format=_STORAGE_FORMAT.value,
-      extra_backend_kwargs=build_index_lib.get_default_extra_backend_kwargs(
-          json.loads(_EXTRA_BACKEND_KWARGS.value),
-          max_retries=_MAX_RETRIES.value,
-          http_timeout_ms=_HTTP_TIMEOUT.value,
-      ),
+      extra_backend_kwargs=json.loads(_EXTRA_BACKEND_KWARGS.value),
   )
 
 

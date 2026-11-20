@@ -86,6 +86,10 @@ class RagDefaultsTest(absltest.TestCase):
         {'thinking_config': {'thinking_level': 'MEDIUM'}},
     )
 
+  def test_has_backend_defaults(self):
+    self.assertTrue(rag_defaults.has_backend_defaults('GoogleGenAIAPI'))
+    self.assertFalse(rag_defaults.has_backend_defaults('UnknownAPI'))
+
   def test_unknown_backend_raises(self):
     with self.assertRaisesRegex(ValueError, "'Unknown'.*'GoogleGenAIAPI'"):
       rag_defaults.default_embed_backend_config('Unknown')
