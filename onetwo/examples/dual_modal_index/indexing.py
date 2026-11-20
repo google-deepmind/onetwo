@@ -18,9 +18,12 @@ import collections
 from collections.abc import Iterable
 import dataclasses
 
+from absl import logging
 from etils import epath
+from onetwo.backends import backend_registry
 from onetwo.builtins import llm
 from onetwo.core import executing
+from onetwo.core import routing
 from onetwo.stdlib.retrieval import corpus_rewriting
 from onetwo.stdlib.retrieval import document_formatting
 from onetwo.stdlib.retrieval import indexing
@@ -68,7 +71,9 @@ class FilterEmptyDocuments(corpus_rewriting.CorpusRewriter[Document]):
 
 @registry.register('DualModalDocumentIndex')
 @dataclasses.dataclass(kw_only=True)
-class DualModalDocumentIndex(indexing.DocumentIndex):
+class DualModalDocumentIndex(
+    indexing.DocumentIndex, backend_registry.BackendMixin
+):
   """Retrieves from separate text and image indexes and fuses rankings via RRF.
 
   The query is first decomposed by an LLM into a visual and a textual part,
@@ -81,6 +86,10 @@ class DualModalDocumentIndex(indexing.DocumentIndex):
       set preserve_original_docs=True so original documents can be resolved
       across both modalities.
     image_index: Document index over the image representation of the corpus.
+    backend_config: Generation backend that decomposes queries (default:
+      rag_defaults.default_index_generate_backend_config()). If None, the model
+      registered in the current context is used, or if there is none, both
+      indexes are searched with the full query.
     rrf_k: Rank constant of the Reciprocal Rank Fusion.
     retrieval_depth: Number of candidates retrieved from each modality index.
     query_decomposition_prompt: Prompt template used to decompose a query into
@@ -138,6 +147,13 @@ class DualModalDocumentIndex(indexing.DocumentIndex):
           )
       )
   )
+
+  # RAG-based retrieval specific attributes.
+  backend_config: backend_registry.GenerateBackendConfig | None = (
+      dataclasses.field(
+          default_factory=rag_defaults.default_index_generate_backend_config
+      )
+  )
   rrf_k: int = 60
   retrieval_depth: int = 50
   query_decomposition_prompt: str = DEFAULT_QUERY_DECOMPOSITION_PROMPT
@@ -191,9 +207,22 @@ class DualModalDocumentIndex(indexing.DocumentIndex):
 
   async def _decompose_query(self, question: str) -> tuple[str, str]:
     """Returns the (visual_query, textual_query) parts of question."""
-    response = await llm.generate_content(
-        prompt=self.query_decomposition_prompt.format(question=question)
-    )
+    if (
+        self.backend_config is None
+        and llm.generate_content.name not in routing.function_registry
+    ):
+      logging.log_first_n(
+          logging.WARNING,
+          'DualModalDocumentIndex has no generation model (backend_config is'
+          ' None and none is registered); searching both indexes with the full'
+          ' query.',
+          1,
+      )
+      return question, question
+    with self._backend_context():
+      response = await llm.generate_content(
+          prompt=self.query_decomposition_prompt.format(question=question)
+      )
     visual_query = textual_query = question
     for line in str(response).split('\n'):
       if line.startswith('Visual:'):

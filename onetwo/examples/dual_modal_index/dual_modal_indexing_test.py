@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import copy
+import dataclasses
+import json
 import shutil
 import tempfile
 from unittest import mock
@@ -23,12 +25,34 @@ import numpy as np
 from onetwo import ot
 from onetwo.backends import backend_registry
 from onetwo.backends import backends_test_utils
+from onetwo.builtins import llm
 from onetwo.core import content as content_lib
+from onetwo.core import routing
 from onetwo.examples.dual_modal_index import indexing
 from onetwo.stdlib.retrieval import config_serialization
+from onetwo.stdlib.retrieval import rag_defaults
 from onetwo.stdlib.retrieval import retrieval_data_structures
 
 Document = retrieval_data_structures.Document
+
+
+@dataclasses.dataclass
+class _DecomposerForTest:
+  """Generation backend that gives the same reply to every prompt."""
+
+  reply: str
+  prompts: list[str] = dataclasses.field(default_factory=list)
+
+  @ot.make_executable
+  async def generate_content(
+      self, prompt: llm.Prompt, **kwargs
+  ) -> content_lib.ChunkList:
+    del kwargs
+    self.prompts.append(str(prompt))
+    return content_lib.ChunkList([content_lib.Chunk(self.reply)])
+
+  def register(self) -> None:
+    llm.generate_content.configure(self.generate_content)
 
 
 class DualModalDocumentIndexTest(absltest.TestCase):
@@ -53,29 +77,23 @@ class DualModalDocumentIndexTest(absltest.TestCase):
         return np.array([1.0, 0.0])
       return np.array([0.0, 1.0])
 
-    @ot.make_executable
-    async def fake_generate_content(
-        prompt,
-        **kwargs,
-    ) -> content_lib.ChunkList:
-      del prompt, kwargs
-      return content_lib.ChunkList(
-          [content_lib.Chunk(content='Visual: visual_q\nText: Alice')]
-      )
-
     self.enter_context(mock.patch('onetwo.builtins.llm.embed', new=fake_embed))
-    self.enter_context(
-        mock.patch(
-            'onetwo.builtins.llm.generate_content', new=fake_generate_content
-        )
-    )
     backend = backends_test_utils.LLMForTest()
     backend.register(register_tokenize=True)
-    # The default sub-indexes create real tokenizer and embedder backends from
-    # their configs: stub them out, so that the fakes registered above are used.
+    # Indexes create their backends from their configs: generation configs get
+    # the fake decomposer, other configs (tokenizer, embedder) a stub, so that
+    # the fakes registered above are used.
+    self.decomposer = _DecomposerForTest(reply='Visual: visual_q\nText: Alice')
+
+    def fake_get_backend(config, **runtime_kwargs):
+      del runtime_kwargs
+      if isinstance(config, backend_registry.GenerateBackendConfig):
+        return self.decomposer
+      return mock.MagicMock()
+
     self.enter_context(
         mock.patch.object(
-            backend_registry, 'get_backend', return_value=mock.MagicMock()
+            backend_registry, 'get_backend', side_effect=fake_get_backend
         )
     )
 
@@ -222,7 +240,12 @@ class DualModalDocumentIndexTest(absltest.TestCase):
 
   def test_config_serialization_round_trip(self):
     index_dir = self.create_tempdir().full_path
-    index = indexing.DualModalDocumentIndex(rrf_k=60, retrieval_depth=10)
+    backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI', model_name='decomposer'
+    )
+    index = indexing.DualModalDocumentIndex(
+        rrf_k=60, retrieval_depth=10, backend_config=backend_config
+    )
     ot.run(index.add_docs(self._sample_docs()))
 
     index.save(index_dir)
@@ -237,6 +260,7 @@ class DualModalDocumentIndexTest(absltest.TestCase):
         config_serialization.get_config(loaded),
         config_serialization.get_config(index),
     )
+    self.assertEqual(loaded.runtime_kwargs, {'api_key': 'secret'})
     self.assertEqual(
         loaded.text_index.inner_index.runtime_kwargs, {'api_key': 'secret'}
     )
@@ -249,6 +273,68 @@ class DualModalDocumentIndexTest(absltest.TestCase):
     self.assertNotIn('secret', saved_json)
     retrieved = list(ot.run(loaded.retrieve('Who is Alice?', max_results=1)))
     self.assertSequenceEqual([d.doc_id for d in retrieved], ['doc_alice'])
+
+  def test_loads_config_without_backend_config_with_default(self):
+    index_dir = self.create_tempdir().full_path
+    index = indexing.DualModalDocumentIndex(rrf_k=60, retrieval_depth=10)
+    config_serialization.save_index_config(index, index_dir)
+    config_path = (
+        epath.Path(index_dir) / config_serialization.INDEX_CONFIG_FILENAME
+    )
+    saved = json.loads(config_path.read_text())
+    del saved['index']['config']['backend_config']
+    config_path.write_text(json.dumps(saved))
+
+    loaded = config_serialization.make_index_from_config_file(index_dir)
+
+    assert isinstance(loaded, indexing.DualModalDocumentIndex)
+    self.assertEqual(
+        loaded.backend_config,
+        rag_defaults.default_index_generate_backend_config(),
+    )
+
+  def test_decomposes_query_with_own_backend(self):
+    backend_config = backend_registry.GenerateBackendConfig(
+        backend_class_name='GoogleGenAIAPI', model_name='decomposer'
+    )
+    index = indexing.DualModalDocumentIndex(
+        rrf_k=60, retrieval_depth=10, backend_config=backend_config
+    )
+    ot.run(index.add_docs(self._sample_docs()))
+
+    retrieved = list(ot.run(index.retrieve('Who is Bob?', max_results=1)))
+
+    # The decomposed queries (visual_q, Alice) both rank Alice first.
+    self.assertSequenceEqual([d.doc_id for d in retrieved], ['doc_alice'])
+    self.assertLen(self.decomposer.prompts, 1)
+    self.assertIn('Who is Bob?', self.decomposer.prompts[0])
+
+  def test_without_backend_config_decomposes_with_registered_model(self):
+    index = indexing.DualModalDocumentIndex(
+        rrf_k=60, retrieval_depth=10, backend_config=None
+    )
+    ot.run(index.add_docs(self._sample_docs()))
+
+    with routing.RegistryContext():
+      self.decomposer.register()
+      retrieved = list(ot.run(index.retrieve('Who is Bob?', max_results=1)))
+
+    self.assertSequenceEqual([d.doc_id for d in retrieved], ['doc_alice'])
+    self.assertLen(self.decomposer.prompts, 1)
+
+  def test_without_any_model_searches_with_full_query(self):
+    index = indexing.DualModalDocumentIndex(
+        rrf_k=60, retrieval_depth=10, backend_config=None
+    )
+    ot.run(index.add_docs(self._sample_docs()))
+
+    with self.assertLogs(level='WARNING') as logs:
+      retrieved = list(ot.run(index.retrieve('Who is Bob?', max_results=1)))
+
+    # The full query ranks Bob first in both indexes.
+    self.assertSequenceEqual([d.doc_id for d in retrieved], ['doc_bob'])
+    self.assertEmpty(self.decomposer.prompts)
+    self.assertIn('no generation model', logs.output[0])
 
   def test_use_full_query_for_text_queries_text_index_with_raw_query(self):
     docs = [
