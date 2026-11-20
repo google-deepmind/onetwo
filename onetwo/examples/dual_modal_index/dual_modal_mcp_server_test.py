@@ -377,6 +377,43 @@ class DualModalMcpServerTest(parameterized.TestCase):
         mock_run.call_args.kwargs, {'transport': 'streamable-http'}
     )
 
+  def test_start_mcp_in_background_creates_and_serves_the_server(self):
+    mock_create_server = self.enter_context(
+        mock.patch.object(
+            dual_modal_mcp_server, 'create_server', autospec=True
+        )
+    )
+    mock_serve_in_background = self.enter_context(
+        mock.patch.object(
+            dual_modal_mcp_server.mcp_tools_utils,
+            'serve_in_background',
+            autospec=True,
+        )
+    )
+
+    background_server = dual_modal_mcp_server.start_mcp_in_background(
+        '/fake/index/path',
+        host='::',
+        port=1234,
+        extra_backend_kwargs={'api_key': 'fake_key'},
+        extra_mcp_config={'max_results': 3},
+    )
+
+    with self.subTest('creates_the_server'):
+      mock_create_server.assert_called_once_with(
+          '/fake/index/path',
+          host='::',
+          port=1234,
+          extra_backend_kwargs={'api_key': 'fake_key'},
+          extra_mcp_config={'max_results': 3},
+      )
+    with self.subTest('serves_it_in_the_background'):
+      mock_serve_in_background.assert_called_once_with(
+          mock_create_server.return_value
+      )
+    with self.subTest('returns_the_background_server'):
+      self.assertIs(background_server, mock_serve_in_background.return_value)
+
   def test_content_to_blocks_rejects_non_bytes_image_chunk(self):
     pil_chunk = content_lib.Chunk(PILImage.new('RGB', (2, 2)))
     with self.assertRaisesRegex(TypeError, 'Expected bytes'):

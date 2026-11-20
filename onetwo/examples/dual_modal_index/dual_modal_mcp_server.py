@@ -24,9 +24,9 @@ Unlike `onetwo.stdlib.retrieval.mcp.mcp_server`, which wraps a single document
 index behind one search tool, this server has a search tool per modality and
 resolves `get_document` against the preserved original documents. It has the
 same API: serve an index (a saved index directory or an index object) with
-`start_mcp`, or build the server with `create_server` to run it yourself or to
-test it. See ``dual_modal_mcp_server_main.py`` in this directory for a launch
-script.
+`start_mcp` or `start_mcp_in_background`, or build the server with
+`create_server` to run it yourself or to test it. See
+``dual_modal_mcp_server_main.py`` in this directory for a launch script.
 """
 
 import base64
@@ -44,6 +44,7 @@ from onetwo.core import content as content_lib
 from onetwo.examples.dual_modal_index import indexing
 from onetwo.stdlib.retrieval import index_building
 from onetwo.stdlib.retrieval import indexing as indexing_lib
+from onetwo.stdlib.tool_use import mcp_tools_utils
 
 # Passed as additional_instructions to AgenticRetrievalStrategy when querying
 # a dual-modal MCP server exposing search_text_chunks, search_images, and
@@ -487,3 +488,22 @@ def start_mcp(
       extra_mcp_config=extra_mcp_config,
   )
   mcp.run(transport=transport)
+
+
+def start_mcp_in_background(
+    index: str | indexing_lib.DocumentIndex,
+    *,
+    host: str = 'localhost',
+    port: int = 8775,
+    extra_backend_kwargs: Mapping[str, Any] | None = None,
+    extra_mcp_config: Mapping[str, Any] | None = None,
+) -> mcp_tools_utils.BackgroundMcpServer:
+  """Builds and serves the dual-modal MCP server in a background thread."""
+  mcp = create_server(
+      index,
+      host=host,
+      port=port,
+      extra_backend_kwargs=extra_backend_kwargs,
+      extra_mcp_config=extra_mcp_config,
+  )
+  return mcp_tools_utils.serve_in_background(mcp)
