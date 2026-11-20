@@ -17,16 +17,15 @@ documents (no chunking). Gemini-3.6-Flash is used as the AI rater.*
 
 ## 0. Setup
 
-Please [set up your Gemini API key](https://aistudio.google.com/docs/api-key)
-and choose where to save the indexes and results.
+Install OneTwo,
+[set up your Gemini API key](https://aistudio.google.com/docs/api-key) and
+export it in your environment, and choose where to save the indexes and
+results.
 
 ```sh
 pip install git+https://github.com/google-deepmind/onetwo
 
 export GOOGLE_API_KEY="YOUR_API_KEY"
-# Passed to all the commands below: the number of parallel requests to the
-# Gemini API (the default is 1). Lower it if you hit API rate limits.
-export EXTRA_BACKEND_KWARGS='{"threadpool_size": 10}'
 
 # Where the indexes and the evaluation results are saved.
 export BASELINE_INDEX_DIR=~/onetwo_indexes/baseline
@@ -56,8 +55,7 @@ python -m onetwo.stdlib.retrieval.build_index \
   --chunker_type=none \
   --embedding_model_name=gemini-embedding-2 \
   --embed_kwargs='{"output_dimensionality": 768}' \
-  --output="${BASELINE_INDEX_DIR}" \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --output="${BASELINE_INDEX_DIR}"
 
 export BASELINE_INDEX=$(echo "${BASELINE_INDEX_DIR}"/browsecomp_plus/*)
 ```
@@ -77,8 +75,7 @@ python -m onetwo.stdlib.retrieval.build_index \
   --chunker_type=none \
   --embedding_model_name=gemini-embedding-2 \
   --embed_kwargs='{"output_dimensionality": 768}' \
-  --output="${GRAPHRAG_INDEX_DIR}" \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --output="${GRAPHRAG_INDEX_DIR}"
 
 export GRAPHRAG_INDEX=$(echo "${GRAPHRAG_INDEX_DIR}"/browsecomp_plus/*)
 ```
@@ -105,8 +102,7 @@ generate an answer, without any additional context.
 ```sh
 python -m onetwo.stdlib.qa.evaluate_rag \
   --qa_strategy_name=closed_book \
-  --output="${EVAL_DIR}/closed_book" \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --output="${EVAL_DIR}/closed_book"
 ```
 
 ### RAG
@@ -120,8 +116,7 @@ index.
 python -m onetwo.stdlib.qa.evaluate_rag \
   --index="${BASELINE_INDEX}" \
   --qa_strategy_name=rag \
-  --output="${EVAL_DIR}/rag" \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --output="${EVAL_DIR}/rag"
 ```
 
 ### Agentic retrieval
@@ -139,8 +134,7 @@ http://localhost:8775/mcp, in its own terminal:
 python -m onetwo.stdlib.retrieval.mcp.mcp_server_main \
   --index_path="${BASELINE_INDEX}" \
   --transport=streamable-http \
-  --port=8775 \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --port=8775
 ```
 
 Then, once the server is running, run the evaluation in a different terminal:
@@ -149,8 +143,7 @@ Then, once the server is running, run the evaluation in a different terminal:
 python -m onetwo.stdlib.qa.evaluate_rag \
   --qa_strategy_name=agentic_retrieval \
   --mcp_urls=http://localhost:8775/mcp \
-  --output="${EVAL_DIR}/rag_mcp" \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --output="${EVAL_DIR}/rag_mcp"
 ```
 
 #### GraphRAG index
@@ -162,8 +155,7 @@ http://localhost:8776/mcp, in its own terminal:
 python -m onetwo.stdlib.retrieval.graphrag.mcp_server_main \
   --index_path="${GRAPHRAG_INDEX}" \
   --transport=streamable-http \
-  --port=8776 \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --port=8776
 ```
 
 Then, once the server is running, run the evaluation in a different terminal:
@@ -172,8 +164,7 @@ Then, once the server is running, run the evaluation in a different terminal:
 python -m onetwo.stdlib.qa.evaluate_rag \
   --qa_strategy_name=agentic_retrieval \
   --mcp_urls=http://localhost:8776/mcp \
-  --output="${EVAL_DIR}/graphrag_mcp" \
-  --extra_backend_kwargs="${EXTRA_BACKEND_KWARGS}"
+  --output="${EVAL_DIR}/graphrag_mcp"
 ```
 
 ## 3. Results
